@@ -62,6 +62,10 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
         }
         None
     } else if !download && rest == "o" {
+        // Metadata-only objects.insert remains an unimplemented route.
+        if method == Method::POST {
+            return None;
+        }
         None
     } else {
         let segment = rest.strip_prefix("o/")?;

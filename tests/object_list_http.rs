@@ -159,7 +159,7 @@ fn object_list_resources_defaults_empty_and_restart() {
     for name in ["a", "dir/file", "雪 +%2F"] {
         server.put(name);
     }
-    let page = server.list("versions=false&softDeleted=false&includeFoldersAsPrefixes=false&projection=noAcl&prettyPrint=false&alt=json");
+    let page = server.list("versions=false&softDeleted=false&includeFoldersAsPrefixes=false&projection=noAcl&prettyPrint=false&alt=json&matchGlob=");
     assert_eq!(names(&page), ["a", "dir/file", "雪 +%2F"]);
     assert!(page.get("prefixes").is_none());
     assert!(page.get("nextPageToken").is_none());
@@ -249,6 +249,12 @@ fn object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages() {
             .1,
         ["𐀀/"]
     );
+    server.put("utf\u{7ff}a");
+    server.put("utf\u{800}");
+    assert_eq!(
+        server.pages(&format!("prefix=utf&delimiter={}", encode("\u{7ff}")), 1),
+        (vec!["utf\u{800}".to_owned()], vec!["utf\u{7ff}".to_owned()])
+    );
 }
 
 #[test]
@@ -285,7 +291,7 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         );
     }
     for query in [
-        "matchGlob=",
+        "matchGlob=a*",
         "filter=",
         "fields=items/name",
         "userProject=local",
@@ -317,6 +323,18 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
             .0,
         405
     );
+    assert_eq!(
+        server
+            .request("POST", "/storage/v1/b/test-bucket/o", "{}")
+            .0,
+        404
+    );
+    for method in ["PUT", "PATCH"] {
+        assert_eq!(
+            server.request(method, "/storage/v1/b/test-bucket/o", "").0,
+            405
+        );
+    }
     assert_eq!(
         server
             .request("GET", "/download/storage/v1/b/test-bucket/o", "")

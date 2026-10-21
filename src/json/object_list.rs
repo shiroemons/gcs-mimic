@@ -15,7 +15,6 @@ pub struct ObjectListParams {
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
     for name in [
-        "matchGlob",
         "filter",
         "fields",
         "userProject",
@@ -28,6 +27,12 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         if params.contains_key(name) {
             return Err(JsonError::unsupported_object(name));
         }
+    }
+    if params
+        .remove("matchGlob")
+        .is_some_and(|glob| !glob.is_empty())
+    {
+        return Err(JsonError::unsupported_object("matchGlob"));
     }
     for name in [
         "versions",
