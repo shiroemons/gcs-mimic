@@ -1,6 +1,6 @@
 {
   "checked_at_utc": "2026-10-21T08:54:49Z",
-  "scope": "P0 HTTP/1 foundation, Rust ledger/freshness tooling and digest-pinned Docker inputs. No SDK examples or GCS APIs.",
+  "scope": "HTTP/1 foundation, Rust ledger/freshness tooling, digest-pinned Docker inputs and the official Go JSON bucket SDK harness. API execution evidence is tracked separately in the feature ledger.",
   "toolchain": {
     "channel": "stable",
     "version": "1.99.1",
@@ -64,7 +64,7 @@
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
     }
   ],
-  "lockfiles": ["Cargo.lock"],
+  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum"],
   "docker": {
     "status": "PINNED",
     "digests": [
@@ -100,13 +100,58 @@
     ],
     "reason": "Official multiarch manifest indexes; floating stable selectors and pinned tags are both checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
   },
-  "sdk_ecosystems": [],
+  "sdk_ecosystems": [
+    {
+      "ecosystem": "go",
+      "manifest": "sdk-tests/go/go.mod",
+      "checked_at_utc": "2026-10-21T09:36:25Z",
+      "toolchain": {
+        "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
+        "source_url": "https://go.dev/dl/?mode=json"
+      },
+      "direct_dependencies": [
+        {
+          "name": "cloud.google.com/go/storage", "current": "v1.69.0",
+          "latest_non_retracted_stable": "v1.69.0", "license": "Apache-2.0",
+          "compressed_module_bytes": 1006903, "minimum_go": "1.26.0",
+          "purpose": "Official HTTP JSON bucket lifecycle and pagination compatibility tests.",
+          "maintenance": "Google-maintained module, released 2026-10-01.",
+          "source_revision": "9981d08a82c88e29c2250831a4449f1966418609",
+          "source_urls": [
+            "https://proxy.golang.org/cloud.google.com/go/storage/@latest",
+            "https://proxy.golang.org/cloud.google.com/go/storage/@v/v1.69.0.mod",
+            "https://github.com/googleapis/google-cloud-go/tree/9981d08a82c88e29c2250831a4449f1966418609/storage"
+          ]
+        },
+        {
+          "name": "google.golang.org/api", "current": "v0.306.0",
+          "latest_non_retracted_stable": "v0.306.0", "license": "BSD-3-Clause",
+          "compressed_module_bytes": 52348834, "minimum_go": "1.26.0",
+          "purpose": "Official client options, pagination and JSON API error types.",
+          "maintenance": "Google-maintained generated client module, released 2026-10-20.",
+          "source_revision": "0d9c67e59dc9291c6047cea77122907594b10994",
+          "source_urls": [
+            "https://proxy.golang.org/google.golang.org/api/@latest",
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.306.0.mod",
+            "https://github.com/googleapis/google-api-go-client/tree/0d9c67e59dc9291c6047cea77122907594b10994"
+          ]
+        }
+      ],
+      "resolution_constraints": "go.mod and go.sum record the graph. The latest stable API client requires an auth pseudo-version; transitive versions follow upstream requirements. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+    }
+  ],
   "github_actions": [
     {
       "repository": "actions/checkout",
       "tag": "v7.0.1",
       "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
       "source_url": "https://api.github.com/repos/actions/checkout/git/ref/tags/v7.0.1"
+    },
+    {
+      "repository": "actions/setup-go",
+      "tag": "v7.0.0",
+      "sha": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+      "source_url": "https://api.github.com/repos/actions/setup-go/git/ref/tags/v7.0.0"
     }
   ],
   "exceptions": []

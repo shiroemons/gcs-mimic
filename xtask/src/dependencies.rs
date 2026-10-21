@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::Path,
     process::{Command, Stdio},
@@ -89,6 +89,223 @@ fn version(text: &str) -> Option<(u64, u64, u64)> {
         pieces[1].parse().ok()?,
         pieces[2].parse().ok()?,
     ))
+}
+
+#[derive(Debug, PartialEq)]
+struct GoModule {
+    go: String,
+    toolchain: String,
+    direct: BTreeMap<String, String>,
+}
+
+fn go_mod(source: &str) -> Result<GoModule> {
+    let mut go = None;
+    let mut toolchain = None;
+    let mut direct = BTreeMap::new();
+    let mut block = false;
+    for line in source.lines() {
+        let (code, comment) = line.split_once("//").unwrap_or((line, ""));
+        let words: Vec<_> = code.split_whitespace().collect();
+        if words.is_empty() {
+            continue;
+        }
+        let requirement = if block {
+            if words == [")"] {
+                block = false;
+                continue;
+            }
+            words.as_slice()
+        } else {
+            match words.as_slice() {
+                ["module", _] => continue,
+                ["go", value] if go.is_none() && version(value).is_some() => {
+                    go = Some((*value).to_owned());
+                    continue;
+                }
+                ["toolchain", value]
+                    if toolchain.is_none()
+                        && value.strip_prefix("go").and_then(version).is_some() =>
+                {
+                    toolchain = Some(value[2..].to_owned());
+                    continue;
+                }
+                ["require", "("] => {
+                    block = true;
+                    continue;
+                }
+                ["require", rest @ ..] => rest,
+                _ => return Err(format!("unsupported Go manifest directive: {code}")),
+            }
+        };
+        let [name, pin] = requirement else {
+            return Err(format!("invalid Go requirement: {code}"));
+        };
+        if comment.trim() == "indirect" {
+            continue;
+        }
+        if go_stable_version(pin).is_none()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"/.-_".contains(&b))
+            || direct
+                .insert((*name).to_owned(), (*pin).to_owned())
+                .is_some()
+        {
+            return Err(format!(
+                "invalid or duplicate direct Go requirement: {code}"
+            ));
+        }
+    }
+    if block || direct.is_empty() {
+        return Err("unterminated or empty direct Go requirements".into());
+    }
+    Ok(GoModule {
+        go: go.ok_or("missing exact Go version")?,
+        toolchain: toolchain.ok_or("missing exact Go toolchain")?,
+        direct,
+    })
+}
+
+fn go_stable_version(name: &str) -> Option<(u64, u64, u64)> {
+    let core = name.strip_prefix('v')?;
+    version(core.strip_suffix("+incompatible").unwrap_or(core))
+}
+
+fn proxy_path(name: &str) -> String {
+    name.chars()
+        .flat_map(|c| {
+            if c.is_ascii_uppercase() {
+                vec!['!', c.to_ascii_lowercase()]
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
+}
+
+fn go_retractions(source: &str) -> Result<Vec<(String, String)>> {
+    let mut block = false;
+    let mut ranges = Vec::new();
+    for line in source.lines() {
+        let code = line.split_once("//").map_or(line, |(code, _)| code).trim();
+        let value = if block {
+            if code == ")" {
+                block = false;
+                continue;
+            }
+            code
+        } else if let Some(value) = code
+            .strip_prefix("retract ")
+            .or_else(|| code.strip_prefix("retract\t"))
+        {
+            if value.trim() == "(" {
+                block = true;
+                continue;
+            }
+            value.trim()
+        } else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        let (low, high) =
+            if let Some(range) = value.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                let (low, high) = range.split_once(',').ok_or("invalid Go retraction range")?;
+                (low.trim(), high.trim())
+            } else {
+                (value, value)
+            };
+        go_version_bound(low)?;
+        go_version_bound(high)?;
+        ranges.push((low.to_owned(), high.to_owned()));
+    }
+    if block {
+        return Err("unterminated Go retractions".into());
+    }
+    Ok(ranges)
+}
+
+fn go_version_bound(name: &str) -> Result<((u64, u64, u64), bool)> {
+    let name = name.strip_prefix('v').ok_or("invalid Go version prefix")?;
+    let name = name.strip_suffix("+incompatible").unwrap_or(name);
+    let (core, pre) = name
+        .split_once('-')
+        .map_or((name, None), |(v, p)| (v, Some(p)));
+    if pre.is_some_and(|p| {
+        p.is_empty()
+            || !p
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
+    }) {
+        return Err("invalid Go prerelease bound".into());
+    }
+    Ok((version(core).ok_or("invalid Go version")?, pre.is_none()))
+}
+
+fn latest_go_module(versions: &str, manifest: &str) -> Result<String> {
+    let retractions = go_retractions(manifest)?;
+    let mut latest = None;
+    for name in versions.lines().map(str::trim) {
+        let Some(v) = go_stable_version(name) else {
+            continue;
+        };
+        let mut retracted = false;
+        for (low, high) in &retractions {
+            retracted |=
+                go_version_bound(low)? <= (v, true) && (v, true) <= go_version_bound(high)?;
+        }
+        if !retracted && latest.as_ref().is_none_or(|(current, _)| v > *current) {
+            latest = Some((v, name.to_owned()));
+        }
+    }
+    latest
+        .map(|(_, name)| name)
+        .ok_or("no non-retracted stable Go module version".into())
+}
+
+fn check_go(root: &Path, scope: &Value) -> Result<bool> {
+    if text(scope, "ecosystem")? != "go" || text(scope, "manifest")? != "sdk-tests/go/go.mod" {
+        return Err("unsupported SDK ecosystem or manifest".into());
+    }
+    let module = go_mod(
+        &std::fs::read_to_string(root.join(text(scope, "manifest")?)).map_err(|e| e.to_string())?,
+    )?;
+    let releases = json(&fetch("https://go.dev/dl/?mode=json", &[], false)?)?;
+    let latest = releases
+        .as_array()
+        .ok_or("invalid Go releases")?
+        .iter()
+        .filter(|r| r["stable"] == true)
+        .filter_map(|r| {
+            let name = r["version"].as_str()?.strip_prefix("go")?;
+            Some((version(name)?, name))
+        })
+        .max_by_key(|(v, _)| *v)
+        .map(|(_, name)| name)
+        .ok_or("no stable Go release")?;
+    let (major, minor, _) = version(latest).unwrap();
+    let mut drift = compare(
+        "Go language baseline",
+        &module.go,
+        &format!("{major}.{minor}.0"),
+    );
+    drift |= compare("Go toolchain", &module.toolchain, latest);
+    for (name, current) in module.direct {
+        let base = format!("https://proxy.golang.org/{}", proxy_path(&name));
+        let versions = fetch(&format!("{base}/@v/list"), &[], false)?;
+        let highest = versions
+            .lines()
+            .filter_map(|name| Some((go_stable_version(name)?, name)))
+            .max_by_key(|(v, _)| *v)
+            .map(|(_, name)| name)
+            .ok_or("no stable Go module version")?;
+        // Go loads retractions from the highest release, including a self-retracted release.
+        let manifest = fetch(&format!("{base}/@v/{highest}.mod"), &[], false)?;
+        let latest = latest_go_module(&versions, &manifest)?;
+        drift |= compare(&name, &current, &latest);
+    }
+    Ok(drift)
 }
 
 fn index_path(name: &str) -> String {
@@ -356,19 +573,68 @@ pub fn check(root: &Path) -> Result<bool> {
             }
         }
     }
-    if !status["sdk_ecosystems"]
+    let scopes = status["sdk_ecosystems"]
         .as_array()
-        .ok_or("missing sdk_ecosystems")?
-        .is_empty()
-    {
-        return Err("add SDK detection before introducing SDK inputs".into());
+        .ok_or("missing sdk_ecosystems")?;
+    if scopes.len() != 1 {
+        return Err("expected the declared Go SDK ecosystem".into());
     }
+    drift |= check_go(root, &scopes[0])?;
     Ok(drift)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn go_manifest_direct_requirements_and_exact_toolchain() {
+        let source = "module local/test\ngo 1.27.3\ntoolchain go1.27.3\nrequire cloud.google.com/go/storage v1.69.0\nrequire (\n google.golang.org/api v0.306.0 // options\n example.com/transitive v0.0.0-20260101000000-abcdef // indirect\n)\n";
+        let module = go_mod(source).unwrap();
+        assert_eq!(module.go, "1.27.3");
+        assert_eq!(module.toolchain, "1.27.3");
+        assert_eq!(module.direct.len(), 2);
+        assert_eq!(module.direct["cloud.google.com/go/storage"], "v1.69.0");
+        assert_eq!(module.direct["google.golang.org/api"], "v0.306.0");
+        assert!(go_mod(&source.replace("toolchain go1.27.3\n", "")).is_err());
+        assert!(go_mod(&source.replace("go 1.27.3", "go 1.27")).is_err());
+        assert!(go_mod(&source.replace("v1.69.0", "v1.70.0-rc.1")).is_err());
+        assert!(go_mod(&source.replace(")\n", "")).is_err());
+        assert!(go_mod(&format!("{source}replace a => b\n")).is_err());
+        assert!(go_mod(&format!("{source}require google.golang.org/api v0.305.0\n")).is_err());
+        assert_eq!(
+            proxy_path("github.com/GoogleCloudPlatform/test"),
+            "github.com/!google!cloud!platform/test"
+        );
+    }
+
+    #[test]
+    fn go_versions_exclude_prereleases_and_retractions() {
+        let versions = "v1.9.0\nv1.10.0\nv1.11.0\nv1.12.0\nv1.13.0\nv2.0.0-rc.1\nv0.0.0-20260101000000-abcdef\n";
+        assert_eq!(
+            latest_go_module(versions, "module test\n").unwrap(),
+            "v1.13.0"
+        );
+        let retractions = "retract v1.13.0 // self-retracted\nretract (\n[v1.11.0, v1.12.0]\n)\n";
+        assert_eq!(latest_go_module(versions, retractions).unwrap(), "v1.10.0");
+        assert_eq!(
+            latest_go_module("v2.0.0+incompatible\nv1.9.0", "").unwrap(),
+            "v2.0.0+incompatible"
+        );
+        assert_eq!(
+            latest_go_module("v1.9.0\nv1.10.0", "retract [v1.10.0-rc.1, v1.10.0]").unwrap(),
+            "v1.9.0"
+        );
+        assert_eq!(
+            latest_go_module("v1.9.0\nv1.10.0", "retract [v1.9.0, v1.10.0-rc.1]").unwrap(),
+            "v1.10.0"
+        );
+        assert!(latest_go_module("v1.0.0", "retract v1.0.0").is_err());
+        assert!(latest_go_module("v2.0.0-beta", "").is_err());
+        assert!(latest_go_module(versions, "retract (\nv1.9.0").is_err());
+        assert!(latest_go_module(versions, "retract [v1.0.0]").is_err());
+        assert!(latest_go_module(versions, "retract invalid").is_err());
+    }
 
     #[test]
     fn stable_major_selection_and_registry_paths() {
