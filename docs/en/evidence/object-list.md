@@ -1,5 +1,9 @@
 # Object listing verification
 
+The final integrated verification supersedes this slice's earlier catalog-deadline
+limitation: [list/metadata checks and executed guide](object-list-metadata.md)
+pass without test skips on the combined source.
+
 Verified on **2026-10-22**, macOS arm64, Rust 1.99.1 / edition 2024 and the
 committed Cargo graph. Runtime commits: `41c2490`, `536973a` and `eb3aa6f`.
 The [slice contract](../slices/json-object-list.md) defines supported behavior;

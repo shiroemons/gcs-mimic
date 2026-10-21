@@ -86,7 +86,13 @@ object. This status is the emulator's documented unsupported-semantics deviation
 not the behavior of Google's multipart API. This harness does not establish SDK
 Writer upload compatibility.
 
-ACL/IAM, updates, ranges, XML, gRPC, signing and resumable transfers are outside
+`TestObjectList` additionally exercises prefix/delimiter/offset filters and one-entry
+iterator/pager traversal. `TestObjectMetadataUpdate` verifies conditional Update,
+fixed/custom metadata, empty-value and deletion behavior, and unchanged object bytes.
+See the [listing](../../docs/en/slices/json-object-list.md) and
+[metadata](../../docs/en/slices/json-object-metadata.md) contracts for exact limits.
+
+ACL/IAM, ranges, XML, gRPC, signing and resumable transfers are outside
 this harness's scope. A clean skip or `-run XXX` is compilation evidence only;
 successful object execution is recorded in the
 [object media verification summary](../../docs/en/evidence/object-media.md) and

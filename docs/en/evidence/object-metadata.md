@@ -1,5 +1,8 @@
 # Object metadata evidence
 
+Final combined-source checks, API v0.307.0 SDK coverage and the complete Docker/native
+guide execution are recorded in [integrated evidence](object-list-metadata.md).
+
 Verified on **2026-10-22**, native macOS ARM64, Rust 1.99.1. Runtime and Rust tests:
 commits `5434d8f4f04f9c7dcc4eb471449da46033da4dfb` and
 `074d39a93ea79a6a0d02b490a46c11cf1df39ca2` (final Rust source). Go SDK execution

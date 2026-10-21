@@ -377,7 +377,8 @@ upload bodies can still commit after the client disconnects; clients must read b
 when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
 cancelled uploads release slots after their cleanup finishes.
 
-Schema-v1 bucket catalogs contain no objects and migrate directly to v3 atomically. Unreleased schema-v2 catalogs
+Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3
+to v4. Existing v3 objects gain default metadata columns in one atomic migration. Unreleased schema-v2 catalogs
 are rejected without changing their data; automatic recovery of deleted v2 generations is
 unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
 entries stop startup with a path diagnostic. Object `selfLink` addresses the current
@@ -405,5 +406,5 @@ ownership, disk space, another owner process and config overrides. Unknown route
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
 fsync crash window remain unverified. See the [integration evidence](evidence/object-media.md),
-[executed guide transcript](evidence/object-media-guide.txt) and the
+[executed list/metadata guide transcript](evidence/object-list-metadata-guide.txt) and the
 [ledger](../../compatibility/features.json) for exact verification scope.

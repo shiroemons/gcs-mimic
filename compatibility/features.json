@@ -4109,14 +4109,14 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md.",
+      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md. Integrated v4 metadata parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "OBJECT-LIST-RESOURCE",
-          "description": "GET collection returns identical object_resource metadata, omits empty arrays/final tokens and survives restart; full omits unsupported ACL/owner.",
+          "description": "GET collection returns identical GET resource metadata after conditional contentType/cacheControl/custom metadata PATCH and metageneration increment, omits empty arrays/final tokens and survives restart; full omits unsupported ACL/owner.",
           "result": "PASS",
           "test_ids": [
             "object_list_resources_defaults_empty_and_restart"
@@ -4192,6 +4192,23 @@
       ],
       "verification": [
         {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart",
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_invalid_unsupported_and_missing_bucket_errors",
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
+            "TestObjectList"
+          ]
+        },
+        {
           "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
           "verified_at": "2026-10-22",
@@ -4232,6 +4249,19 @@
           "test_ids": [
             "TestObjectList"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": ["TestObjectList"]
         }
       ],
       "known_deviations": [
@@ -4414,7 +4444,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
+      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4458,6 +4488,21 @@
       ],
       "verification": [
         {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-22",
@@ -4488,6 +4533,19 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; raw media upload and conditional metadata Update/Attrs/NewReader",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": ["TestObjectMetadataUpdate"]
         }
       ],
       "known_deviations": [
@@ -4862,7 +4920,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
+      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4906,6 +4964,21 @@
       ],
       "verification": [
         {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-22",
@@ -4936,6 +5009,19 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; raw media upload and conditional metadata Update/Attrs/NewReader",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
+          "test_ids": ["TestObjectMetadataUpdate"]
         }
       ],
       "known_deviations": [
