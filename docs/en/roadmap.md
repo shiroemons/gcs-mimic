@@ -19,9 +19,9 @@ The first developer release should target P1 plus the essential P2 public/privat
 
 ## Suggested first slices
 
-P0 ledger tooling (DESIGN-091/092/093/097) and bounded configuration/HTTP probes now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Storage, seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
+P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the first P1 bucket slice now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Object storage, seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
 
-The next small slice is bucket create/get/list/delete backed by an indexed transactional catalog, with exclusive data-directory ownership, bounded queries, restart/recovery tests and official Go JSON SDK evidence. Decompose its exact subset and verify latest dependencies before implementing. Do not introduce object bodies or broader milestones implicitly.
+Bucket create/get/list/delete now use an indexed transactional catalog, exclusive data-directory ownership, bounded queries, restart/WAL recovery tests and official Go JSON SDK evidence. The next small slice is one streaming object media upload/download/metadata/delete path with opaque blobs, checksum validation, generations/create-if-absent and a proven catalog/filesystem publication/recovery protocol. Decompose its exact subset and verify latest dependencies first; multipart, resumable uploads and ACL/IAM remain separate slices.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.

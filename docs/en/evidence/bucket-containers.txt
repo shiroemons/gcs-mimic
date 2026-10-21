@@ -1,0 +1,494 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.24kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad 0.0s done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d 0.0s done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 40.57kB done
+#9 DONE 0.0s
+
+#10 [build 2/7] WORKDIR /build
+#10 CACHED
+
+#11 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#11 CACHED
+
+#12 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#12 CACHED
+
+#13 [build 5/7] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build 6/7] COPY src ./src
+#14 DONE 0.1s
+
+#15 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#15 0.137 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#15 0.486 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#15 0.493 info: downloading 2 components
+#15 1.197     Updating crates.io index
+#15 1.710  Downloading crates ...
+#15 1.863   Downloaded bitflags v2.13.2
+#15 1.888   Downloaded atomic-waker v1.1.2
+#15 1.890   Downloaded fallible-streaming-iterator v0.1.9
+#15 1.892   Downloaded futures-core v0.3.34
+#15 1.894   Downloaded http-body v1.1.0
+#15 1.896   Downloaded tokio-macros v2.7.2
+#15 1.914   Downloaded httpdate v1.0.3
+#15 1.917   Downloaded itoa v1.0.18
+#15 1.927   Downloaded errno v0.3.14
+#15 1.940   Downloaded pkg-config v0.3.34
+#15 1.942   Downloaded signal-hook-registry v1.4.8
+#15 1.944   Downloaded find-msvc-tools v0.1.15
+#15 1.946   Downloaded http-body-util v0.1.5
+#15 1.948   Downloaded serde_core v1.0.229
+#15 1.952   Downloaded shlex v2.0.1
+#15 1.953   Downloaded zmij v1.0.23
+#15 1.956   Downloaded pin-project-lite v0.2.17
+#15 1.964   Downloaded quote v1.0.47
+#15 1.966   Downloaded fallible-iterator v0.3.0
+#15 1.968   Downloaded httparse v1.10.1
+#15 1.970   Downloaded smallvec v1.16.3
+#15 1.972   Downloaded proc-macro2 v1.0.107
+#15 1.975   Downloaded unicode-ident v1.0.27
+#15 1.978   Downloaded socket2 v0.6.5
+#15 1.980   Downloaded bytes v1.12.1
+#15 1.988   Downloaded memchr v2.8.3
+#15 1.994   Downloaded mio v1.2.4
+#15 1.999   Downloaded cc v1.9.0
+#15 2.004   Downloaded http v1.5.0
+#15 2.007   Downloaded hyper-util v0.1.21
+#15 2.046   Downloaded serde_json v1.0.154
+#15 2.055   Downloaded hyper v1.12.0
+#15 2.062   Downloaded rusqlite v0.40.2
+#15 2.068   Downloaded vcpkg v0.2.15
+#15 2.113   Downloaded syn v3.0.9
+#15 2.124   Downloaded libc v0.2.191
+#15 2.196   Downloaded tokio v1.54.0
+#15 2.241   Downloaded libsqlite3-sys v0.38.2
+#15 2.319    Compiling libc v0.2.191
+#15 2.319    Compiling proc-macro2 v1.0.107
+#15 2.472    Compiling quote v1.0.47
+#15 2.550    Compiling unicode-ident v1.0.27
+#15 2.777    Compiling itoa v1.0.18
+#15 2.845    Compiling shlex v2.0.1
+#15 2.880    Compiling bytes v1.12.1
+#15 2.888    Compiling find-msvc-tools v0.1.15
+#15 2.949    Compiling cc v1.9.0
+#15 3.190    Compiling http v1.5.0
+#15 3.508    Compiling syn v3.0.9
+#15 3.891    Compiling errno v0.3.14
+#15 3.931    Compiling httparse v1.10.1
+#15 4.019    Compiling vcpkg v0.2.15
+#15 4.214    Compiling pin-project-lite v0.2.17
+#15 4.234    Compiling pkg-config v0.3.34
+#15 4.380    Compiling libsqlite3-sys v0.38.2
+#15 4.528    Compiling signal-hook-registry v1.4.8
+#15 4.665    Compiling http-body v1.1.0
+#15 4.671    Compiling tokio-macros v2.7.2
+#15 4.697    Compiling mio v1.2.4
+#15 4.913    Compiling socket2 v0.6.5
+#15 4.956    Compiling smallvec v1.16.3
+#15 5.085    Compiling zmij v1.0.23
+#15 5.209    Compiling serde_core v1.0.229
+#15 5.303    Compiling futures-core v0.3.34
+#15 5.356    Compiling tokio v1.54.0
+#15 9.279    Compiling httpdate v1.0.3
+#15 9.397    Compiling serde_json v1.0.154
+#15 9.453    Compiling atomic-waker v1.1.2
+#15 9.478    Compiling hyper v1.12.0
+#15 11.57    Compiling memchr v2.8.3
+#15 11.83    Compiling bitflags v2.13.2
+#15 11.93    Compiling fallible-streaming-iterator v0.1.9
+#15 11.96    Compiling fallible-iterator v0.3.0
+#15 13.00    Compiling hyper-util v0.1.21
+#15 13.06    Compiling http-body-util v0.1.5
+#15 31.78    Compiling rusqlite v0.40.2
+#15 32.07    Compiling gcs-mimic v0.1.0 (/build)
+#15 34.73     Finished `release` profile [optimized] target(s) in 33.55s
+#15 DONE 34.9s
+
+#16 [runtime 2/4] WORKDIR /app
+#16 CACHED
+
+#17 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic     && install -d -o 10001 -g 10001 /var/lib/gcs-mimic
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers 0.1s done
+#19 exporting manifest sha256:27aa28cc144206d718fb20c8da11a86f17553b3dcea8b12ed8e424ad164f6e15 done
+#19 exporting config sha256:4309df7616fc831f7991bbdbdaef9f528dc797028021f1ae6b3a6094a609d553 done
+#19 exporting attestation manifest sha256:2a4034ca63645fc5737cf1129572c9b54265916cf299bc76ae24aeb54456e289 done
+#19 exporting manifest list sha256:2dbc4a7ff1d2dd7d3dc5e39623c7788b2ba9c36d68af22f2ba81f3e555b159fc done
+#19 naming to docker.io/library/gcs-mimic:bucket-smoke-arm64-54180 done
+#19 unpacking to docker.io/library/gcs-mimic:bucket-smoke-arm64-54180 0.0s done
+#19 DONE 0.2s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/v1443568apssijmfryub5tb50
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --data-dir PATH              data (exclusive persistent catalog)
+  --api-base-url URL           http://127.0.0.1:4443 (fixed advertised endpoint)
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and JSON bucket create/get/list/delete are available.
+Insert metadata is limited to 64 KiB. Objects, TLS and authentication are unavailable.
+gcs-mimic 0.1.0
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Creating 
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-54180-gcs-run-e231e7d0ee5d Creating 
+ Container gcs-mimic-bucket-arm64-54180-gcs-run-e231e7d0ee5d Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Removing 
+ Network gcs-mimic-bucket-arm64-54180_default Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Removing 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Removing 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Network gcs-mimic-bucket-arm64-54180_default Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Network gcs-mimic-bucket-arm64-54180_default Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-54180-gcs-1 Removed 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Removing 
+ Network gcs-mimic-bucket-arm64-54180_default Removing 
+ Volume gcs-mimic-bucket-arm64-54180_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-54180_default Removed 
+PASS: linux/arm64 build, isolated health, host/DNS access, bucket CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.24kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#7 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#7 DONE 0.0s
+
+#8 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#8 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 25.11kB done
+#9 DONE 0.0s
+
+#10 [build 2/7] WORKDIR /build
+#10 CACHED
+
+#11 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 CACHED
+
+#12 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#12 CACHED
+
+#13 [build 5/7] COPY xtask/src ./xtask/src
+#13 DONE 0.0s
+
+#14 [build 6/7] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#15 0.300 info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+#15 0.744 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#15 0.766 info: downloading 2 components
+#15 1.865     Updating crates.io index
+#15 2.541  Downloading crates ...
+#15 2.647   Downloaded atomic-waker v1.1.2
+#15 2.660   Downloaded http-body v1.1.0
+#15 2.671   Downloaded fallible-iterator v0.3.0
+#15 2.675   Downloaded futures-core v0.3.34
+#15 2.683   Downloaded errno v0.3.14
+#15 2.688   Downloaded find-msvc-tools v0.1.15
+#15 2.705   Downloaded tokio-macros v2.7.2
+#15 2.720   Downloaded itoa v1.0.18
+#15 2.725   Downloaded fallible-streaming-iterator v0.1.9
+#15 2.732   Downloaded httpdate v1.0.3
+#15 2.742   Downloaded http-body-util v0.1.5
+#15 2.746   Downloaded shlex v2.0.1
+#15 2.747   Downloaded signal-hook-registry v1.4.8
+#15 2.751   Downloaded pkg-config v0.3.34
+#15 2.754   Downloaded quote v1.0.47
+#15 2.760   Downloaded zmij v1.0.23
+#15 2.762   Downloaded pin-project-lite v0.2.17
+#15 2.771   Downloaded smallvec v1.16.3
+#15 2.772   Downloaded unicode-ident v1.0.27
+#15 2.776   Downloaded httparse v1.10.1
+#15 2.781   Downloaded socket2 v0.6.5
+#15 2.783   Downloaded proc-macro2 v1.0.107
+#15 2.786   Downloaded bitflags v2.13.2
+#15 2.791   Downloaded serde_core v1.0.229
+#15 2.794   Downloaded bytes v1.12.1
+#15 2.798   Downloaded http v1.5.0
+#15 2.802   Downloaded memchr v2.8.3
+#15 2.807   Downloaded cc v1.9.0
+#15 2.811   Downloaded hyper-util v0.1.21
+#15 2.818   Downloaded mio v1.2.4
+#15 2.825   Downloaded serde_json v1.0.154
+#15 2.833   Downloaded hyper v1.12.0
+#15 2.840   Downloaded rusqlite v0.40.2
+#15 2.847   Downloaded vcpkg v0.2.15
+#15 2.899   Downloaded syn v3.0.9
+#15 2.910   Downloaded libc v0.2.191
+#15 2.971   Downloaded tokio v1.54.0
+#15 3.020   Downloaded libsqlite3-sys v0.38.2
+#15 3.197    Compiling libc v0.2.191
+#15 3.199    Compiling proc-macro2 v1.0.107
+#15 5.267    Compiling unicode-ident v1.0.27
+#15 5.879    Compiling quote v1.0.47
+#15 6.910    Compiling itoa v1.0.18
+#15 8.327    Compiling bytes v1.12.1
+#15 8.695    Compiling find-msvc-tools v0.1.15
+#15 9.739    Compiling shlex v2.0.1
+#15 10.52    Compiling http v1.5.0
+#15 10.71    Compiling cc v1.9.0
+#15 13.03    Compiling syn v3.0.9
+#15 14.12    Compiling errno v0.3.14
+#15 15.31    Compiling pkg-config v0.3.34
+#15 16.41    Compiling pin-project-lite v0.2.17
+#15 16.63    Compiling httparse v1.10.1
+#15 16.93    Compiling vcpkg v0.2.15
+#15 17.87    Compiling tokio-macros v2.7.2
+#15 18.35    Compiling libsqlite3-sys v0.38.2
+#15 19.40    Compiling signal-hook-registry v1.4.8
+#15 19.52    Compiling http-body v1.1.0
+#15 20.59    Compiling socket2 v0.6.5
+#15 21.39    Compiling mio v1.2.4
+#15 22.90    Compiling smallvec v1.16.3
+#15 23.38    Compiling serde_core v1.0.229
+#15 24.14    Compiling zmij v1.0.23
+#15 24.35    Compiling futures-core v0.3.34
+#15 25.28    Compiling tokio v1.54.0
+#15 36.78    Compiling httpdate v1.0.3
+#15 38.58    Compiling atomic-waker v1.1.2
+#15 39.60    Compiling serde_json v1.0.154
+#15 40.39    Compiling hyper v1.12.0
+#15 50.77    Compiling bitflags v2.13.2
+#15 52.38    Compiling memchr v2.8.3
+#15 55.18    Compiling fallible-streaming-iterator v0.1.9
+#15 55.95    Compiling fallible-iterator v0.3.0
+#15 61.69    Compiling hyper-util v0.1.21
+#15 62.97    Compiling http-body-util v0.1.5
+#15 67.06    Compiling rusqlite v0.40.2
+#15 68.81    Compiling gcs-mimic v0.1.0 (/build)
+#15 76.84     Finished `release` profile [optimized] target(s) in 1m 15s
+#15 DONE 77.0s
+
+#16 [runtime 2/4] WORKDIR /app
+#16 CACHED
+
+#17 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic     && install -d -o 10001 -g 10001 /var/lib/gcs-mimic
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers 0.1s done
+#19 exporting manifest sha256:c54f4fa8e2326a3931081cec1cfe1e47c07e3f48eeb0d4af1cb59e6af27c0ee9 done
+#19 exporting config sha256:d79f32b9beacbb8ef3b0d66984609bf06bd16d68b22fd2a5d02dfcb95c9cece5 done
+#19 exporting attestation manifest sha256:3173881c4d21f5a60ecd91bfc5ba2e182b276c931421219a23f24288637bba32 done
+#19 exporting manifest list sha256:6a29b23bf52df9aaeef941982e5019442351a1a03e38e4b618c5f69c8abfbbe5 done
+#19 naming to docker.io/library/gcs-mimic:bucket-smoke-amd64-54180 done
+#19 DONE 0.2s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/z5crblmla520tqwh70yjjpu3x
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --data-dir PATH              data (exclusive persistent catalog)
+  --api-base-url URL           http://127.0.0.1:4443 (fixed advertised endpoint)
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and JSON bucket create/get/list/delete are available.
+Insert metadata is limited to 64 KiB. Objects, TLS and authentication are unavailable.
+gcs-mimic 0.1.0
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-54180-gcs-run-d8337e92b370 Creating 
+ Container gcs-mimic-bucket-amd64-54180-gcs-run-d8337e92b370 Created 
+Unable to find image 'curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac' locally
+docker.io/curlimages/curl@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac: Pulling from curlimages/curl
+3f72b3b77eb8: Pulling fs layer
+3f72b3b77eb8: Download complete
+3f72b3b77eb8: Pull complete
+Digest: sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+Status: Image is up to date for curlimages/curl@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-54180_default Removing 
+ Network gcs-mimic-bucket-amd64-54180_default Removed 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-54180_default Removing 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Removing 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-54180_default Removed 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Network gcs-mimic-bucket-amd64-54180_default Creating 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Network gcs-mimic-bucket-amd64-54180_default Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-54180-gcs-1 Removed 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Removing 
+ Network gcs-mimic-bucket-amd64-54180_default Removing 
+ Volume gcs-mimic-bucket-amd64-54180_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-54180_default Removed 
+PASS: linux/amd64 build, isolated health, host/DNS access, bucket CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM

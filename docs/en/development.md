@@ -13,11 +13,14 @@ cargo +1.99.1 test --workspace --locked --offline
 cargo +1.99.1 fmt --all --check
 cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
 bash scripts/smoke-containers.sh
+bash scripts/sdk-go.sh
 ```
 
 The xtask alias uses locked offline resolution. Fetch all locked packages first. Explicit `+1.99.1` overrides a conflicting `RUSTUP_TOOLCHAIN` environment variable.
 
-Latest verified direct releases: Tokio 1.54.0, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5 and serde_json 1.0.154. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs use actual multiarch digests.
+Latest verified direct releases: Tokio 1.54.0, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and rusqlite 0.40.2. Versions, licenses, sizes and sources are in the [dependency snapshot](../../compatibility/dependency-status.json). Cargo.lock records the full graph. Docker inputs, including the test-only peer curl image, use actual multiarch digests. The snapshot checks both Dockerfile and smoke-script pins.
+
+The Go harness requires Go and jq; it pins Go 1.27.3, storage v1.69.0 and API v0.306.0 with committed go.mod/go.sum. Its high-level HTTP JSON workflow runs against an isolated native server; the getting-started guide also verifies the same suite against Compose. Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, restart and concurrent HTTP creates. Existing foundation tests now open isolated catalogs and bucket list correctly returns 200 rather than the old unavailable-route 404.
 
 `dependencies check` contacts official Rust, Cargo, GitHub, Debian and Docker metadata. Other Rust tests are offline and use only loopback. All direct dependencies are compared against non-yanked stable releases, including new majors; Docker tags/digests and Debian stable codename are checked separately. Exit 1 means updates; exit 2 means verification failed. Run at slice start and before release and review exceptions weekly. No manifests are modified and nothing is published automatically.
 

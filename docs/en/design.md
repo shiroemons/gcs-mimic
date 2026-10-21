@@ -4,7 +4,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. No storage API or persistence is implemented and no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. The first P1 slice adds persistent JSON bucket create/get/list/delete. Objects and permissions remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -18,7 +18,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock` and `server`; `main` owns runtime creation, signals and listener setup. The server handles only emulator-internal probes. Unknown routes return 404 without reading bodies. No JSON/XML/gRPC success stubs or empty service implementations are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded JSON configuration rather than adding a TOML/CLI framework solely for P0.
+One application crate contains `config`, `clock`, `server`, `bucket`, `json` and `storage`; `main` owns runtime creation, signals, catalog opening and listener setup. JSON parsing/rendering remains separate from the transport-independent record/catalog. The server routes four bucket operations and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -30,11 +30,43 @@ One application crate contains `config`, `clock` and `server`; `main` owns runti
 | Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
 | Clock | Inject business wall time through `Clock::now`; production uses `SystemClock`, tests supply deterministic time. Socket/drain deadlines use Tokio monotonic time independently. |
 
-No persistence traits are frozen before a real bucket/object slice needs them. These boundaries are design contracts, not implementations. Recovery and authorization must become shared-service prerequisites before adapters report success. Existing SPEC-001/002/003/004/006/007 gaps affect business APIs; P0 resolves none by inference.
+The bucket catalog is concrete; no generic persistence trait is frozen for future object work. Recovery gates readiness. Authorization remains unimplemented and bucket API rows remain PARTIAL. Existing SPEC-001/002/003/004/006/007 gaps were reviewed; none adds bucket CRUD semantics. They remain open for their affected features.
 
-P0 caps connections (default 32), headers (64 and 16 KiB), connection lifetime (5 seconds), shutdown drain (5 seconds), async workers (2) and blocking workers (2). Admission stops when full; no application queue exists. The requested kernel backlog is 128. Every response closes its connection. Probe bodies are rejected. Compose additionally sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are settings, not benchmarks. No database caches, CPU jobs or maintenance tasks exist yet; future slices must bound them when introduced.
+The server caps connections (default 32), headers (64 and 16 KiB), connection lifetime (5 seconds), shutdown drain (5 seconds), async workers (2) and blocking workers (2). Connection admission stops when full; the requested kernel backlog is 128. Every response closes its connection. Only insert reads a body, capped at 64 KiB. Probe and other bucket methods reject bodies from headers. Compose additionally sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are settings, not benchmarks. Catalog admission and cache limits are described below; no maintenance polling exists.
 
-Startup validates config and registers signals before bind/readiness. P0 has no recovery/seed step. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts remaining tasks and returns an error. Future storage recovery and seeding must finish before readiness. Clock-backed expiration and an explicit maintenance scheduler remain future work; no idle polling loop is introduced.
+Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. An already running blocking catalog call can finish after connection cancellation, retaining ownership until it finishes. Fixture seeding, clock-backed expiration and an explicit maintenance scheduler remain future work.
+
+## Implemented bucket catalog and recovery
+
+`Catalog::open` creates the data directory and acquires an exclusive OS lock on
+`catalog.lock`; the lock file is never unlinked. A single SQLite connection owns
+`catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
+file-backed temporary storage and a 256-page auto-checkpoint. Schema version 1
+stores bucket metadata and a `(project, name)` index. New/empty version 0 catalogs
+are initialized transactionally; future versions, nonempty unversioned catalogs,
+failed quick_check or incompatible columns prevent readiness.
+
+Each operation has immediate bounded admission (32 calls), then awaits one execution
+permit before scheduling one blocking job. The runtime's configured blocking pool
+remains bounded. Inserts enforce globally unique local names in SQL; delete checks
+metageneration and removes the record in one immediate transaction. GET renders
+the exact selected record after its checks. Listing uses indexed keyset bounds and
+at most 1001 records (200 + lookahead for full projection), without loading the catalog.
+Labels and time values are persisted; names never become filesystem paths.
+
+SQLite performs committed-WAL recovery while the directory lock is held. Tests cover
+process exit without drop after a committed write, immediate close/reopen, schema/corruption
+rejection and a second server process failing to acquire the directory. The connection
+is dropped before the lock; blocking jobs explicitly release captured ownership before
+publishing completion. No object blobs, filesystem rename protocol, uncommitted blob
+reconciliation or power-loss durability measurement is implemented. The object publication
+contract below remains planned and must be verified before exposing object writes.
+
+`selfLink` uses fixed `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` /
+JSON, default `http://127.0.0.1:4443`). Listener and advertised origin are independent;
+Host and forwarded headers do not influence it. No public URL or permissions follow
+from this setting. See the [slice contract](slices/json-bucket-crud.md) for local
+projectNumber, projection and unsupported-semantics deviations.
 
 ## Planned storage architecture
 
