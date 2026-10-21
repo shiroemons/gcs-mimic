@@ -10,10 +10,17 @@ type Result<T> = std::result::Result<T, String>;
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
 
 fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String> {
+    let (status, body) = fetch_response(url, headers, include_headers)?;
+    if !(200..300).contains(&status) {
+        return Err(format!("fetch failed: {url}: HTTP {status}"));
+    }
+    Ok(body)
+}
+
+fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Result<(u16, String)> {
     let mut command = Command::new("curl");
     command.args([
         "--disable",
-        "--fail",
         "--silent",
         "--show-error",
         "--location",
@@ -25,6 +32,8 @@ fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String>
         "8388608",
         "--user-agent",
         "gcs-mimic-dependency-check",
+        "--write-out",
+        "\n%{http_code}",
     ]);
     if include_headers {
         command.arg("--include");
@@ -56,7 +65,12 @@ fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String>
     if !status.success() {
         return Err(format!("fetch failed: {url}: {status}"));
     }
-    String::from_utf8(bytes).map_err(|e| e.to_string())
+    let response = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let (body, status) = response.rsplit_once('\n').ok_or("missing HTTP status")?;
+    Ok((
+        status.parse().map_err(|_| "invalid HTTP status")?,
+        body.to_owned(),
+    ))
 }
 
 fn scalar(source: &str, key: &str) -> Result<String> {
@@ -264,6 +278,53 @@ fn latest_go_module(versions: &str, manifest: &str) -> Result<String> {
         .ok_or("no non-retracted stable Go module version".into())
 }
 
+fn go_proxy_response(status: u16, body: String) -> Result<Option<String>> {
+    match status {
+        200 => Ok(Some(body)),
+        404 | 410 => Ok(None),
+        _ => Err(format!("Go module proxy returned HTTP {status}")),
+    }
+}
+
+fn latest_go_dependency(
+    name: &str,
+    mut fetch: impl FnMut(&str) -> Result<Option<String>>,
+) -> Result<String> {
+    let (root, major) = match name.rsplit_once("/v") {
+        Some((root, suffix)) if suffix.parse::<u64>().is_ok_and(|n| n >= 2) => {
+            (root, suffix.parse::<u64>().unwrap())
+        }
+        _ => (name, 1),
+    };
+    let mut path = name.to_owned();
+    let mut major = major;
+    let mut latest = None;
+    loop {
+        let base = format!("https://proxy.golang.org/{}", proxy_path(&path));
+        let Some(versions) = fetch(&format!("{base}/@v/list"))? else {
+            return latest.ok_or_else(|| format!("missing Go module: {name}"));
+        };
+        let highest = versions
+            .lines()
+            .filter_map(|name| Some((go_stable_version(name)?, name)))
+            .max_by_key(|(v, _)| *v)
+            .map(|(_, name)| name);
+        if let Some(highest) = highest {
+            // Go loads retractions from the highest release, including self-retractions.
+            let manifest =
+                fetch(&format!("{base}/@v/{highest}.mod"))?.ok_or("missing Go module manifest")?;
+            let candidate = latest_go_module(&versions, &manifest)?;
+            if latest.as_ref().is_none_or(|current: &String| {
+                go_stable_version(&candidate) > go_stable_version(current)
+            }) {
+                latest = Some(candidate);
+            }
+        }
+        major = major.checked_add(1).ok_or("Go major version overflow")?;
+        path = format!("{root}/v{major}");
+    }
+}
+
 fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     if text(scope, "ecosystem")? != "go" || text(scope, "manifest")? != "sdk-tests/go/go.mod" {
         return Err("unsupported SDK ecosystem or manifest".into());
@@ -292,17 +353,10 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     );
     drift |= compare("Go toolchain", &module.toolchain, latest);
     for (name, current) in module.direct {
-        let base = format!("https://proxy.golang.org/{}", proxy_path(&name));
-        let versions = fetch(&format!("{base}/@v/list"), &[], false)?;
-        let highest = versions
-            .lines()
-            .filter_map(|name| Some((go_stable_version(name)?, name)))
-            .max_by_key(|(v, _)| *v)
-            .map(|(_, name)| name)
-            .ok_or("no stable Go module version")?;
-        // Go loads retractions from the highest release, including a self-retracted release.
-        let manifest = fetch(&format!("{base}/@v/{highest}.mod"), &[], false)?;
-        let latest = latest_go_module(&versions, &manifest)?;
+        let latest = latest_go_dependency(&name, |url| {
+            let (status, body) = fetch_response(url, &[], false)?;
+            go_proxy_response(status, body).map_err(|error| format!("{url}: {error}"))
+        })?;
         drift |= compare(&name, &current, &latest);
     }
     Ok(drift)
@@ -589,6 +643,77 @@ pub fn check(root: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn go_new_major_paths_are_checked_until_missing() {
+        for start in ["example.com/SDK", "example.com/SDK/v2"] {
+            let mut requests = Vec::new();
+            let latest = latest_go_dependency(start, |url| {
+                requests.push(url.to_owned());
+                let response = match url
+                    .strip_prefix("https://proxy.golang.org/example.com/!s!d!k")
+                    .unwrap()
+                {
+                    "/@v/list" => "v1.9.0\n",
+                    "/@v/v1.9.0.mod" => "module example.com/SDK\n",
+                    "/v2/@v/list" => "v2.0.0\nv2.1.0\n",
+                    "/v2/@v/v2.1.0.mod" => "module example.com/SDK/v2\nretract v2.1.0\n",
+                    "/v3/@v/list" => "v3.0.0\nv3.1.0-rc.1\n",
+                    "/v3/@v/v3.0.0.mod" => "module example.com/SDK/v3\n",
+                    "/v4/@v/list" => return Ok(None),
+                    path => panic!("unexpected proxy path: {path}"),
+                };
+                Ok(Some(response.to_owned()))
+            })
+            .unwrap();
+            assert_eq!(latest, "v3.0.0");
+            assert_eq!(requests.len(), if start.ends_with("/v2") { 5 } else { 7 });
+            assert!(requests.last().unwrap().ends_with("/v4/@v/list"));
+        }
+    }
+
+    #[test]
+    fn go_missing_majors_and_proxy_failures_are_distinct() {
+        for missing in [404, 410] {
+            let latest = latest_go_dependency("example.com/sdk", |url| {
+                if url.ends_with("/v2/@v/list") {
+                    go_proxy_response(missing, "not found".into())
+                } else if url.ends_with(".mod") {
+                    Ok(Some("module example.com/sdk".into()))
+                } else {
+                    go_proxy_response(200, "v0.9.0\nv1.0.0".into())
+                }
+            })
+            .unwrap();
+            assert_eq!(latest, "v1.0.0");
+        }
+        for status in [401, 403, 429, 500, 503] {
+            assert!(
+                latest_go_dependency("example.com/sdk", |_| {
+                    go_proxy_response(status, "failure".into())
+                })
+                .is_err()
+            );
+        }
+        assert!(latest_go_dependency("example.com/sdk", |_| Err("timeout".into())).is_err());
+        assert!(latest_go_dependency("example.com/sdk", |_| Ok(None)).is_err());
+        assert!(
+            latest_go_dependency("example.com/sdk", |url| {
+                if url.ends_with("/v2/@v/list") {
+                    return Err("new major lookup failed".into());
+                }
+                Ok(Some(
+                    if url.ends_with(".mod") {
+                        "module example.com/sdk"
+                    } else {
+                        "v1.0.0"
+                    }
+                    .into(),
+                ))
+            })
+            .is_err()
+        );
+    }
 
     #[test]
     fn go_manifest_direct_requirements_and_exact_toolchain() {

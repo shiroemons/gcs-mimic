@@ -82,7 +82,11 @@ single-line and grouped requirements. It checks the exact Go toolchain against
 the latest stable official download metadata and the language baseline against
 that release's major/minor series. It selects numeric stable module versions from
 `proxy.golang.org` and excludes single versions and inclusive ranges retracted in
-the highest release's `go.mod`, including self-retractions. Indirect requirements
+the highest release's `go.mod`, including self-retractions. Direct dependencies
+are checked on the current module path; new majors are discovered through successive
+`/v2`, `/v3`, etc. module paths (starting after an existing major suffix). A 404/410
+ends discovery; other HTTP failures and transport/parse failures fail closed.
+Pre-release-only paths do not count as stable updates. Indirect requirements
 remain graph constraints. Unsupported manifest directives fail explicitly.
 The checker uses the same bounded curl path and exit statuses as Rust and needs
 no Go installation. Unrecognized SDK ecosystems fail instead of being ignored.
