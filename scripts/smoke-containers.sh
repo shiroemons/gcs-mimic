@@ -2,8 +2,14 @@
 set -euo pipefail
 
 if [[ ${1:-} == --help ]]; then
-  echo "Usage: bash scripts/smoke-containers.sh [linux/amd64|linux/arm64 ...]"
+  echo "Usage: bash scripts/smoke-containers.sh [--image IMAGE] [linux/amd64|linux/arm64 ...]"
   exit 0
+fi
+prebuilt_image=
+if [[ ${1:-} == --image ]]; then
+  if [[ $# != 3 || -z $2 ]]; then echo '--image requires IMAGE and one platform' >&2; exit 2; fi
+  prebuilt_image=$2
+  shift 2
 fi
 if [[ $# == 0 ]]; then set -- linux/amd64 linux/arm64; fi
 for platform in "$@"; do
@@ -54,10 +60,12 @@ expect_object() {
 for platform in "$@"; do
   arch=${platform#linux/}
   export DOCKER_DEFAULT_PLATFORM=$platform
-  export GCS_MIMIC_IMAGE="gcs-mimic:bucket-smoke-${arch}-$$"
+  export GCS_MIMIC_IMAGE=${prebuilt_image:-"gcs-mimic:bucket-smoke-${arch}-$$"}
   export GCS_MIMIC_PORT=0
   project="gcs-mimic-bucket-${arch}-$$"
-  docker buildx build --platform "$platform" --load --tag "$GCS_MIMIC_IMAGE" .
+  if [[ -z "$prebuilt_image" ]]; then
+    docker buildx build --platform "$platform" --load --tag "$GCS_MIMIC_IMAGE" .
+  fi
   [[ $(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$GCS_MIMIC_IMAGE") == "$platform" ]]
   [[ $(docker image inspect --format '{{.Config.User}}' "$GCS_MIMIC_IMAGE") == 10001:10001 ]]
   docker run --rm --network none --read-only "$GCS_MIMIC_IMAGE" --help

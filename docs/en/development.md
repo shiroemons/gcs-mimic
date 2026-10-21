@@ -50,6 +50,9 @@ network failure must be reported; it is not a passing freshness result.
 Native archive preparation and the eight-target release CI are documented in the
 [binary distribution guide](binary-distribution.md). The local `just pre-push`
 recipe does not replace Windows/macOS Intel/native Linux matrix execution.
+The [GHCR publication procedure](container-distribution.md) follows a successful
+tag-driven binary Release. `just check` runs its offline publication-policy
+tests; it does not authenticate to or write to a registry.
 
 ```sh
 rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy

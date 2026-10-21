@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 298,
     "behavior": 201,
-    "project_requirement": 91
+    "project_requirement": 92
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -46,6 +46,62 @@
     "Storage Control REST": 1
   },
   "features": [
+    {
+      "id": "DIST-003",
+      "kind": "project_requirement",
+      "category": "Container distribution",
+      "title": "Verified multi-platform GHCR publication with immutable versions and attestations",
+      "interface": "Project distribution",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry",
+        "https://docs.docker.com/build/metadata/attestations/"
+      ],
+      "source_checked_at": "2026-10-22",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "Existing v-tag binary Release success calls native amd64/arm64 container verification and GHCR publication. Exact versions remain immutable; minor/latest aliases advance by numeric stable version order. Images retain project/Cargo/Rust/native/OS notices, SPDX SBOM and SLSA provenance. See docs/en/container-distribution.md.",
+      "dependencies": ["DIST-001", "DIST-002"],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DIST-003-TAGS",
+          "description": "Reject malformed/prerelease versions and advance minor/latest aliases without rolling them backwards; never emit a zero-major alias.",
+          "result": "PASS",
+          "test_ids": ["aliases_never_move_backwards_and_zero_major_is_not_an_alias", "malformed_and_prerelease_versions_cannot_publish"]
+        },
+        {
+          "id": "DIST-003-NOTICES",
+          "description": "Collect notice-only output without Git or an executable, preserving original texts and avoiding builder paths.",
+          "result": "PASS",
+          "test_ids": ["notice_only_output_needs_neither_git_nor_an_executable"]
+        },
+        {
+          "id": "DIST-003-PUBLICATION",
+          "description": "Observe the authorized GHCR workflow end to end: public visibility, both native platform checks, attested index publication, anonymous digest access, alias selection and identical-input retry.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": ["aliases_never_move_backwards_and_zero_major_is_not_an_alias", "malformed_and_prerelease_versions_cannot_publish", "notice_only_output_needs_neither_git_nor_an_executable"],
+      "verification": [
+        {
+          "command": "cargo test --package xtask --lib --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/ghcr.md",
+          "test_ids": ["aliases_never_move_backwards_and_zero_major_is_not_an_alias", "malformed_and_prerelease_versions_cannot_publish", "notice_only_output_needs_neither_git_nor_an_executable"]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": ["GHCR authentication, package visibility setup, remote publication and anonymous registry access have not been exercised. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."],
+      "implemented_in": null,
+      "last_verified": "2026-10-22"
+    },
     {
       "id": "DIST-001",
       "kind": "project_requirement",
@@ -18578,7 +18634,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Distroless linux/amd64 builds and passes bucket/object media persistence smoke under emulation on an arm64 Docker host. Native amd64 CI is configured. Current image and size evidence: docs/en/evidence/distroless.md.",
+      "notes": "Baseline f7ac025 Foundation CI passed on native amd64 hardware. The current notice-augmented publication image still requires remote execution; local amd64 uses emulation. Baseline CI and current-source verification are distinguished in docs/en/evidence/ghcr.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -18593,7 +18649,7 @@
         },
         {
           "id": "DESIGN-059-P1",
-          "description": "Execute the same image smoke on native amd64 hardware.",
+      "description": "Execute the notice-augmented publication image smoke on native amd64 hardware; baseline f7ac025 Foundation CI already passed.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -18623,7 +18679,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Native amd64 and remote CI are unverified; local amd64 uses emulation."
+    "Baseline f7ac025 passed native amd64 CI; the current notice-augmented publication image remains unverified on remote native amd64."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-22"

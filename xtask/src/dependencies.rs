@@ -89,7 +89,7 @@ fn scalar(source: &str, key: &str) -> Result<String> {
     Ok(values[0].to_owned())
 }
 
-fn version(text: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn version(text: &str) -> Option<(u64, u64, u64)> {
     let pieces: Vec<_> = text.split('.').collect();
     if pieces.len() != 3
         || pieces
@@ -592,6 +592,13 @@ pub fn check(root: &Path) -> Result<bool> {
     let dockerfile = std::fs::read_to_string(root.join("Dockerfile")).map_err(|e| e.to_string())?;
     let smoke = std::fs::read_to_string(root.join("scripts/smoke-containers.sh"))
         .map_err(|e| e.to_string())?;
+    let mut container_sources = format!("{dockerfile}\n{smoke}");
+    for entry in std::fs::read_dir(root.join(".github/workflows")).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension().is_some_and(|s| s == "yaml" || s == "yml") {
+            container_sources.push_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?);
+        }
+    }
     for image in status["docker"]["digests"]
         .as_array()
         .ok_or("missing Docker inputs")?
@@ -613,7 +620,7 @@ pub fn check(root: &Path) -> Result<bool> {
             drift |= compare("Debian stable codename", expected, codename);
         }
         let pin = format!("{reference}@{digest}");
-        if !dockerfile.contains(&pin) && !smoke.contains(&pin) {
+        if !container_sources.contains(&pin) {
             return Err(format!("container pin mismatch: {reference}"));
         }
         let (manifest_source, headers) =

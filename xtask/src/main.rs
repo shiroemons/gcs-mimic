@@ -1,14 +1,35 @@
 use std::{env, path::Path, process::ExitCode};
 
+const USAGE: &str = "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | release prepare TARGET BINARY OUTPUT_DIR | release notices OUTPUT_DIR | release container-tags VERSION [RELEASED_VERSION...]";
+
 fn main() -> ExitCode {
     let args: Vec<_> = env::args().skip(1).collect();
     if args == ["--help"] {
-        println!(
-            "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | release prepare TARGET BINARY OUTPUT_DIR"
-        );
+        println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    if args.len() >= 3 && args[..2] == ["release", "container-tags"] {
+        return match xtask::container::tags(&args[2], &args[3..]) {
+            Ok(tags) => {
+                println!("{}", tags.join("\n"));
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if args.len() == 3 && args[..2] == ["release", "notices"] {
+        return match xtask::release::notices(root, Path::new(&args[2])) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.len() == 5 && args[..2] == ["release", "prepare"] {
         return match xtask::release::prepare(
             root,
@@ -34,9 +55,7 @@ fn main() -> ExitCode {
         };
     }
     if args.len() != 2 || args[0] != "compatibility" {
-        eprintln!(
-            "Usage: cargo xtask compatibility <validate|render|check> | dependencies check | release prepare TARGET BINARY OUTPUT_DIR"
-        );
+        eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
     match xtask::run(root, &args[1]) {

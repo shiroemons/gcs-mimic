@@ -10,3 +10,6 @@
 !xtask/Cargo.toml
 !xtask/src/
 !xtask/src/**
+!distribution/
+!distribution/notices/
+!distribution/notices/**

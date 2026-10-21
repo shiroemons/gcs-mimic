@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 291 | 0 | 7 | 0 | 0 | 0 |
 | behavior | 201 | 180 | 0 | 21 | 0 | 0 | 0 |
-| project_requirement | 91 | 49 | 0 | 26 | 16 | 0 | 0 |
+| project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 291 | 0 | 7 | 0 | 0 | 0 |
 | behavior | 180 | 0 | 19 | 2 | 0 | 0 |
-| project_requirement | 49 | 0 | 0 | 0 | 0 | 42 |
+| project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
 
 ## api_operation
 
@@ -794,6 +794,12 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | AUDIT-005 | gcloud storageコマンド互換 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | AUDIT-006 | 既存gsutilの互換範囲 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
+
+### Container distribution
+
+| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
+| --- | --- | --- | --- | --- | --- | ---: |
+| DIST-003 | 検証・証跡付きのGHCR複数CPU公開と不変バージョン | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Dependency freshness
 

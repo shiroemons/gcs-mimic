@@ -173,6 +173,18 @@ fn check_native_toolchain(target: &str, rustc: &str) -> Result<()> {
     Ok(())
 }
 
+fn cargo_metadata(root: &Path) -> Result<Value> {
+    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    serde_json::from_str(&capture(Command::new(cargo).current_dir(root).args([
+        "metadata",
+        "--locked",
+        "--offline",
+        "--format-version",
+        "1",
+    ]))?)
+    .map_err(|e| e.to_string())
+}
+
 pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Result<()> {
     check_destination(target, output)?;
     let source_dirty = !capture(Command::new("git").current_dir(root).args([
@@ -182,15 +194,7 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
     ]))?
     .is_empty();
     let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let metadata: Value =
-        serde_json::from_str(&capture(Command::new(&cargo).current_dir(root).args([
-            "metadata",
-            "--locked",
-            "--offline",
-            "--format-version",
-            "1",
-        ]))?)
-        .map_err(|e| e.to_string())?;
+    let metadata = cargo_metadata(root)?;
     let packages = metadata["packages"].as_array().ok_or("missing packages")?;
     let product = packages
         .iter()
@@ -212,6 +216,58 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
     if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("source commit must be a full Git SHA".into());
     }
+    write_notices(root, target, packages, output)?;
+    let binary_name = if target.contains("windows") {
+        "gcs-mimic.exe"
+    } else {
+        "gcs-mimic"
+    };
+    copy(binary, &output.join(binary_name))?;
+    write_json(
+        &output.join("BUILD-INFO.json"),
+        &json!({
+            "packaging_context": {
+                "source_commit": sha, "source_dirty": source_dirty, "package_version": version,
+                "requested_target": target, "rustc": rustc, "cargo": cargo_version,
+                "runner": {
+                    "os": env::var("RUNNER_OS").ok(), "architecture": env::var("RUNNER_ARCH").ok(),
+                    "image_os": env::var("ImageOS").ok(), "image_version": env::var("ImageVersion").ok(),
+                },
+            },
+            "binary_verification": {
+                "version_output": format!("gcs-mimic {version}"),
+                "scope": "Only the binary's --version output is verified. The checkout, compiler and requested target describe packaging context; the binary's build origin, architecture and ABI are not independently verified by this command. Release CI builds the binary immediately before packaging.",
+            },
+        }),
+    )?;
+    Ok(())
+}
+
+pub fn notices(root: &Path, output: &Path) -> Result<()> {
+    let rustc = capture(Command::new("rustc").arg("-Vv"))?;
+    let target = rustc
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .filter(|host| host.ends_with("-unknown-linux-gnu"))
+        .ok_or("container notices require a native GNU Linux build toolchain")?;
+    check_destination(target, output)?;
+    let metadata = cargo_metadata(root)?;
+    let packages = metadata["packages"].as_array().ok_or("missing packages")?;
+    write_notices(root, target, packages, output)?;
+    let index_path = output.join("third-party-licenses/INDEX.json");
+    let mut index: Value =
+        serde_json::from_slice(&fs::read(&index_path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    index["runtime_os_notices"] = json!({
+        "scope": "The pinned Distroless runtime retains its own Debian package notices and license texts; these are not copied from the build image.",
+        "copyrights": "/usr/share/doc/<package>/copyright",
+        "common_license_texts": "/usr/share/common-licenses",
+        "package_records": "/var/lib/dpkg/status.d",
+    });
+    write_json(&index_path, &index)
+}
+
+fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -> Result<()> {
     let sysroot = PathBuf::from(capture(Command::new("rustc").args(["--print", "sysroot"]))?);
     let rust_notices = sysroot.join("share/doc/rust");
     let mut rust_files = BTreeSet::new();
@@ -253,12 +309,6 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::create_dir(output).map_err(|e| e.to_string())?;
-    let binary_name = if target.contains("windows") {
-        "gcs-mimic.exe"
-    } else {
-        "gcs-mimic"
-    };
-    copy(binary, &output.join(binary_name))?;
     for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
         copy(&root.join(name), &output.join(name))?;
     }
@@ -346,23 +396,6 @@ pub fn prepare(root: &Path, target: &str, binary: &Path, output: &Path) -> Resul
                 "scope": "The complete upstream base source retains COPYRIGHT and individual file notices, including math and architecture-specific terms. The pinned Rust toolchain builds this base with upstream security patches; this archive is an attribution superset, not an exact reconstruction of Rust's patched build sources.",
             })) } else { None },
             "packages": index,
-        }),
-    )?;
-    write_json(
-        &output.join("BUILD-INFO.json"),
-        &json!({
-            "packaging_context": {
-                "source_commit": sha, "source_dirty": source_dirty, "package_version": version,
-                "requested_target": target, "rustc": rustc, "cargo": cargo_version,
-                "runner": {
-                    "os": env::var("RUNNER_OS").ok(), "architecture": env::var("RUNNER_ARCH").ok(),
-                    "image_os": env::var("ImageOS").ok(), "image_version": env::var("ImageVersion").ok(),
-                },
-            },
-            "binary_verification": {
-                "version_output": format!("gcs-mimic {version}"),
-                "scope": "Only the binary's --version output is verified. The checkout, compiler and requested target describe packaging context; the binary's build origin, architecture and ABI are not independently verified by this command. Release CI builds the binary immediately before packaging.",
-            },
         }),
     )?;
     Ok(())
@@ -461,6 +494,43 @@ mod tests {
         assert!(package_notices(&package).is_err());
         package["license_file"] = json!("../LICENSE");
         assert!(package_notices(&package).is_err());
+    }
+
+    #[test]
+    fn notice_only_output_needs_neither_git_nor_an_executable() {
+        let directory = Directory::new();
+        for name in ["LICENSE-MIT", "LICENSE-APACHE"] {
+            fs::write(directory.0.join(name), "project terms").unwrap();
+        }
+        let package_dir = directory.0.join("dependency");
+        fs::create_dir(&package_dir).unwrap();
+        fs::write(package_dir.join("LICENSE"), "dependency terms").unwrap();
+        let package = json!({
+            "name": "fixture", "version": "1.0.0", "license": "MIT",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+            "manifest_path": package_dir.join("Cargo.toml"),
+        });
+        let output = directory.0.join("notices");
+        write_notices(&directory.0, TARGETS[0], &[package], &output).unwrap();
+        assert_eq!(
+            fs::read_to_string(output.join("LICENSE-MIT")).unwrap(),
+            "project terms"
+        );
+        assert_eq!(
+            fs::read_to_string(output.join("third-party-licenses/crates/fixture-1.0.0/LICENSE"))
+                .unwrap(),
+            "dependency terms"
+        );
+        assert!(
+            output
+                .join("third-party-licenses/rust/COPYRIGHT-library.html")
+                .is_file()
+        );
+        let index = fs::read_to_string(output.join("third-party-licenses/INDEX.json")).unwrap();
+        assert!(!index.contains(directory.0.to_str().unwrap()));
+        assert!(!output.join("BUILD-INFO.json").exists());
+        assert!(!directory.0.join(".git").exists());
+        assert!(!output.join("gcs-mimic").exists());
     }
 
     #[test]

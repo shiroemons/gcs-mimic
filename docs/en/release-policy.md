@@ -67,8 +67,10 @@ and known limitations.
 The [native distribution procedure](binary-distribution.md) defines the eight
 archive targets, manual verification and future tag-driven GitHub Release flow.
 Tag publication requires matching Cargo versions, committed release notes,
-dependency freshness, Foundation checks and all native suites. Container registry
-publication remains separate. Configured workflows do not establish that a public
+dependency freshness, Foundation checks and all native suites. The
+[GHCR procedure](container-distribution.md) adds native image checks, immutable
+version tags, advancing minor/latest aliases and digest reports after binary
+Release creation. Configured workflows do not establish that a public
 release or successful all-platform execution has occurred.
 
 ## License and redistribution

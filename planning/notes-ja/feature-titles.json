@@ -2,6 +2,7 @@
   "as_of": "2026-10-21",
   "source": "../../compatibility/features.json",
   "titles": {
+    "DIST-003": "検証・証跡付きのGHCR複数CPU公開と不変バージョン",
     "DIST-001": "macOS・Windows・Linux向けのライセンス同梱バイナリ",
     "DIST-002": "手動検証成果物と不変タグによるGitHub Release",
     "JSON-ANYWHERECACHES-001": "anywhereCaches.disable",

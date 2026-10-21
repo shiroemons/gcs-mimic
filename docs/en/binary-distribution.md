@@ -120,7 +120,9 @@ or `just prepare-binary TARGET BINARY OUTPUT_DIR`. Build first with the pinned
 toolchain and the intended target; the command checks the executable's product
 version and refuses to overwrite an output directory. Linux requires the native
 notice inputs prepared by the workflow. Packaging does not build, publish, create
-tags or invent release notes. Container registry publication remains separate.
+tags or invent release notes. The
+[GHCR workflow](container-distribution.md) follows successful tag-driven binary
+Release creation; manual verification does not publish images.
 For local redistribution, set `--remap-path-prefix` for the checkout and Cargo
 cache before building, as the workflow does; staging an existing binary does not
 remove embedded compiler paths.

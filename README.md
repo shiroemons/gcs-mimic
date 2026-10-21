@@ -10,7 +10,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | --- | --- | --- |
 | Standalone binary | ✅ Available | Build and run from source; no Rust installation is needed at runtime. |
 | Prebuilt binary distribution | 🚧 Partial | CI is configured for macOS/Windows ARM64 and x86-64, plus Linux GNU/musl on both CPUs. All-platform execution and public release are pending. |
-| Docker and Compose | 🚧 Partial | Non-root runtime; arm64 tested natively, amd64 tested under emulation. Native amd64 verification is pending. |
+| Docker and Compose | 🚧 Partial | Non-root runtime; native amd64/arm64 Foundation CI passed. GHCR publication is configured but has not run. |
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
@@ -49,8 +49,10 @@ The container runs as a non-root user on a read-only root, with a writable named
 The runtime uses digest-pinned Distroless Debian 13 with glibc/libgcc and a stripped
 binary. It has no shell or package manager; use the built-in `healthcheck` command
 and container logs for diagnostics. UID/GID `10001:10001` remain compatible with
-existing data volumes. Project license texts are included in the image;
-third-party notice packaging remains a release prerequisite.
+existing data volumes. Project and third-party notices are included in the image,
+along with the OS notices retained by Distroless. See the
+[GHCR distribution procedure](docs/en/container-distribution.md) for future
+version/minor/latest tags, digest pinning and first-publication setup.
 
 A prior build comparison measured complete-image compressed layers decreasing from 30.57 to 12.14 MiB on
 amd64 and from 30.92 to 12.38 MiB on arm64, about 60% in both cases. See the
@@ -88,7 +90,7 @@ Object APIs support only the [media subset](docs/en/slices/json-object-media.md)
 
 [Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs migrate directly to v3.
 
-Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Native amd64, host power-loss durability and Ruby/Rails remain unverified.
+Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
 
 For contributors, install [just](https://github.com/casey/just#installation) and
 run `just check` while editing, then `just pre-push` before pushing to run the

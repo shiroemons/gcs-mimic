@@ -242,3 +242,12 @@ jobs:
           done <<< "$releases"
           gh release create "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
             --verify-tag --title "$RELEASE_TAG" --notes-file "docs/en/releases/$VERSION.md"
+  publish-container:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [validate, publish]
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/ghcr.yaml
+    with:
+      version: ${{ needs.validate.outputs.version }}

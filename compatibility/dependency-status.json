@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-21T16:20:08Z",
-  "scope": "Native binary distribution foundation: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs and release Actions. Windows-only API bindings add no dependency on Unix. Platform execution evidence is tracked separately from workflow configuration.",
+  "checked_at_utc": "2026-10-21T17:14:50Z",
+  "scope": "GHCR distribution foundation: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
   "freshness_check": {
     "command": "cargo +1.99.1 xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/binary-distribution.md",
-    "follow_up": "Docker Hub, public GCR, direct Windows bindings and release Actions join the daily freshness gate. Native OS runtime/build-tool versions remain tied to the recorded hosted runner environment; complete platform execution is pending."
+    "artifact": "docs/en/evidence/ghcr.md",
+    "follow_up": "BuildKit and the official stable-1 SBOM generator join the daily container freshness gate. Native OS runtime/build-tool versions remain tied to the recorded hosted runner environment; complete native archive and remote GHCR execution is pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -173,6 +173,28 @@
         "digest": "sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
         "platforms": {},
         "source_url": "https://docs.docker.com/build/buildkit/frontend/"
+      },
+      {
+        "repository": "moby/buildkit", "reference": "moby/buildkit:v0.34.1",
+        "tag": "v0.34.1", "latest_tag": "latest",
+        "digest": "sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c",
+        "platforms": {
+          "linux/amd64": "sha256:b651bf250c2805569f1db385ad1ea8fb73737dfc851de305f274ca02690fa93f",
+          "linux/arm64": "sha256:8cf85547bfebae847f60f2365efe5d801768d6ca51bf055b2b0860df89cbbf09"
+        },
+        "source_url": "https://github.com/moby/buildkit/releases/tag/v0.34.1",
+        "purpose": "Pinned native container builder for GHCR publication, SBOM and provenance. The floating latest selector detects new stable image inputs."
+      },
+      {
+        "repository": "docker/buildkit-syft-scanner", "reference": "docker/buildkit-syft-scanner:stable-1",
+        "tag": "stable-1", "latest_tag": "stable-1",
+        "digest": "sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9",
+        "platforms": {
+          "linux/amd64": "sha256:187e1892a7752c9384c59aba9517dd8e40610b748c72773e87b63720514463c2",
+          "linux/arm64": "sha256:d802508fd7d9841805c8e616c9965c5dbca0c6c415093ed506309d1c58bdd6c8"
+        },
+        "source_url": "https://github.com/docker/buildkit-syft-scanner",
+        "purpose": "Pinned official BuildKit SBOM generator; stable-1 replacement is checked daily."
       }
     ],
     "reason": "Official multiarch manifest indexes from Docker Hub and public GCR; floating selectors, pinned tags and Debian stable codename are checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
