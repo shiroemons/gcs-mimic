@@ -1,7 +1,7 @@
 # Object listing verification
 
 Verified on **2026-10-22**, macOS arm64, Rust 1.99.1 / edition 2024 and the
-committed Cargo graph. Runtime and test commits: `41c2490`, `536973a` and `eb3aa6f`.
+committed Cargo graph. Runtime commits: `41c2490`, `536973a` and `eb3aa6f`.
 The [slice contract](../slices/json-object-list.md) defines supported behavior;
 [the ledger](../../../compatibility/features.json) owns implementation status.
 
@@ -11,16 +11,25 @@ The [slice contract](../slices/json-object-list.md) defines supported behavior;
 | --- | --- |
 | `cargo +1.99.1 test --locked --offline --test object_list_http --lib` | PASS: six new HTTP tests and 53 library tests |
 | `cargo +1.99.1 test --locked --offline --test object_list_http --test bucket_http` | PASS: six listing and six bucket HTTP tests |
-| `cargo +1.99.1 test --workspace --locked --offline` | PASS: 162 tests; zero failed/ignored |
+| `cargo +1.99.1 test --workspace --locked --offline` | Earlier PASS: 162 tests; latest runs fail the pre-existing catalog deadline case described below |
+| `cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish` | PASS: 161 tests; one known unrelated case explicitly filtered, zero ignored |
 | `cargo +1.99.1 fmt --all --check` | PASS, exit 0 |
 | `cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS, exit 0 |
 | `GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh` | PASS once: TestObjectList and nine subtests; harness also runs Go vet |
 | `cargo +1.99.1 xtask compatibility validate` | PASS: 591 feature rows; inventories remain separate |
 
-The final full Rust and fmt/clippy output, plus the single Go run, are retained in
+The full-run failure, final scoped Rust and fmt/clippy output, and single Go run are retained in
 [the check log](object-list-checks.txt). Machine-local path prefixes are replaced
 with placeholders; other raw output is unchanged. Targeted runs guided the
 implementation; the retained final run supersedes their results.
+The existing `obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish`
+failed in full and isolated runs with `HTTP response headers` EOF at
+`tests/object_http.rs:144`; a later isolated rerun passed. The coordinator also
+reproduced the same intermittent failure on unchanged main `56118ff` in two of
+three runs and assigned its repair to a separate task. This slice does not change
+or disable that test; the final verification command explicitly filters it, and
+the unfiltered failure remains visible in the log. A fully green unfiltered final
+suite is therefore not claimed.
 Go SDK and guide execution used `536973a`. The later `eb3aa6f` defaults zero page
 sizes and empty context filters, and strengthens HTTP assertions; final Rust
 checks cover those changes. The coordinator explicitly waived another SDK run.
@@ -43,7 +52,9 @@ commands; all other default rules remain enabled.
   `invalidArgument`; unsupported semantics are 501 `notImplemented`.
 - Collection POST retains the old unimplemented-route 404; PUT/PATCH/DELETE
   return 405. Existing bucket route coverage remains unchanged and passes.
-- Between pages, deleting the cursor and lookahead objects, inserting behind or
+- The offset continuation starts with only `prefixes: ["g/"]` and no items;
+  the next page has no repeated prefix after new children are inserted.
+  Between pages, deleting the cursor and lookahead objects, inserting behind or
   ahead, overwriting, deleting a marker with surviving children and restarting
   do not duplicate returned entries or skip surviving names ahead of the cursor.
 - A storage fixture has 20,000 children under one prefix. An actual SQLite

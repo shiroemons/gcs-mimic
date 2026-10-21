@@ -4192,7 +4192,7 @@
       ],
       "verification": [
         {
-          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-checks.txt",
@@ -7086,7 +7086,7 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-checks.txt",
@@ -7387,7 +7387,7 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-checks.txt",
@@ -9335,7 +9335,7 @@
       ],
       "verification": [
         {
-          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-checks.txt",

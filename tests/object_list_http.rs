@@ -461,6 +461,8 @@ fn object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors() {
         json!(["g/"])
     );
     let page = server.list("startOffset=g&delimiter=%2F&maxResults=1");
+    assert_eq!(prefixes_of(&page), ["g/"]);
+    assert!(page.get("items").is_none());
     server.put("g/again");
     server.put("h");
     let page = server.list(&format!(
