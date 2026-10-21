@@ -32,6 +32,15 @@ pub struct State {
     pub api_base_url: String,
 }
 
+impl State {
+    pub fn is_ready(&self) -> bool {
+        if !self.catalog.is_healthy() {
+            self.ready.store(false, Ordering::Release);
+        }
+        self.ready.load(Ordering::Acquire)
+    }
+}
+
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
 pub async fn serve(
@@ -164,7 +173,7 @@ async fn bucket_response(
                     &params.project,
                     Some(&params.prefix),
                     params.start_after.as_deref(),
-                    if limit == 0 { 0 } else { limit + 1 },
+                    limit + 1,
                 )
                 .await?;
             let token = if records.len() > limit {
@@ -232,7 +241,7 @@ fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full
             StatusCode::PAYLOAD_TOO_LARGE,
             "{\"error\":\"probe bodies are not supported\"}".to_owned(),
         )
-    } else if path == "/_internal/ready" && !state.ready.load(Ordering::Acquire) {
+    } else if path == "/_internal/ready" && !state.is_ready() {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "{\"status\":\"not ready\"}".to_owned(),

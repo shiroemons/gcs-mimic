@@ -61,6 +61,25 @@ impl Catalog {
                     "catalog quick_check failed: {check}"
                 )));
             }
+            if version == 0 {
+                let tables: i64 = connection
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(unavailable)?;
+                if tables != 0 {
+                    return Err(CatalogError::Unavailable(
+                        "unversioned catalog is not empty".into(),
+                    ));
+                }
+            } else {
+                // Reject foreign schemas before any persistent journal-mode change.
+                connection
+                    .prepare(&format!("SELECT {COLUMNS} FROM buckets LIMIT 0"))
+                    .map_err(unavailable)?;
+            }
             let mode: String = connection
                 .pragma_query_value(None, "journal_mode", |r| r.get(0))
                 .map_err(unavailable)?;
@@ -78,18 +97,6 @@ impl Catalog {
                 .execute_batch("PRAGMA synchronous = FULL; PRAGMA wal_autocheckpoint = 256;")
                 .map_err(unavailable)?;
             if version == 0 {
-                let tables: i64 = connection
-                    .query_row(
-                        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .map_err(unavailable)?;
-                if tables != 0 {
-                    return Err(CatalogError::Unavailable(
-                        "unversioned catalog is not empty".into(),
-                    ));
-                }
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction
                     .execute_batch(
@@ -123,6 +130,10 @@ impl Catalog {
         })
         .await
         .map_err(unavailable)?
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        !self.0.connection.is_poisoned()
     }
 
     async fn run<T: Send + 'static>(
@@ -344,6 +355,39 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn poisoned_catalog_permanently_revokes_readiness() {
+        use crate::{clock::SystemClock, server::State};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir =
+            std::env::temp_dir().join(format!("gcs-mimic-catalog-poison-{}", std::process::id()));
+        let catalog = Catalog::open(&dir).await.unwrap();
+        let state = State {
+            ready: AtomicBool::new(true),
+            clock: Arc::new(SystemClock),
+            catalog: catalog.clone(),
+            api_base_url: "http://127.0.0.1:4443".into(),
+        };
+        assert!(state.is_ready());
+        assert!(
+            catalog
+                .run::<()>(|_| panic!("injected catalog panic"))
+                .await
+                .is_err()
+        );
+        assert!(!state.is_ready());
+        assert!(!state.ready.load(Ordering::Acquire));
+        assert!(matches!(
+            catalog.get_bucket("abc").await,
+            Err(CatalogError::Unavailable(_))
+        ));
+        assert!(!state.is_ready());
+        drop(state);
+        drop(catalog);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn timestamps_use_integer_unix_milliseconds() {

@@ -312,6 +312,8 @@ fn bkt_get_002_and_del_002_signed_conditions() {
                 "9223372036854775808",
                 "-9223372036854775809",
                 "1%20",
+                "%2B1",
+                "+1",
             ] {
                 assert_eq!(
                     request(method.clone(), &format!("/storage/v1/b/abc?{key}={value}"))
@@ -328,7 +330,7 @@ fn bkt_get_002_and_del_002_signed_conditions() {
 fn bkt_lst_001_max_results_defaults_bounds_and_clamping() {
     for (query, expected) in [
         ("", 1000),
-        ("&maxResults=0", 0),
+        ("&maxResults=0", 1000),
         ("&maxResults=1", 1),
         ("&maxResults=1000", 1000),
         ("&maxResults=1001", 1000),
@@ -448,6 +450,44 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
             assert!(error.message.contains(field));
         }
     }
+}
+
+#[test]
+fn bkt_ins_002_output_only_fields_do_not_override_server_state() {
+    let expected = parse_insert(br#"{"name":"abc"}"#, "p", UNIX_EPOCH).unwrap();
+    for field in [
+        "kind",
+        "id",
+        "selfLink",
+        "projectNumber",
+        "metageneration",
+        "timeCreated",
+        "updated",
+        "etag",
+        "locationType",
+        "owner",
+        "generation",
+        "softDeleteTime",
+        "hardDeleteTime",
+    ] {
+        for value in [
+            Value::Null,
+            json!({}),
+            json!([]),
+            json!(false),
+            json!("spoofed"),
+        ] {
+            let mut body = json!({"name":"abc"});
+            body[field] = value;
+            let actual = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
+            assert_eq!(actual, expected, "{field}");
+        }
+    }
+    let mut body = resource(&expected);
+    body["name"] = json!("new-bucket");
+    let actual = parse_insert(body.to_string().as_bytes(), "q", UNIX_EPOCH).unwrap();
+    assert_eq!(actual.name, "new-bucket");
+    assert_eq!(actual.project, "q");
 }
 
 #[test]

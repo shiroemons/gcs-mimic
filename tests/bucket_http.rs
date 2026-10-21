@@ -436,13 +436,7 @@ fn bkt_http_sorted_scoped_pagination_and_limits() {
             .request("GET", &path, "")
             .error(400, "invalidParameter");
     }
-    assert_eq!(
-        server
-            .request("GET", "/storage/v1/b?project=p&maxResults=0", "")
-            .json(),
-        json!({"kind":"storage#buckets"})
-    );
-    for n in ["1000", "1001", "4294967295"] {
+    for n in ["0", "1000", "1001", "4294967295"] {
         let reply = server.request(
             "GET",
             &format!("/storage/v1/b?project=p&maxResults={n}"),
@@ -543,7 +537,12 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
             200
         );
     }
-    for query in ["", "&maxResults=1001", "&maxResults=4294967295"] {
+    for query in [
+        "",
+        "&maxResults=0",
+        "&maxResults=1001",
+        "&maxResults=4294967295",
+    ] {
         let first = server
             .request("GET", &format!("/storage/v1/b?project=limits{query}"), "")
             .json();
@@ -573,4 +572,12 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
     assert_eq!(full["items"].as_array().unwrap().len(), 200);
     assert_eq!(full["items"][199]["name"], "limit-0199");
     assert!(full["nextPageToken"].is_string());
+    let zero_full = server
+        .request(
+            "GET",
+            "/storage/v1/b?project=limits&projection=full&maxResults=0",
+            "",
+        )
+        .json();
+    assert_eq!(zero_full, full);
 }

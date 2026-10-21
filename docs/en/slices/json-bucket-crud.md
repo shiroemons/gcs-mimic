@@ -26,6 +26,12 @@ All sources below were checked on 2026-10-21:
 - [Creation defaults](https://docs.cloud.google.com/storage/docs/creating-buckets)
 - [Discovery v1](https://storage.googleapis.com/$discovery/rest?version=v1), revision
   `20261013`, SHA-256 `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0`.
+- [Storage v2 proto](https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto),
+  commit `14a161a98ef045be80c12ab69d924504a756f109`, SHA-256
+  `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`.
+- [Proto3 scalar defaults and presence](https://protobuf.dev/programming-guides/proto3/#default)
+- [Output-only field behavior](https://google.aip.dev/203#output-only)
+- [JSON number grammar](https://www.rfc-editor.org/rfc/rfc8259#section-6)
 
 Existing gaps SPEC-001/002/003/004/006/007 were reviewed; none establishes additional bucket
 CRUD semantics. No real-cloud calls are authorized or needed for these unit tests.
@@ -43,7 +49,8 @@ This is a known deviation, explicitly selected for the official high-level Go SD
 bucket Attrs and list methods request `full`. No ACL or permission fidelity is claimed.
 All recognized unsupported request semantics are rejected, even for empty objects/arrays or
 false/null values, unless explicitly documented below. These 501 responses are emulator
-deviations, not claimed Google errors. Unknown body fields are ignored for forward compatibility;
+deviations, not claimed Google errors. Documented output-only fields are ignored on insert.
+Unknown body fields are ignored for forward compatibility;
 the checked bucket sources do not establish exact unknown-field behavior, so this remains an
 unverified local rule, distinct from recognizing and rejecting unsupported fields.
 
@@ -92,10 +99,10 @@ Every method-specific Discovery query parameter is listed here (`bucket` is a pa
 | insert | `predefinedAcl`, `predefinedDefaultObjectAcl` | Rejected 501 |
 | insert | `enableObjectRetention` | Rejected 501, including false |
 | insert, get, list, delete | `userProject` | Rejected 501: billing is not implemented |
-| get, delete | `ifMetagenerationMatch`, `ifMetagenerationNotMatch` | Supported signed int64; both may be present; conditions must both hold |
+| get, delete | `ifMetagenerationMatch`, `ifMetagenerationNotMatch` | Supported signed int64 without a leading plus sign; both may be present; conditions must both hold |
 | get | `generation` | Rejected 501: no soft-deleted bucket versions |
 | get, list | `softDeleted` | False supported (live buckets); true rejected 501; invalid boolean 400 |
-| list | `maxResults` | Supported uint32 including zero; default/max 1000 for noAcl, 200 for full; larger values clamped |
+| list | `maxResults` | Supported uint32; zero selects the projection default; default/max 1000 for noAcl, 200 for full; larger values clamped |
 | list | `prefix` | Supported literal UTF-8 prefix; empty means all; local cap 222 bytes |
 | list | `pageToken` | Supported opaque cursor, validated and bound to project/prefix; empty means the first page as sent by the pinned Go SDK |
 | list | `returnPartialSuccess` | False supported; true rejected 501: no regional failure model |
@@ -128,13 +135,22 @@ Unicode combining marks and other ambiguous international characters are a docum
 limit (400 `invalidArgument`). Invalid types/values return 400 `invalidArgument`; malformed
 JSON returns 400 `parseError`; absent required fields return 400 `required`.
 
-Every remaining top-level field in the checked Discovery Bucket schema is recognized and
+Documented output-only resource fields are ignored, regardless of the supplied value:
+`kind`, `id`, `selfLink`, `projectNumber`, `metageneration`, `timeCreated`, `updated`,
+`etag`, `locationType`, `owner`, `generation`, `softDeleteTime`, `hardDeleteTime`.
+Their values cannot override server state. The Discovery schema identifies these
+fields but does not carry `readOnly` annotations; the JSON resource reference's
+writable column distinguishes them from writable settings. The pinned proto explicitly
+marks `bucket_id`, `metageneration`, `location_type`, `create_time`, `update_time` and
+`owner` as OUTPUT_ONLY on Bucket. Ignoring those inputs follows AIP-203; exact JSON
+service behavior has not been verified against a real bucket.
+
+Every remaining unsupported top-level field in the checked Discovery Bucket schema is recognized and
 rejected 501: `acl`, `autoclass`, `billing`, `cors`, `customPlacementConfig`,
-`defaultEventBasedHold`, `defaultObjectAcl`, `encryption`, `etag`, `generation`, `hardDeleteTime`,
-`hierarchicalNamespace`, `iamConfiguration`, `id`, `ipFilter`, `kind`, `lifecycle`, `locationType`,
-`logging`, `metageneration`, `objectRetention`, `owner`, `projectNumber`, `retentionPolicy`, `rpo`,
-`satisfiesPZI`, `satisfiesPZS`, `selfLink`, `softDeletePolicy`, `softDeleteTime`, `timeCreated`,
-`updated`, `versioning`, `website`. Output-only fields are never used to override server state.
+`defaultEventBasedHold`, `defaultObjectAcl`, `encryption`, `hierarchicalNamespace`,
+`iamConfiguration`, `ipFilter`, `lifecycle`, `logging`, `objectRetention`, `retentionPolicy`,
+`rpo`, `satisfiesPZI`, `satisfiesPZS`, `softDeletePolicy`, `versioning`, `website`.
+Reserved residency fields remain unsupported; their names do not establish output-only behavior.
 
 Emitted bucket resource fields: `kind="storage#bucket"`, `id=name`, `name`, `selfLink`,
 `projectNumber`, `metageneration`, `timeCreated`, `updated`, `etag`, `location`, `locationType`,
@@ -155,8 +171,12 @@ List emits `kind="storage#buckets"`; omits `items` when empty and `nextPageToken
 No `unreachable` field is emitted because partial regional success is unsupported. The catalog
 must supply sorted, prefix-filtered, project-filtered rows strictly after the cursor and bounded
 by the effective page size. It must use a lookahead to determine continuation, without reading
-the entire catalog. For `maxResults=0`, return no items and no token (local rule; upstream's
-zero behavior is not described). Cursors are versioned hex envelopes with a corruption checksum,
+the entire catalog. `maxResults=0` means unspecified: use 1000 for noAcl or 200 for full,
+including the ordinary continuation token when more results exist. This choice follows
+the v2 proto's OPTIONAL `int32 page_size`: it has implicit proto3 presence, so zero
+and an omitted scalar are indistinguishable. This is a cross-protocol rationale;
+the JSON zero behavior remains unverified against the real service. Cursors are
+versioned hex envelopes with a corruption checksum,
 not credentials or authenticated tokens; clients must treat them as opaque. They carry the last
 name, project and prefix, not an offset or snapshot. New names behind the cursor are skipped.
 

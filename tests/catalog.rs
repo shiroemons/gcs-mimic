@@ -235,7 +235,13 @@ async fn directory_lock_lives_until_the_last_handle_drops() {
 
 #[tokio::test]
 async fn rejects_future_schema_unversioned_data_and_corruption() {
-    for fixture in ["future", "unversioned", "corrupt", "missing-schema"] {
+    for fixture in [
+        "future",
+        "unversioned",
+        "corrupt",
+        "missing-schema",
+        "incompatible-schema",
+    ] {
         let dir = TestDir::new();
         fs::create_dir_all(&dir.0).unwrap();
         let path = dir.0.join("catalog.sqlite3");
@@ -254,8 +260,20 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
                 .unwrap()
                 .pragma_update(None, "user_version", 1)
                 .unwrap(),
+            "incompatible-schema" => Connection::open(&path)
+                .unwrap()
+                .execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA user_version = 1;")
+                .unwrap(),
             _ => fs::write(&path, b"not a SQLite database").unwrap(),
         }
+        let before = fs::read(&path).unwrap();
+        let journal_mode = || {
+            Connection::open(&path)
+                .unwrap()
+                .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                .unwrap()
+        };
+        let mode = (fixture != "corrupt").then(journal_mode);
         let error = Catalog::open(&dir.0).await.err().unwrap();
         assert!(
             matches!(error, CatalogError::Unavailable(_)),
@@ -276,6 +294,16 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
                 .to_string()
                 .contains("catalog")
         );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "{fixture}: database bytes changed"
+        );
+        assert!(!path.with_extension("sqlite3-wal").exists(), "{fixture}");
+        assert!(!path.with_extension("sqlite3-shm").exists(), "{fixture}");
+        if let Some(mode) = mode {
+            assert_eq!(journal_mode(), mode, "{fixture}");
+        }
     }
 }
 

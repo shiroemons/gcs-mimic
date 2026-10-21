@@ -129,10 +129,14 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
                     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
                         return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
                     }
-                    value
+                    let size = value
                         .parse::<u32>()
-                        .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?
-                        .min(page_cap)
+                        .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
+                    if size == 0 {
+                        page_cap
+                    } else {
+                        size.min(page_cap)
+                    }
                 }
             };
             let prefix = query.remove("prefix").unwrap_or_default();
@@ -285,6 +289,11 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
         query
             .remove(key)
             .map(|value| {
+                if value.starts_with('+') {
+                    return Err(JsonError::invalid_parameter(format!(
+                        "{key} must be an int64"
+                    )));
+                }
                 value
                     .parse::<i64>()
                     .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))

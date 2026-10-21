@@ -44,7 +44,10 @@ Startup validates config and registers signals, then opens/recovers the catalog 
 file-backed temporary storage and a 256-page auto-checkpoint. Schema version 1
 stores bucket metadata and a `(project, name)` index. New/empty version 0 catalogs
 are initialized transactionally; future versions, nonempty unversioned catalogs,
-failed quick_check or incompatible columns prevent readiness.
+failed quick_check or incompatible columns prevent readiness. Version, emptiness
+and existing-schema checks precede any persistent journal-mode change, so rejected
+foreign catalogs retain their bytes and mode. A poisoned connection permanently
+revokes readiness and subsequent catalog operations return unavailable.
 
 Each operation has immediate bounded admission (32 calls), then awaits one execution
 permit before scheduling one blocking job. The runtime's configured blocking pool
