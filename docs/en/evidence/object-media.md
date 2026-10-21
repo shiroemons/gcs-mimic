@@ -114,6 +114,56 @@ Documentation checks disable only MD013 for existing long API tables, URLs and c
 MD024 uses `siblings_only: true` because generated matrices repeat category headings under
 different kind parents. These changes do not modify runtime/test source, statuses or fidelity.
 
+## Catalog-timeout regression verification
+
+Checked on 2026-10-22 with Rust 1.99.1, locked offline dependencies and macOS arm64.
+The unchanged test reproduced the failure with `RUST_BACKTRACE=1`: both upload 503
+assertions passed, then the media GET after `ROLLBACK` reached EOF before response headers.
+The diagnostic and relevant backtrace frames were:
+
+```text
+connection deadline or object body inactivity timeout exceeded
+assertion `left != right` failed: HTTP response headers
+  left: 0
+ right: 0
+5: <object_http::Server>::raw
+6: <object_http::Server>::request
+7: <object_http::Server>::get
+8: object_http::obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish
+   at ./tests/object_http.rs:765:23
+```
+
+The failure was a test synchronization error. Releasing the external SQLite IMMEDIATE
+lock does not wake a sleeping busy-handler retry immediately. The bundled SQLite
+`sqliteDefaultBusyCallback` retries with sleeps reaching 100 ms. The follow-up GET could
+therefore exceed its unchanged 100 ms response-startup deadline while the background
+commit still held catalog execution. Upload advisory/post-EOF waits correctly suspend
+inactivity and return 503; GET startup does not use that suspension. The test now observes
+the committed row through the external SQLite connection, bounded to two seconds, before
+checking the media bytes. It retains both 503 `backendError` assertions, the original
+500 ms–2 s bound before lock release, queued-upload 404 and subsequent-upload success.
+No server behavior, configuration, feature status or fidelity changed.
+
+The [official JSON status reference](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes)
+was rechecked on 2026-10-22 for 503 `backendError`; the timeout budgets and suspension
+rules are emulator-local contracts in the [slice](../slices/json-object-media.md).
+
+| Command | Result |
+| --- | --- |
+| `for i in $(seq 30); do cargo test --locked --offline --test object_http obj_http_catalog_wait_deadlines \|\| exit; done` | PASS, 30 consecutive standalone runs; no retries/skips |
+| `for i in $(seq 5); do cargo test --locked --offline --test object_http \|\| exit; done` | PASS, 5 consecutive runs, 20 tests each |
+| `cargo test --workspace --locked --offline` | PASS, 154 tests; 0 failed/ignored |
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
+| `cargo xtask compatibility validate` | PASS; 591 feature rows, 401 parameter locations, 357 schema fields |
+| `GOPROXY=off GOFLAGS=-mod=readonly GCS_MIMIC_GO_TEST_RUN=TestObjectMediaLifecycle bash scripts/sdk-go.sh` | PASS, once; Go vet and the existing object lifecycle test |
+
+Markdownlint v0.24.0 checks both changed documents with only MD013 disabled for existing
+long tables, URLs and commands.
+
+Container builds, the full SDK suite and real-cloud checks were not rerun for this test-only
+change; the earlier evidence above retains its original scope.
+
 ## Remaining limits and next slice
 
 Whole object method rows remain PARTIAL. Multipart/resumable uploads, ranges, listing,

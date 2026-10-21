@@ -762,6 +762,19 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
         "both waits bounded before lock release"
     );
     database.execute_batch("ROLLBACK").unwrap();
+    // GET response startup still has a 100 ms deadline; let SQLite's busy retry finish first.
+    let committed = Instant::now() + Duration::from_secs(2);
+    while !database
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = 'test-bucket' AND name = 'committing')",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap()
+    {
+        assert!(Instant::now() < committed, "timed-out upload committed");
+        thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(server.get("committing?alt=media").body, b"one");
     server.get("queued").error(404, "notFound");
     assert_eq!(

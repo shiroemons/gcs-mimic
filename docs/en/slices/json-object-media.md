@@ -344,6 +344,11 @@ not background filesystem/SQLite execution; ongoing work retains directory owner
 its permit until cleanup/commit finishes. Filesystem operations and shutdown catalog close
 still have no separate execution bound. SQLite lock waits retain their five-second busy
 timeout. Backpressured downloads also remain subject to inactivity.
+The upload catalog-wait suspension does not extend GET response startup. Releasing an
+external SQLite lock does not confirm a background upload's commit: SQLite may still be
+sleeping between busy retries. The catalog-timeout regression therefore observes the
+committed catalog row before checking media bytes with its 100 ms GET startup budget;
+both upload 503 assertions and the 500 ms–2 s pre-release bound remain independent.
 Bucket/probe/unknown routes retain the previous total connection deadline. Keep-alive stays
 disabled; graceful drain still has the independent `shutdown_timeout_ms` network bound.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup
