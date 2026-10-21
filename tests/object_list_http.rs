@@ -159,7 +159,18 @@ fn object_list_resources_defaults_empty_and_restart() {
     for name in ["a", "dir/file", "雪 +%2F"] {
         server.put(name);
     }
+    let (status, patched) = server.request(
+        "PATCH",
+        "/storage/v1/b/test-bucket/o/a?ifMetagenerationMatch=1",
+        r#"{"contentType":"text/plain","cacheControl":"private, max-age=60","metadata":{"team":"dev"}}"#,
+    );
+    assert_eq!(status, 200, "{patched}");
+    assert_eq!(patched["metageneration"], "2");
+    assert_eq!(patched["contentType"], "text/plain");
+    assert_eq!(patched["cacheControl"], "private, max-age=60");
+    assert_eq!(patched["metadata"], json!({"team":"dev"}));
     let page = server.list("versions=false&softDeleted=false&includeFoldersAsPrefixes=false&projection=noAcl&prettyPrint=false&alt=json&matchGlob=&filter=");
+    assert_eq!(page["items"][0], patched);
     assert_eq!(names(&page), ["a", "dir/file", "雪 +%2F"]);
     assert!(page.get("prefixes").is_none());
     assert!(page.get("nextPageToken").is_none());
