@@ -159,7 +159,7 @@ fn object_list_resources_defaults_empty_and_restart() {
     for name in ["a", "dir/file", "雪 +%2F"] {
         server.put(name);
     }
-    let page = server.list("versions=false&softDeleted=false&includeFoldersAsPrefixes=false&projection=noAcl&prettyPrint=false&alt=json&matchGlob=");
+    let page = server.list("versions=false&softDeleted=false&includeFoldersAsPrefixes=false&projection=noAcl&prettyPrint=false&alt=json&matchGlob=&filter=");
     assert_eq!(names(&page), ["a", "dir/file", "雪 +%2F"]);
     assert!(page.get("prefixes").is_none());
     assert!(page.get("nextPageToken").is_none());
@@ -179,6 +179,7 @@ fn object_list_resources_defaults_empty_and_restart() {
         );
     }
     assert_eq!(server.list("projection=full"), page);
+    assert_eq!(server.list("includeTrailingDelimiter=true"), page);
     server.stop();
     let server = Server::start(&dir);
     assert_eq!(server.list(""), page);
@@ -264,7 +265,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
     server.bucket();
     for query in [
         "maxResults=-1",
-        "maxResults=0",
         "maxResults=",
         "maxResults=4294967296",
         "maxResults=1.5",
@@ -292,7 +292,7 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
     }
     for query in [
         "matchGlob=a*",
-        "filter=",
+        "filter=context-filter",
         "fields=items/name",
         "userProject=local",
         "versions=true",
@@ -463,13 +463,12 @@ fn object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors() {
     let page = server.list("startOffset=g&delimiter=%2F&maxResults=1");
     server.put("g/again");
     server.put("h");
-    assert_eq!(
-        names(&server.list(&format!(
-            "startOffset=g&delimiter=%2F&pageToken={}",
-            page["nextPageToken"].as_str().unwrap()
-        ))),
-        ["h", "z"]
-    );
+    let page = server.list(&format!(
+        "startOffset=g&delimiter=%2F&pageToken={}",
+        page["nextPageToken"].as_str().unwrap()
+    ));
+    assert_eq!(names(&page), ["h", "z"]);
+    assert!(page.get("prefixes").is_none());
 }
 
 #[test]
@@ -480,7 +479,12 @@ fn object_list_default_and_upper_page_limit_are_1000_for_both_projections() {
     for index in 0..1001 {
         server.put(&format!("object-{index:04}"));
     }
-    for query in ["", "projection=full", "maxResults=4294967295"] {
+    for query in [
+        "",
+        "projection=full",
+        "maxResults=0",
+        "maxResults=4294967295",
+    ] {
         let page = server.list(query);
         assert_eq!(names(&page).len(), 1000);
         let token = page["nextPageToken"].as_str().unwrap();

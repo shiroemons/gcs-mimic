@@ -15,7 +15,6 @@ pub struct ObjectListParams {
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
     for name in [
-        "filter",
         "fields",
         "userProject",
         "key",
@@ -28,11 +27,10 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
             return Err(JsonError::unsupported_object(name));
         }
     }
-    if params
-        .remove("matchGlob")
-        .is_some_and(|glob| !glob.is_empty())
-    {
-        return Err(JsonError::unsupported_object("matchGlob"));
+    for name in ["matchGlob", "filter"] {
+        if params.remove(name).is_some_and(|filter| !filter.is_empty()) {
+            return Err(JsonError::unsupported_object(name));
+        }
     }
     for name in [
         "versions",
@@ -66,9 +64,10 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
                 .parse::<u32>()
                 .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?;
             if value == 0 {
-                return Err(JsonError::invalid_parameter("maxResults must be positive"));
+                1000
+            } else {
+                value.min(1000) as usize
             }
-            value.min(1000) as usize
         }
     };
     let mut query = ObjectListQuery {
