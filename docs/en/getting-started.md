@@ -131,6 +131,13 @@ bucket CRUD, prefix/paged listing and 409/404 errors. It creates and cleans up i
 own random buckets. No object/ACL or unrestricted SDK support is claimed.
 For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 
+Finish the Compose walkthrough by stopping and removing its containers and
+network. This preserves the named data volume:
+
+```sh
+docker compose down
+```
+
 ## Native binary and configuration
 
 Build with Rust 1.99.1 and the committed lockfile:
