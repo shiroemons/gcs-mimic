@@ -56,8 +56,7 @@ Rust wire coverage remains authoritative for the configured origin. Choosing a
 port before binding has a small race; a competing bind fails startup explicitly.
 arm64 containers ran natively and amd64 under emulation. Native amd64, remote CI,
 real-cloud conformance, objects, permissions and performance measurements remain
-outside this task. No dependencies were added, no main commit or push was made,
-and there are no open coordinator questions.
+outside the verified scope. No dependencies were added.
 
 One intermediate shutdown-test attempt failed with WouldBlock before the bounded
 accept wait was added; final consecutive runs pass. The resolved failure output

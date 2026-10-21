@@ -6,7 +6,7 @@ Each milestone contains multiple small feature slices. Complete one requested sl
 | --- | --- | --- |
 | P0 Foundation | Latest stable Rust/dependencies, reproducible pins, daily update checks, CLI/configuration, health/readiness, Docker amd64/arm64, deterministic ledger generator, source lock and clock interface | Container starts/stops correctly; dependency checks run; the English table and any requested companion views are generated from one ledger; no GCS API is falsely marked implemented |
 | P1 Core data path | Bucket/object CRUD, streaming media and JSON multipart upload, metadata, list/pagination, basic ranges, checksums, generations and atomic preconditions, disk persistence | Go/Ruby core workflows; wrong checksum and failed preconditions rejected; restart and concurrent-create tests; object-size-independent buffering |
-| P2 Access and URLs | Local strict identities, IAM/ACL/default ACL, UBLA/PAP, XML object paths, public URL helper, V4 signing, CORS and host/browser configuration | Public/private/expired/tampered/wrong-host cases; public URL generation does not grant access; Rails public and private delivery scenarios |
+| P2 Access and URLs | Local strict identities, IAM/ACL/default ACL, UBLA/PAP, XML object paths, public URL helper, V4 signing, CORS and host/browser configuration | Public, private, expired, tampered and wrong-host cases; public URL generation does not grant access; Rails public and private delivery scenarios |
 | P3 Transfer and HTTP breadth | Resumable sessions, retry/status/expiry, rewrite/copy/compose, HTTP batch, remaining XML operations and multipart, V2/HMAC interoperability, advanced conditional/range/transcoding | Interrupted transfer recovery; metadata and source inheritance; partial batch failures; bounded buffering; equivalent protocol outcomes |
 | P4 Protection and lifecycle | Versioning, soft delete/restore/bulk restore, holds, bucket/object retention, lifecycle, Autoclass local transitions | Virtual-clock cases and cross-feature restrictions; local retention locking; no premature deletion; metadata-only coverage remains explicit |
 | P5 Hierarchy and control | HNS folders/rename, managed folders/inherited access, storage layout, shared LRO behavior and relevant Control operations | Atomic subtree changes, list visibility, permission inheritance, cancellation limits and operation polling |
@@ -19,9 +19,30 @@ The first developer release should target P1 plus the essential P2 public/privat
 
 ## Suggested first slices
 
-P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the first P1 bucket slice now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Object storage, seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
+P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
 
-Bucket create/get/list/delete now use an indexed transactional catalog, exclusive data-directory ownership, bounded queries, restart/WAL recovery tests and official Go JSON SDK evidence. The next small slice is one streaming object media upload/download/metadata/delete path with opaque blobs, checksum validation, generations/create-if-absent and a proven catalog/filesystem publication/recovery protocol. Decompose its exact subset and verify latest dependencies first; multipart, resumable uploads and ACL/IAM remain separate slices.
+Bucket create/get/list/delete and streaming object media upload/metadata/download/delete use
+an indexed transactional catalog and opaque immutable blobs. Checksums, atomic generation
+conditions/create-if-absent, nonempty bucket protection and selected SIGKILL recovery points
+pass, with pinned Go JSON Attrs/NewReader/Delete coverage. Publication and SQL commit are
+separate; every instruction-level fsync/deletion window, power loss and performance remain
+unverified. See the [integration evidence](evidence/object-media.md) and
+[executed guide](evidence/object-media-guide.txt); full method rows remain PARTIAL.
+
+Regression tests additionally cover explicit upload EOF, commit waiting beyond body
+inactivity, committed success with deferred reclamation, both storage race outcomes, early
+rejection with eager bodies, advisory checks and OS metadata recovery. Object-free v1 catalogs
+migrate directly to v3; unreleased v2 catalogs are rejected. See the
+[verification summary](evidence/object-media.md)
+for current logs and the remaining filesystem, platform and performance limits.
+
+The next slice is **list and metadata**, starting with `objects.list` prefix/delimiter/keyset
+pagination and conditional metadata patch versus replacement. This is item 4 below and can
+reuse the live-object catalog, generation conditions and existing bucket paging pattern;
+it does not depend on multipart or resumable sessions. Decompose exact field/mask/permission
+cases and verify current sources/dependencies before coding. JSON multipart follows as a
+separate P1 transfer slice needed for the pinned Go Writer and later Ruby/Rails workflows;
+resumable uploads and ACL/IAM remain separate work.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.

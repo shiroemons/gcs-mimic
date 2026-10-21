@@ -1,0 +1,8 @@
+Local path prefixes were redacted; all other output is unchanged.
+Command: markdownlint-cli2 (installed v0.24.0 CLI entry point) --config <local-path>/object-media-markdownlint.json README.md docs/en/dependency-policy.md docs/en/design.md docs/en/development.md docs/en/evidence/bucket-review-fixes.md docs/en/evidence/object-media.md docs/en/getting-started.md docs/en/roadmap.md docs/en/slices/json-object-media.md sdk-tests/go/README.md
+Rules: MD013 disabled for existing long API tables, URLs and exact commands; MD024 siblings_only=true for generated matrix category headings.
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: README.md docs/en/dependency-policy.md docs/en/design.md docs/en/development.md docs/en/evidence/bucket-review-fixes.md docs/en/evidence/object-media.md docs/en/getting-started.md docs/en/roadmap.md docs/en/slices/json-object-media.md sdk-tests/go/README.md
+Linting: 10 files
+Summary: 0 issues in 0 files
+Exit status: 0

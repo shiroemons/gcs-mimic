@@ -4,7 +4,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. The first P1 slice adds persistent JSON bucket create/get/list/delete. Objects and permissions remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media upload/metadata/download/delete with checksums and atomic generation conditions. Permissions and broader transfer modes remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -18,7 +18,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `server`, `bucket`, `json` and `storage`; `main` owns runtime creation, signals, catalog opening and listener setup. JSON parsing/rendering remains separate from the transport-independent record/catalog. The server routes four bucket operations and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
+One application crate contains `config`, `clock`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, catalog opening and listener setup. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes four bucket operations, object media upload/get/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -30,21 +30,53 @@ One application crate contains `config`, `clock`, `server`, `bucket`, `json` and
 | Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
 | Clock | Inject business wall time through `Clock::now`; production uses `SystemClock`, tests supply deterministic time. Socket/drain deadlines use Tokio monotonic time independently. |
 
-The bucket catalog is concrete; no generic persistence trait is frozen for future object work. Recovery gates readiness. Authorization remains unimplemented and bucket API rows remain PARTIAL. Existing SPEC-001/002/003/004/006/007 gaps were reviewed; none adds bucket CRUD semantics. They remain open for their affected features.
+The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. Authorization remains unimplemented and whole bucket/object API rows remain PARTIAL. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
 
-The server caps connections (default 32), headers (64 and 16 KiB), connection lifetime (5 seconds), shutdown drain (5 seconds), async workers (2) and blocking workers (2). Connection admission stops when full; the requested kernel backlog is 128. Every response closes its connection. Only insert reads a body, capped at 64 KiB. Probe and other bucket methods reject bodies from headers. Compose additionally sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are settings, not benchmarks. Catalog admission and cache limits are described below; no maintenance polling exists.
+The server caps connections (default 32), headers (64 and 16 KiB), shutdown drain
+(5 seconds), async workers (2) and blocking workers (2). Connection admission stops
+when full; the requested kernel backlog is 128. Every response closes its connection.
+Bucket insert JSON is capped at 64 KiB; probe and other bucket methods reject bodies.
+Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated
+from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
+overflow is rejected before reading; producer and storage also bound unknown-length streams.
+
+Eight uploads are admitted immediately; excess uploads fail with 503 before any advisory
+catalog check. Header validation and the known Content-Length cap check precede admission.
+Each upload uses two channel slots with copied chunks of at most 64 KiB, incremental
+MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
+reader. Neither a database transaction nor a blocking worker is held waiting for body input.
+Catalog admission remains 32 calls with one executing SQLite job. The five-second default
+`connection_timeout_ms` bounds header reads, then object-route response startup and inactivity
+between chunks; each progressing chunk renews it. Upload advisory checks suspend this
+body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
+before body streaming. Bucket/probe/unknown routes retain their total connection deadline.
+Shutdown has its independent drain deadline. Compose additionally
+sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are inspected settings
+and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB transfer under
+the container limit. No maintenance polling exists.
 
 Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Fixture seeding, clock-backed expiration and an explicit maintenance scheduler remain future work.
 
 ## Implemented bucket catalog and recovery
 
 `Catalog::open` creates the data directory and acquires an exclusive OS lock on
-`catalog.lock`; the lock file is never unlinked. A single SQLite connection owns
-`catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. Schema version 1
-stores bucket metadata and a `(project, name)` index. New/empty version 0 catalogs
-are initialized transactionally; future versions, nonempty unversioned catalogs,
-failed quick_check or incompatible columns prevent readiness. Version, emptiness
+`catalog.lock`; the lock file is never unlinked. A read-only preflight connection checks
+existing version, integrity and schema before the operational read-write connection opens.
+When no WAL exists, the locked main file is opened through an escaped immutable URI to
+avoid creating WAL/SHM sidecars on rejection; an existing WAL uses ordinary read-only mode
+so committed frames remain visible. Immutable preflight does not consider a hot rollback
+`-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
+The preflight closes before a single operational
+connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
+file-backed temporary storage and a 256-page auto-checkpoint. Schema version 3
+stores buckets, live objects, unique opaque blob references, pending blob deletions
+and a persistent generation high-water mark. It retains the bucket `(project, name)`
+index; object keys use `(bucket, name)` with indexed blob lookup. Valid v1 catalogs
+contain no objects and migrate directly to v3 in one transaction. Unreleased v2 catalogs
+are rejected before journal-mode changes because deleted generation history is unavailable.
+New/empty version 0 catalogs are initialized transactionally; future versions,
+nonempty unversioned catalogs, failed quick_check or incompatible versioned DDL
+(columns, constraints, collations and indexes) prevent readiness. Version, emptiness
 and existing-schema checks precede any persistent journal-mode change, so rejected
 foreign catalogs retain their bytes and mode. A poisoned connection permanently
 revokes readiness and subsequent catalog operations return unavailable.
@@ -67,9 +99,9 @@ admission across all clones, waits for blocking execution, closes SQLite and rel
 the directory even when old handles remain alive. Repeated close/drop of old handles
 cannot unlock a reopened catalog. Without explicit close, the last handle or running
 job still owns the resources until its synchronous drop. See the
-[lock-release evidence](evidence/bucket-lock-release.md). No object blobs, filesystem rename protocol, uncommitted blob
-reconciliation or power-loss durability measurement is implemented. The object publication
-contract below remains planned and must be verified before exposing object writes.
+[lock-release evidence](evidence/bucket-lock-release.md). Object publication/recovery is
+implemented as described below, with actual process-crash tests at selected boundaries.
+Power-loss durability and every individual instruction window remain unverified.
 
 `selfLink` uses fixed `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` /
 JSON, default `http://127.0.0.1:4443`). Listener and advertised origin are independent;
@@ -100,9 +132,54 @@ Tokio's file operations may use blocking workers; merely using async functions d
 
 Use generated, opaque blob identifiers. Object names such as Unicode strings, repeated slashes, encoded `%2F`, dot segments and trailing delimiters are logical keys, not native filesystem paths.
 
-A suggested ordinary-object write path is: allocate upload state, stream to a temporary blob while checking length/checksums, make the blob durable according to the selected profile, publish its immutable file, and commit the catalog reference with atomic precondition checks. File publication and SQL commit are separate operations. A recovery journal or an explicitly proven reconciliation protocol must cover every crash boundary, orphan blob and dangling reference. Garbage collection must not remove a generation still being read or needed by a resumable operation.
+The implemented ordinary-object write stages under a random 128-bit opaque ID on the
+data filesystem. It streams and hashes the entire body within the configured cap,
+validates declared hashes and syncs the file. It creates/syncs the blob shard's parent,
+renames the staged file into that shard and syncs the shard. Only then does a short
+immediate SQL transaction check bucket existence and all conditions, advance the
+persistent generation high-water mark, replace the live reference and journal any
+old blob for deletion. File publication and SQL commit are separate operations.
+An ambiguous commit error is followed by a reference check before cleanup; committed
+live data must not be removed as though the write had failed.
 
-Before exposing writes, validate this publication protocol: stage and fsync a temporary blob; rename to an opaque immutable ID on the same filesystem and fsync its directory; atomically check preconditions and commit the catalog reference. A crash before publication leaves staging data; before catalog commit it leaves an orphan; after commit the referenced blob must be durable. Recovery takes the exclusive directory lock before serving and reconciles staging/orphans against indexed references in bounded pages. Missing referenced blobs are corruption that prevents readiness. Failed preconditions expose no generation, and GC must respect readers/sessions. This is a planned crash-boundary contract, not verified durability or an atomic SQLite/filesystem transaction.
+Delete atomically removes the live record and journals its blob. After successful commit,
+overwrite/delete return success even if reclamation fails; the diagnostic is logged and the
+journal retains deferred work for startup. Reclamation checks
+for live references, unlinks/syncs the directory and removes the journal entry. A failed
+startup retry blocks readiness until its cause is fixed and names the blob ID.
+An already opened file descriptor continues to serve its selected immutable generation
+after overwrite/delete on the tested Unix platforms. Resumable sessions and Windows
+unlink behavior are outside the verified scope.
+
+Recovery holds the exclusive directory lock before bind/readiness. It removes staging,
+replays deletion entries and validates live references in pages of 128. Directory
+iterators plus indexed single-ID checks remove orphan blobs without collecting the
+object catalog. Missing/truncated/non-file referenced data prevents readiness. Actual
+SIGKILL tests cover incomplete staging, a renamed blob blocked before catalog commit,
+and restart after successful commit. Fixtures cover pending deletion, orphan cleanup,
+multi-page recovery and missing/truncated live data. Individual file/directory fsync,
+deletion-journal insertion, unlink and journal-removal windows have not each been
+barrier-killed; host power loss is untested. See the
+[integration evidence](evidence/object-media.md). This is a local recovery
+protocol, not an atomic SQLite/filesystem transaction or a production durability claim.
+
+The [regression evidence](evidence/object-media.md)
+covers explicit body-completion markers, commit waiting beyond inactivity, both storage
+race outcomes and advisory bucket/condition checks before staging. The authoritative checks
+remain inside the publication transaction. After header and known-size validation, upload
+admission is immediate (excess requests return 503), followed by one advisory bucket/condition
+check (404/412), body validation (413/400), and authoritative publication checks. Concurrent
+state changes after the advisory check can change the final 404/412 outcome. Channel closure
+without confirmed EOF aborts
+the upload. The advisory check suspends body inactivity, which restarts before streaming.
+After EOF, body inactivity is suspended while storage completes; complete bodies
+may still commit after disconnect or shutdown. SQLite lock waiting keeps its five-second
+busy timeout. Remaining queued writes, fsync, rename, directory sync and shutdown catalog
+close wait on the filesystem without a wall-clock bound. Early responses use
+a write half-close followed by at most 256 KiB of discarded input for at most 100 ms.
+Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid entries fail startup with
+their path in the diagnostic. These checks do not establish power-loss durability or
+cross-platform socket behavior.
 
 Make generation/metageneration compare-and-swap part of the committing mutation. Two concurrent `ifGenerationMatch=0` creates must not both succeed. Ordinary uploads must not expose partial objects. Rapid appendable objects have different visibility and single-writer handoff rules, so model them separately. [Preconditions](https://docs.cloud.google.com/storage/docs/request-preconditions), [Rapid Bucket](https://docs.cloud.google.com/storage/docs/rapid/rapid-bucket).
 

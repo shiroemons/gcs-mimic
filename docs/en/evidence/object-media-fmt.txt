@@ -1,0 +1,3 @@
+Local path prefixes were redacted; all other output is unchanged.
+Command: cargo +1.99.1 fmt --all --check
+Exit status: 0; no tool output.

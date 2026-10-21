@@ -12,6 +12,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub api_base_url: String,
     pub max_connections: usize,
+    pub max_object_bytes: u64,
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
     pub connection_timeout_ms: u64,
@@ -25,6 +26,7 @@ impl Default for Config {
             data_dir: PathBuf::from("data"),
             api_base_url: "http://127.0.0.1:4443".into(),
             max_connections: 32,
+            max_object_bytes: 1024 * 1024 * 1024,
             worker_threads: 2,
             max_blocking_threads: 2,
             connection_timeout_ms: 5_000,
@@ -108,6 +110,9 @@ impl Config {
                 "max_connections" => {
                     config.max_connections = bounded(&key, &value, 1, 1024)? as usize
                 }
+                "max_object_bytes" => {
+                    config.max_object_bytes = bounded(&key, &value, 1, 5 * 1024_u64.pow(4))?
+                }
                 "worker_threads" => config.worker_threads = bounded(&key, &value, 1, 32)? as usize,
                 "max_blocking_threads" => {
                     config.max_blocking_threads = bounded(&key, &value, 1, 32)? as usize
@@ -136,6 +141,51 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn object_limit_precedence_and_bounds() {
+        let file = std::env::temp_dir().join(format!(
+            "gcs-mimic-object-config-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&file, r#"{"max_object_bytes":64}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_MAX_OBJECT_BYTES".into(), "128".into())]);
+        assert_eq!(
+            Config::load(&[], &BTreeMap::new())
+                .unwrap()
+                .max_object_bytes,
+            1_073_741_824
+        );
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .max_object_bytes,
+            64
+        );
+        assert_eq!(Config::load(&args, &env).unwrap().max_object_bytes, 128);
+        args.extend(["--max-object-bytes".into(), "256".into()]);
+        assert_eq!(Config::load(&args, &env).unwrap().max_object_bytes, 256);
+        for value in ["0", "-1", "5497558138881", "unlimited"] {
+            assert!(
+                Config::load(
+                    &["--max-object-bytes".into(), value.into()],
+                    &BTreeMap::new()
+                )
+                .is_err()
+            );
+        }
+        assert_eq!(
+            Config::load(
+                &["--max-object-bytes".into(), "5497558138880".into()],
+                &BTreeMap::new()
+            )
+            .unwrap()
+            .max_object_bytes,
+            5 * 1024_u64.pow(4)
+        );
+        std::fs::remove_file(file).unwrap();
+    }
 
     #[test]
     fn advertised_endpoint_precedence_and_validation() {

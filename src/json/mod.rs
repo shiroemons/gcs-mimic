@@ -1,4 +1,4 @@
-//! Pure JSON bucket API building blocks; no catalog, authorization or socket access.
+//! Pure JSON bucket and object API building blocks; no catalog, authorization or socket access.
 //!
 //! [`route`] parses raw paths and queries into [`BucketRequest`]; other routes return `None`.
 //! [`read_body`] bounds collection before [`parse_insert`] creates a shared bucket record.
@@ -11,12 +11,17 @@
 mod body;
 mod buckets;
 mod error;
+mod objects;
 mod page_token;
 mod query;
 
 pub use body::read_body;
 pub use buckets::{bucket_list, bucket_resource, parse_insert, validate_bucket_name};
 pub use error::JsonError;
+pub use objects::{
+    ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_resource,
+    parse_object_upload_headers, route_object, validate_object_get_headers, validate_object_name,
+};
 pub use page_token::{decode_page_token, encode_page_token};
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
@@ -24,3 +29,6 @@ pub use query::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod object_tests;

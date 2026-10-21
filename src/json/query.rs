@@ -180,7 +180,7 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
     }
 }
 
-fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
+pub(super) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
     if raw.len() > 16 * 1024 {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
     }
@@ -264,7 +264,7 @@ pub(super) fn validate_project(project: &str) -> Result<(), JsonError> {
     Ok(())
 }
 
-fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
+pub(super) fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
     match query.remove("projection").as_deref() {
         None | Some("noAcl") => Ok(Projection::NoAcl),
         Some("full") => Ok(Projection::Full),
@@ -306,7 +306,7 @@ fn conditions(query: &mut BTreeMap<String, String>) -> Result<Conditions, JsonEr
     })
 }
 
-fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
+pub(super) fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
     match query.first_key_value() {
         Some((key, _)) => Err(JsonError::invalid_parameter(format!(
             "Unknown query parameter for this method: {key}"
@@ -315,7 +315,7 @@ fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
     }
 }
 
-fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
+pub(super) fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
     let invalid = || JsonError::invalid_parameter("Malformed URI encoding");
     let mut bytes = Vec::with_capacity(raw.len());
     let mut input = raw.bytes();

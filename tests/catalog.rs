@@ -311,6 +311,8 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         "corrupt",
         "missing-schema",
         "incompatible-schema",
+        "v2-missing-objects",
+        "v2-incompatible-objects",
     ] {
         let dir = TestDir::new();
         fs::create_dir_all(&dir.0).unwrap();
@@ -318,7 +320,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 2)
+                .pragma_update(None, "user_version", 4)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -334,6 +336,17 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
                 .unwrap()
                 .execute_batch("CREATE TABLE buckets (name TEXT); PRAGMA user_version = 1;")
                 .unwrap(),
+            "v2-missing-objects" | "v2-incompatible-objects" => {
+                let catalog = Catalog::open(&dir.0).await.unwrap();
+                catalog.close().await.unwrap();
+                let connection = Connection::open(&path).unwrap();
+                connection.execute("DROP TABLE objects", []).unwrap();
+                if fixture == "v2-incompatible-objects" {
+                    connection
+                        .execute("CREATE TABLE objects (blob_id TEXT)", [])
+                        .unwrap();
+                }
+            }
             _ => fs::write(&path, b"not a SQLite database").unwrap(),
         }
         let before = fs::read(&path).unwrap();
@@ -350,7 +363,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 2"));
+            assert!(error.to_string().contains("schema version 4"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -377,8 +390,55 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
     }
 }
 
+#[tokio::test]
+async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters() {
+    let dir = TestDir::new();
+    let directory = dir.0.join("catalog ?#%é");
+    let catalog = Catalog::open(&directory).await.unwrap();
+    catalog.close().await.unwrap();
+    let path = directory.join("catalog.sqlite3");
+    Connection::open(&path)
+        .unwrap()
+        .pragma_update(None, "user_version", 4)
+        .unwrap();
+    let before = fs::read(&path).unwrap();
+    for _ in 0..2 {
+        assert!(!path.with_extension("sqlite3-wal").exists());
+        assert!(!path.with_extension("sqlite3-shm").exists());
+        assert!(
+            Catalog::open(&directory)
+                .await
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("schema version 4")
+        );
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert!(!path.with_extension("sqlite3-wal").exists());
+        assert!(!path.with_extension("sqlite3-shm").exists());
+    }
+}
+
 #[test]
 fn catalog_child_process() {
+    if let Some(dir) = std::env::var_os("GCS_MIMIC_TEST_REJECTED_WAL_DIR") {
+        let connection = Connection::open(PathBuf::from(dir).join("catalog.sqlite3")).unwrap();
+        connection
+            .pragma_update(None, "wal_autocheckpoint", 0)
+            .unwrap();
+        let sql = match std::env::var("GCS_MIMIC_TEST_REJECTED_WAL_FIXTURE")
+            .unwrap()
+            .as_str()
+        {
+            "v2" => "PRAGMA user_version = 2;",
+            "future" => "PRAGMA user_version = 4;",
+            "inventory" => "DROP INDEX buckets_project_name;",
+            _ => unreachable!(),
+        };
+        connection.execute_batch(sql).unwrap();
+        // Preserve uncheckpointed committed frames with no remaining read-write connection.
+        std::process::exit(0);
+    }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -405,6 +465,45 @@ fn catalog_child_process() {
             // Exit without Drop so SQLite must recover the committed WAL on the next open.
             std::process::exit(0);
         });
+    }
+}
+
+#[tokio::test]
+async fn rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes() {
+    for fixture in ["v2", "future", "inventory"] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog.close().await.unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "catalog_child_process", "--nocapture"])
+            .env("GCS_MIMIC_TEST_REJECTED_WAL_DIR", &dir.0)
+            .env("GCS_MIMIC_TEST_REJECTED_WAL_FIXTURE", fixture)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let paths = [
+            dir.0.join("catalog.sqlite3"),
+            dir.0.join("catalog.sqlite3-wal"),
+        ];
+        let before = paths.each_ref().map(|path| fs::read(path).unwrap());
+        assert!(!before[1].is_empty(), "{fixture}: committed WAL must exist");
+        fs::write(dir.0.join("staging/sentinel"), b"untouched").unwrap();
+        for _ in 0..2 {
+            assert!(Catalog::open(&dir.0).await.is_err(), "{fixture}");
+            for (path, bytes) in paths.iter().zip(&before) {
+                assert_eq!(
+                    fs::read(path).unwrap(),
+                    *bytes,
+                    "{fixture}: {}",
+                    path.display()
+                );
+            }
+            assert!(dir.0.join("staging/sentinel").exists(), "{fixture}");
+        }
     }
 }
 

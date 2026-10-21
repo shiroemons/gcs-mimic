@@ -1,0 +1,3 @@
+Local path prefixes were redacted; all other output is unchanged.
+    Checking gcs-mimic v0.1.0 (<local-path>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s

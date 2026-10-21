@@ -224,7 +224,7 @@ pub fn bucket_list(
     Ok(value)
 }
 
-fn encode_segment(segment: &str) -> String {
+pub(super) fn encode_segment(segment: &str) -> String {
     let mut encoded = String::with_capacity(segment.len());
     for byte in segment.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
@@ -253,7 +253,7 @@ fn timestamp_error() -> JsonError {
     )
 }
 
-fn timestamp(time: SystemTime) -> Result<String, JsonError> {
+pub(super) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
     let millis = epoch_millis(time);
     if !(-62_167_219_200_000..=253_402_300_799_999).contains(&millis) {
         return Err(timestamp_error());

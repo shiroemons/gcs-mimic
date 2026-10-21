@@ -1,0 +1,50 @@
+Local path prefixes were redacted; all other output is unchanged.
+Race run 1/5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-05668717a450d85b)
+
+running 1 test
+race outcomes: overwrite=4, object_delete=8, upload=4, bucket_delete=8
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.75s
+
+Race run 2/5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-05668717a450d85b)
+
+running 1 test
+race outcomes: overwrite=4, object_delete=8, upload=4, bucket_delete=8
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.73s
+
+Race run 3/5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-05668717a450d85b)
+
+running 1 test
+race outcomes: overwrite=4, object_delete=8, upload=4, bucket_delete=8
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.76s
+
+Race run 4/5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-05668717a450d85b)
+
+running 1 test
+race outcomes: overwrite=4, object_delete=8, upload=4, bucket_delete=8
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.78s
+
+Race run 5/5
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-05668717a450d85b)
+
+running 1 test
+race outcomes: overwrite=4, object_delete=8, upload=4, bucket_delete=8
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.81s

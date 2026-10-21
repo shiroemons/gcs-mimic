@@ -23,14 +23,15 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --data-dir PATH              data (exclusive persistent catalog)
   --api-base-url URL           http://127.0.0.1:4443 (fixed advertised endpoint)
   --max-connections N          32 (1..1024)
+  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
   --max-blocking-threads N     2 (1..32)
-  --connection-timeout-ms N    5000 (1..60000)
+  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
   --shutdown-timeout-ms N      5000 (1..60000)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
-HTTP/1 probes and JSON bucket create/get/list/delete are available.
-Insert metadata is limited to 64 KiB. Objects, TLS and authentication are unavailable.";
+HTTP/1 probes, JSON bucket CRUD and streaming JSON object media CRUD are available.
+Bucket metadata is limited to 64 KiB. Multipart, resumable, TLS and authentication are unavailable.";
 
 fn main() -> ExitCode {
     match run() {
@@ -81,12 +82,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     #[cfg(not(unix))]
                     tokio::signal::ctrl_c().await
                 };
-                let catalog = Catalog::open(&config.data_dir).await.map_err(io::Error::other)?;
+                let clock = Arc::new(SystemClock);
+                let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(io::Error::other)?;
                 let socket = if config.listen.is_ipv4() { tokio::net::TcpSocket::new_v4()? } else { tokio::net::TcpSocket::new_v6()? };
                 socket.bind(config.listen)?;
                 let listener = socket.listen(128)?;
-                let state = Arc::new(State { ready: AtomicBool::new(true), clock: Arc::new(SystemClock), catalog, api_base_url: config.api_base_url.clone() });
-                println!("{}", serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-crud","max_connections":config.max_connections,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms}));
+                let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone() });
+                println!("{}", serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms}));
                 server::serve(listener, config, state, shutdown).await?;
                 println!("{{\"event\":\"stopped\"}}");
                 Ok::<_, io::Error>(())

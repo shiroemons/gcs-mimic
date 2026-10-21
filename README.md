@@ -2,7 +2,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete, a bounded SQLite catalog, health/readiness checks and graceful shutdown. **Object APIs are not available yet.** Authentication and permissions are not enforced; use an isolated local development environment.
+The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media upload, metadata get, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
 
 ## Implementation status
 
@@ -14,12 +14,13 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
-| Object, XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
-| Persistence | 🚧 Partial | Transactional bucket catalog, exclusive directory lock and restart/WAL recovery. Object storage and fixtures are unavailable. |
+| JSON object APIs | 🚧 Partial | Media upload, metadata/whole-media get and delete; MD5/CRC32C, generation conditions and nonempty bucket protection. Multipart/resumable, ranges, listing and metadata mutation are unavailable. |
+| XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
+| Persistence | 🚧 Partial | Transactional bucket/object catalog, opaque blobs, exclusive directory lock and restart/crash recovery. Individual fsync crash windows, power loss and fixtures remain unverified or unavailable. |
 | Authentication, IAM and ACLs | ❌ Unavailable | Neither permissive nor strict storage authentication is implemented. |
 | Public and signed URLs | ❌ Unavailable | No URL helpers, signing or signature verification. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.306.0 verified for JSON bucket CRUD/paging; objects and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.306.0 verified for JSON bucket CRUD/paging and object Attrs/NewReader/Delete after raw media upload. SDK Writer is rejected; Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -36,7 +37,7 @@ COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose exec -T --interactive=
   gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
 ```
 
-The service is exposed only on host loopback. Follow the [runnable guide](docs/en/getting-started.md) to discover the allocated port, set the advertised endpoint and exercise bucket CRUD from host and peer containers.
+The service is exposed only on host loopback. Follow the [runnable guide](docs/en/getting-started.md) to discover the allocated port, set the advertised endpoint and exercise buckets and object media from host and peer containers.
 
 ```sh
 COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose stop
@@ -64,7 +65,11 @@ Configuration precedence is command-line options, `GCS_MIMIC_` environment varia
 
 ## Current limitations
 
-Objects, fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir` and `--api-base-url` are explicit overrides.
+Object APIs support only the [media subset](docs/en/slices/json-object-media.md): no multipart/resumable uploads, ranges, version history, listing, metadata patch or ACL/IAM. Go SDK Writer is unsupported. Ordinary media GET returns a direct 200; accepted GET/DELETE retry tokens are not deduplicated (SPEC-008..013 record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
+
+[Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Body inactivity is suspended during the advisory check and ends at confirmed EOF; complete uploads may commit after disconnect or shutdown, and filesystem sync has no separate time bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs migrate directly to v3.
+
+Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Native amd64, host power-loss durability and Ruby/Rails remain unverified.
 
 For contributors, see the [development guide](docs/en/development.md).
 

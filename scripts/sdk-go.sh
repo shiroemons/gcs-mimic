@@ -30,7 +30,7 @@ trap 'exit 143' TERM
 address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
 if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
 endpoint="http://$address"
-env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
+env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS -u GCS_MIMIC_GO_TEST_RUN \
   "$server" serve --listen "$address" --api-base-url "$endpoint" \
   --data-dir "$work/data" >"$work/server.log" 2>&1 &
 pid=$!
@@ -46,4 +46,4 @@ done
 if [[ $ready != true ]]; then echo 'Server readiness timed out' >&2; exit 1; fi
 cd sdk-tests/go
 GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go vet ./...
-GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...
+GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...

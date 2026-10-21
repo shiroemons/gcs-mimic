@@ -1,0 +1,12 @@
+Local path prefixes were redacted; all other output is unchanged.
+Command: offline, network-disabled linux/arm64 root-container release test of committed_mutations_succeed_when_reclaim_is_deferred_to_restart.
+Scope: test-process output only; Docker image build output is omitted.
+   Compiling gcs-mimic v0.1.0 (/build)
+    Finished `release` profile [optimized] target(s) in 1.83s
+     Running tests/object_storage.rs (target/release/deps/object_storage-7eef2d20e2d052f6)
+
+running 1 test
+SKIP: read-only shard permits unlink (for example when running as root)
+test committed_mutations_succeed_when_reclaim_is_deferred_to_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.01s

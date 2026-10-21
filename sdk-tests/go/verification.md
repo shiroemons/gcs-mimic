@@ -33,7 +33,7 @@ produced `error: rustc 1.93.0 is not supported ... requires rustc 1.99.1`.
 `rustc -Vv` through the proxy reported 1.99.1 (58cf8f9c3 2026-10-13).
 
 Go commands ran in `sdk-tests/go` with `GOTOOLCHAIN=auto`,
-`GOMODCACHE=/tmp/gcs-mimic-go-mod` and `GOCACHE=/tmp/gcs-mimic-go-build` so the
+`GOMODCACHE=$TMPDIR/gcs-mimic-go-mod` and `GOCACHE=$TMPDIR/gcs-mimic-go-build` so the
 checked toolchain and module downloads did not modify the user's Go cache.
 The original Go 1.24.5 successfully downloaded Go 1.27.3 (darwin/arm64) after
 network access was allowed. Official sources and pins are in [README](README.md)

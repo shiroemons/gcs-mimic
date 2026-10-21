@@ -114,6 +114,100 @@
       "observed_at": "2026-10-21",
       "required_resolution": "A registered Operations service does not guarantee all five methods for every operation. Verify unsupported/cancellation behavior; Delete is not Cancel and Wait is not an unconditional completion promise.",
       "kind": "SCOPE_VERIFICATION"
+    },
+    {
+      "id": "SPEC-008",
+      "title": "Object not-match status and combined-condition error precedence need reconciliation",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-007", "BEHAVIOR-OBJECT-008"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Keep a false GET not-match distinguishable from match failure so reads can return an empty 304. Determine mutation not-match status and precedence for missing objects, exact generation selection and multiple failing conditions from authoritative clarification or explicitly authorized differential tests. Until then document any local mutation/precedence rule as a deviation; never mutate on a failed condition.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The preconditions guide assigns 304 to ifGenerationNotMatch and ifMetagenerationNotMatch without a method restriction; the JSON error catalog describes failed preconditions under 412 conditionNotMet and conditional false requests under 304 notModified. Method pages describe comparisons but do not establish combined-condition/missing-resource error precedence. Discovery revision 20261013 supplies int64 parameters, not evaluation order. See docs/en/slices/json-object-media.md."
+    },
+    {
+      "id": "SPEC-009",
+      "title": "Ordinary JSON media GET redirect is not described consistently across references",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-005", "BEHAVIOR-OBJECT-015"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Reconcile the 303 mediaDownloadRedirect rule with the ordinary get endpoint description. Implement a documented redirect or explicitly declare direct 200 a local deviation. Preserve encoded names, conditions and the externally configured endpoint in any Location. Do not invent mediaDownload.path in Discovery.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The error catalog says alt=media without the /download prefix issues 303 with Location. The objects.get page says alt=media retrieves data at /storage/v1 without describing a redirect. Request endpoints calls /download/storage/v1 optional. Fetched Discovery revision 20261013 has supportsMediaDownload/useMediaDownloadService=true but no mediaDownload object or literal download path."
+    },
+    {
+      "id": "SPEC-010",
+      "title": "JSON media checksum edge cases and Content-MD5 acceptance are unspecified",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-005"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/data-validation",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers#xgooghash",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Support the explicitly documented JSON media X-Goog-Hash mechanism. Verify JSON Content-MD5 acceptance, repeated/conflicting algorithm values, unknown algorithm handling and exact malformed/mismatch error reasons before claiming parity. Reject unimplemented checksum inputs explicitly and record parser/reason choices as local; do not infer JSON Content-MD5 from the XML API.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The data-validation guide explicitly documents X-Goog-Hash on JSON single-request media uploads and checksum mismatch HTTP 400. Its Content-MD5 statement applies to XML single-request uploads. The linked hash reference documents base64 MD5/CRC32C, big-endian CRC32C and comma/repeated-header equivalence, but not duplicate algorithm conflict policy. The JSON header inventory omits X-Goog-Hash, and the status catalog does not specify a checksum mismatch reason."
+    },
+    {
+      "id": "SPEC-011",
+      "title": "Missing Content-Type acceptance for JSON media upload is not established",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "JSON-OBJECTS-005"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Distinguish default serving MIME type from acceptance of a missing request header. Confirm upload request behavior before claiming exact parity; if missing Content-Type is accepted locally with application/octet-stream, name that convenience as a deviation and cover it in a wire test.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The JSON Content-Type reference calls the header required for object POST/PUT uploads (or supplied in metadata), and insert lists it among generally required headers. The Object resource says an object stored without Content-Type is served as application/octet-stream. The latter does not establish whether media uploads lacking the header are accepted."
+    },
+    {
+      "id": "SPEC-012",
+      "title": "JSON media response header set and opaque resource encodings need direct evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-015"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/data-validation"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Verify the JSON download generation/metageneration/hash headers with pinned official SDK assertions or authorized differential evidence. Track all emitted/omitted headers, including ETag and stored-content-encoding, and the timeFinalized resource omission. Treat exact id, ETag and generated URL encoding/spelling as opaque local choices unless exact upstream bytes are independently established.",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "The JSON header reference documents ETag, X-Goog-Stored-Content-Encoding (identity when absent) and X-Goog-Stored-Content-Length; the XML reference additionally specifies x-goog-generation/metageneration/hash. The checked JSON sources do not enumerate an exhaustive media response set. The Object resource describes id contents, ETag meaning, links and timeFinalized but does not fix an exact id concatenation or ETag encoding."
+    },
+    {
+      "id": "SPEC-013",
+      "title": "Accepted GET and DELETE idempotency tokens do not deduplicate retries locally",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "DESIGN-082"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#xgoog-gcs-idempotency-token",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/invoke.go"
+      ],
+      "observed_at": "2026-10-21",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Pinned high-level Go Storage v1.69.0 attaches X-Goog-Gcs-Idempotency-Token to object Attrs/Delete even with RetryNever. The owner explicitly selected token acceptance on object metadata/media GET and DELETE without deduplication; existing bucket behavior is unchanged. The first operation result is real, but a retry re-executes, so repeated DELETE with the same token returns 404 after the first 204. Media uploads carrying the token remain rejected 501 before body consumption to avoid claiming safe duplicate-generation retries.",
+      "required_resolution": "Keep the affected method/SDK rows PARTIAL and document accepted-but-not-deduplicated tokens. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; do not strip headers or silently claim upload deduplication. See tests/object_http.rs and docs/en/evidence/object-media.md."
     }
   ],
   "resolved_research_items": [

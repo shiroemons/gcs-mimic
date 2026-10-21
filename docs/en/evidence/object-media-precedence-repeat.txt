@@ -1,0 +1,180 @@
+Local path prefixes were redacted; all other output is unchanged.
+RUN 1/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.08s
+
+RUN 2/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.09s
+
+RUN 3/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.12s
+
+RUN 4/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.11s
+
+RUN 5/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.10s
+
+RUN 6/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.11s
+
+RUN 7/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.10s
+
+RUN 8/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.11s
+
+RUN 9/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.15s
+
+RUN 10/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.09s
+
+RUN 11/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.09s
+
+RUN 12/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.20s
+
+RUN 13/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.28s
+
+RUN 14/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.18s
+
+RUN 15/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.12s
+
+RUN 16/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.13s
+
+RUN 17/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.11s
+
+RUN 18/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.14s
+
+RUN 19/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.15s
+
+RUN 20/20
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
+
+running 1 test
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 1.26s

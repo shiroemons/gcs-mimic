@@ -1,0 +1,511 @@
+use super::{
+    JsonError, Projection,
+    buckets::{encode_segment, timestamp},
+    query::{decode, finish, parse_query, projection},
+    validate_bucket_name,
+};
+use crate::object::{ExpectedHashes, ObjectConditions, ObjectRecord};
+use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectInsertParams {
+    pub conditions: ObjectConditions,
+    pub projection: Projection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectGetParams {
+    pub generation: Option<i64>,
+    pub conditions: ObjectConditions,
+    pub projection: Projection,
+    pub media: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ObjectRequest {
+    Insert {
+        bucket: String,
+        name: String,
+        params: ObjectInsertParams,
+    },
+    Get {
+        bucket: String,
+        name: String,
+        params: ObjectGetParams,
+    },
+    Delete {
+        bucket: String,
+        name: String,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+    },
+}
+
+/// Match raw path segments before decoding object names exactly once.
+pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
+    let (path, upload, download) =
+        if let Some(path) = uri.path().strip_prefix("/upload/storage/v1/b/") {
+            (path, true, false)
+        } else if let Some(path) = uri.path().strip_prefix("/download/storage/v1/b/") {
+            // Discovery uses useMediaDownloadService; the JSON status reference specifies /download.
+            (path, false, true)
+        } else {
+            (uri.path().strip_prefix("/storage/v1/b/")?, false, false)
+        };
+    let (bucket, rest) = path.split_once('/')?;
+    let object = if upload {
+        if rest != "o" {
+            return None;
+        }
+        None
+    } else {
+        let segment = rest.strip_prefix("o/")?;
+        if segment.contains('/') {
+            return None;
+        }
+        Some(segment)
+    };
+    let allowed = if upload {
+        method == Method::POST
+    } else {
+        method == Method::GET || (!download && method == Method::DELETE)
+    };
+    if !allowed {
+        let mut error = JsonError::new(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "methodNotAllowed",
+            "HTTP method is not supported for this object endpoint",
+        );
+        error.allow = Some(if upload {
+            "POST"
+        } else if download {
+            "GET"
+        } else {
+            "GET, DELETE"
+        });
+        return Some(Err(error));
+    }
+    Some((|| {
+        if bucket.len() > 222 * 3 {
+            return Err(JsonError::invalid_parameter("Invalid bucket name"));
+        }
+        let bucket = decode(bucket, false)?;
+        validate_bucket_name(&bucket)?;
+        let name = object
+            .map(|segment| {
+                if segment.len() > 1024 * 3 {
+                    return Err(JsonError::invalid_parameter("Invalid object name"));
+                }
+                let name = decode(segment, false)?;
+                validate_object_name(&name)?;
+                Ok(name)
+            })
+            .transpose()?;
+        let operation = parse_object_query(method, bucket, name, uri.query().unwrap_or_default())?;
+        if download && matches!(&operation, ObjectRequest::Get { params, .. } if !params.media) {
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "notDownload",
+                "Download endpoints require alt=media",
+            ));
+        }
+        Ok(operation)
+    })())
+}
+
+/// Validate the flat-namespace requirements, not optional CLI/filesystem recommendations.
+pub fn validate_object_name(name: &str) -> Result<(), JsonError> {
+    if name.is_empty()
+        || name.len() > 1024
+        || name.contains(['\r', '\n'])
+        || matches!(name, "." | "..")
+        || name.starts_with(".well-known/acme-challenge/")
+    {
+        return Err(JsonError::invalid_parameter("Invalid object name"));
+    }
+    Ok(())
+}
+
+fn parse_object_query(
+    method: &Method,
+    bucket: String,
+    name: Option<String>,
+    raw: &str,
+) -> Result<ObjectRequest, JsonError> {
+    let mut query = parse_query(raw)?;
+    for key in [
+        "fields",
+        "key",
+        "oauth_token",
+        "quotaUser",
+        "userIp",
+        "userProject",
+        "callback",
+    ] {
+        if query.contains_key(key) {
+            return Err(JsonError::unsupported_object(key));
+        }
+    }
+    let method_keys: &[&str] = if method == Method::POST {
+        &["contentEncoding", "kmsKeyName", "predefinedAcl"]
+    } else if method == Method::GET {
+        &["restoreToken"]
+    } else {
+        &[]
+    };
+    for key in method_keys {
+        if query.contains_key(*key) {
+            return Err(JsonError::unsupported_object(key));
+        }
+    }
+    match query.remove("prettyPrint").as_deref() {
+        None | Some("false") => {}
+        Some("true") => return Err(JsonError::unsupported_object("prettyPrint")),
+        Some(_) => {
+            return Err(JsonError::invalid_parameter(
+                "prettyPrint must be true or false",
+            ));
+        }
+    }
+    let media = match query.remove("alt").as_deref() {
+        None | Some("json") => false,
+        Some("media") if method == Method::GET => true,
+        Some("media") => return Err(JsonError::invalid_parameter("alt=media requires GET")),
+        Some(_) => {
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "invalidAltValue",
+                "alt must be json or media",
+            ));
+        }
+    };
+    let conditions = ObjectConditions {
+        if_generation_match: integer(&mut query, "ifGenerationMatch")?,
+        if_generation_not_match: integer(&mut query, "ifGenerationNotMatch")?,
+        if_metageneration_match: integer(&mut query, "ifMetagenerationMatch")?,
+        if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
+    };
+    if method == Method::POST {
+        match query.remove("uploadType").as_deref() {
+            Some("media") => {}
+            Some("multipart" | "resumable") => {
+                return Err(JsonError::unsupported_object("uploadType"));
+            }
+            None => {
+                return Err(JsonError::new(
+                    StatusCode::BAD_REQUEST,
+                    "required",
+                    "Missing required uploadType",
+                ));
+            }
+            Some(_) => {
+                return Err(JsonError::invalid_parameter(
+                    "uploadType must be media, multipart or resumable",
+                ));
+            }
+        }
+        let name = query.remove("name").ok_or_else(|| {
+            JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name")
+        })?;
+        validate_object_name(&name)?;
+        let projection = projection(&mut query)?;
+        finish(query)?;
+        return Ok(ObjectRequest::Insert {
+            bucket,
+            name,
+            params: ObjectInsertParams {
+                conditions,
+                projection,
+            },
+        });
+    }
+    let generation = integer(&mut query, "generation")?;
+    let name = name.expect("non-upload routes have an object segment");
+    if method == Method::GET {
+        match query.remove("softDeleted").as_deref() {
+            None | Some("false") => {}
+            Some("true") => return Err(JsonError::unsupported_object("softDeleted")),
+            Some(_) => {
+                return Err(JsonError::invalid_parameter(
+                    "softDeleted must be true or false",
+                ));
+            }
+        }
+        let projection = projection(&mut query)?;
+        finish(query)?;
+        Ok(ObjectRequest::Get {
+            bucket,
+            name,
+            params: ObjectGetParams {
+                generation,
+                conditions,
+                projection,
+                media,
+            },
+        })
+    } else {
+        finish(query)?;
+        Ok(ObjectRequest::Delete {
+            bucket,
+            name,
+            generation,
+            conditions,
+        })
+    }
+}
+
+fn integer(query: &mut BTreeMap<String, String>, key: &str) -> Result<Option<i64>, JsonError> {
+    query
+        .remove(key)
+        .map(|value| {
+            if value.starts_with('+') {
+                return Err(JsonError::invalid_parameter(format!(
+                    "{key} must be an int64"
+                )));
+            }
+            value
+                .parse()
+                .map_err(|_| JsonError::invalid_parameter(format!("{key} must be an int64")))
+        })
+        .transpose()
+}
+
+fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
+    for key in headers.keys() {
+        let name = key.as_str();
+        if name.starts_with("x-goog-encryption-")
+            || name.starts_with("x-goog-copy-source-encryption-")
+            || name.starts_with("x-goog-meta-")
+            || matches!(
+                name,
+                "x-goog-user-project" | "x-http-method-override" | "if-match" | "if-none-match"
+            )
+        {
+            return Err(JsonError::unsupported_object(name));
+        }
+    }
+    Ok(())
+}
+
+/// Parse upload metadata without consuming or collecting the body.
+pub fn parse_object_upload_headers(
+    headers: &HeaderMap,
+) -> Result<(String, ExpectedHashes), JsonError> {
+    unsupported_headers(headers)?;
+    for name in [
+        "content-encoding",
+        "content-md5",
+        "content-range",
+        "x-upload-content-type",
+        "x-upload-content-length",
+        "x-goog-gcs-idempotency-token",
+    ] {
+        if headers.contains_key(name) {
+            return Err(JsonError::unsupported_object(name));
+        }
+    }
+    if headers.get_all("content-type").iter().count() > 1 {
+        return Err(JsonError::invalid_parameter(
+            "Duplicate Content-Type header",
+        ));
+    }
+    let content_type = headers
+        .get("content-type")
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| JsonError::invalid_parameter("Invalid Content-Type header"))
+        })
+        .transpose()?
+        .unwrap_or("application/octet-stream");
+    let mime = content_type.split(';').next().unwrap_or_default().trim();
+    let token = |value: &str| {
+        !value.is_empty()
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+    };
+    if !mime
+        .split_once('/')
+        .is_some_and(|(kind, subtype)| token(kind) && token(subtype))
+    {
+        return Err(JsonError::invalid_parameter("Invalid Content-Type header"));
+    }
+    let mut hashes = ExpectedHashes::default();
+    // JSON media uploads accept X-Goog-Hash: https://docs.cloud.google.com/storage/docs/data-validation
+    for header in headers.get_all("x-goog-hash") {
+        let header = header
+            .to_str()
+            .map_err(|_| JsonError::invalid_parameter("Invalid x-goog-hash header"))?;
+        for hash in header.split(',') {
+            let (algorithm, value) = hash
+                .trim()
+                .split_once('=')
+                .ok_or_else(|| JsonError::invalid_parameter("Invalid x-goog-hash header"))?;
+            match algorithm {
+                "md5" if hashes.md5.is_none() => hashes.md5 = Some(decode_hash(value)?),
+                "crc32c" if hashes.crc32c.is_none() => {
+                    hashes.crc32c = Some(u32::from_be_bytes(decode_hash(value)?))
+                }
+                "md5" | "crc32c" => {
+                    return Err(JsonError::invalid_parameter(
+                        "Duplicate x-goog-hash algorithm",
+                    ));
+                }
+                _ => return Err(JsonError::unsupported_object("x-goog-hash algorithm")),
+            }
+        }
+    }
+    Ok((content_type.to_owned(), hashes))
+}
+
+/// Reject unsupported conditional/encryption headers and partial media reads explicitly.
+// shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
+pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(), JsonError> {
+    unsupported_headers(headers)?;
+    if media && (headers.contains_key("range") || headers.contains_key("if-range")) {
+        return Err(JsonError::unsupported_object("Range/If-Range"));
+    }
+    Ok(())
+}
+
+/// Render the selected immutable generation using the configured advertised endpoint.
+pub fn object_resource(
+    object: &ObjectRecord,
+    base_url: &str,
+    projection: Projection,
+) -> Result<Value, JsonError> {
+    // ACL and owner fields are not modeled; both projections expose the same local subset.
+    let (Projection::NoAcl | Projection::Full) = projection;
+    let base = base_url.trim_end_matches('/');
+    let path = format!(
+        "storage/v1/b/{}/o/{}",
+        encode_segment(&object.bucket),
+        encode_segment(&object.name)
+    );
+    Ok(json!({
+        "kind": "storage#object",
+        "id": format!("{}/{}/{}", object.bucket, object.name, object.generation),
+        "selfLink": format!("{base}/{path}"),
+        "mediaLink": format!("{base}/download/{path}?generation={}&alt=media", object.generation),
+        "name": object.name, "bucket": object.bucket,
+        "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
+        "contentType": object.content_type, "storageClass": object.storage_class,
+        "size": object.size.to_string(), "md5Hash": base64(&object.md5),
+        "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": etag(object),
+        "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
+        "timeFinalized": timestamp(object.time_created)?,
+        "timeStorageClassUpdated": timestamp(object.time_created)?,
+    }))
+}
+
+/// Headers for a complete, untranscoded media download (never a Range response).
+pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
+    let mut headers = HeaderMap::new();
+    for (key, value) in [
+        ("content-type", object.content_type.clone()),
+        ("content-length", object.size.to_string()),
+        ("x-goog-generation", object.generation.to_string()),
+        ("x-goog-metageneration", object.metageneration.to_string()),
+        (
+            "x-goog-hash",
+            format!(
+                "crc32c={},md5={}",
+                base64(&object.crc32c.to_be_bytes()),
+                base64(&object.md5)
+            ),
+        ),
+        ("x-goog-stored-content-length", object.size.to_string()),
+        ("x-goog-stored-content-encoding", "identity".to_owned()),
+        ("etag", etag(object)),
+    ] {
+        headers.insert(
+            key,
+            HeaderValue::from_str(&value).map_err(|_| {
+                JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Invalid stored object response header",
+                )
+            })?,
+        );
+    }
+    Ok(headers)
+}
+
+fn etag(object: &ObjectRecord) -> String {
+    format!(
+        "\"o-{}-{}-{}\"",
+        base64(&object.md5),
+        object.generation,
+        object.metageneration
+    )
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0];
+        let b = chunk.get(1).copied().unwrap_or(0);
+        let c = chunk.get(2).copied().unwrap_or(0);
+        result.push(ALPHABET[(a >> 2) as usize] as char);
+        result.push(ALPHABET[((a & 3) << 4 | b >> 4) as usize] as char);
+        result.push(if chunk.len() > 1 {
+            ALPHABET[((b & 15) << 2 | c >> 6) as usize] as char
+        } else {
+            '='
+        });
+        result.push(if chunk.len() > 2 {
+            ALPHABET[(c & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    result
+}
+
+fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
+    let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
+    if raw.len() != N.div_ceil(3) * 4 {
+        return Err(invalid());
+    }
+    let digit = |byte: u8| match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let mut result = [0; N];
+    for (index, chunk) in raw.as_bytes().as_chunks::<4>().0.iter().enumerate() {
+        let a = digit(chunk[0]).ok_or_else(invalid)?;
+        let b = digit(chunk[1]).ok_or_else(invalid)?;
+        let c = if chunk[2] == b'=' {
+            0
+        } else {
+            digit(chunk[2]).ok_or_else(invalid)?
+        };
+        let d = if chunk[3] == b'=' {
+            0
+        } else {
+            digit(chunk[3]).ok_or_else(invalid)?
+        };
+        for (offset, byte) in [a << 2 | b >> 4, b << 4 | c >> 2, c << 6 | d]
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(output) = result.get_mut(index * 3 + offset) {
+                *output = byte;
+            }
+        }
+    }
+    // Canonical re-encoding checks padding position and unused trailing bits as well.
+    if base64(&result) != raw {
+        return Err(invalid());
+    }
+    Ok(result)
+}

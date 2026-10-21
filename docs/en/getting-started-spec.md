@@ -1,10 +1,10 @@
 # Getting started: proposed end-to-end contract
 
-**Status: future end-to-end design specification.** The implemented HTTP foundation and persistent JSON bucket CRUD have a separate [runnable guide](getting-started.md). This document retains later acceptance targets, including TOML configuration, fixtures, object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+**Status: future end-to-end design specification.** The implemented HTTP foundation, persistent JSON bucket CRUD and object media subset have a separate [runnable guide](getting-started.md). This document retains later acceptance targets, including TOML configuration, fixtures, broader object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket CRUD, Go SDK bucket tests, stopping and isolated smoke checks. Object operations remain unavailable. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, Go SDK tests, stopping and isolated smoke checks. Multipart/resumable, listing/metadata mutation, ranges and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build
 
@@ -175,7 +175,7 @@ return err
 
 For a compose application set the variable to `gcs:4443`. The repository must provide the complete compiling program and its go.mod. This P1 example explicitly selects JSON reads because the currently checked Go SDK defaults to XML; add default/XML read coverage in P2. Test the actually supported single-request/JSON multipart upload subset and listing first, then add resumable tests in P3. Do not claim large-upload SDK compatibility before that path exists. Record any deliberate single-request writer configuration in the example. Do not assume STORAGE_EMULATOR_HOST also determines the host used by signing helpers.
 
-Official reference: https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest
+Official reference: [Go Storage SDK](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest).
 
 ## 7. Official Ruby SDK and Rails flow
 
@@ -201,9 +201,10 @@ Set GCS_ENDPOINT to `http://gcs:4443` for a compose application. Anonymous write
 Ship a pinned Gemfile and execute the sample against the emulator. Add a dedicated Rails Active Storage example with a real minimal app, verified endpoint/signing configuration, direct browser upload, private download, public serving and delete. Do not invent Rails service configuration keys or claim a Ruby gem test proves Active Storage browser compatibility. Provide a tested strict-mode credential adapter separately.
 
 References:
-- https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage
-- https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage-File
-- https://guides.rubyonrails.org/active_storage_overview.html
+
+- [Ruby Storage SDK](https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage)
+- [Ruby File](https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage-File)
+- [Rails Active Storage](https://guides.rubyonrails.org/active_storage_overview.html)
 
 ## 8. Strict private/public/signed access walkthrough
 
@@ -237,6 +238,7 @@ docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
 The strict override mounts the public key and identity fixture, not the private key. Ignore .local in git. Never load personal production credentials by default.
 
 Expected sequence:
+
 1. An admin-authenticated request creates a private bucket and uploads an object.
 2. Anonymous GET of its plain object URL fails with the documented authorization error.
 3. `url public` returns the address; anonymous GET still fails.
@@ -326,9 +328,10 @@ curl -i -X PUT --data 'unexpected' "$signed_url"
 Expiry, signed-header and host mutation cases belong in an executable acceptance script using the controllable clock. Do not make a beginner wait 15 minutes to verify expiration. The fixture format and commands above are design commitments, not claims that their parser or binary already exists.
 
 References:
-- https://docs.cloud.google.com/storage/docs/access-control/signed-urls
-- https://docs.cloud.google.com/storage/docs/authentication/canonical-requests
-- https://docs.cloud.google.com/storage/docs/public-access-prevention
+
+- [Signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signed-urls)
+- [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests)
+- [Public access prevention](https://docs.cloud.google.com/storage/docs/public-access-prevention)
 
 ## 9. Browser CORS and direct upload
 
@@ -336,7 +339,7 @@ Provide a tested browser demo on `http://localhost:3000`. Its origin is differen
 
 Test allowed and denied origins, required request headers, exposed response headers, and denied object access despite an allowed preflight. Keep JSON endpoint CORS defaults separate from XML bucket-configured behavior. Do not solve a browser test by allowing every origin globally.
 
-Reference: https://docs.cloud.google.com/storage/docs/cross-origin
+Reference: [Cross-origin requests](https://docs.cloud.google.com/storage/docs/cross-origin).
 
 ## 10. Persistence, stopping and deliberate reset
 

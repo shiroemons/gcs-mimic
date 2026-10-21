@@ -2,10 +2,11 @@ use crate::{
     bucket::CatalogError,
     clock::Clock,
     config::Config,
-    json::{self, BucketRequest, JsonError},
+    json::{self, BucketRequest, JsonError, ObjectRequest},
+    object::{ObjectError, UploadChunk},
     storage::Catalog,
 };
-use http_body_util::Full;
+use http_body_util::{BodyExt, Channel, Full, combinators::UnsyncBoxBody};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Bytes, Incoming},
@@ -23,7 +24,12 @@ use std::{
     },
     time::{Duration, UNIX_EPOCH},
 };
-use tokio::{net::TcpListener, sync::watch, task::JoinSet};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::{mpsc, watch},
+    task::JoinSet,
+};
 
 pub struct State {
     pub ready: AtomicBool,
@@ -68,25 +74,43 @@ pub async fn serve(
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
                 let timeout = Duration::from_millis(config.connection_timeout_ms);
+                let max_object_bytes = config.max_object_bytes;
                 connections.spawn(async move {
+                    let (activity, mut progress) = watch::channel(false);
                     let mut builder = http1::Builder::new();
                     builder.keep_alive(false).max_headers(64).max_buf_size(16 * 1024)
                         .timer(TokioTimer::new()).header_read_timeout(timeout);
-                    let connection = builder.serve_connection(TokioIo::new(stream), service_fn(move |request| {
+                    let mut connection = builder.serve_connection(TokioIo::new(stream), service_fn(move |request| {
                         let state = state.clone();
-                        async move { Ok::<_, Infallible>(respond(request, &state).await) }
+                        let activity = activity.clone();
+                        Box::pin(async move { Ok::<_, Infallible>(respond(request, &state, max_object_bytes, &activity).await) })
                     }));
-                    tokio::pin!(connection);
-                    tokio::select! {
-                        result = &mut connection => {
+                    let deadline = tokio::time::sleep(timeout);
+                    tokio::pin!(deadline);
+                    let mut awaiting_catalog = false;
+                    loop { tokio::select! {
+                        biased;
+                        Ok(()) = progress.changed() => {
+                            awaiting_catalog = *progress.borrow_and_update();
+                            deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                        },
+                        result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
                             if let Err(error) = result { eprintln!("connection error: {error}"); }
+                            break;
                         }
-                        _ = tokio::time::sleep(timeout) => eprintln!("connection deadline exceeded"),
+                        _ = &mut deadline, if !awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
                         _ = stopping.changed() => {
-                            connection.as_mut().graceful_shutdown();
-                            if let Err(error) = connection.await { eprintln!("connection drain error: {error}"); }
+                            std::pin::Pin::new(&mut connection).graceful_shutdown();
+                            if let Err(error) = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)).await { eprintln!("connection drain error: {error}"); }
+                            break;
                         }
-                    }
+                    }}
+                    // Send FIN after the response, then bound unread-body disposal to avoid a reset
+                    // hiding an early rejection from a client still sending a large request.
+                    let mut stream = connection.into_parts().io.into_inner();
+                    let _ = stream.shutdown().await;
+                    let _ = tokio::time::timeout(Duration::from_millis(100),
+                        tokio::io::copy(&mut stream.take(256 * 1024), &mut tokio::io::sink())).await;
                 });
             }
         }
@@ -120,7 +144,33 @@ pub async fn serve(
     signal_result.and(drain_result)
 }
 
-async fn respond(request: Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
+type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
+
+fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
+    response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
+}
+
+async fn respond(
+    request: Request<Incoming>,
+    state: &State,
+    max_object_bytes: u64,
+    activity: &watch::Sender<bool>,
+) -> Response<ResponseBody> {
+    if let Some(parsed) = json::route_object(request.method(), request.uri()) {
+        activity.send_replace(false);
+        let result = match parsed {
+            Ok(operation) => {
+                object_response(request, operation, state, max_object_bytes, activity).await
+            }
+            Err(error) => Err(error),
+        };
+        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
+        activity.send_replace(false);
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     if let Some(parsed) = json::route(request.method(), request.uri()) {
         let result = match parsed {
             Ok(operation) => bucket_response(request, operation, state).await,
@@ -130,9 +180,176 @@ async fn respond(request: Request<Incoming>, state: &State) -> Response<Full<Byt
         response
             .headers_mut()
             .insert("connection", "close".parse().unwrap());
-        return response;
+        return boxed(response);
     }
-    probe_or_unknown(&request, state)
+    boxed(probe_or_unknown(&request, state))
+}
+
+async fn object_response(
+    request: Request<Incoming>,
+    operation: ObjectRequest,
+    state: &State,
+    max_bytes: u64,
+    activity: &watch::Sender<bool>,
+) -> Result<Response<ResponseBody>, JsonError> {
+    if !matches!(operation, ObjectRequest::Insert { .. })
+        && (request.headers().contains_key("transfer-encoding")
+            || request
+                .headers()
+                .get("content-length")
+                .is_some_and(|v| v != "0"))
+    {
+        return Err(JsonError::invalid_argument(
+            "This method requires an empty body",
+        ));
+    }
+    let value = match operation {
+        ObjectRequest::Insert {
+            bucket,
+            name,
+            params,
+        } => {
+            let (content_type, expected) = json::parse_object_upload_headers(request.headers())?;
+            if request
+                .headers()
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .is_some_and(|length| length > max_bytes)
+            {
+                return Err(ObjectError::TooLarge.into());
+            }
+            // Complete the advisory check before body-derived errors can race its result.
+            activity.send_replace(true);
+            let prepared = state
+                .catalog
+                .prepare_object_upload(&bucket, &name, params.conditions)
+                .await;
+            activity.send_replace(false);
+            let permit = prepared?;
+            let (sender, body) = mpsc::channel(2);
+            let upload = state.catalog.put_object_prechecked(
+                &bucket,
+                &name,
+                content_type,
+                expected,
+                params.conditions,
+                max_bytes,
+                body,
+                permit,
+            );
+            tokio::pin!(upload);
+            let record = tokio::select! {
+                result = &mut upload => result?,
+                result = stream_upload(request.into_body(), &sender, max_bytes, activity) => {
+                    if let Err(error) = result {
+                        if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
+                            return Err(upload.await.err().unwrap_or(error).into());
+                        }
+                        return Err(error.into());
+                    }
+                    drop(sender);
+                    upload.await?
+                }
+            };
+            json::object_resource(&record, &state.api_base_url, params.projection)?
+        }
+        ObjectRequest::Get {
+            bucket,
+            name,
+            params,
+        } => {
+            json::validate_object_get_headers(request.headers(), params.media)?;
+            if params.media {
+                let (record, mut reader) = state
+                    .catalog
+                    .open_object(&bucket, &name, params.generation, params.conditions)
+                    .await?;
+                let headers = json::object_media_headers(&record)?;
+                let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
+                let activity = activity.clone();
+                tokio::spawn(async move {
+                    loop {
+                        match reader.next_chunk().await {
+                            Ok(Some(bytes)) => {
+                                if sender.send_data(bytes).await.is_err() {
+                                    break;
+                                }
+                                activity.send_replace(false);
+                            }
+                            Ok(None) => break,
+                            Err(error) => {
+                                sender.abort(error);
+                                break;
+                            }
+                        }
+                    }
+                });
+                let mut response = Response::new(body.boxed_unsync());
+                *response.headers_mut() = headers;
+                return Ok(response);
+            }
+            let record = state
+                .catalog
+                .get_object(&bucket, &name, params.generation, params.conditions)
+                .await?;
+            json::object_resource(&record, &state.api_base_url, params.projection)?
+        }
+        ObjectRequest::Delete {
+            bucket,
+            name,
+            generation,
+            conditions,
+        } => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            state
+                .catalog
+                .delete_object(&bucket, &name, generation, conditions)
+                .await?;
+            return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
+        }
+    };
+    Ok(boxed(
+        Response::builder()
+            .header("content-type", "application/json; charset=UTF-8")
+            .body(Full::new(Bytes::from(value.to_string())))
+            .unwrap(),
+    ))
+}
+
+async fn stream_upload(
+    mut body: Incoming,
+    sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
+    max_bytes: u64,
+    activity: &watch::Sender<bool>,
+) -> Result<(), ObjectError> {
+    let mut size = 0_u64;
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
+        let bytes = frame
+            .into_data()
+            .map_err(|_| ObjectError::BodyAborted("Upload trailers are unsupported".into()))?;
+        size = size
+            .checked_add(bytes.len() as u64)
+            .filter(|size| *size <= max_bytes)
+            .ok_or(ObjectError::TooLarge)?;
+        activity.send_replace(false);
+        // Copy bounded chunks so queued slices cannot retain arbitrarily large transport frames.
+        for part in bytes.chunks(64 * 1024) {
+            if sender
+                .send(Ok(UploadChunk::Data(Bytes::copy_from_slice(part))))
+                .await
+                .is_err()
+            {
+                // Preserve the catalog's original failure when it stops accepting the body.
+                return Ok(());
+            }
+        }
+    }
+    // Body inactivity no longer applies while the completed body is being committed.
+    activity.send_replace(true);
+    let _ = sender.send(Ok(UploadChunk::End)).await;
+    Ok(())
 }
 
 async fn bucket_response(

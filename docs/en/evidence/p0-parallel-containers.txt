@@ -1,3 +1,4 @@
+Local path prefixes were redacted; all other output is unchanged.
 P0 parallel container smoke evidence
 Checked: 2026-10-21 (Asia/Tokyo)
 Context: Docker Desktop, linux/arm64 engine; two native arm64 smoke processes
@@ -6,8 +7,8 @@ Each process used its own image tag, Compose project and dynamically allocated
 localhost port. No repository implementation files were changed for this check.
 
 Commands (launched concurrently):
-bash -x scripts/smoke-containers.sh linux/arm64 > /tmp/gcs-mimic-container-parallel-a.log 2>&1
-bash -x scripts/smoke-containers.sh linux/arm64 > /tmp/gcs-mimic-container-parallel-b.log 2>&1
+bash -x scripts/smoke-containers.sh linux/arm64 > gcs-mimic-container-parallel-a.log 2>&1
+bash -x scripts/smoke-containers.sh linux/arm64 > gcs-mimic-container-parallel-b.log 2>&1
 
 Results:
 Process A: exit 0; project gcs-mimic-p0-arm64-68342; host 127.0.0.1:55008.

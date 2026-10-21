@@ -87,8 +87,11 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     state.ready.store(false, Ordering::Release);
     assert!(get("/_internal/ready").starts_with("HTTP/1.1 503"));
     assert!(get("/_internal/health").starts_with("HTTP/1.1 200"));
+    let upload = get("/upload/storage/v1/b/b/o");
+    assert!(upload.starts_with("HTTP/1.1 405"));
+    assert!(upload.contains("allow: POST\r\n"));
     for path in [
-        "/upload/storage/v1/b/b/o",
+        "/resumable/upload/storage/v1/b/b/o",
         "/bucket/object",
         "/google.storage.v2.Storage/ReadObject",
         "/_internal/reset",

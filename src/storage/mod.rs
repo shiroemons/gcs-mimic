@@ -1,4 +1,4 @@
 mod catalog;
 mod lock;
 
-pub use catalog::Catalog;
+pub use catalog::{Catalog, ObjectReader};

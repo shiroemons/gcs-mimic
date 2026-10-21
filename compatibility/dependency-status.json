@@ -1,6 +1,13 @@
 {
-  "checked_at_utc": "2026-10-21T10:08:33Z",
-  "scope": "Persistent JSON bucket CRUD, bounded SQLite catalog, Rust ledger/freshness tooling, digest-pinned Docker runtime/test inputs and the official Go JSON bucket SDK harness. API execution evidence is tracked separately in the feature ledger.",
+  "checked_at_utc": "2026-10-21T12:00:54Z",
+  "scope": "Object media integration: ten direct Rust crates, Rust/Go toolchains, SDK graph and container inputs. The four object-streaming crates were selected from latest non-yanked stable releases; the Rust builder digest update is adopted. API execution evidence is tracked separately in the feature ledger.",
+  "freshness_check": {
+    "command": "cargo +1.99.1 xtask dependencies check",
+    "exit_code": 0,
+    "result": "CURRENT",
+    "artifact": "docs/en/evidence/object-media-dependencies.txt",
+    "follow_up": "Rust builder index refresh adopted; integration/container evidence is recorded separately. No freshness exception remains."
+  },
   "toolchain": {
     "channel": "stable",
     "version": "1.99.1",
@@ -31,7 +38,7 @@
       "name": "tokio", "current": "1.54.0", "latest_non_yanked_stable": "1.54.0",
       "license": "MIT", "compressed_crate_bytes": 983296, "minimum_rust": "1.85",
       "purpose": "Bounded async runtime, sockets, signals, synchronization and deadlines.",
-      "features": ["rt-multi-thread", "net", "signal", "time", "sync", "macros"],
+      "features": ["rt-multi-thread", "net", "signal", "time", "sync", "macros", "fs", "io-util"],
       "maintenance": "Official publisher release 2026-10-19; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/tokio", "https://index.crates.io/to/ki/tokio", "https://github.com/tokio-rs/tokio"],
       "resolution_constraints": "Newest stable checked independently of manifest ranges; no previous runtime version to migrate."
@@ -57,8 +64,8 @@
     {
       "name": "http-body-util", "current": "0.1.5", "latest_non_yanked_stable": "0.1.5",
       "license": "MIT", "compressed_crate_bytes": 18574, "minimum_rust": "1.61",
-      "purpose": "JSON/probe response bodies and explicitly capped 64 KiB bucket metadata collection.",
-      "features": [],
+      "purpose": "JSON/probe bodies, capped 64 KiB bucket metadata collection and bounded streaming media response channels.",
+      "features": ["channel"],
       "maintenance": "Official publisher release 2026-08-12; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/http-body-util", "https://index.crates.io/ht/tp/http-body-util", "https://github.com/hyperium/http-body"],
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
@@ -66,11 +73,47 @@
     {
       "name": "rusqlite", "current": "0.40.2", "latest_non_yanked_stable": "0.40.2",
       "license": "MIT", "compressed_crate_bytes": 177215, "minimum_rust": null,
-      "purpose": "Indexed transactional bucket catalog with bundled SQLite, WAL recovery and atomic delete preconditions.",
+      "purpose": "Indexed transactional bucket/object catalog with bundled SQLite, durable generation allocation, WAL recovery and atomic mutation preconditions.",
       "features": ["bundled"],
       "maintenance": "Official rusqlite publisher; latest non-yanked stable verified from the crates.io index on 2026-10-21.",
       "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.40.2.crate", "https://github.com/rusqlite/rusqlite"],
       "resolution_constraints": "Default features disabled; bundled SQLite only. Cargo.lock pins libsqlite3-sys 0.38.2 and the full graph; no cache, pooling or extension features. No rust-version is declared by the crate."
+    },
+    {
+      "name": "bytes", "current": "1.12.1", "latest_non_yanked_stable": "1.12.1",
+      "license": "MIT", "compressed_crate_bytes": 75667, "minimum_rust": "1.57",
+      "purpose": "Shared bounded byte chunks across HTTP, upload channels and disk readers.",
+      "features": ["std"],
+      "maintenance": "Official publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
+      "source_urls": ["https://index.crates.io/by/te/bytes", "https://crates.io/api/v1/crates/bytes/1.12.1", "https://github.com/tokio-rs/bytes"],
+      "resolution_constraints": "Already used transitively by Hyper/Tokio; direct use shares their Bytes type without a second buffering layer."
+    },
+    {
+      "name": "md-5", "current": "0.11.0", "latest_non_yanked_stable": "0.11.0",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 17404, "minimum_rust": "1.85",
+      "purpose": "Incremental Google-compatible object MD5 checksums; not used for authentication or signatures.",
+      "features": [],
+      "maintenance": "RustCrypto publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
+      "source_urls": ["https://index.crates.io/md/-5/md-5", "https://crates.io/api/v1/crates/md-5/0.11.0", "https://github.com/RustCrypto/hashes"],
+      "resolution_constraints": "Default features disabled; the digest graph is pinned in Cargo.lock."
+    },
+    {
+      "name": "crc32c", "current": "0.6.8", "latest_non_yanked_stable": "0.6.8",
+      "license": "Apache-2.0/MIT", "compressed_crate_bytes": 9647, "minimum_rust": null,
+      "purpose": "Incremental Castagnoli CRC32C validation with bounded object chunks.",
+      "features": [],
+      "maintenance": "Official publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
+      "source_urls": ["https://index.crates.io/cr/c3/crc32c", "https://crates.io/api/v1/crates/crc32c/0.6.8", "https://github.com/zowens/crc32c"],
+      "resolution_constraints": "One small checksum crate instead of a general hashing/codec framework; no rust-version declared."
+    },
+    {
+      "name": "getrandom", "current": "0.4.3", "latest_non_yanked_stable": "0.4.3",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 52437, "minimum_rust": "1.85",
+      "purpose": "Opaque random blob IDs independent of untrusted object names.",
+      "features": [],
+      "maintenance": "Official publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
+      "source_urls": ["https://index.crates.io/ge/tr/getrandom", "https://crates.io/api/v1/crates/getrandom/0.4.3", "https://github.com/rust-random/getrandom"],
+      "resolution_constraints": "Operating-system randomness only; no UUID format, parser or extra options."
     }
   ],
   "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum"],
@@ -80,7 +123,10 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d",
+        "digest": "sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244",
+        "latest_verified_digest": "sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244",
+        "verification_status": "ADOPTED",
+        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. The amd64/arm64 platform manifests remain unchanged; Dockerfile now pins the updated index.",
         "platforms": {
           "linux/amd64": "sha256:97c67d8fb6098c321d0b47fbf0035ccce7f6d6b480ce96fb4bd6673c4ddb6b98",
           "linux/arm64": "sha256:4584869b7bc580d3a49023d29cac84a41d51ed5e26960c235d4fc0cd40a3e008"
@@ -124,7 +170,7 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-21T09:36:25Z",
+      "checked_at_utc": "2026-10-21T11:36:09Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"

@@ -1,3 +1,4 @@
+Local-only helper invocation is described as portable steps; recorded results are unchanged.
 Local verification on 2026-10-21; remote CI has not run.
 Captured logs retain their output with only trailing spaces and excess final blank lines removed.
 
@@ -23,6 +24,6 @@ This was not a clone of a published commit containing these changes.
 The new checkout had no target directory before the build.
 Command: cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
 Result: exit 0, Finished release profile in 4.94s. No performance claim is made.
-Then: bash /tmp/gcs-mimic-native-onboarding.sh
+Then: native source build, configuration, probes, unsupported-route rejection and SIGTERM shutdown (local-only helper invocation described as steps).
 Result: exit 0; output: docs/en/evidence/p0-onboarding.txt
 Docker Compose build from that source checkout: exit 0 (cached image layers).

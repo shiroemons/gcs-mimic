@@ -14,7 +14,7 @@ At bootstrap, at the beginning of each implementation slice, and immediately bef
 
 The research baseline on 2026-10-21 includes the official announcement of **Rust 1.99.1**, released 2026-10-15. Re-check the stable channel when implementation begins. This dated fact must not be treated as an eternal version requirement or a prediction of a future release.
 
-Official release source: https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/
+Official release source: <https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/>
 
 For each direct dependency, use its publisher-controlled release notes/repository and the official package registry metadata. Check package identity, stable/prerelease status, supported targets and compiler requirements. Do not infer the latest version from an old tutorial, a search snippet, or a model's memory.
 
@@ -29,10 +29,11 @@ Choose the newest edition supported by the selected stable toolchain and record 
 For this application, the default support policy is **current stable Rust only**. Set Cargo.toml rust-version to the oldest compiler that the project actually promises and verifies. Under the current-stable-only policy, advance that value with the verified toolchain baseline; do not preserve an older MSRV at the cost of holding back requested library upgrades. If a future separately published library needs a broader compiler support window, document and test that as a distinct product decision.
 
 Sources:
-- https://doc.rust-lang.org/stable/book/appendix-07-nightly-rust.html
-- https://rust-lang.github.io/rustup/overrides.html
-- https://doc.rust-lang.org/edition-guide/editions/
-- https://doc.rust-lang.org/cargo/reference/rust-version.html
+
+- <https://doc.rust-lang.org/stable/book/appendix-07-nightly-rust.html>
+- <https://rust-lang.github.io/rustup/overrides.html>
+- <https://doc.rust-lang.org/edition-guide/editions/>
+- <https://doc.rust-lang.org/cargo/reference/rust-version.html>
 
 ## Library selection and major-version upgrades
 
@@ -47,8 +48,9 @@ Resolve transitive dependencies to the newest versions allowed by the selected d
 Use only necessary crate features and dependencies. “Latest” does not mean enable every optional feature, install extra infrastructure or replace a smaller suitable dependency without a demonstrated reason.
 
 Sources:
-- https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html
-- https://doc.rust-lang.org/cargo/commands/cargo-update.html
+
+- <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html>
+- <https://doc.rust-lang.org/cargo/commands/cargo-update.html>
 
 ## Lockfiles and reproducibility
 
@@ -58,7 +60,7 @@ Normal CI and release builds use the committed lockfile, for example cargo build
 
 The exact Rust toolchain, complete dependency lockfile, source commit, build settings and base-image digests together define a reproducible release input. Reproducibility does not require leaving those inputs old: update them in reviewed, tested changes and preserve the resulting history.
 
-Source: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
+Source: <https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html>
 
 ## Go SDK toolchain and module graph
 
@@ -93,12 +95,12 @@ no Go installation. Unrecognized SDK ecosystems fail instead of being ignored.
 
 Official sources checked on 2026-10-21:
 
-- https://go.dev/dl/?mode=json
-- https://go.dev/doc/toolchain
-- https://go.dev/ref/mod
-- https://proxy.golang.org/cloud.google.com/go/storage/@latest
-- https://proxy.golang.org/google.golang.org/api/@latest
-- https://github.com/actions/setup-go/releases/tag/v7.0.0
+- <https://go.dev/dl/?mode=json>
+- <https://go.dev/doc/toolchain>
+- <https://go.dev/ref/mod>
+- <https://proxy.golang.org/cloud.google.com/go/storage/@latest>
+- <https://proxy.golang.org/google.golang.org/api/@latest>
+- <https://github.com/actions/setup-go/releases/tag/v7.0.0>
 
 ## Daily update detection and bounded upgrade work
 
@@ -117,8 +119,9 @@ Add explicit checks at bootstrap, at slice start and before release even when da
 Patch/minor upgrades may be grouped when the groups remain reviewable. Breaking majors and toolchain/edition migrations should be independently assessable. Automatic merge, if enabled by the repository owner, is restricted to changes that satisfy the repository's actual required checks; a bot discovering a release is not evidence of compatibility.
 
 Sources:
-- https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
-- https://docs.docker.com/build/building/best-practices/
+
+- <https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference>
+- <https://docs.docker.com/build/building/best-practices/>
 
 ## Temporary incompatibilities must be visible
 
@@ -132,13 +135,13 @@ A real incompatibility is not a reason to fake a passing test, remove a permissi
 
 Verify the newest suitable supported builder/runtime image from its official publisher. Pin actual digests in Dockerfiles; tags alone are mutable. For a multi-architecture image, record an appropriate manifest-list/index digest or separately verified platform digests and ensure both amd64 and arm64 resolve correctly.
 
-Do not invent a rust:<version> tag before confirming that image exists. If the official Rust image has not yet published the new compiler, use a verified supported builder and install the exact official toolchain through a documented process, or record a visible publication-lag exception. Do not silently use the previous compiler.
+Do not invent a `rust:<version>` tag before confirming that image exists. If the official Rust image has not yet published the new compiler, use a verified supported builder and install the exact official toolchain through a documented process, or record a visible publication-lag exception. Do not silently use the previous compiler.
 
 The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. No image has been published yet.
 
 Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag may exist after releases are actually published, but installation and reproduction examples should also show an explicit release/digest. Before the first release, use a locally built lowercase gcs-mimic:dev image.
 
-Source: https://docs.docker.com/build/building/best-practices/
+Source: <https://docs.docker.com/build/building/best-practices/>
 
 ## CI lanes
 
@@ -153,6 +156,26 @@ Source: https://docs.docker.com/build/building/best-practices/
 Release gates require a successful check against the currently verified stable compiler, adoption of the latest direct dependencies or explicit visible exceptions, successful target-platform container smoke tests, and recorded version provenance.
 
 ## Dependency status evidence
+
+The object media slice adds four direct crates, verified as the latest non-yanked stable
+releases on 2026-10-21. Compressed sizes describe registry packages, not binary-size growth.
+
+| Crate | Version | License | Compressed bytes | Reason |
+| --- | --- | --- | --- | --- |
+| bytes | 1.12.1 | MIT | 75,667 | Share bounded byte chunks with the existing Hyper/Tokio graph |
+| md-5 | 0.11.0 | MIT OR Apache-2.0 | 17,404 | Incremental object checksum compatibility; no authentication use |
+| crc32c | 0.6.8 | Apache-2.0/MIT | 9,647 | Incremental Castagnoli CRC32C |
+| getrandom | 0.4.3 | MIT OR Apache-2.0 | 52,437 | Opaque random blob identifiers |
+
+All four publisher repositories were active and not archived at selection. Exact registry,
+publisher, feature and compiler references are in the
+[snapshot](../../compatibility/dependency-status.json). Tokio enables `fs`/`io-util` for
+short asynchronous file jobs; http-body-util enables its existing `channel` feature for
+bounded download bodies. No new runtime framework or general codec dependency is added.
+The Rust builder index is updated to
+`sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244`;
+its amd64/arm64 platform manifests are unchanged. The final online
+[freshness check](evidence/object-media-dependencies.txt) exits 0 with every input CURRENT.
 
 Maintain a machine-readable dependency status record containing checked_at_utc, toolchain channel/exact version, edition, declared rust-version, package current/latest version, source URL, resolution constraints, Docker digest per platform and any exception reference. Store actual command/test evidence with the change.
 

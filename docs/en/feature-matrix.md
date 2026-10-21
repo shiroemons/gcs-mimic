@@ -8,15 +8,15 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 294 | 0 | 4 | 0 | 0 | 0 |
-| behavior | 201 | 189 | 0 | 12 | 0 | 0 | 0 |
-| project_requirement | 89 | 54 | 0 | 20 | 15 | 0 | 0 |
+| api_operation | 298 | 291 | 0 | 7 | 0 | 0 | 0 |
+| behavior | 201 | 180 | 0 | 21 | 0 | 0 | 0 |
+| project_requirement | 89 | 49 | 0 | 24 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 294 | 0 | 4 | 0 | 0 | 0 |
-| behavior | 189 | 0 | 10 | 2 | 0 | 0 |
-| project_requirement | 54 | 0 | 0 | 0 | 0 | 35 |
+| api_operation | 291 | 0 | 7 | 0 | 0 | 0 |
+| behavior | 180 | 0 | 19 | 2 | 0 | 0 |
+| project_requirement | 49 | 0 | 0 | 0 | 0 | 40 |
 
 ## api_operation
 
@@ -147,10 +147,10 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-004 | objects.delete | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| JSON-OBJECTS-005 | objects.get | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-008 | objects.list | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -523,7 +523,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-COMMON-001 | Bucket and object name validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-COMMON-002 | Literal object names and URI encoding | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-002 | Literal object names and URI encoding | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-003 | JSON integer representation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-004 | Partial response fields selectors | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-005 | Projection full/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
@@ -661,21 +661,21 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-OBJECT-001 | System and custom object metadata | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-002 | Generations and metagenerations | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-003 | Object timestamps and lifecycle time | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-001 | System and custom object metadata | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-002 | Generations and metagenerations | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-003 | Object timestamps and lifecycle time | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | Custom time monotonicity | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-005 | Checksums | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-006 | ETag semantics | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-007 | Metadata mediaLink/selfLink | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-008 | Simple media upload | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-005 | Checksums | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-006 | ETag semantics | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-007 | Metadata mediaLink/selfLink | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-008 | Simple media upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | Multipart JSON upload | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-010 | Resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-011 | Resumable chunk writes | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-012 | Resumable status query | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-013 | Resumable cancellation and expiration | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-014 | Resumable finalization visibility | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-015 | Read bytes and metadata separately | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-015 | Read bytes and metadata separately | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | Range reads | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-017 | Content encoding and transcoding | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-018 | Prefix and delimiter listing | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -833,14 +833,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | Seed then ready startup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 1 |
+| UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-006 | Signed access and invalid-signature journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | Browser CORS and direct upload journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | Stop versus deliberate reset semantics | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-011 | Resource-limited large-object workflow | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-011 | Resource-limited large-object workflow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-012 | Canonical English guide and troubleshooting verification | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### IAM enforcement
@@ -878,12 +878,12 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-011 | Disconnected-client resource cleanup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-012 | Disk exhaustion and write failure integrity | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-013 | File descriptor and active-session budgets | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-070 | Streaming bodies with bounded buffers | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-070 | Streaming bodies with bounded buffers | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-071 | Bounded request and worker concurrency | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-072 | Disk-backed metadata and indexed listing | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-073 | Immutable blobs and atomic catalog updates | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-074 | Cross-file crash recovery journal | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-075 | Opaque blob paths preserve object keys | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-073 | Immutable blobs and atomic catalog updates | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-074 | Cross-file crash recovery journal | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-075 | Opaque blob paths preserve object keys | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-076 | Single-process data-directory lock | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-077 | Bounded memory-backend mode | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-078 | Idle CPU without busy polling | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -900,7 +900,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 1 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |

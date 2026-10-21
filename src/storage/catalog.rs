@@ -1,22 +1,80 @@
 use super::lock;
 use crate::bucket::{BucketRecord, CatalogError};
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, types::Type};
+use crate::clock::{Clock, SystemClock};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
+};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Semaphore;
 
+#[path = "objects.rs"]
+mod objects;
+pub use objects::ObjectReader;
+
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
+const MAX_UPLOADS: usize = 8;
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated";
+const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
+                        name TEXT PRIMARY KEY COLLATE BINARY,
+                        project TEXT NOT NULL,
+                        location TEXT NOT NULL,
+                        location_type TEXT NOT NULL,
+                        storage_class TEXT NOT NULL,
+                        labels TEXT NOT NULL,
+                        metageneration INTEGER NOT NULL,
+                        time_created INTEGER NOT NULL,
+                        updated INTEGER NOT NULL
+                     ) WITHOUT ROWID;
+                     CREATE INDEX buckets_project_name ON buckets(project, name);
+                     PRAGMA user_version = 1;";
+
+fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
+    let expected = Connection::open_in_memory().map_err(unavailable)?;
+    expected.execute_batch(BUCKET_SCHEMA).map_err(unavailable)?;
+    if version >= 2 {
+        expected
+            .execute_batch(objects::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 3 {
+        expected
+            .execute_batch(objects::GENERATION_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    let inventory =
+        |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
+            db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 16")
+            .map_err(unavailable)?.query_map([], |row| {
+                let sql: String = row.get(3)?;
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, sql.split_whitespace().collect::<Vec<_>>().join(" ")))
+            }).map_err(unavailable)?.collect::<rusqlite::Result<_>>().map_err(unavailable)
+        };
+    // Versioned catalogs must retain our constraints, collations, indexes and table inventory.
+    if inventory(connection)? != inventory(&expected)? {
+        return Err(unavailable("catalog schema does not match its version"));
+    }
+    if version >= 3 {
+        let valid: bool = connection.query_row("SELECT count(*) = 1 AND min(singleton) = 1 AND min(last_generation) >= (SELECT coalesce(max(generation), 0) FROM objects) FROM object_generation", [], |row| row.get(0)).map_err(unavailable)?;
+        if !valid {
+            return Err(unavailable("invalid generation allocator state"));
+        }
+    }
+    Ok(())
+}
 
 struct Inner {
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
+    uploads: Arc<Semaphore>,
+    data_dir: PathBuf,
+    clock: Arc<dyn Clock>,
 }
 
 struct Resources {
@@ -25,19 +83,48 @@ struct Resources {
     lock: lock::DirectoryLock,
 }
 
-/// A single SQLite connection with at most 32 admitted operations and one blocking job.
-/// Excess callers receive `Unavailable` immediately; admitted callers await execution.
+/// A single SQLite connection with at most 32 catalog calls and eight streaming uploads.
+/// Metadata jobs execute serially; excess callers receive `Unavailable` without queuing.
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 
 impl Catalog {
     /// Acquires directory ownership and completes SQLite recovery before returning.
     pub async fn open(data_dir: impl AsRef<Path>) -> Result<Self, CatalogError> {
+        Self::open_with_clock(data_dir, Arc::new(SystemClock)).await
+    }
+
+    pub async fn open_with_clock(
+        data_dir: impl AsRef<Path>,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
         tokio::task::spawn_blocking(move || {
             let lock = lock::acquire(&data_dir)?;
-            let mut connection =
-                Connection::open(data_dir.join("catalog.sqlite3")).map_err(unavailable)?;
+            let path = data_dir.join("catalog.sqlite3");
+            // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
+            let connection = if path.try_exists().map_err(unavailable)? {
+                if path.with_extension("sqlite3-wal").try_exists().map_err(unavailable)? {
+                    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                } else {
+                    // Directory ownership makes a WAL-free main file safe for immutable reads.
+                    let absolute = path.canonicalize().map_err(unavailable)?;
+                    let encoded: String = absolute.as_os_str().as_encoded_bytes().iter().map(|byte| {
+                        if byte.is_ascii_alphanumeric() || b"/-._~:".contains(byte) {
+                            char::from(*byte).to_string()
+                        } else {
+                            format!("%{byte:02X}")
+                        }
+                    }).collect();
+                    Connection::open_with_flags(
+                        format!("file:{encoded}?immutable=1"),
+                        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+                    )
+                }
+            } else {
+                Connection::open_in_memory()
+            }
+            .map_err(unavailable)?;
             connection
                 .busy_timeout(Duration::from_secs(5))
                 .map_err(unavailable)?;
@@ -51,10 +138,13 @@ impl Catalog {
             let version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=1).contains(&version) {
+            if !(0..=3).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 1"
+                    "unsupported catalog schema version {version}; supported version is 3"
                 )));
+            }
+            if version == 2 {
+                return Err(unavailable("unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered"));
             }
             let check: String = connection
                 .query_row("PRAGMA quick_check(1)", [], |r| r.get(0))
@@ -67,7 +157,7 @@ impl Catalog {
             if version == 0 {
                 let tables: i64 = connection
                     .query_row(
-                        "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                        "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
                         [],
                         |r| r.get(0),
                     )
@@ -79,10 +169,20 @@ impl Catalog {
                 }
             } else {
                 // Reject foreign schemas before any persistent journal-mode change.
-                connection
-                    .prepare(&format!("SELECT {COLUMNS} FROM buckets LIMIT 0"))
-                    .map_err(unavailable)?;
+                validate_schema(&connection, version)?;
             }
+            drop(connection);
+            let mut connection = Connection::open(path).map_err(unavailable)?;
+            connection
+                .busy_timeout(Duration::from_secs(5))
+                .map_err(unavailable)?;
+            connection
+                .execute_batch(
+                    "PRAGMA cache_size = -2048;
+                 PRAGMA mmap_size = 0;
+                 PRAGMA temp_store = FILE;",
+                )
+                .map_err(unavailable)?;
             let mode: String = connection
                 .pragma_query_value(None, "journal_mode", |r| r.get(0))
                 .map_err(unavailable)?;
@@ -102,21 +202,7 @@ impl Catalog {
             if version == 0 {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction
-                    .execute_batch(
-                        "CREATE TABLE buckets (
-                        name TEXT PRIMARY KEY COLLATE BINARY,
-                        project TEXT NOT NULL,
-                        location TEXT NOT NULL,
-                        location_type TEXT NOT NULL,
-                        storage_class TEXT NOT NULL,
-                        labels TEXT NOT NULL,
-                        metageneration INTEGER NOT NULL,
-                        time_created INTEGER NOT NULL,
-                        updated INTEGER NOT NULL
-                     ) WITHOUT ROWID;
-                     CREATE INDEX buckets_project_name ON buckets(project, name);
-                     PRAGMA user_version = 1;",
-                    )
+                    .execute_batch(BUCKET_SCHEMA)
                     .map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
@@ -124,10 +210,17 @@ impl Catalog {
             connection
                 .prepare(&format!("SELECT {COLUMNS} FROM buckets LIMIT 0"))
                 .map_err(unavailable)?;
+            if version < 2 {
+                objects::migrate(&mut connection)?;
+            }
+            objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
+                uploads: Arc::new(Semaphore::new(MAX_UPLOADS)),
+                data_dir,
+                clock,
             })))
         })
         .await
@@ -142,6 +235,13 @@ impl Catalog {
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
         self.0.admission.close();
+        let _uploads = self
+            .0
+            .uploads
+            .clone()
+            .acquire_many_owned(MAX_UPLOADS as u32)
+            .await
+            .map_err(unavailable)?;
         let execution = self
             .0
             .execution
@@ -334,7 +434,16 @@ impl Catalog {
             {
                 return Err(CatalogError::PreconditionFailed);
             }
-            // The objects slice must check bucket emptiness inside this same transaction.
+            let nonempty: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1)",
+                    [&name],
+                    |r| r.get(0),
+                )
+                .map_err(unavailable)?;
+            if nonempty {
+                return Err(CatalogError::NotEmpty);
+            }
             transaction
                 .execute("DELETE FROM buckets WHERE name = ?1", [name])
                 .map_err(unavailable)?;
@@ -511,7 +620,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 1),
+                    ("user_version", 3),
                 ] {
                     assert_eq!(
                         connection

@@ -81,10 +81,11 @@ func TestEmulatorEndpoint(t *testing.T) {
 	}
 }
 
-func TestBucketLifecycle(t *testing.T) {
+func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Client, *url.URL) {
+	t.Helper()
 	raw := os.Getenv("GCS_MIMIC_ENDPOINT")
 	if raw == "" {
-		t.Skip("GCS_MIMIC_ENDPOINT is unset; bucket integration requires an explicit local emulator")
+		t.Skip("GCS_MIMIC_ENDPOINT is unset; integration requires an explicit local emulator")
 	}
 	u, err := emulatorEndpoint(raw, os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
 	if err != nil {
@@ -118,20 +119,29 @@ func TestBucketLifecycle(t *testing.T) {
 			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, address)
 		},
 	}
-	defer transport.CloseIdleConnections()
+	t.Cleanup(transport.CloseIdleConnections)
 	httpClient := &http.Client{
 		Transport:     emulatorTransport{endpoint: u, base: transport},
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	client, err := storage.NewClient(ctx, storage.WithJSONReads(), storage.WithDisabledClientMetrics(),
 		option.WithoutAuthentication(), option.WithHTTPClient(httpClient))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close client: %v", err)
+		}
+	})
+	return ctx, client, httpClient, u
+}
+
+func TestBucketLifecycle(t *testing.T) {
+	ctx, client, _, _ := newEmulatorClient(t)
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		t.Fatal(err)
