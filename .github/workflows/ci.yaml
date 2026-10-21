@@ -1,4 +1,4 @@
-name: Ledger checks
+name: Foundation checks
 on:
   push:
   pull_request:
@@ -6,8 +6,8 @@ on:
 permissions:
   contents: read
 jobs:
-  ledger:
-    runs-on: ubuntu-latest
+  rust:
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         toolchain: [pinned, stable]
@@ -18,7 +18,8 @@ jobs:
       - name: Install the selected compiler
         shell: bash
         run: |
-          pin=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
           if [[ '${{ matrix.toolchain }}' == stable ]]; then pin=stable; fi
           rustup toolchain install "$pin" --profile minimal --component rustfmt --component clippy
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
@@ -27,4 +28,24 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
       - run: cargo test --workspace --locked --offline
       - run: cargo xtask compatibility check
-      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: bash -n scripts/smoke-containers.sh
+      - name: Check smoke command validation
+        run: |
+          bash scripts/smoke-containers.sh --help
+          if bash scripts/smoke-containers.sh linux/unknown; then exit 1; else test "$?" = 2; fi
+  containers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/smoke-containers.sh '${{ matrix.platform }}'

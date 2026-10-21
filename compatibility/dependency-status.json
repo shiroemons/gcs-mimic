@@ -1,6 +1,6 @@
 {
-  "checked_at_utc": "2026-10-21T08:06:51Z",
-  "scope": "Ledger tooling only; no server, container or SDK example exists yet.",
+  "checked_at_utc": "2026-10-21T08:54:49Z",
+  "scope": "P0 HTTP/1 foundation, Rust ledger/freshness tooling and digest-pinned Docker inputs. No SDK examples or GCS APIs.",
   "toolchain": {
     "channel": "stable",
     "version": "1.99.1",
@@ -17,7 +17,7 @@
       "license": "MIT OR Apache-2.0",
       "compressed_crate_bytes": 158079,
       "minimum_rust": "1.71",
-      "purpose": "Read and validate the existing JSON ledger without a general schema engine.",
+      "purpose": "Read ledger, bounded runtime configuration and official dependency metadata without a general schema engine.",
       "features": ["std"],
       "maintenance": "Official publisher release v1.0.154 published 2026-10-11; actively maintained.",
       "source_urls": [
@@ -26,13 +26,79 @@
         "https://raw.githubusercontent.com/serde-rs/json/v1.0.154/Cargo.toml"
       ],
       "resolution_constraints": "Cargo.lock records the full graph; newest stable direct release verified independently of the manifest range."
+    },
+    {
+      "name": "tokio", "current": "1.54.0", "latest_non_yanked_stable": "1.54.0",
+      "license": "MIT", "compressed_crate_bytes": 983296, "minimum_rust": "1.85",
+      "purpose": "Bounded async runtime, sockets, signals, synchronization and deadlines.",
+      "features": ["rt-multi-thread", "net", "signal", "time", "sync", "macros"],
+      "maintenance": "Official publisher release 2026-10-19; actively maintained.",
+      "source_urls": ["https://crates.io/api/v1/crates/tokio", "https://index.crates.io/to/ki/tokio", "https://github.com/tokio-rs/tokio"],
+      "resolution_constraints": "Newest stable checked independently of manifest ranges; no previous runtime version to migrate."
+    },
+    {
+      "name": "hyper", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
+      "license": "MIT", "compressed_crate_bytes": 172269, "minimum_rust": "1.63",
+      "purpose": "HTTP/1 server with explicit connection admission, parser bounds and graceful drain.",
+      "features": ["http1", "server"],
+      "maintenance": "Official publisher release 2026-10-06; actively maintained.",
+      "source_urls": ["https://crates.io/api/v1/crates/hyper", "https://index.crates.io/hy/pe/hyper", "https://github.com/hyperium/hyper"],
+      "resolution_constraints": "No HTTP/2, TLS or client features; latest stable direct release independently verified."
+    },
+    {
+      "name": "hyper-util", "current": "0.1.21", "latest_non_yanked_stable": "0.1.21",
+      "license": "MIT", "compressed_crate_bytes": 126820, "minimum_rust": "1.85",
+      "purpose": "Official Tokio I/O and timer adapters for Hyper.",
+      "features": ["tokio"],
+      "maintenance": "Official publisher release 2026-09-24; actively maintained.",
+      "source_urls": ["https://crates.io/api/v1/crates/hyper-util", "https://index.crates.io/hy/pe/hyper-util", "https://github.com/hyperium/hyper-util"],
+      "resolution_constraints": "Only Tokio adapters enabled; no extra server framework."
+    },
+    {
+      "name": "http-body-util", "current": "0.1.5", "latest_non_yanked_stable": "0.1.5",
+      "license": "MIT", "compressed_crate_bytes": 18574, "minimum_rust": "1.61",
+      "purpose": "Small fixed-size probe and error response bodies; no request body collection.",
+      "features": [],
+      "maintenance": "Official publisher release 2026-08-12; actively maintained.",
+      "source_urls": ["https://crates.io/api/v1/crates/http-body-util", "https://index.crates.io/ht/tp/http-body-util", "https://github.com/hyperium/http-body"],
+      "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
     }
   ],
   "lockfiles": ["Cargo.lock"],
   "docker": {
-    "status": "NOT_INTRODUCED",
-    "digests": [],
-    "reason": "No Dockerfile or emulator runtime in the selected ledger-tooling slice; DEP-008 remains NOT_STARTED."
+    "status": "PINNED",
+    "digests": [
+      {
+        "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
+        "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
+        "digest": "sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d",
+        "platforms": {
+          "linux/amd64": "sha256:97c67d8fb6098c321d0b47fbf0035ccce7f6d6b480ce96fb4bd6673c4ddb6b98",
+          "linux/arm64": "sha256:4584869b7bc580d3a49023d29cac84a41d51ed5e26960c235d4fc0cd40a3e008"
+        },
+        "source_url": "https://github.com/rust-lang/docker-rust/tree/1b9592f08592a09d61dbc6d27a5c7cf2be1c2e92"
+      },
+      {
+        "repository": "library/debian", "reference": "debian:trixie-slim",
+        "tag": "trixie-slim", "latest_tag": "trixie-slim", "stable_codename": "trixie",
+        "digest": "sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
+        "platforms": {
+          "linux/amd64": "sha256:4876fdea29cac1a33a3195f1eb1952feb1fca7dd6dd00be3e2f1879cf20d34d2",
+          "linux/arm64": "sha256:a66b19aa552f595b4ab276c6b4f9b24fa4546632c5ecd88cccdced4a6866323a"
+        },
+        "source_url": "https://github.com/debuerreotype/docker-debian-artifacts",
+        "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
+        "alias_note": "stable-slim uses moving APT suite names and has different layer/config digests. It is not an equivalent index to trixie-slim. Both architectures had identical 78 package versions at verification; detect codename drift separately from selected-tag digest changes."
+      },
+      {
+        "repository": "docker/dockerfile", "reference": "docker/dockerfile:1",
+        "tag": "1", "latest_tag": "1",
+        "digest": "sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e",
+        "platforms": {},
+        "source_url": "https://docs.docker.com/build/buildkit/frontend/"
+      }
+    ],
+    "reason": "Official multiarch manifest indexes; floating stable selectors and pinned tags are both checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
   },
   "sdk_ecosystems": [],
   "github_actions": [

@@ -1,6 +1,6 @@
 # Dependency and Rust version policy
 
-Status: project policy. Ledger tooling has a compiler pin, Cargo.lock, a dated [dependency snapshot](../../compatibility/dependency-status.json), and daily detection configuration. No server, Docker input or SDK ecosystem has been introduced. Scheduled/remote CI execution is not yet verified; per-requirement progress is recorded only in the feature ledger.
+Status: project policy. P0 has a compiler pin, Cargo.lock, bounded HTTP runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json) and Rust daily detection tooling. No SDK ecosystem is present. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
 
 ## User requirement
 
@@ -62,7 +62,7 @@ Source: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 
 ## Daily update detection and bounded upgrade work
 
-Current command: `python3 scripts/check-dependencies.py` (Python 3.11+). It is read-only and explicitly contacts official Rust distribution metadata, Cargo and GitHub. It discovers actual workspace registry dependencies through offline Cargo metadata, then compares resolved direct versions against all non-yanked stable releases, including new majors. Network failures fail the check. CI logs are actionable drift records; no branches or packages are published automatically. `.github/workflows/dependency-check.yaml` schedules it every calendar day with no cooldown. The command has been exercised locally; the scheduled workflow has not run. Add Docker and SDK detection when those inputs are introduced.
+Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks Action pins, Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day without cooldown. Local execution is verified; scheduled execution has not been observed. Add SDK detection when introduced; nonempty undeclared SDK scope currently fails the check.
 
 Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. There are no current freshness exceptions.
 
@@ -94,7 +94,7 @@ Verify the newest suitable supported builder/runtime image from its official pub
 
 Do not invent a rust:<version> tag before confirming that image exists. If the official Rust image has not yet published the new compiler, use a verified supported builder and install the exact official toolchain through a documented process, or record a visible publication-lag exception. Do not silently use the previous compiler.
 
-The update workflow checks tag changes and replacement digests and submits tested updates. Rebuild released runtime images when accepted base-image updates change them; merely updating a Dockerfile does not update an already published image.
+The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. No image has been published yet.
 
 Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag may exist after releases are actually published, but installation and reproduction examples should also show an explicit release/digest. Before the first release, use a locally built lowercase gcs-mimic:dev image.
 

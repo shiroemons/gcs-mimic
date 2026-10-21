@@ -14,8 +14,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned tooling
         run: |
-          pin=$(python3 -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
           rustup toolchain install "$pin" --profile minimal
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
-      - run: python3 scripts/check-dependencies.py
+      - run: cargo xtask dependencies check

@@ -1,4 +1,5 @@
 use serde_json::Value;
+pub mod dependencies;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File},
