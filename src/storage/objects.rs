@@ -70,11 +70,63 @@ fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     Ok(data_dir.join("blobs").join(&id[..2]).join(id))
 }
 
+#[cfg(unix)]
 fn sync_dir(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
+fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
+    let shard = destination.parent().expect("blob parent");
+    fs::create_dir_all(shard)?;
+    #[cfg(unix)]
+    {
+        sync_dir(shard.parent().expect("blobs directory"))?;
+        fs::rename(source, destination)?;
+        sync_dir(shard)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
+
+        // Preserve extended paths and keep publication on the same volume. Windows
+        // uses write-through publication, not Unix directory-fsync durability.
+        let source = source.canonicalize()?;
+        let destination = shard
+            .canonicalize()?
+            .join(destination.file_name().expect("blob filename"));
+        let wide = |path: &Path| -> io::Result<Vec<u16>> {
+            let mut path: Vec<_> = path.as_os_str().encode_wide().collect();
+            if path.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "NUL in blob path",
+                ));
+            }
+            path.push(0);
+            Ok(path)
+        };
+        let source = wide(&source)?;
+        let destination = wide(&destination)?;
+        // Both terminated UTF-16 buffers remain alive for this synchronous call.
+        let moved = unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                destination.as_ptr(),
+                MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if moved == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn unlink(path: &Path) -> io::Result<()> {
+    // Windows may defer removal until the final reader closes. Recovery also
+    // scans unreferenced blobs, so a deferred deletion cannot become live data.
     match fs::remove_file(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
@@ -102,6 +154,7 @@ fn reclaim(connection: &Connection, data_dir: &Path, id: &str) -> Result<(), Obj
     }
     let path = blob_path(data_dir, id)?;
     unlink(&path).map_err(object_unavailable)?;
+    #[cfg(unix)]
     if path.parent().expect("blob parent").exists() {
         sync_dir(path.parent().expect("blob parent")).map_err(object_unavailable)?;
     }
@@ -118,6 +171,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     let recover = || -> Result<(), ObjectError> {
         fs::create_dir_all(data_dir.join("staging")).map_err(object_unavailable)?;
         fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
+        #[cfg(unix)]
         sync_dir(data_dir).map_err(object_unavailable)?;
         for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
             let entry = entry.map_err(object_unavailable)?;
@@ -128,6 +182,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
                 object_unavailable(format!("staging entry {}: {error}", entry.path().display()))
             })?;
         }
+        #[cfg(unix)]
         sync_dir(&data_dir.join("staging")).map_err(object_unavailable)?;
         // Keyset pages bound memory independently of the number of objects or pending deletions.
         loop {
@@ -218,6 +273,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
                     })?;
                 }
             }
+            #[cfg(unix)]
             sync_dir(&shard.path()).map_err(object_unavailable)?;
         }
         Ok(())
@@ -383,13 +439,8 @@ impl Catalog {
                 let (size, md5, crc32c) = write_body(tokio::fs::File::from_std(file), expected, max_bytes, body, cancellation).await?;
                 let source = stage.clone();
                 let destination = published.clone();
-                tokio::task::spawn_blocking(move || -> io::Result<()> {
-                    let shard = destination.parent().expect("blob parent");
-                    fs::create_dir_all(shard)?;
-                    sync_dir(shard.parent().expect("blobs directory"))?;
-                    fs::rename(source, &destination)?;
-                    sync_dir(shard)
-                }).await.map_err(object_unavailable)?.map_err(object_unavailable)?;
+                tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
+                    .await.map_err(object_unavailable)?.map_err(object_unavailable)?;
                 let data_dir = catalog.0.data_dir.clone();
                 let clock = catalog.0.clock.clone();
                 let blob_id = id.clone();

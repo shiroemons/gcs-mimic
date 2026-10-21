@@ -78,10 +78,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
                 #[cfg(unix)]
                 let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+                #[cfg(windows)]
+                let mut terminate = tokio::signal::windows::ctrl_break()?;
+                #[cfg(windows)]
+                let mut interrupt = tokio::signal::windows::ctrl_c()?;
                 let shutdown = async {
-                    #[cfg(unix)]
+                    #[cfg(any(unix, windows))]
                     tokio::select! { _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) }
-                    #[cfg(not(unix))]
+                    #[cfg(not(any(unix, windows)))]
                     tokio::signal::ctrl_c().await
                 };
                 let clock = Arc::new(SystemClock);

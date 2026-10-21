@@ -9,9 +9,9 @@ use common::TestDir;
 use std::{
     collections::BTreeMap,
     fs,
-    io::{BufRead, Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
-    process::Command,
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -24,6 +24,25 @@ struct FixedClock;
 impl Clock for FixedClock {
     fn now(&self) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(42)
+    }
+}
+
+#[test]
+fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
+    let dir = TestDir::new();
+    for _ in 0..2 {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let ready: serde_json::Value = serde_json::from_str(&line).expect("ready after recovery");
+        assert_eq!(ready["event"], "ready");
+        common::stop_server(&mut child, &mut stdout);
     }
 }
 

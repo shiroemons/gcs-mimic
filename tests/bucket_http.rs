@@ -12,13 +12,12 @@ use std::{
 struct Server {
     child: Child,
     address: String,
-    _stdout: BufReader<ChildStdout>,
+    stdout: BufReader<ChildStdout>,
 }
 
 impl Server {
     fn start(dir: &TestDir) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-            .env_clear()
+        let mut child = common::server_command()
             .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
             .arg(&dir.0)
             .args(["--api-base-url", "https://advertised.invalid/api"])
@@ -33,7 +32,7 @@ impl Server {
         Self {
             child,
             address: ready["listen"].as_str().unwrap().into(),
-            _stdout: stdout,
+            stdout,
         }
     }
 
@@ -54,14 +53,7 @@ impl Server {
     }
 
     fn stop(&mut self) {
-        assert!(
-            Command::new("kill")
-                .args(["-TERM", &self.child.id().to_string()])
-                .status()
-                .unwrap()
-                .success()
-        );
-        assert!(self.child.wait().unwrap().success());
+        common::stop_server(&mut self.child, &mut self.stdout);
     }
 }
 

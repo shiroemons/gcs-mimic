@@ -34,6 +34,30 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      CREATE INDEX buckets_project_name ON buckets(project, name);
                      PRAGMA user_version = 1;";
 
+fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
+    #[cfg(unix)]
+    let bytes = path.as_os_str().as_encoded_bytes();
+    #[cfg(windows)]
+    let bytes = path
+        .to_str()
+        .ok_or_else(|| unavailable("catalog path cannot be represented as UTF-8"))?
+        .as_bytes();
+    // SQLite decodes the path before passing it to its native VFS. Encoding
+    // separators prevents UNC paths from being interpreted as URI authorities
+    // and preserves Windows extended prefixes instead of stripping long-path support.
+    let encoded: String = bytes
+        .iter()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~:".contains(byte) {
+                char::from(*byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    Ok(format!("file:{encoded}?immutable=1"))
+}
+
 fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogError> {
     let expected = Connection::open_in_memory().map_err(unavailable)?;
     expected.execute_batch(BUCKET_SCHEMA).map_err(unavailable)?;
@@ -109,15 +133,8 @@ impl Catalog {
                 } else {
                     // Directory ownership makes a WAL-free main file safe for immutable reads.
                     let absolute = path.canonicalize().map_err(unavailable)?;
-                    let encoded: String = absolute.as_os_str().as_encoded_bytes().iter().map(|byte| {
-                        if byte.is_ascii_alphanumeric() || b"/-._~:".contains(byte) {
-                            char::from(*byte).to_string()
-                        } else {
-                            format!("%{byte:02X}")
-                        }
-                    }).collect();
                     Connection::open_with_flags(
-                        format!("file:{encoded}?immutable=1"),
+                        immutable_catalog_uri(&absolute)?,
                         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
                     )
                 }
@@ -500,6 +517,66 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn immutable_uri_preserves_native_windows_paths() {
+        for (path, encoded) in [
+            (r"C:\catalog.sqlite3", "C:%5Ccatalog.sqlite3"),
+            (
+                r"\\server\share\catalog.sqlite3",
+                "%5C%5Cserver%5Cshare%5Ccatalog.sqlite3",
+            ),
+            (
+                r"\\?\C:\catalog.sqlite3",
+                "%5C%5C%3F%5CC:%5Ccatalog.sqlite3",
+            ),
+            (
+                r"\\?\UNC\server\share\catalog.sqlite3",
+                "%5C%5C%3F%5CUNC%5Cserver%5Cshare%5Ccatalog.sqlite3",
+            ),
+        ] {
+            assert_eq!(
+                immutable_catalog_uri(Path::new(path)).unwrap(),
+                format!("file:{encoded}?immutable=1")
+            );
+        }
+    }
+
+    #[test]
+    fn immutable_uri_reads_exact_unicode_and_reserved_filename() {
+        let dir = std::env::temp_dir().join(format!(
+            "gcs-mimic-immutable-{}-日本語 # percent%",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("catalog.sqlite3");
+        let writable = Connection::open(&path).unwrap();
+        writable
+            .execute_batch("CREATE TABLE sentinel(value); INSERT INTO sentinel VALUES (42);")
+            .unwrap();
+        writable.close().unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let readonly = Connection::open_with_flags(
+            immutable_catalog_uri(&path.canonicalize().unwrap()).unwrap(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
+        assert_eq!(
+            readonly
+                .query_row("SELECT value FROM sentinel", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            42
+        );
+        assert!(
+            readonly
+                .execute("INSERT INTO sentinel VALUES (43)", [])
+                .is_err()
+        );
+        readonly.close().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[tokio::test]
     async fn close_waits_for_cancelled_blocking_work_and_invalidates_clones() {
