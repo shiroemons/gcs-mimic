@@ -21,6 +21,30 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectListCursor {
+    pub name: String,
+    pub is_prefix: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ObjectListQuery {
+    pub bucket: String,
+    pub prefix: String,
+    pub delimiter: String,
+    pub start_offset: String,
+    pub end_offset: String,
+    pub include_trailing_delimiter: bool,
+    pub cursor: Option<ObjectListCursor>,
+}
+
+#[derive(Debug)]
+pub struct ObjectListPage {
+    pub items: Vec<ObjectRecord>,
+    pub prefixes: Vec<String>,
+    pub next: Option<ObjectListCursor>,
+}
+
 pub(super) const SCHEMA: &str = "CREATE TABLE objects (
             bucket TEXT NOT NULL COLLATE BINARY,
             name TEXT NOT NULL COLLATE BINARY,
@@ -299,6 +323,24 @@ impl ObjectReader {
 }
 
 impl Catalog {
+    /// Each emitted entry requires one indexed seek, independent of a grouped prefix's size.
+    pub async fn list_objects(
+        &self,
+        query: ObjectListQuery,
+        limit: usize,
+    ) -> Result<ObjectListPage, ObjectError> {
+        if !(1..=1000).contains(&limit) {
+            return Err(object_unavailable(
+                "object list limit must be between 1 and 1000",
+            ));
+        }
+        self.run_object(move |connection| {
+            bucket_class(connection, &query.bucket)?;
+            list_page(connection, &query, limit)
+        })
+        .await
+    }
+
     async fn run_upload<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
@@ -622,6 +664,130 @@ fn object_unavailable(error: impl std::fmt::Display) -> ObjectError {
     ObjectError::Unavailable(error.to_string())
 }
 
+fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
+    let mut end = prefix.as_bytes().to_vec();
+    let index = end.iter().rposition(|byte| *byte != u8::MAX)?;
+    end[index] += 1;
+    end.truncate(index + 1);
+    Some(end)
+}
+
+fn list_page(
+    connection: &Connection,
+    query: &ObjectListQuery,
+    limit: usize,
+) -> Result<ObjectListPage, ObjectError> {
+    let mut page = ObjectListPage {
+        items: Vec::new(),
+        prefixes: Vec::new(),
+        next: None,
+    };
+    let mut cursor = query.cursor.clone();
+    let mut lower = query
+        .prefix
+        .as_bytes()
+        .max(query.start_offset.as_bytes())
+        .to_vec();
+    let mut upper = prefix_end(&query.prefix);
+    if !query.end_offset.is_empty()
+        && upper
+            .as_deref()
+            .is_none_or(|end| query.end_offset.as_bytes() < end)
+    {
+        upper = Some(query.end_offset.as_bytes().to_vec());
+    }
+    let upper_clause = if upper.is_some() {
+        "AND name < CAST(?3 AS TEXT)"
+    } else {
+        ""
+    };
+    let mut inclusive = connection.prepare(&format!(
+        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name >= CAST(?2 AS TEXT) {upper_clause} ORDER BY name LIMIT 1"
+    )).map_err(object_unavailable)?;
+    let mut exclusive = connection.prepare(&format!(
+        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name > CAST(?2 AS TEXT) {upper_clause} ORDER BY name LIMIT 1"
+    )).map_err(object_unavailable)?;
+    loop {
+        let mut after = false;
+        if let Some(previous) = &cursor {
+            let bound = if previous.is_prefix {
+                let Some(end) = prefix_end(&previous.name) else {
+                    break;
+                };
+                end
+            } else {
+                previous.name.as_bytes().to_vec()
+            };
+            if bound >= lower {
+                lower = bound;
+                // A trailing marker emits an item and prefix as separate page entries.
+                after = !previous.is_prefix && !trailing_marker(&previous.name, query);
+            }
+        }
+        if upper
+            .as_deref()
+            .is_some_and(|upper| lower.as_slice() >= upper)
+        {
+            break;
+        }
+        let statement = if after {
+            &mut exclusive
+        } else {
+            &mut inclusive
+        };
+        let record = match &upper {
+            Some(upper) => statement.query_row(params![query.bucket, lower, upper], read_object),
+            None => statement.query_row(params![query.bucket, lower], read_object),
+        }
+        .optional()
+        .map_err(object_unavailable)?;
+        let Some((record, _)) = record else { break };
+        let group = group_prefix(&record.name, query);
+        let is_prefix = group.is_some_and(|_| {
+            !trailing_marker(&record.name, query)
+                || cursor
+                    .as_ref()
+                    .is_some_and(|cursor| !cursor.is_prefix && cursor.name == record.name)
+        });
+        if page.items.len() + page.prefixes.len() == limit {
+            page.next = cursor;
+            break;
+        }
+        let name = if is_prefix {
+            group.expect("grouped entry").to_owned()
+        } else {
+            record.name.clone()
+        };
+        cursor = Some(ObjectListCursor {
+            name: name.clone(),
+            is_prefix,
+        });
+        if is_prefix {
+            page.prefixes.push(name);
+        } else {
+            page.items.push(record);
+        }
+    }
+    Ok(page)
+}
+
+fn group_prefix<'a>(name: &'a str, query: &ObjectListQuery) -> Option<&'a str> {
+    if query.delimiter.is_empty() {
+        return None;
+    }
+    let remainder = name.strip_prefix(&query.prefix)?;
+    let index = remainder.find(&query.delimiter)?;
+    Some(&name[..query.prefix.len() + index + query.delimiter.len()])
+}
+
+fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {
+    query.include_trailing_delimiter
+        && group_prefix(name, query) == Some(name)
+        && name
+            .strip_suffix(&query.delimiter)
+            .is_some_and(|stem| !stem.ends_with(&query.delimiter))
+}
+
 fn bucket_class(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
     connection
         .query_row(
@@ -731,6 +897,52 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn object_list_seeks_past_large_prefixes_with_bounded_sql_work() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        unsafe extern "C" fn progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
+            // The counter outlives the connection's registered callback on this thread.
+            let counter = unsafe { &*counter.cast::<AtomicUsize>() };
+            i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
+        }
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
+            INSERT INTO objects SELECT 'bucket', printf('a/%05d', n), n, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, printf('%032x', n) FROM entries;
+            INSERT INTO objects VALUES('bucket', 'z', 20001, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, '00000000000000000000000000004e21');").unwrap();
+        let counter = AtomicUsize::new(0);
+        // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
+        unsafe {
+            rusqlite::ffi::sqlite3_progress_handler(
+                connection.handle(),
+                100,
+                Some(progress),
+                std::ptr::from_ref(&counter).cast_mut().cast(),
+            );
+        }
+        let mut query = ObjectListQuery {
+            bucket: "bucket".into(),
+            delimiter: "/".into(),
+            ..Default::default()
+        };
+        let page = list_page(&connection, &query, 1).unwrap();
+        assert_eq!(page.prefixes, ["a/"]);
+        assert!(page.items.is_empty());
+        query.cursor = page.next;
+        let page = list_page(&connection, &query, 1).unwrap();
+        assert_eq!(page.items[0].name, "z");
+        assert!(page.next.is_none());
+        unsafe {
+            rusqlite::ffi::sqlite3_progress_handler(
+                connection.handle(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        assert!(counter.load(Ordering::Relaxed) < 100);
+    }
 
     #[tokio::test]
     async fn prepared_upload_skips_advisory_repeat_but_rechecks_publication() {

@@ -25,6 +25,7 @@ pub struct ObjectGetParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
+    List(super::ObjectListParams),
     Insert {
         bucket: String,
         name: String,
@@ -60,6 +61,8 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
             return None;
         }
         None
+    } else if !download && rest == "o" {
+        None
     } else {
         let segment = rest.strip_prefix("o/")?;
         if segment.contains('/') {
@@ -70,7 +73,7 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
     let allowed = if upload {
         method == Method::POST
     } else {
-        method == Method::GET || (!download && method == Method::DELETE)
+        method == Method::GET || (!download && object.is_some() && method == Method::DELETE)
     };
     if !allowed {
         let mut error = JsonError::new(
@@ -80,7 +83,7 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
         );
         error.allow = Some(if upload {
             "POST"
-        } else if download {
+        } else if download || object.is_none() {
             "GET"
         } else {
             "GET, DELETE"
@@ -93,6 +96,10 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
         }
         let bucket = decode(bucket, false)?;
         validate_bucket_name(&bucket)?;
+        if !upload && object.is_none() {
+            return super::object_list::parse_list(bucket, uri.query().unwrap_or_default())
+                .map(ObjectRequest::List);
+        }
         let name = object
             .map(|segment| {
                 if segment.len() > 1024 * 3 {

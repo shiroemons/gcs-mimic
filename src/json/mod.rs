@@ -11,6 +11,7 @@
 mod body;
 mod buckets;
 mod error;
+mod object_list;
 mod objects;
 mod page_token;
 mod query;
@@ -18,6 +19,7 @@ mod query;
 pub use body::read_body;
 pub use buckets::{bucket_list, bucket_resource, parse_insert, validate_bucket_name};
 pub use error::JsonError;
+pub use object_list::{ObjectListParams, object_list};
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_resource,
     parse_object_upload_headers, route_object, validate_object_get_headers, validate_object_name,

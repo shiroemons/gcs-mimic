@@ -81,7 +81,6 @@ fn obj_route_002_namespace_and_method_boundaries() {
         "/",
         "/storage/v1/b",
         "/storage/v1/b/abc",
-        "/storage/v1/b/abc/o",
         "/storage/v1/b/abc/o/name/acl",
         "/upload/storage/v1/b/abc/o/name",
         "/storage/v1/b/abc/o/name/",
@@ -94,6 +93,7 @@ fn obj_route_002_namespace_and_method_boundaries() {
     }
     for (path, method, allow) in [
         ("/upload/storage/v1/b/abc/o", Method::GET, "POST"),
+        ("/storage/v1/b/abc/o", Method::DELETE, "GET"),
         ("/storage/v1/b/abc/o/file", Method::POST, "GET, DELETE"),
         ("/download/storage/v1/b/abc/o/file", Method::DELETE, "GET"),
         ("/storage/v1/b/abc/o/file", Method::HEAD, "GET, DELETE"),
@@ -102,6 +102,10 @@ fn obj_route_002_namespace_and_method_boundaries() {
         assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(error.into_response().headers()["allow"], allow);
     }
+    assert!(matches!(
+        request(Method::GET, "/storage/v1/b/abc/o").unwrap(),
+        ObjectRequest::List(_)
+    ));
     assert!(matches!(
         super::route(&Method::GET, &"/storage/v1/b/abc".parse().unwrap())
             .unwrap()

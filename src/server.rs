@@ -227,6 +227,14 @@ async fn object_response(
         ));
     }
     let value = match operation {
+        ObjectRequest::List(params) => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            let page = state
+                .catalog
+                .list_objects(params.query.clone(), params.max_results)
+                .await?;
+            json::object_list(&page, &params, &state.api_base_url)?
+        }
         ObjectRequest::Insert {
             bucket,
             name,

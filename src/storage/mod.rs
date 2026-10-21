@@ -1,4 +1,4 @@
 mod catalog;
 mod lock;
 
-pub use catalog::{Catalog, ObjectReader};
+pub use catalog::{Catalog, ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};

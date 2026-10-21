@@ -13,7 +13,7 @@ use tokio::sync::Semaphore;
 
 #[path = "objects.rs"]
 mod objects;
-pub use objects::ObjectReader;
+pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
