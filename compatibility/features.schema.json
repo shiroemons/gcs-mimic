@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Emulator feature ledger",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "as_of",
+    "features"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "status",
+          "target_fidelity",
+          "actual_fidelity",
+          "phase",
+          "acceptance_cases",
+          "verification",
+          "category",
+          "dependencies",
+          "source_urls",
+          "source_checked_at",
+          "source_evidence",
+          "test_ids",
+          "sdk_evidence",
+          "known_deviations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9-]*$"
+          },
+          "kind": {
+            "enum": [
+              "api_operation",
+              "behavior",
+              "project_requirement"
+            ]
+          },
+          "status": {
+            "enum": [
+              "NOT_STARTED",
+              "IN_PROGRESS",
+              "PARTIAL",
+              "IMPLEMENTED",
+              "BLOCKED",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "target_fidelity": {
+            "enum": [
+              "EXACT",
+              "LOCAL_SIMULATION",
+              "METADATA_ONLY",
+              "EXTERNAL",
+              "PROJECT"
+            ]
+          },
+          "actual_fidelity": {
+            "enum": [
+              "NONE",
+              "EXACT",
+              "LOCAL_SIMULATION",
+              "METADATA_ONLY",
+              "EXTERNAL",
+              "PROJECT"
+            ]
+          },
+          "phase": {
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3",
+              "P4",
+              "P5",
+              "P6",
+              "P7"
+            ]
+          },
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "acceptance_cases": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/acceptance" }
+          },
+          "verification": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/verification" }
+          },
+          "test_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "source_urls": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^https://.+" }
+          },
+          "source_checked_at": { "type": "string", "format": "date" },
+          "source_evidence": { "type": "string", "minLength": 1 },
+          "sdk_evidence": { "type": "array" },
+          "known_deviations": { "type": "array" },
+          "category": { "type": "string", "minLength": 1 }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "IMPLEMENTED"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "acceptance_cases": {
+                  "minItems": 1
+                },
+                "verification": {
+                  "minItems": 1
+                },
+                "actual_fidelity": {
+                  "not": {
+                    "const": "NONE"
+                  }
+                },
+                "last_verified": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "last_verified"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "test_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "acceptance": {
+      "type": "object",
+      "required": ["id", "description", "result", "test_ids"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "result": { "enum": ["PENDING", "PASS", "FAIL"] },
+        "test_ids": { "$ref": "#/$defs/test_ids" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["command", "result", "verified_at", "artifact", "test_ids"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "result": { "enum": ["PASS", "FAIL"] },
+        "verified_at": { "type": "string", "format": "date" },
+        "artifact": { "type": "string", "minLength": 1 },
+        "test_ids": { "$ref": "#/$defs/test_ids" }
+      }
+    }
+  },
+  "$comment": "Rust xtask must additionally validate uniqueness, dependency integrity, evidence semantics, count reconciliation and generated views."
+}

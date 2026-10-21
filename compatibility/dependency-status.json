@@ -1,0 +1,47 @@
+{
+  "checked_at_utc": "2026-10-21T08:06:51Z",
+  "scope": "Ledger tooling only; no server, container or SDK example exists yet.",
+  "toolchain": {
+    "channel": "stable",
+    "version": "1.99.1",
+    "edition": "2024",
+    "rust_version": "1.99.1",
+    "source_url": "https://static.rust-lang.org/dist/channel-rust-stable.toml",
+    "release_url": "https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/"
+  },
+  "direct_dependencies": [
+    {
+      "name": "serde_json",
+      "current": "1.0.154",
+      "latest_non_yanked_stable": "1.0.154",
+      "license": "MIT OR Apache-2.0",
+      "compressed_crate_bytes": 158079,
+      "minimum_rust": "1.71",
+      "purpose": "Read and validate the existing JSON ledger without a general schema engine.",
+      "features": ["std"],
+      "maintenance": "Official publisher release v1.0.154 published 2026-10-11; actively maintained.",
+      "source_urls": [
+        "https://index.crates.io/se/rd/serde_json",
+        "https://github.com/serde-rs/json/releases/tag/v1.0.154",
+        "https://raw.githubusercontent.com/serde-rs/json/v1.0.154/Cargo.toml"
+      ],
+      "resolution_constraints": "Cargo.lock records the full graph; newest stable direct release verified independently of the manifest range."
+    }
+  ],
+  "lockfiles": ["Cargo.lock"],
+  "docker": {
+    "status": "NOT_INTRODUCED",
+    "digests": [],
+    "reason": "No Dockerfile or emulator runtime in the selected ledger-tooling slice; DEP-008 remains NOT_STARTED."
+  },
+  "sdk_ecosystems": [],
+  "github_actions": [
+    {
+      "repository": "actions/checkout",
+      "tag": "v7.0.1",
+      "sha": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "source_url": "https://api.github.com/repos/actions/checkout/git/ref/tags/v7.0.1"
+    }
+  ],
+  "exceptions": []
+}

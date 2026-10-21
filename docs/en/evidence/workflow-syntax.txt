@@ -1,0 +1,2 @@
+YAML syntax valid: .github/workflows/ci.yaml
+YAML syntax valid: .github/workflows/dependency-check.yaml
