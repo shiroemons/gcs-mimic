@@ -17333,7 +17333,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -17396,7 +17396,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -17461,7 +17461,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -17598,7 +17598,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -18063,7 +18063,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -18074,7 +18074,7 @@
       "interface": "Project dependency and toolchain policy",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
@@ -18084,12 +18084,12 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Exact Rust 1.99.1, edition 2024 and current-stable-only rust-version are present and tested; no commit was requested.",
+      "notes": "Exact Rust 1.99.1, edition 2024 and current-stable-only rust-version are committed and verified.",
       "dependencies": [
         "DEP-001"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DEP-002-A",
@@ -18102,12 +18102,15 @@
         {
           "id": "DEP-002-B",
           "description": "Commit exact toolchain and manifest pins.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "committed-build-inputs"
+          ]
         }
       ],
       "test_ids": [
-        "toolchain-version-check"
+        "toolchain-version-check",
+        "committed-build-inputs"
       ],
       "verification": [
         {
@@ -18118,13 +18121,20 @@
           "test_ids": [
             "toolchain-version-check"
           ]
+        },
+        {
+          "command": "git ls-tree b6681e5d553e0fc49a6cc5fc9abd9e816475faeb -- Cargo.toml Cargo.lock rust-toolchain.toml xtask/Cargo.toml",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/committed-inputs.txt",
+          "test_ids": [
+            "committed-build-inputs"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Toolchain and manifest files remain uncommitted; no commit was requested."
-      ],
-      "implemented_in": null,
+      "known_deviations": [],
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -18194,7 +18204,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {
@@ -18205,7 +18215,7 @@
       "interface": "Project dependency and toolchain policy",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
@@ -18213,12 +18223,12 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Cargo generated the workspace lockfile and locked offline tests build against it. No server or SDK example exists yet.",
+      "notes": "Cargo-generated workspace lockfile is committed; locked offline builds/tests pass. No server or SDK example exists yet.",
       "dependencies": [
         "DEP-003"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DEP-004-A",
@@ -18231,12 +18241,15 @@
         {
           "id": "DEP-004-B",
           "description": "Commit the generated lockfile.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "committed-build-inputs"
+          ]
         }
       ],
       "test_ids": [
-        "locked-workspace-tests"
+        "locked-workspace-tests",
+        "committed-build-inputs"
       ],
       "verification": [
         {
@@ -18247,13 +18260,20 @@
           "test_ids": [
             "locked-workspace-tests"
           ]
+        },
+        {
+          "command": "git ls-tree b6681e5d553e0fc49a6cc5fc9abd9e816475faeb -- Cargo.toml Cargo.lock rust-toolchain.toml xtask/Cargo.toml",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/committed-inputs.txt",
+          "test_ids": [
+            "committed-build-inputs"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Cargo.lock remains uncommitted; no commit was requested. Future server/SDK inputs must be locked when introduced."
-      ],
-      "implemented_in": null,
+      "known_deviations": [],
+      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
       "last_verified": "2026-10-21"
     },
     {

@@ -1,0 +1,8 @@
+Commit: b6681e5d553e0fc49a6cc5fc9abd9e816475faeb
+Command: git ls-tree b6681e5d553e0fc49a6cc5fc9abd9e816475faeb -- Cargo.toml Cargo.lock rust-toolchain.toml xtask/Cargo.toml
+100644 blob 5d0f5808c27064f7f03d5f4115b0ff95aa91fc65	Cargo.lock
+100644 blob 8a8dc23c2cd96f55e2c8101cedc2f4726d3b59e0	Cargo.toml
+100644 blob 58eef2ccd48f957feeada49b17ad1e3fd667bf8c	rust-toolchain.toml
+100644 blob 53fa751baec38aef5cfc8c31af45191ef1866d05	xtask/Cargo.toml
+
+The paths above are committed build inputs. Exact compiler versions are recorded in toolchain.txt; locked offline tests are recorded in ledger-bootstrap.txt.

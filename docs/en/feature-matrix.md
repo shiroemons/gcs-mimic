@@ -10,7 +10,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 77 | 0 | 6 | 6 | 0 | 0 |
+| project_requirement | 89 | 77 | 0 | 4 | 8 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -800,9 +800,9 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DEP-001 | Verified latest stable bootstrap | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-002 | Pinned current Rust and explicit edition/MSRV | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-002 | Pinned current Rust and explicit edition/MSRV | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-003 | Latest direct libraries including major migrations | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-004 | Committed resolved lockfiles and locked builds | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-004 | Committed resolved lockfiles and locked builds | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-005 | Daily multi-ecosystem update detection | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | Start/release checks and weekly exception review | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | Explicit expiring incompatibility exceptions | NOT_STARTED | P0 | PROJECT | NONE | 0 |

@@ -10,7 +10,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 77 | 0 | 6 | 6 | 0 | 0 |
+| project_requirement | 89 | 77 | 0 | 4 | 8 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -800,9 +800,9 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DEP-001 | 初期実装時の最新安定版確認 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-002 | 最新Rustの固定・editionとMSRVの明示 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-002 | 最新Rustの固定・editionとMSRVの明示 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-003 | 破壊的更新を含めた直接依存の最新化 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DEP-004 | 解決済みlockfileのコミット・固定ビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DEP-004 | 解決済みlockfileのコミット・固定ビルド | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-005 | 複数エコシステムの毎日更新検出 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | 作業開始・リリース前確認と毎週の例外見直し | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | 期限付きの非互換例外管理 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
