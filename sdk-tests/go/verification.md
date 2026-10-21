@@ -11,6 +11,13 @@ The unchanged high-level storage client also passed against the read-only-root
 Compose service from the getting-started flow. Requests stayed on the explicitly
 validated emulator origin; no Google/metadata endpoint was contacted.
 
+The native script selects a free loopback port first and passes that same origin
+as `--api-base-url`. A competing bind makes startup fail instead of changing the
+advertised endpoint. The pinned high-level `storage.BucketAttrs` does not expose
+`selfLink`, so this Go workflow does not check that field; Rust wire tests check
+the configured origin. The SDK type was checked on 2026-10-21 against
+[bucket.go at v1.69.0](https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/bucket.go).
+
 High-level Attrs/list request `projection=full`, so the emulator accepts it while
 omitting unmodeled ACL/owner fields as an explicit compatibility deviation. The
 SDK sends `pageToken=` initially, which selects the first page; malformed nonempty

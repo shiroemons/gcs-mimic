@@ -26,22 +26,24 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Port zero lets the server atomically select a free loopback port.
+# Select the advertised origin before startup; bind failure remains fatal if the port is reused.
+address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
+if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
+endpoint="http://$address"
 env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
-  "$server" serve --listen 127.0.0.1:0 --data-dir "$work/data" >"$work/server.log" 2>&1 &
+  "$server" serve --listen "$address" --api-base-url "$endpoint" \
+  --data-dir "$work/data" >"$work/server.log" 2>&1 &
 pid=$!
-endpoint=
+ready=false
 for ((attempt = 0; attempt < 100; attempt++)); do
   if ! kill -0 "$pid" 2>/dev/null; then echo 'Server exited before readiness' >&2; exit 1; fi
-  address=$(jq -Rr 'fromjson? | select(.event == "ready") | .listen // empty' "$work/server.log")
-  if [[ $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then
-    endpoint="http://$address"
-    if "$server" healthcheck --url "$endpoint/_internal/ready" >/dev/null 2>&1; then break; fi
+  actual=$(jq -Rr 'fromjson? | select(.event == "ready") | .listen // empty' "$work/server.log")
+  if [[ $actual == "$address" ]]; then
+    if "$server" healthcheck --url "$endpoint/_internal/ready" >/dev/null 2>&1; then ready=true; break; fi
   fi
-  endpoint=
   sleep 0.1
 done
-if [[ -z $endpoint ]]; then echo 'Server readiness timed out' >&2; exit 1; fi
+if [[ $ready != true ]]; then echo 'Server readiness timed out' >&2; exit 1; fi
 cd sdk-tests/go
 GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go vet ./...
 GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...
