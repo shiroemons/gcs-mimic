@@ -508,6 +508,8 @@ pub fn check(root: &Path) -> Result<bool> {
         drift |= compare(repo, pinned, sha);
     }
     let dockerfile = std::fs::read_to_string(root.join("Dockerfile")).map_err(|e| e.to_string())?;
+    let smoke = std::fs::read_to_string(root.join("scripts/smoke-containers.sh"))
+        .map_err(|e| e.to_string())?;
     for image in status["docker"]["digests"]
         .as_array()
         .ok_or("missing Docker inputs")?
@@ -531,8 +533,9 @@ pub fn check(root: &Path) -> Result<bool> {
                 codename,
             );
         }
-        if !dockerfile.contains(&format!("{reference}@{digest}")) {
-            return Err(format!("Dockerfile pin mismatch: {reference}"));
+        let pin = format!("{reference}@{digest}");
+        if !dockerfile.contains(&pin) && !smoke.contains(&pin) {
+            return Err(format!("container pin mismatch: {reference}"));
         }
         let token = json(&fetch(
             &format!(

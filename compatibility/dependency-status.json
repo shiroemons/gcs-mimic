@@ -1,6 +1,6 @@
 {
-  "checked_at_utc": "2026-10-21T08:54:49Z",
-  "scope": "HTTP/1 foundation, Rust ledger/freshness tooling, digest-pinned Docker inputs and the official Go JSON bucket SDK harness. API execution evidence is tracked separately in the feature ledger.",
+  "checked_at_utc": "2026-10-21T10:08:33Z",
+  "scope": "Persistent JSON bucket CRUD, bounded SQLite catalog, Rust ledger/freshness tooling, digest-pinned Docker runtime/test inputs and the official Go JSON bucket SDK harness. API execution evidence is tracked separately in the feature ledger.",
   "toolchain": {
     "channel": "stable",
     "version": "1.99.1",
@@ -57,11 +57,20 @@
     {
       "name": "http-body-util", "current": "0.1.5", "latest_non_yanked_stable": "0.1.5",
       "license": "MIT", "compressed_crate_bytes": 18574, "minimum_rust": "1.61",
-      "purpose": "Small fixed-size probe and error response bodies; no request body collection.",
+      "purpose": "JSON/probe response bodies and explicitly capped 64 KiB bucket metadata collection.",
       "features": [],
       "maintenance": "Official publisher release 2026-08-12; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/http-body-util", "https://index.crates.io/ht/tp/http-body-util", "https://github.com/hyperium/http-body"],
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
+    },
+    {
+      "name": "rusqlite", "current": "0.40.2", "latest_non_yanked_stable": "0.40.2",
+      "license": "MIT", "compressed_crate_bytes": 177215, "minimum_rust": null,
+      "purpose": "Indexed transactional bucket catalog with bundled SQLite, WAL recovery and atomic delete preconditions.",
+      "features": ["bundled"],
+      "maintenance": "Official rusqlite publisher; latest non-yanked stable verified from the crates.io index on 2026-10-21.",
+      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.40.2.crate", "https://github.com/rusqlite/rusqlite"],
+      "resolution_constraints": "Default features disabled; bundled SQLite only. Cargo.lock pins libsqlite3-sys 0.38.2 and the full graph; no cache, pooling or extension features. No rust-version is declared by the crate."
     }
   ],
   "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum"],
@@ -89,6 +98,17 @@
         "source_url": "https://github.com/debuerreotype/docker-debian-artifacts",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
         "alias_note": "stable-slim uses moving APT suite names and has different layer/config digests. It is not an equivalent index to trixie-slim. Both architectures had identical 78 package versions at verification; detect codename drift separately from selected-tag digest changes."
+      },
+      {
+        "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0",
+        "tag": "8.23.0", "latest_tag": "latest",
+        "digest": "sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac",
+        "platforms": {
+          "linux/amd64": "sha256:ed154ad601683a2a85f8634398a6fbefd64d624df7b8432bbad512f8b8bfbf93",
+          "linux/arm64": "sha256:a2f9b99fea55a4ba8c6af3c4f770e1dd1b1270bbc56124ed8e2b1103dfa4b318"
+        },
+        "source_url": "https://github.com/curl/curl-container",
+        "purpose": "Test-only peer-container curl in scripts/smoke-containers.sh; not shipped in the runtime image."
       },
       {
         "repository": "docker/dockerfile", "reference": "docker/dockerfile:1",
