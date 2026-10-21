@@ -105,6 +105,8 @@ impl From<ObjectError> for JsonError {
             ObjectError::BucketNotFound => {
                 Self::new(StatusCode::NOT_FOUND, "notFound", "Bucket not found")
             }
+            ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
+            ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::NotModified => {
                 Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")
             }

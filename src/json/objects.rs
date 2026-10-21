@@ -26,6 +26,12 @@ pub struct ObjectGetParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
     List(super::ObjectListParams),
+    Update {
+        bucket: String,
+        name: String,
+        params: ObjectGetParams,
+        replace: bool,
+    },
     Insert {
         bucket: String,
         name: String,
@@ -77,7 +83,10 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
     let allowed = if upload {
         method == Method::POST
     } else {
-        method == Method::GET || (!download && object.is_some() && method == Method::DELETE)
+        method == Method::GET
+            || (!download
+                && object.is_some()
+                && matches!(*method, Method::DELETE | Method::PATCH | Method::PUT))
     };
     if !allowed {
         let mut error = JsonError::new(
@@ -90,7 +99,7 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
         } else if download || object.is_none() {
             "GET"
         } else {
-            "GET, DELETE"
+            "GET, DELETE, PATCH, PUT"
         });
         return Some(Err(error));
     }
@@ -163,6 +172,8 @@ fn parse_object_query(
         &["contentEncoding", "kmsKeyName", "predefinedAcl"]
     } else if method == Method::GET {
         &["restoreToken"]
+    } else if method == Method::PATCH || method == Method::PUT {
+        &["predefinedAcl", "overrideUnlockedRetention"]
     } else {
         &[]
     };
@@ -234,6 +245,25 @@ fn parse_object_query(
     }
     let generation = integer(&mut query, "generation")?;
     let name = name.expect("non-upload routes have an object segment");
+    if method == Method::PATCH || method == Method::PUT {
+        let projection = if method == Method::PUT && !query.contains_key("projection") {
+            Projection::Full
+        } else {
+            projection(&mut query)?
+        };
+        finish(query)?;
+        return Ok(ObjectRequest::Update {
+            bucket,
+            name,
+            replace: method == Method::PUT,
+            params: ObjectGetParams {
+                generation,
+                conditions,
+                projection,
+                media: false,
+            },
+        });
+    }
     if method == Method::GET {
         match query.remove("softDeleted").as_deref() {
             None | Some("false") => {}
@@ -396,27 +426,51 @@ pub fn object_resource(
         encode_segment(&object.bucket),
         encode_segment(&object.name)
     );
-    Ok(json!({
+    let mut value = json!({
         "kind": "storage#object",
         "id": format!("{}/{}/{}", object.bucket, object.name, object.generation),
         "selfLink": format!("{base}/{path}"),
         "mediaLink": format!("{base}/download/{path}?generation={}&alt=media", object.generation),
         "name": object.name, "bucket": object.bucket,
         "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
-        "contentType": object.content_type, "storageClass": object.storage_class,
+        "storageClass": object.storage_class,
         "size": object.size.to_string(), "md5Hash": base64(&object.md5),
         "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": etag(object),
         "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
         "timeFinalized": timestamp(object.time_created)?,
         "timeStorageClassUpdated": timestamp(object.time_created)?,
-    }))
+    });
+    if !object.content_type.is_empty() {
+        value["contentType"] = json!(object.content_type);
+    }
+    for (key, field) in [
+        ("contentEncoding", &object.content_encoding),
+        ("contentDisposition", &object.content_disposition),
+        ("contentLanguage", &object.content_language),
+        ("cacheControl", &object.cache_control),
+    ] {
+        if let Some(field) = field {
+            value[key] = json!(field);
+        }
+    }
+    if !object.metadata.is_empty() {
+        value["metadata"] = json!(object.metadata);
+    }
+    Ok(value)
 }
 
 /// Headers for a complete, untranscoded media download (never a Range response).
 pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
-        ("content-type", object.content_type.clone()),
+        (
+            "content-type",
+            if object.content_type.is_empty() {
+                "application/octet-stream".into()
+            } else {
+                object.content_type.clone()
+            },
+        ),
         ("content-length", object.size.to_string()),
         ("x-goog-generation", object.generation.to_string()),
         ("x-goog-metageneration", object.metageneration.to_string()),
@@ -429,7 +483,13 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
             ),
         ),
         ("x-goog-stored-content-length", object.size.to_string()),
-        ("x-goog-stored-content-encoding", "identity".to_owned()),
+        (
+            "x-goog-stored-content-encoding",
+            object
+                .content_encoding
+                .clone()
+                .unwrap_or_else(|| "identity".into()),
+        ),
         ("etag", etag(object)),
     ] {
         headers.insert(
@@ -442,6 +502,25 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
                 )
             })?,
         );
+    }
+    for (key, value) in [
+        ("content-encoding", &object.content_encoding),
+        ("content-disposition", &object.content_disposition),
+        ("content-language", &object.content_language),
+        ("cache-control", &object.cache_control),
+    ] {
+        if let Some(value) = value {
+            headers.insert(
+                key,
+                HeaderValue::from_str(value).map_err(|_| {
+                    JsonError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "backendError",
+                        "Invalid stored object response header",
+                    )
+                })?,
+            );
+        }
     }
     Ok(headers)
 }

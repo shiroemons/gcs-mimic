@@ -1,7 +1,10 @@
 use super::{Catalog, MAX_UPLOADS, system_time, unavailable, unix_millis};
 use crate::{
     bucket::CatalogError,
-    object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
+    object::{
+        ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
+        UploadChunk,
+    },
 };
 use bytes::Bytes;
 use md5::{Digest, Md5};
@@ -19,7 +22,8 @@ use tokio::{
 
 const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
-    md5, crc32c, storage_class, time_created, updated, blob_id";
+    md5, crc32c, storage_class, time_created, updated, blob_id,
+    content_encoding, content_disposition, content_language, cache_control, metadata";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -67,6 +71,21 @@ pub(super) const GENERATION_SCHEMA: &str = "CREATE TABLE object_generation (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     last_generation INTEGER NOT NULL CHECK(last_generation >= 0)
 ) WITHOUT ROWID;";
+
+pub(super) const METADATA_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN content_encoding TEXT;
+    ALTER TABLE objects ADD COLUMN content_disposition TEXT;
+    ALTER TABLE objects ADD COLUMN content_language TEXT;
+    ALTER TABLE objects ADD COLUMN cache_control TEXT;
+    ALTER TABLE objects ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
+    PRAGMA user_version = 4;";
+
+pub(super) fn migrate_metadata(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(METADATA_SCHEMA)
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
@@ -503,10 +522,12 @@ impl Catalog {
                     let record = ObjectRecord {
                         bucket, name, generation, metageneration: 1,
                         content_type, size, md5, crc32c, storage_class,
+                        content_encoding: None, content_disposition: None,
+                        content_language: None, cache_control: None, metadata: Default::default(),
                         time_created: time, updated: time,
                     };
                     transaction.execute(
-                        "INSERT OR REPLACE INTO objects VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        "INSERT OR REPLACE INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         params![record.bucket, record.name, record.generation, record.metageneration,
                             record.content_type, i64::try_from(size).map_err(object_unavailable)?,
                             &record.md5[..], record.crc32c, record.storage_class, millis, millis, blob_id],
@@ -579,6 +600,58 @@ impl Catalog {
                     file: tokio::fs::File::from_std(file),
                 },
             ))
+        })
+        .await
+    }
+
+    pub async fn update_object_metadata(
+        &self,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+        update: ObjectMetadataUpdate,
+        validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+    ) -> Result<ObjectRecord, ObjectError> {
+        let bucket = bucket.to_owned();
+        let name = name.to_owned();
+        let clock = self.0.clock.clone();
+        self.run_object(move |connection| {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(object_unavailable)?;
+            let (mut record, _) =
+                selected(&transaction, &bucket, &name, generation, conditions, false)?;
+            validate(&record)?;
+            update.apply(&mut record)?;
+            record.metageneration = record
+                .metageneration
+                .checked_add(1)
+                .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
+            let millis = unix_millis(clock.now()).map_err(object_unavailable)?;
+            record.updated = system_time(millis).map_err(object_unavailable)?;
+            let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
+            transaction
+                .execute(
+                    "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
+                    content_encoding = ?6, content_disposition = ?7, content_language = ?8,
+                    cache_control = ?9, metadata = ?10 WHERE bucket = ?1 AND name = ?2",
+                    params![
+                        bucket,
+                        name,
+                        record.metageneration,
+                        millis,
+                        record.content_type,
+                        record.content_encoding,
+                        record.content_disposition,
+                        record.content_language,
+                        record.cache_control,
+                        metadata
+                    ],
+                )
+                .map_err(object_unavailable)?;
+            transaction.commit().map_err(object_unavailable)?;
+            Ok(record)
         })
         .await
     }
@@ -876,6 +949,13 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             generation: row.get(2)?,
             metageneration: row.get(3)?,
             content_type: row.get(4)?,
+            content_encoding: row.get(12)?,
+            content_disposition: row.get(13)?,
+            content_language: row.get(14)?,
+            cache_control: row.get(15)?,
+            metadata: serde_json::from_str(&row.get::<_, String>(16)?).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(16, Type::Text, Box::new(error))
+            })?,
             size: read_size(row, 5)?,
             md5,
             crc32c: row.get(7)?,

@@ -215,12 +215,14 @@ async fn object_response(
 ) -> Result<Response<ResponseBody>, JsonError> {
     let max_bytes = config.max_object_bytes;
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
-    if !matches!(operation, ObjectRequest::Insert { .. })
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|v| v != "0"))
+    if !matches!(
+        operation,
+        ObjectRequest::Insert { .. } | ObjectRequest::Update { .. }
+    ) && (request.headers().contains_key("transfer-encoding")
+        || request
+            .headers()
+            .get("content-length")
+            .is_some_and(|v| v != "0"))
     {
         return Err(JsonError::invalid_argument(
             "This method requires an empty body",
@@ -234,6 +236,36 @@ async fn object_response(
                 .list_objects(params.query.clone(), params.max_results)
                 .await?;
             json::object_list(&page, &params, &state.api_base_url)?
+        }
+        ObjectRequest::Update {
+            bucket,
+            name,
+            params,
+            replace,
+        } => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            // shortcut: SDK invocation tokens do not replay responses; use metageneration conditions for retry safety.
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let update = json::parse_object_metadata(&bytes, replace)?;
+            let base = state.api_base_url.clone();
+            let record = state
+                .catalog
+                .update_object_metadata(
+                    &bucket,
+                    &name,
+                    params.generation,
+                    params.conditions,
+                    update.update,
+                    move |record| {
+                        json::ObjectMetadataRequest::validate_unchanged(
+                            &update.unchanged,
+                            record,
+                            &base,
+                        )
+                    },
+                )
+                .await?;
+            json::object_resource(&record, &state.api_base_url, params.projection)?
         }
         ObjectRequest::Insert {
             bucket,
@@ -302,6 +334,29 @@ async fn object_response(
                     .open_object(&bucket, &name, params.generation, params.conditions)
                     .await?;
                 let headers = json::object_media_headers(&record)?;
+                if record
+                    .content_encoding
+                    .as_deref()
+                    .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
+                    && !record.cache_control.as_deref().is_some_and(|value| {
+                        value
+                            .split(',')
+                            .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
+                    })
+                    && !request
+                        .headers()
+                        .get("accept-encoding")
+                        .and_then(|value| value.to_str().ok())
+                        .is_some_and(|value| {
+                            value
+                                .split(',')
+                                .any(|encoding| encoding.trim().eq_ignore_ascii_case("gzip"))
+                        })
+                {
+                    return Err(JsonError::unsupported_object(
+                        "decompressive transcoding; request gzip or set no-transform",
+                    ));
+                }
                 let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
                 let activity = activity.clone();
                 tokio::spawn(async move {

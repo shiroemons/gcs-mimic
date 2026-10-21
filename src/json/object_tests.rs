@@ -15,6 +15,11 @@ fn record() -> ObjectRecord {
         generation: 9_007_199_254_740_993,
         metageneration: 2,
         content_type: "text/plain; charset=utf-8".to_owned(),
+        content_encoding: None,
+        content_disposition: None,
+        content_language: None,
+        cache_control: None,
+        metadata: Default::default(),
         size: 5,
         md5: [0; 16],
         crc32c: 0x01020304,
@@ -94,9 +99,17 @@ fn obj_route_002_namespace_and_method_boundaries() {
     for (path, method, allow) in [
         ("/upload/storage/v1/b/abc/o", Method::GET, "POST"),
         ("/storage/v1/b/abc/o", Method::DELETE, "GET"),
-        ("/storage/v1/b/abc/o/file", Method::POST, "GET, DELETE"),
+        (
+            "/storage/v1/b/abc/o/file",
+            Method::POST,
+            "GET, DELETE, PATCH, PUT",
+        ),
         ("/download/storage/v1/b/abc/o/file", Method::DELETE, "GET"),
-        ("/storage/v1/b/abc/o/file", Method::HEAD, "GET, DELETE"),
+        (
+            "/storage/v1/b/abc/o/file",
+            Method::HEAD,
+            "GET, DELETE, PATCH, PUT",
+        ),
     ] {
         let error = request(method, path).unwrap_err();
         assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);

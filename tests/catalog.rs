@@ -320,7 +320,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 4)
+                .pragma_update(None, "user_version", 5)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -363,7 +363,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 4"));
+            assert!(error.to_string().contains("schema version 5"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -399,7 +399,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 4)
+        .pragma_update(None, "user_version", 5)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -411,7 +411,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 4")
+                .contains("schema version 5")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -431,7 +431,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 4;",
+            "future" => "PRAGMA user_version = 5;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

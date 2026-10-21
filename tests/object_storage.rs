@@ -1353,7 +1353,9 @@ async fn recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry(
         orphan(&dir.0, &id);
         transaction
             .execute(
-                "INSERT INTO objects SELECT bucket, ?1, generation, metageneration, content_type,
+                "INSERT INTO objects (bucket, name, generation, metageneration, content_type,
+                size, md5, crc32c, storage_class, time_created, updated, blob_id)
+                SELECT bucket, ?1, generation, metageneration, content_type,
                 size, md5, crc32c, storage_class, time_created, updated, ?2
                 FROM objects WHERE name = 'live'",
                 [format!("live-{index}"), id],
@@ -1424,7 +1426,7 @@ async fn missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock
 }
 
 #[tokio::test]
-async fn v1_migration_is_transactional_and_v3_reopens_idempotently() {
+async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently() {
     let dir = TestDir::new();
     let catalog = setup(&dir).await;
     let bucket = catalog.get_bucket("bucket").await.unwrap();
@@ -1487,8 +1489,105 @@ async fn v1_migration_is_transactional_and_v3_reopens_idempotently() {
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
+}
+
+#[tokio::test]
+async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog() {
+    use gcs_mimic::object::ObjectMetadataUpdate;
+
+    let dir = TestDir::new();
+    let catalog = setup(&dir).await;
+    let original = put(
+        &catalog,
+        "metadata",
+        b"unchanged",
+        ObjectConditions::default(),
+    )
+    .await
+    .unwrap();
+    let original_paths = blobs(&dir.0);
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch(
+            "ALTER TABLE objects DROP COLUMN metadata;
+        ALTER TABLE objects DROP COLUMN cache_control;
+        ALTER TABLE objects DROP COLUMN content_language;
+        ALTER TABLE objects DROP COLUMN content_disposition;
+        ALTER TABLE objects DROP COLUMN content_encoding;
+        PRAGMA user_version = 3;",
+        )
+        .unwrap();
+    drop(connection);
+    let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog
+            .get_object("bucket", "metadata", None, ObjectConditions::default())
+            .await
+            .unwrap(),
+        original
+    );
+    let changed = catalog
+        .update_object_metadata(
+            "bucket",
+            "metadata",
+            None,
+            ObjectConditions::default(),
+            ObjectMetadataUpdate {
+                content_type: Some(Some("text/plain".into())),
+                content_encoding: Some(Some("identity".into())),
+                metadata: Some(Some(BTreeMap::from([("key".into(), Some("value".into()))]))),
+                ..Default::default()
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed.updated, UNIX_EPOCH + Duration::from_millis(9876));
+    assert_eq!(changed.metageneration, 2);
+    assert_eq!(changed.generation, original.generation);
+    assert_eq!(changed.time_created, original.time_created);
+    assert_eq!(changed.md5, original.md5);
+    assert_eq!(blobs(&dir.0), original_paths);
+    let (_, reader) = catalog
+        .open_object("bucket", "metadata", None, ObjectConditions::default())
+        .await
+        .unwrap();
+    assert_eq!(read(reader).await, b"unchanged");
+    clock.0.store(10_000_000, Ordering::Relaxed);
+    let cleared = catalog
+        .update_object_metadata(
+            "bucket",
+            "metadata",
+            None,
+            ObjectConditions::default(),
+            ObjectMetadataUpdate {
+                replace: true,
+                ..Default::default()
+            },
+            |_| Ok(()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cleared.updated, UNIX_EPOCH + Duration::from_millis(10_000));
+    assert!(cleared.content_type.is_empty());
+    assert!(cleared.metadata.is_empty());
+    assert!(cleared.content_encoding.is_none());
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog
+            .get_object("bucket", "metadata", None, ObjectConditions::default())
+            .await
+            .unwrap(),
+        cleared
+    );
+    catalog.close().await.unwrap();
 }
 
 #[test]

@@ -71,6 +71,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(objects::GENERATION_SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 4 {
+        expected
+            .execute_batch(objects::METADATA_SCHEMA)
+            .map_err(unavailable)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 16")
@@ -155,9 +160,9 @@ impl Catalog {
             let version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=3).contains(&version) {
+            if !(0..=4).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 3"
+                    "unsupported catalog schema version {version}; supported version is 4"
                 )));
             }
             if version == 2 {
@@ -229,6 +234,9 @@ impl Catalog {
                 .map_err(unavailable)?;
             if version < 2 {
                 objects::migrate(&mut connection)?;
+            }
+            if version < 4 {
+                objects::migrate_metadata(&mut connection)?;
             }
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
@@ -697,7 +705,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 3),
+                    ("user_version", 4),
                 ] {
                     assert_eq!(
                         connection

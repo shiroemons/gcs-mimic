@@ -1,6 +1,6 @@
 //! Transport-independent object state shared by the catalog and protocol adapters.
 
-use std::{fmt, time::SystemTime};
+use std::{collections::BTreeMap, fmt, time::SystemTime};
 
 /// Only a transport-confirmed EOF permits publication; a dropped producer is an abort.
 pub enum UploadChunk {
@@ -16,6 +16,11 @@ pub struct ObjectRecord {
     pub generation: i64,
     pub metageneration: i64,
     pub content_type: String,
+    pub content_encoding: Option<String>,
+    pub content_disposition: Option<String>,
+    pub content_language: Option<String>,
+    pub cache_control: Option<String>,
+    pub metadata: BTreeMap<String, String>,
     pub size: u64,
     pub md5: [u8; 16],
     pub crc32c: u32,
@@ -23,6 +28,73 @@ pub struct ObjectRecord {
     /// Millisecond precision, matching bucket timestamps.
     pub time_created: SystemTime,
     pub updated: SystemTime,
+}
+
+/// Absent fields are retained by PATCH and reset by PUT; null clears a field.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ObjectMetadataUpdate {
+    pub replace: bool,
+    pub content_type: Option<Option<String>>,
+    pub content_encoding: Option<Option<String>>,
+    pub content_disposition: Option<Option<String>>,
+    pub content_language: Option<Option<String>>,
+    pub cache_control: Option<Option<String>>,
+    pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
+}
+
+impl ObjectMetadataUpdate {
+    pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+        if self.replace {
+            record.content_type.clear();
+            record.content_encoding = None;
+            record.content_disposition = None;
+            record.content_language = None;
+            record.cache_control = None;
+            record.metadata.clear();
+        }
+        if let Some(value) = self.content_type {
+            if let Some(value) = value {
+                if !value.is_empty() {
+                    record.content_type = value;
+                }
+            } else {
+                record.content_type.clear();
+            }
+        }
+        for (field, value) in [
+            (&mut record.content_encoding, self.content_encoding),
+            (&mut record.content_disposition, self.content_disposition),
+            (&mut record.content_language, self.content_language),
+            (&mut record.cache_control, self.cache_control),
+        ] {
+            if let Some(value) = value {
+                *field = value.filter(|value| !value.is_empty());
+            }
+        }
+        match self.metadata {
+            Some(Some(entries)) => {
+                for (key, value) in entries {
+                    if let Some(value) = value {
+                        record.metadata.insert(key, value);
+                    } else {
+                        record.metadata.remove(&key);
+                    }
+                }
+            }
+            Some(None) => record.metadata.clear(),
+            None => {}
+        }
+        if record
+            .metadata
+            .iter()
+            .map(|(key, value)| key.len() + value.len())
+            .sum::<usize>()
+            > 8192
+        {
+            return Err(ObjectError::InvalidMetadata);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -48,6 +120,8 @@ pub enum ObjectError {
     NotModified,
     ChecksumMismatch,
     TooLarge,
+    InvalidMetadata,
+    UnsupportedMetadata(String),
     /// The request body ended early or failed while streaming.
     BodyAborted(String),
     Unavailable(String),
@@ -62,6 +136,10 @@ impl fmt::Display for ObjectError {
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),
             Self::TooLarge => formatter.write_str("object too large"),
+            Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
+            Self::UnsupportedMetadata(field) => {
+                write!(formatter, "unsupported metadata change: {field}")
+            }
             Self::BodyAborted(reason) => write!(formatter, "request body aborted: {reason}"),
             Self::Unavailable(reason) => write!(formatter, "catalog unavailable: {reason}"),
         }

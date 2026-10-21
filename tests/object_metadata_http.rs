@@ -1,0 +1,539 @@
+mod common;
+
+use common::TestDir;
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeMap,
+    io::{BufRead, BufReader, Read, Write},
+    net::TcpStream,
+    process::{Child, ChildStdout, Stdio},
+    sync::{Arc, Barrier},
+    time::Duration,
+};
+
+struct Server {
+    child: Child,
+    address: String,
+    stdout: BufReader<ChildStdout>,
+}
+struct Reply {
+    status: u16,
+    headers: BTreeMap<String, String>,
+    body: Vec<u8>,
+}
+
+impl Server {
+    fn start(dir: &TestDir) -> Self {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let ready: Value = serde_json::from_str(&line).unwrap();
+        Self {
+            child,
+            address: ready["listen"].as_str().unwrap().into(),
+            stdout,
+        }
+    }
+    fn request(&self, method: &str, path: &str, body: &[u8]) -> Reply {
+        request(&self.address, method, path, body)
+    }
+    fn setup(&self) -> Value {
+        assert_eq!(
+            self.request(
+                "POST",
+                "/storage/v1/b?project=local",
+                br#"{"name":"test-bucket"}"#
+            )
+            .status,
+            200
+        );
+        self.request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
+            b"payload",
+        )
+        .json()
+    }
+    fn update(&self, method: &str, query: &str, body: Value) -> Reply {
+        self.request(
+            method,
+            &format!("/storage/v1/b/test-bucket/o/dir%2Ffile{query}"),
+            body.to_string().as_bytes(),
+        )
+    }
+    fn stop(&mut self) {
+        common::stop_server(&mut self.child, &mut self.stdout);
+    }
+}
+impl Drop for Server {
+    fn drop(&mut self) {
+        if self.child.try_wait().unwrap().is_none() {
+            self.child.kill().unwrap();
+            self.child.wait().unwrap();
+        }
+    }
+}
+impl Reply {
+    fn json(&self) -> Value {
+        assert_eq!(self.status, 200, "{}", String::from_utf8_lossy(&self.body));
+        serde_json::from_slice(&self.body).unwrap()
+    }
+    fn error(&self, status: u16, reason: &str) {
+        assert_eq!(
+            self.status,
+            status,
+            "{}",
+            String::from_utf8_lossy(&self.body)
+        );
+        let value: Value = serde_json::from_slice(&self.body).unwrap();
+        assert_eq!(value["error"]["errors"][0]["reason"], reason);
+    }
+}
+fn request(address: &str, method: &str, path: &str, body: &[u8]) -> Reply {
+    let mut stream = TcpStream::connect(address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+    stream.write_all(body).unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let status = line.split_whitespace().nth(1).unwrap().parse().unwrap();
+    let mut headers = BTreeMap::new();
+    loop {
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+        let (key, value) = line.trim_end().split_once(':').unwrap();
+        headers.insert(key.to_ascii_lowercase(), value.trim().to_owned());
+    }
+    let mut body = Vec::new();
+    if headers
+        .get("transfer-encoding")
+        .is_some_and(|value| value == "chunked")
+    {
+        loop {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let size = usize::from_str_radix(line.trim(), 16).unwrap();
+            if size == 0 {
+                break;
+            }
+            let start = body.len();
+            body.resize(start + size, 0);
+            reader.read_exact(&mut body[start..]).unwrap();
+            let mut crlf = [0; 2];
+            reader.read_exact(&mut crlf).unwrap();
+            assert_eq!(&crlf, b"\r\n");
+        }
+    } else {
+        reader.read_to_end(&mut body).unwrap();
+    }
+    Reply {
+        status,
+        headers,
+        body,
+    }
+}
+
+#[test]
+fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let original = server.setup();
+    let initial = json!({"contentType":"text/plain", "contentEncoding":"br", "contentDisposition":"attachment; filename=hello.txt", "contentLanguage":"en", "cacheControl":"private, max-age=60", "metadata":{"keep":"one","drop":"two"}});
+    let first = server.update("PATCH", "?projection=full", initial).json();
+    assert_eq!(first["metageneration"], "2");
+    for field in [
+        "generation",
+        "size",
+        "md5Hash",
+        "crc32c",
+        "timeCreated",
+        "timeFinalized",
+    ] {
+        assert_eq!(first[field], original[field], "{field}");
+    }
+    assert_ne!(first["etag"], original["etag"]);
+    let identical = server.update("PUT", "", first.clone()).json();
+    assert_eq!(identical["metageneration"], "3");
+    assert_eq!(
+        server.update("PATCH", "", json!({"contentType":""})).json()["contentType"],
+        "text/plain"
+    );
+    for key in [
+        "name",
+        "bucket",
+        "generation",
+        "metageneration",
+        "size",
+        "md5Hash",
+        "crc32c",
+        "storageClass",
+        "timeCreated",
+        "updated",
+        "etag",
+        "kind",
+        "id",
+        "selfLink",
+        "mediaLink",
+        "timeFinalized",
+        "timeStorageClassUpdated",
+    ] {
+        let value = server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json();
+        assert_eq!(
+            server.update("PATCH", "", json!({key:value[key]})).status,
+            200,
+            "{key}"
+        );
+        server
+            .update("PATCH", "", json!({key:"changed"}))
+            .error(501, "notImplemented");
+    }
+    let second = server
+        .update("PATCH", "", json!({"metadata":{"drop":null,"add":"three"}}))
+        .json();
+    assert_eq!(second["metadata"], json!({"keep":"one","add":"three"}));
+    assert_eq!(second["contentType"], "text/plain");
+    let media = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
+        b"",
+    );
+    assert_eq!(media.status, 200);
+    assert_eq!(media.body, b"payload");
+    for (key, value) in [
+        ("content-type", "text/plain"),
+        ("content-encoding", "br"),
+        ("content-disposition", "attachment; filename=hello.txt"),
+        ("content-language", "en"),
+        ("cache-control", "private, max-age=60"),
+        ("x-goog-stored-content-encoding", "br"),
+    ] {
+        assert_eq!(media.headers[key], value);
+    }
+    server.stop();
+    let mut server = Server::start(&dir);
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json(),
+        second
+    );
+    let replaced = server
+        .update(
+            "PUT",
+            "?projection=noAcl",
+            json!({"metadata":{"only":"new"}}),
+        )
+        .json();
+    assert!(replaced.get("contentType").is_none());
+    assert_eq!(replaced["metadata"], json!({"only":"new"}));
+    for key in [
+        "contentEncoding",
+        "contentDisposition",
+        "contentLanguage",
+        "cacheControl",
+    ] {
+        assert!(replaced.get(key).is_none());
+    }
+    assert_eq!(
+        replaced["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap(),
+        second["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
+            + 1
+    );
+    let cleared = server
+        .update("PATCH", "", json!({"metadata":null,"contentType":null}))
+        .json();
+    assert!(cleared.get("metadata").is_none());
+    assert!(cleared.get("contentType").is_none());
+    let empty_value = server
+        .update("PATCH", "", json!({"metadata":{"empty":""}}))
+        .json();
+    assert_eq!(empty_value["metadata"], json!({"empty":""}));
+    let media = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
+        b"",
+    );
+    assert_eq!(media.body, b"payload");
+    assert_eq!(media.headers["content-type"], "application/octet-stream");
+    assert!(!media.headers.contains_key("content-encoding"));
+    server.stop();
+}
+
+#[test]
+fn all_conditions_generation_selectors_and_conditioned_races() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let original = server.setup();
+    let generation = original["generation"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    for method in ["PATCH", "PUT"] {
+        server
+            .update(method, "", json!({"contentLanguage":""}))
+            .error(400, "invalidArgument");
+        server
+            .request(
+                method,
+                "/storage/v1/b/test-bucket/o/dir%2Ffile",
+                &vec![b' '; 65537],
+            )
+            .error(413, "uploadTooLarge");
+        for (key, equal_succeeds) in [
+            ("ifGenerationMatch", true),
+            ("ifGenerationNotMatch", false),
+            ("ifMetagenerationMatch", true),
+            ("ifMetagenerationNotMatch", false),
+        ] {
+            for success in [false, true] {
+                let current = server
+                    .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+                    .json();
+                let actual = if key.contains("Metageneration") {
+                    current["metageneration"]
+                        .as_str()
+                        .unwrap()
+                        .parse::<i64>()
+                        .unwrap()
+                } else {
+                    generation
+                };
+                let value = actual + i64::from(success != equal_succeeds);
+                let reply = server.update(method, &format!("?{key}={value}"), json!({}));
+                if success {
+                    assert_eq!(reply.json()["generation"], original["generation"]);
+                } else {
+                    reply.error(412, "conditionNotMet");
+                    assert_eq!(
+                        server
+                            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+                            .json(),
+                        current
+                    );
+                }
+            }
+        }
+        server
+            .update(method, "?generation=0", json!({}))
+            .error(404, "notFound");
+        assert_eq!(
+            server
+                .update(method, &format!("?generation={generation}"), json!({}))
+                .status,
+            200
+        );
+        server
+            .update(method, "?ifGenerationMatch=0", json!({}))
+            .error(412, "conditionNotMet");
+        assert_eq!(
+            server
+                .update(method, "?ifGenerationNotMatch=0", json!({}))
+                .status,
+            200
+        );
+    }
+    let before = server
+        .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+        .json();
+    let barrier = Arc::new(Barrier::new(3));
+    let threads: Vec<_> = (0..2)
+        .map(|_| {
+            let address = server.address.clone();
+            let barrier = barrier.clone();
+            let path = format!(
+                "/storage/v1/b/test-bucket/o/dir%2Ffile?ifMetagenerationMatch={}",
+                before["metageneration"].as_str().unwrap()
+            );
+            std::thread::spawn(move || {
+                barrier.wait();
+                request(
+                    &address,
+                    "PATCH",
+                    &path,
+                    br#"{"metadata":{"winner":"yes"}}"#,
+                )
+                .status
+            })
+        })
+        .collect();
+    barrier.wait();
+    let mut statuses: Vec<_> = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect();
+    statuses.sort();
+    assert_eq!(statuses, [200, 412]);
+    let after = server
+        .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+        .json();
+    assert_eq!(
+        after["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap(),
+        before["metageneration"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
+            + 1
+    );
+    server.stop();
+}
+
+#[test]
+fn invalid_and_unsupported_metadata_never_mutates_objects() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let original = server.setup();
+    for method in ["PATCH", "PUT"] {
+        for (body, reason) in [
+            ("{", "parseError"),
+            ("[]", "invalidArgument"),
+            ("null", "invalidArgument"),
+            (r#"{"contentType":7}"#, "invalidArgument"),
+            (r#"{"metadata":[]}"#, "invalidArgument"),
+            (r#"{"metadata":{"a":false}}"#, "invalidArgument"),
+            (
+                r#"{"contentLanguage":"en\r\nx-bad: true"}"#,
+                "invalidArgument",
+            ),
+        ] {
+            server
+                .request(
+                    method,
+                    "/storage/v1/b/test-bucket/o/dir%2Ffile",
+                    body.as_bytes(),
+                )
+                .error(400, reason);
+        }
+        for field in [
+            "acl",
+            "predefinedAcl",
+            "temporaryHold",
+            "eventBasedHold",
+            "retention",
+            "contexts",
+            "customTime",
+            "storageClass",
+            "kmsKeyName",
+            "customerEncryption",
+            "name",
+            "bucket",
+            "generation",
+            "metageneration",
+            "size",
+            "md5Hash",
+            "crc32c",
+            "timeCreated",
+            "updated",
+            "etag",
+            "unknownFutureField",
+        ] {
+            server
+                .update(method, "", json!({field:null}))
+                .error(501, "notImplemented");
+        }
+        for query in [
+            "predefinedAcl=private",
+            "overrideUnlockedRetention=false",
+            "userProject=test",
+        ] {
+            server
+                .update(method, &format!("?{query}"), json!({}))
+                .error(501, "notImplemented");
+        }
+        for query in [
+            "generation=x",
+            "ifGenerationMatch=9223372036854775808",
+            "projection=invalid",
+            "generation=1&generation=2",
+        ] {
+            server
+                .update(method, &format!("?{query}"), json!({}))
+                .error(400, "invalidParameter");
+        }
+        for path in [
+            "/storage/v1/b/absent-bucket/o/file",
+            "/storage/v1/b/test-bucket/o/absent",
+        ] {
+            server.request(method, path, b"{}").error(404, "notFound");
+        }
+    }
+    assert_eq!(
+        server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json(),
+        original
+    );
+    assert_eq!(
+        server
+            .update("PATCH", "", json!({"metadata":{"a":"x".repeat(8191)}}))
+            .status,
+        200
+    );
+    server
+        .update("PATCH", "", json!({"metadata":{"b":""}}))
+        .error(400, "invalidArgument");
+    assert_eq!(
+        server
+            .update(
+                "PATCH",
+                "",
+                json!({"metadata":{"a":null,"b":"x".repeat(8191)}})
+            )
+            .status,
+        200
+    );
+    server
+        .update("PUT", "", json!({"metadata":{"雪":"x".repeat(8190)}}))
+        .error(400, "invalidArgument");
+    server
+        .update("PATCH", "", json!({"contentEncoding":"gzip"}))
+        .json();
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
+            b"",
+        )
+        .error(501, "notImplemented");
+    server
+        .update("PATCH", "", json!({"cacheControl":"no-transform"}))
+        .json();
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
+                b""
+            )
+            .body,
+        b"payload"
+    );
+    server.stop();
+}

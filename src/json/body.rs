@@ -11,7 +11,7 @@ pub async fn read_body<B: Body + Unpin>(mut body: B, cap: usize) -> Result<Vec<u
         JsonError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
             "uploadTooLarge",
-            "Bucket request body exceeds the configured limit",
+            "JSON request body exceeds the configured limit",
         )
     };
     if body.size_hint().lower() > cap as u64 {
