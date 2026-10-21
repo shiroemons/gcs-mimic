@@ -104,7 +104,10 @@ for platform in "$@"; do
     --disable --noproxy '*' --fail --silent --show-error -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
   docker compose -p "$project" stop --timeout 15
   [[ $(docker inspect --format '{{.State.ExitCode}}' "$service") == 0 ]]
-  docker compose -p "$project" start --wait --wait-timeout 40
+  # `start --wait` needs a newer Compose than the hosted runners ship; `up --no-recreate`
+  # restarts the same stopped container and waits for health on every supported version.
+  docker compose -p "$project" up --detach --no-build --no-recreate --wait --wait-timeout 40
+  [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]]
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
   docker compose -p "$project" down
