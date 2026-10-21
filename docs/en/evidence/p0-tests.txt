@@ -1,4 +1,4 @@
-   Compiling gcs-mimic v0.1.0 (/Users/shiroemons/src/github.com/shiroemons/gcs-mimic)
+   Compiling gcs-mimic v0.1.0 (.)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
      Running unittests src/lib.rs (target/debug/deps/gcs_mimic-2ab1350b50da4ec3)
 

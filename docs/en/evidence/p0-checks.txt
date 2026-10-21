@@ -21,7 +21,7 @@ Fresh source verification used a local git clone --local --no-hardlinks of the e
 repository, followed by its current uncommitted patch and new source/config files.
 This was not a clone of a published commit containing these changes.
 The new checkout had no target directory before the build.
-Command: /Users/shiroemons/.cargo/bin/cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
+Command: cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
 Result: exit 0, Finished release profile in 4.94s. No performance claim is made.
 Then: bash /tmp/gcs-mimic-native-onboarding.sh
 Result: exit 0; output: docs/en/evidence/p0-onboarding.txt

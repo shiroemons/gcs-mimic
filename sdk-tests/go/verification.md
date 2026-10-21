@@ -1,7 +1,22 @@
 # Go SDK harness verification: 2026-10-21
 
-Branch: `shiroemons/bucket-go-sdk`. Scope: harness, Go dependency detection and CI
-configuration. No server implementation or compatibility status was changed.
+The original harness-only results are retained below. The integrated emulator now passes the full
+emulator workflow with Go 1.27.3, storage v1.69.0 and API v0.306.0.
+
+## Integrated execution
+
+`bash scripts/sdk-go.sh` with the rustup proxy first in PATH passed vet and
+both TestEmulatorEndpoint and TestBucketLifecycle, with no skipped tests.
+The unchanged high-level storage client also passed against the read-only-root
+Compose service from the getting-started flow. Requests stayed on the explicitly
+validated emulator origin; no Google/metadata endpoint was contacted.
+
+High-level Attrs/list request `projection=full`, so the emulator accepts it while
+omitting unmodeled ACL/owner fields as an explicit compatibility deviation. The
+SDK sends `pageToken=` initially, which selects the first page; malformed nonempty
+tokens remain errors. These decisions and limitations are in the
+[slice](../../docs/en/slices/json-bucket-crud.md) and
+[integrated evidence](../../docs/en/evidence/bucket-crud.md).
 
 ## Commands and results
 
@@ -79,7 +94,7 @@ setup-go's pinned source selects the toolchain directive when `GOTOOLCHAIN` is
 unset/auto. No Rust dependency was added. The generated API client requires an
 auth pseudo-version transitively; the snapshot records this upstream constraint.
 
-The bucket server and `--data-dir` support were unavailable in this worktree, so
+At the original harness-only checkpoint, the bucket server and `--data-dir` support were unavailable, so
 `scripts/sdk-go.sh` and `TestBucketLifecycle` have not run end to end. The
 integration task must run the script after merging the bucket implementation,
 record real SDK evidence and update JSON-BUCKETS-001/002/005/006 in the ledger.

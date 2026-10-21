@@ -1,4 +1,4 @@
-   Compiling xtask v0.1.0 (/Users/shiroemons/src/github.com/shiroemons/gcs-mimic/xtask)
+   Compiling xtask v0.1.0 (./xtask)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
      Running `target/debug/xtask dependencies check`
 checked_at_unix_seconds=1792572889
