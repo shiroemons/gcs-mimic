@@ -697,7 +697,7 @@
         "DELETE ifMetagenerationNotMatch failure returns 412, unverified against the general 304 preconditions table and the method-specific delete reference.",
         "NotEmpty is unreachable until objects exist; empty local delete is immediate without Google's default soft-delete retention."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21",
       "http_method": "DELETE",
       "path": "b/{bucket}",
@@ -806,7 +806,7 @@
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Recognized unsupported field selection/generation/billing semantics return 501."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21",
       "http_method": "GET",
       "path": "b/{bucket}",
@@ -985,13 +985,22 @@
           "description": "Enforce create permissions, project/domain ownership and advanced bucket settings/default policies.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BKT-INS-OUTPUT-ONLY",
+          "description": "Output-only inputs cannot override server state; a returned resource can seed another insert.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_ins_002_output_only_fields_do_not_override_server_state"
+          ]
         }
       ],
       "test_ids": [
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_ins_001_defaults_and_server_owned_values",
         "bkt_http_query_body_name_and_route_boundaries",
-        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+        "bkt_ins_002_output_only_fields_do_not_override_server_state"
       ],
       "verification": [
         {
@@ -1003,7 +1012,8 @@
             "bkt_http_crud_metadata_conditions_and_errors",
             "bkt_ins_001_defaults_and_server_owned_values",
             "bkt_http_query_body_name_and_route_boundaries",
-            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "bkt_ins_002_output_only_fields_do_not_override_server_state"
           ]
         }
       ],
@@ -1029,9 +1039,10 @@
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
+        "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
         "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21",
       "http_method": "POST",
       "path": "b",
@@ -1158,10 +1169,10 @@
       "known_deviations": [
         "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
-        "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 is an explicit local rule.",
+        "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21",
       "http_method": "GET",
       "path": "b",
@@ -5760,7 +5771,7 @@
       "known_deviations": [
         "Objects are unimplemented; domain ownership and the undocumented complete misspelling set need conformance evidence."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -5850,7 +5861,7 @@
       "known_deviations": [
         "Only current bucket numeric fields; projectNumber derives from a local project-ID simulation."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -5940,7 +5951,7 @@
       "known_deviations": [
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "bdb4ee3a53acc1549d5554611191549795eaddf4",
       "last_verified": "2026-10-21"
     },
     {
@@ -6037,7 +6048,7 @@
         "DELETE ifMetagenerationNotMatch failure returns 412, unverified against the general 304 preconditions table and the method-specific delete reference.",
         "Unsupported semantics use local 501; NotEmpty reason, metadata cap and exact messages are local choices."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -6130,7 +6141,7 @@
       "known_deviations": [
         "Only local bucket catalog consistency is exercised; objects, updates and propagation models are unavailable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "25c21ee1d78ce03ca4511f614551d660d72ce423",
       "last_verified": "2026-10-21"
     },
     {
@@ -6221,7 +6232,7 @@
       "known_deviations": [
         "DELETE failed not-match returns 412 as an unverified deviation; GET failed not-match returns empty 304 per the general preconditions table."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
     },
     {
@@ -6277,7 +6288,7 @@
       "acceptance_cases": [
         {
           "id": "BKT-LST-001",
-          "description": "Projection page caps and zero size over 1001 HTTP-created buckets.",
+          "description": "Projection page caps and zero-as-default with continuation over 1001 HTTP-created buckets.",
           "result": "PASS",
           "test_ids": [
             "bkt_http_list_clamps_to_1000_with_lookahead"
@@ -6331,9 +6342,10 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Other-resource pagination is unimplemented; tokens are not authenticated snapshots.",
-        "Zero and empty-token rules are local; full projection omits ACL/owner."
+        "maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
+        "The empty-token rule is local; full projection omits ACL/owner."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
     },
     {
@@ -6394,7 +6406,7 @@
       "known_deviations": [
         "Projects are local opaque IDs; numeric projectNumber is normalized and string IDs map to \"0\"; userProject returns 501."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
     },
     {
@@ -6471,7 +6483,7 @@
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "ETags are deterministic local identifiers; same-name recreation within one millisecond is indistinguishable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -6532,7 +6544,7 @@
       "known_deviations": [
         "Label combining marks and ambiguous international characters are rejected under a documented subset."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -6593,7 +6605,7 @@
       "known_deviations": [
         "Only US/EU/ASIA metadata is supported; no geographic placement, residency, durability or SLA is simulated."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -6654,7 +6666,7 @@
       "known_deviations": [
         "Bucket class is metadata only; no object placement, class transitions, billing or retention effects."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
       "last_verified": "2026-10-21"
     },
     {
@@ -17045,7 +17057,7 @@
       "known_deviations": [
         "Only fixed advertised API selfLink is implemented; public/signed URLs and validated-request-origin mode are unavailable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
     },
     {
@@ -17429,7 +17441,7 @@
       "known_deviations": [
         "Volume stores only bucket catalog/WAL/lock; object blobs and fixtures remain unavailable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "8ccdda0f01ffae7965242b657bda21587a307e2a",
       "last_verified": "2026-10-21"
     },
     {
@@ -17679,6 +17691,22 @@
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "id": "DESIGN-067-POISON",
+          "description": "A poisoned catalog permanently revokes readiness and returns unavailable.",
+          "result": "PASS",
+          "test_ids": [
+            "poisoned_catalog_permanently_revokes_readiness"
+          ]
+        },
+        {
+          "id": "DESIGN-067-LISTENER",
+          "description": "After shutdown, the exact original socket leaves new connections unaccepted by the server.",
+          "result": "PASS",
+          "test_ids": [
+            "shutdown_stops_accepting_on_original_listener"
+          ]
         }
       ],
       "test_ids": [
@@ -17690,7 +17718,9 @@
         "container-foundation-smoke",
         "bkt_http_failed_recovery_never_reports_ready",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-        "rejects_future_schema_unversioned_data_and_corruption"
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "poisoned_catalog_permanently_revokes_readiness",
+        "shutdown_stops_accepting_on_original_listener"
       ],
       "verification": [
         {
@@ -17723,7 +17753,9 @@
           "test_ids": [
             "bkt_http_failed_recovery_never_reports_ready",
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-            "rejects_future_schema_unversioned_data_and_corruption"
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "poisoned_catalog_permanently_revokes_readiness",
+            "shutdown_stops_accepting_on_original_listener"
           ]
         }
       ],
@@ -17909,7 +17941,7 @@
       "known_deviations": [
         "Only current HTTP/bucket/catalog workers are implemented; object and maintenance resource behavior is pending."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-21"
     },
     {
@@ -17985,7 +18017,7 @@
       "known_deviations": [
         "Buckets only; object indexes, cross-file recovery and memory/CPU measurements remain pending."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "25c21ee1d78ce03ca4511f614551d660d72ce423",
       "last_verified": "2026-10-21"
     },
     {
@@ -18131,7 +18163,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "25c21ee1d78ce03ca4511f614551d660d72ce423",
       "last_verified": "2026-10-21"
     },
     {
@@ -18359,7 +18391,7 @@
         "Only bucket workflows; objects, signing, resumable transfers, XML/gRPC and permissions are unimplemented.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "3f5efc78903990d886422f7a9c045127eedb9cf9",
       "last_verified": "2026-10-21"
     },
     {
@@ -19166,7 +19198,7 @@
       "known_deviations": [
         "Bucket CRUD only; objects, media transfers and resumable sessions are not implemented."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "c9fcaa60af08501e99f25c1a1d4b524c9d606bf8",
       "last_verified": "2026-10-21"
     },
     {
@@ -19237,7 +19269,7 @@
       "known_deviations": [
         "Only Go bucket workflow; Ruby/Rails, objects, ACL/IAM and transfers remain unavailable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "c9fcaa60af08501e99f25c1a1d4b524c9d606bf8",
       "last_verified": "2026-10-21"
     },
     {
@@ -19388,7 +19420,7 @@
       "known_deviations": [
         "Objects, permissions, initial seeding and interrupted-upload recovery are unavailable."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "8ccdda0f01ffae7965242b657bda21587a307e2a",
       "last_verified": "2026-10-21"
     },
     {
@@ -19443,7 +19475,7 @@
       "known_deviations": [
         "No fixture import/reseeding or admin reset route; documented volume removal destroys the local catalog."
       ],
-      "implemented_in": "bdb4ee3",
+      "implemented_in": "8ccdda0f01ffae7965242b657bda21587a307e2a",
       "last_verified": "2026-10-21"
     },
     {
