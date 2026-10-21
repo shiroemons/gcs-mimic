@@ -1498,28 +1498,61 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
     use gcs_mimic::object::ObjectMetadataUpdate;
 
     let dir = TestDir::new();
-    let catalog = setup(&dir).await;
-    let original = put(
-        &catalog,
-        "metadata",
-        b"unchanged",
-        ObjectConditions::default(),
-    )
-    .await
-    .unwrap();
-    let original_paths = blobs(&dir.0);
-    catalog.close().await.unwrap();
+    fs::create_dir_all(&dir.0).unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE objects DROP COLUMN metadata;
-        ALTER TABLE objects DROP COLUMN cache_control;
-        ALTER TABLE objects DROP COLUMN content_language;
-        ALTER TABLE objects DROP COLUMN content_disposition;
-        ALTER TABLE objects DROP COLUMN content_encoding;
-        PRAGMA user_version = 3;",
+            "CREATE TABLE buckets (
+                name TEXT PRIMARY KEY COLLATE BINARY, project TEXT NOT NULL,
+                location TEXT NOT NULL, location_type TEXT NOT NULL, storage_class TEXT NOT NULL,
+                labels TEXT NOT NULL, metageneration INTEGER NOT NULL,
+                time_created INTEGER NOT NULL, updated INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX buckets_project_name ON buckets(project, name);
+            CREATE TABLE objects (
+                bucket TEXT NOT NULL COLLATE BINARY, name TEXT NOT NULL COLLATE BINARY,
+                generation INTEGER NOT NULL CHECK(generation > 0),
+                metageneration INTEGER NOT NULL CHECK(metageneration > 0), content_type TEXT NOT NULL,
+                size INTEGER NOT NULL CHECK(size >= 0), md5 BLOB NOT NULL CHECK(length(md5) = 16),
+                crc32c INTEGER NOT NULL CHECK(crc32c BETWEEN 0 AND 4294967295),
+                storage_class TEXT NOT NULL, time_created INTEGER NOT NULL, updated INTEGER NOT NULL,
+                blob_id TEXT NOT NULL UNIQUE, PRIMARY KEY(bucket, name)
+            ) WITHOUT ROWID;
+            CREATE TABLE pending_blob_deletions (blob_id TEXT PRIMARY KEY) WITHOUT ROWID;
+            CREATE TABLE object_generation (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                last_generation INTEGER NOT NULL CHECK(last_generation >= 0)
+            ) WITHOUT ROWID;
+            INSERT INTO buckets VALUES ('bucket','project','US','multi-region','NEARLINE','{}',1,0,0);
+            INSERT INTO object_generation VALUES (1,1234567);
+            PRAGMA user_version = 3;",
         )
         .unwrap();
+    let md5: [u8; 16] = Md5::digest(b"unchanged").into();
+    let crc = crc32c::crc32c(b"unchanged");
+    let blob_id = "a0000000000000000000000000000000";
+    connection.execute("INSERT INTO objects VALUES ('bucket','metadata',1234567,1,'application/test',9,?1,?2,'NEARLINE',1234,1234,?3)",rusqlite::params![&md5[..],crc,blob_id]).unwrap();
+    fs::create_dir_all(dir.0.join("blobs/a0")).unwrap();
+    fs::write(dir.0.join("blobs/a0").join(blob_id), b"unchanged").unwrap();
+    let original_paths = blobs(&dir.0);
+    let original = ObjectRecord {
+        bucket: "bucket".into(),
+        name: "metadata".into(),
+        generation: 1234567,
+        metageneration: 1,
+        content_type: "application/test".into(),
+        content_encoding: None,
+        content_disposition: None,
+        content_language: None,
+        cache_control: None,
+        metadata: Default::default(),
+        size: 9,
+        md5,
+        crc32c: crc,
+        storage_class: "NEARLINE".into(),
+        time_created: UNIX_EPOCH + Duration::from_millis(1234),
+        updated: UNIX_EPOCH + Duration::from_millis(1234),
+    };
     drop(connection);
     let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
@@ -1588,6 +1621,102 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         cleared
     );
     catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity() {
+    use gcs_mimic::object::ObjectMetadataUpdate;
+    for overwrite in [false, true] {
+        let dir = TestDir::new();
+        let catalog = setup(&dir).await;
+        let original = put(&catalog, "race", b"old bytes", ObjectConditions::default())
+            .await
+            .unwrap();
+        let conditions = ObjectConditions {
+            if_generation_match: Some(original.generation),
+            if_metageneration_match: Some(1),
+            ..Default::default()
+        };
+        let barrier = Arc::new(tokio::sync::Barrier::new(3));
+        let updater = {
+            let catalog = catalog.clone();
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                catalog
+                    .update_object_metadata(
+                        "bucket",
+                        "race",
+                        None,
+                        conditions,
+                        ObjectMetadataUpdate {
+                            metadata: Some(Some(BTreeMap::from([(
+                                "key".into(),
+                                Some("value".into()),
+                            )]))),
+                            ..Default::default()
+                        },
+                        |_| Ok(()),
+                    )
+                    .await
+            })
+        };
+        let mutation = {
+            let catalog = catalog.clone();
+            let barrier = barrier.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                if overwrite {
+                    put(&catalog, "race", b"new bytes", conditions)
+                        .await
+                        .map(|_| ())
+                } else {
+                    catalog
+                        .delete_object("bucket", "race", None, conditions)
+                        .await
+                }
+            })
+        };
+        barrier.wait().await;
+        let updated = updater.await.unwrap();
+        let mutated = mutation.await.unwrap();
+        assert_ne!(updated.is_ok(), mutated.is_ok());
+        if updated.is_ok() {
+            assert_eq!(mutated, Err(ObjectError::PreconditionFailed));
+            let (record, reader) = catalog
+                .open_object("bucket", "race", None, ObjectConditions::default())
+                .await
+                .unwrap();
+            assert_eq!(record.generation, original.generation);
+            assert_eq!(record.metageneration, 2);
+            assert_eq!(record.metadata["key"], "value");
+            assert_eq!(read(reader).await, b"old bytes");
+        } else if overwrite {
+            assert_eq!(updated, Err(ObjectError::PreconditionFailed));
+            let (record, reader) = catalog
+                .open_object("bucket", "race", None, ObjectConditions::default())
+                .await
+                .unwrap();
+            assert_ne!(record.generation, original.generation);
+            assert_eq!(record.metageneration, 1);
+            assert!(record.metadata.is_empty());
+            assert_eq!(read(reader).await, b"new bytes");
+        } else {
+            assert_eq!(updated, Err(ObjectError::ObjectNotFound));
+            assert_eq!(
+                catalog
+                    .get_object("bucket", "race", None, ObjectConditions::default())
+                    .await,
+                Err(ObjectError::ObjectNotFound)
+            );
+        }
+        assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(
+            blobs(&dir.0).len(),
+            usize::from(overwrite || mutated.is_err())
+        );
+        catalog.close().await.unwrap();
+    }
 }
 
 #[test]

@@ -96,11 +96,15 @@ impl Reply {
     }
 }
 fn request(address: &str, method: &str, path: &str, body: &[u8]) -> Reply {
+    request_headers(address, method, path, body, "")
+}
+
+fn request_headers(address: &str, method: &str, path: &str, body: &[u8], headers: &str) -> Reply {
     let mut stream = TcpStream::connect(address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).unwrap();
+    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{headers}Connection: close\r\n\r\n", body.len()).unwrap();
     stream.write_all(body).unwrap();
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
@@ -218,7 +222,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         ("content-encoding", "br"),
         ("content-disposition", "attachment; filename=hello.txt"),
         ("content-language", "en"),
-        ("cache-control", "private, max-age=60"),
+        ("cache-control", "no-cache"),
         ("x-goog-stored-content-encoding", "br"),
     ] {
         assert_eq!(media.headers[key], value);
@@ -291,6 +295,16 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
         .unwrap()
         .parse::<i64>()
         .unwrap();
+    assert_eq!(
+        server
+            .update(
+                "PATCH",
+                "",
+                json!({"generation":generation,"metageneration":1,"size":7})
+            )
+            .status,
+        200
+    );
     for method in ["PATCH", "PUT"] {
         server
             .update(method, "", json!({"contentLanguage":""}))
@@ -535,5 +549,90 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             .body,
         b"payload"
     );
+    server.stop();
+}
+
+#[test]
+fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    server.setup();
+    assert_eq!(
+        server
+            .update("PATCH", "", json!({"contentLanguage":"a".repeat(100)}))
+            .status,
+        200
+    );
+    server
+        .update("PATCH", "", json!({"contentLanguage":"a".repeat(101)}))
+        .error(400, "invalidArgument");
+    server
+        .update(
+            "PATCH",
+            "",
+            json!({"contentDisposition":"attachment; filename=雪"}),
+        )
+        .error(501, "notImplemented");
+    server
+        .update("PATCH", "", json!({"metadata":{"":"value"}}))
+        .error(501, "notImplemented");
+    let compressed = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\x4c\x4a\x06\x00\xc2\x41\x24\x35\x03\x00\x00\x00";
+    let uploaded = server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
+            compressed,
+        )
+        .json();
+    server
+        .update(
+            "PATCH",
+            "",
+            json!({"contentEncoding":"gzip","metadata":{"key":"value"}}),
+        )
+        .json();
+    for (encoding, status) in [
+        ("gzip", 200),
+        ("gzip;q=1.0", 200),
+        ("*", 200),
+        ("br, gzip;q=0.1", 200),
+        ("gzip;q=0", 501),
+        ("*;q=1,gzip;q=0", 501),
+        ("gzip;q=0,*", 501),
+        ("*;q=0", 501),
+        ("gzip;q=2", 400),
+        ("gzip;q=oops", 400),
+    ] {
+        let reply = request_headers(
+            &server.address,
+            "GET",
+            "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
+            b"",
+            &format!("Accept-Encoding: {encoding}\r\n"),
+        );
+        assert_eq!(reply.status, status, "{encoding}");
+        if status == 200 {
+            assert_eq!(reply.body, compressed);
+            assert_eq!(reply.headers["content-encoding"], "gzip");
+        }
+    }
+    let replaced = server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
+            b"new bytes",
+        )
+        .json();
+    assert_ne!(replaced["generation"], uploaded["generation"]);
+    assert_eq!(replaced["metageneration"], "1");
+    for key in [
+        "contentEncoding",
+        "contentDisposition",
+        "contentLanguage",
+        "cacheControl",
+        "metadata",
+    ] {
+        assert!(replaced.get(key).is_none(), "{key}");
+    }
     server.stop();
 }

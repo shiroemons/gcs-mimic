@@ -24,7 +24,8 @@ pub use object_list::{ObjectListParams, object_list};
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_resource,
-    parse_object_upload_headers, route_object, validate_object_get_headers, validate_object_name,
+    parse_object_upload_headers, route_object, validate_object_get_headers,
+    validate_object_media_encoding, validate_object_name,
 };
 pub use page_token::{decode_page_token, encode_page_token};
 pub use query::{

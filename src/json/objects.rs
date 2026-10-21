@@ -463,6 +463,8 @@ pub fn object_resource(
 pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
+        // Public ACL/IAM grants are not modeled, so every JSON media response is nonpublic.
+        ("cache-control", "no-cache".to_owned()),
         (
             "content-type",
             if object.content_type.is_empty() {
@@ -507,7 +509,6 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
         ("content-encoding", &object.content_encoding),
         ("content-disposition", &object.content_disposition),
         ("content-language", &object.content_language),
-        ("cache-control", &object.cache_control),
     ] {
         if let Some(value) = value {
             headers.insert(
@@ -523,6 +524,82 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
         }
     }
     Ok(headers)
+}
+
+/// Reject downloads requiring unsupported gzip expansion, honoring explicit quality overrides.
+pub fn validate_object_media_encoding(
+    headers: &HeaderMap,
+    object: &ObjectRecord,
+) -> Result<(), JsonError> {
+    if !object
+        .content_encoding
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
+        || object.cache_control.as_deref().is_some_and(|value| {
+            value
+                .split(',')
+                .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
+        })
+    {
+        return Ok(());
+    }
+    let mut gzip = None;
+    let mut wildcard = None;
+    for header in headers.get_all("accept-encoding") {
+        let value = header
+            .to_str()
+            .map_err(|_| JsonError::invalid_parameter("Invalid Accept-Encoding"))?;
+        for entry in value
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let mut parts = entry.split(';');
+            let encoding = parts.next().expect("split has one part").trim();
+            let mut allowed = true;
+            if let Some(parameter) = parts.next() {
+                let (name, quality) = parameter.trim().split_once('=').ok_or_else(|| {
+                    JsonError::invalid_parameter("Invalid Accept-Encoding quality")
+                })?;
+                if !name.eq_ignore_ascii_case("q") || parts.next().is_some() {
+                    return Err(JsonError::invalid_parameter(
+                        "Invalid Accept-Encoding parameter",
+                    ));
+                }
+                let quality = quality.trim();
+                let (whole, fraction) = quality.split_once('.').unwrap_or((quality, ""));
+                if !matches!(whole, "0" | "1")
+                    || fraction.len() > 3
+                    || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+                    || (whole == "1" && fraction.bytes().any(|byte| byte != b'0'))
+                {
+                    return Err(JsonError::invalid_parameter(
+                        "Invalid Accept-Encoding quality",
+                    ));
+                }
+                allowed = whole == "1" || fraction.bytes().any(|byte| byte != b'0');
+            }
+            let selected = if encoding.eq_ignore_ascii_case("gzip") {
+                &mut gzip
+            } else if encoding == "*" {
+                &mut wildcard
+            } else {
+                continue;
+            };
+            if selected.replace(allowed).is_some() {
+                return Err(JsonError::invalid_parameter(
+                    "Duplicate Accept-Encoding token",
+                ));
+            }
+        }
+    }
+    if gzip.or(wildcard).unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(JsonError::unsupported_object(
+            "decompressive transcoding; accept gzip or set no-transform",
+        ))
+    }
 }
 
 fn etag(object: &ObjectRecord) -> String {

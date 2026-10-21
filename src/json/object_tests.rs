@@ -606,7 +606,8 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
     ] {
         assert_eq!(headers[name], value);
     }
-    assert_eq!(headers.len(), 8);
+    assert_eq!(headers["cache-control"], "no-cache");
+    assert_eq!(headers.len(), 9);
     let mut object = object;
     object.size = u64::MAX;
     assert_eq!(

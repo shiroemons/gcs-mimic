@@ -334,29 +334,7 @@ async fn object_response(
                     .open_object(&bucket, &name, params.generation, params.conditions)
                     .await?;
                 let headers = json::object_media_headers(&record)?;
-                if record
-                    .content_encoding
-                    .as_deref()
-                    .is_some_and(|value| value.eq_ignore_ascii_case("gzip"))
-                    && !record.cache_control.as_deref().is_some_and(|value| {
-                        value
-                            .split(',')
-                            .any(|directive| directive.trim().eq_ignore_ascii_case("no-transform"))
-                    })
-                    && !request
-                        .headers()
-                        .get("accept-encoding")
-                        .and_then(|value| value.to_str().ok())
-                        .is_some_and(|value| {
-                            value
-                                .split(',')
-                                .any(|encoding| encoding.trim().eq_ignore_ascii_case("gzip"))
-                        })
-                {
-                    return Err(JsonError::unsupported_object(
-                        "decompressive transcoding; request gzip or set no-transform",
-                    ));
-                }
+                json::validate_object_media_encoding(request.headers(), &record)?;
                 let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
                 let activity = activity.clone();
                 tokio::spawn(async move {

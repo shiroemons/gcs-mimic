@@ -991,6 +991,7 @@ mod tests {
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects SELECT 'bucket', printf('a/%05d', n), n, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, printf('%032x', n) FROM entries;
             INSERT INTO objects VALUES('bucket', 'z', 20001, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, '00000000000000000000000000004e21');").unwrap();
+        connection.execute_batch(METADATA_SCHEMA).unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         unsafe {
@@ -1022,6 +1023,48 @@ mod tests {
             );
         }
         assert!(counter.load(Ordering::Relaxed) < 100);
+    }
+
+    #[test]
+    fn metadata_migration_rolls_back_all_columns_and_version_after_late_failure() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection.execute_batch(GENERATION_SCHEMA).unwrap();
+        connection.execute_batch("INSERT INTO object_generation VALUES (1,7);
+            INSERT INTO objects VALUES ('bucket','object',7,1,'text/plain',3,zeroblob(16),0,'STANDARD',0,0,'a0000000000000000000000000000000');
+            ALTER TABLE objects ADD COLUMN metadata TEXT;
+            PRAGMA user_version = 3;").unwrap();
+        let before: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE name='objects'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        // The final ALTER fails after four successful statements, exercising transaction rollback.
+        assert!(migrate_metadata(&mut connection).is_err());
+        let after: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE name='objects'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after, before);
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        let data: (i64, String, i64) = connection
+            .query_row(
+                "SELECT generation,content_type,size FROM objects",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(data, (7, "text/plain".into(), 3));
     }
 
     #[tokio::test]

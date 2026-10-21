@@ -17,7 +17,11 @@ impl ObjectMetadataRequest {
         let resource = super::object_resource(record, base, super::Projection::Full)
             .map_err(|error| ObjectError::Unavailable(error.to_string()))?;
         for (key, value) in unchanged {
-            if resource.get(key) != Some(value) {
+            let same_integer = matches!(key.as_str(), "generation" | "metageneration" | "size")
+                && value.as_u64().is_some_and(|number| {
+                    resource[key].as_str() == Some(number.to_string().as_str())
+                });
+            if resource.get(key) != Some(value) && !same_integer {
                 return Err(ObjectError::UnsupportedMetadata(key.clone()));
             }
         }
@@ -112,6 +116,9 @@ pub fn parse_object_metadata(
             entries
                 .iter()
                 .map(|(key, value)| {
+                    if key.is_empty() {
+                        return Err(JsonError::unsupported_object("empty custom metadata key"));
+                    }
                     let value = if value.is_null() {
                         None
                     } else {
@@ -160,6 +167,14 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>
             let value = value.as_str().ok_or_else(|| {
                 JsonError::invalid_argument(format!("{key} must be a string or null"))
             })?;
+            if key == "contentLanguage" && value.chars().count() > 100 {
+                return Err(JsonError::invalid_argument(
+                    "contentLanguage exceeds 100 characters",
+                ));
+            }
+            if !value.is_ascii() {
+                return Err(JsonError::unsupported_object("non-ASCII fixed metadata"));
+            }
             // These fields become HTTP headers; reject control characters before committing state.
             if value.bytes().any(|byte| byte < 32 || byte == 127)
                 || HeaderValue::from_str(value).is_err()
