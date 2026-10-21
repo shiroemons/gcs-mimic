@@ -1,0 +1,259 @@
++ docker build -t gcs-mimic:dev .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.24kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 966B done
+#9 DONE 0.0s
+
+#10 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic     && install -d -o 10001 -g 10001 /var/lib/gcs-mimic
+#10 CACHED
+
+#11 [build 2/7] WORKDIR /build
+#11 CACHED
+
+#12 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#12 CACHED
+
+#13 [build 6/7] COPY src ./src
+#13 CACHED
+
+#14 [runtime 2/4] WORKDIR /app
+#14 CACHED
+
+#15 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#15 CACHED
+
+#16 [build 5/7] COPY xtask/src ./xtask/src
+#16 CACHED
+
+#17 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 CACHED
+
+#19 exporting to image
+#19 exporting layers done
+#19 exporting manifest sha256:a31df4576cc23d640887d436329fc54ddf327cab4727d7105211e8bbb3160ccb done
+#19 exporting config sha256:e2f53b05670b832dbc7ae27d00fc8259db1b0db935044e919dee6c4ebce03d9d done
+#19 exporting attestation manifest sha256:92af0767b0ce52c50e217611d19ba08c54c153b23e4d800e55962833260dd77e done
+#19 exporting manifest list sha256:f2e27afd6369b0db820e61032818c7f386f3cca154ccd7bf1a7f617787707c48 done
+#19 naming to docker.io/library/gcs-mimic:dev done
+#19 unpacking to docker.io/library/gcs-mimic:dev done
+#19 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/g0r0sllrl18drb1eenpy1w0vc
++ export COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo
++ COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ docker compose config --quiet
++ docker compose up -d --wait
+ Network gcs-mimic-bucket-demo_default Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Creating
+ Network gcs-mimic-bucket-demo_default Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Created
+ Volume gcs-mimic-bucket-demo_gcs-data Created
+ Network gcs-mimic-bucket-demo_default Created
+ Network gcs-mimic-bucket-demo_default Created
+ Container gcs-mimic-bucket-demo-gcs-1 Creating
+ Container gcs-mimic-bucket-demo-gcs-1 Created
+ Container gcs-mimic-bucket-demo-gcs-1 Starting
+ Container gcs-mimic-bucket-demo-gcs-1 Started
+ Container gcs-mimic-bucket-demo-gcs-1 Waiting
+ Container gcs-mimic-bucket-demo-gcs-1 Healthy
+++ docker compose port gcs 4443
++ address=127.0.0.1:55039
++ endpoint=http://127.0.0.1:55039
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55039/_internal/health
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  27279      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792579341}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55039/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  30424      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792579341}+ export GCS_MIMIC_PORT=55039
++ GCS_MIMIC_PORT=55039
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55039
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55039
++ docker compose up -d --wait
+ Container gcs-mimic-bucket-demo-gcs-1 Recreate
+ Container gcs-mimic-bucket-demo-gcs-1 Recreated
+ Container gcs-mimic-bucket-demo-gcs-1 Starting
+ Container gcs-mimic-bucket-demo-gcs-1 Started
+ Container gcs-mimic-bucket-demo-gcs-1 Waiting
+ Container gcs-mimic-bucket-demo-gcs-1 Healthy
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55039/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64  83136  13713 --:--:-- --:--:-- --:--:--  110k
+{"etag":"\"b-1792579344075-1792579344075-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.075Z","updated":"2026-10-21T10:42:24.075Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55039/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   212k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792579344075-1792579344075-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.075Z","updated":"2026-10-21T10:42:24.075Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55039/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0   247k      0 --:--:-- --:--:-- --:--:--  415k
+{"items":[{"etag":"\"b-1792579344075-1792579344075-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.075Z","updated":"2026-10-21T10:42:24.075Z"}],"kind":"storage#buckets"}+ peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
++ docker run --rm --read-only --network gcs-mimic-bucket-demo_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    384 100    362 100     22 182.6k  11369                              0100    384 100    362 100     22 181.3k  11287                              0100    384 100    362 100     22 180.7k  11247                              0
+{"etag":"\"b-1792579344207-1792579344207-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.207Z","updated":"2026-10-21T10:42:24.207Z"}+ docker run --rm --read-only --network gcs-mimic-bucket-demo_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    362 100    362   0      0 229.7k      0                              0100    362 100    362   0      0 228.3k      0                              0100    362 100    362   0      0 227.3k      0                              0
+{"etag":"\"b-1792579344207-1792579344207-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.207Z","updated":"2026-10-21T10:42:24.207Z"}+ docker run --rm --read-only --network gcs-mimic-bucket-demo_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b?project=local-project&prefix=peer-'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    399 100    399   0      0 358.1k      0                              0100    399 100    399   0      0 353.9k      0                              0100    399 100    399   0      0 351.3k      0                              0
+{"items":[{"etag":"\"b-1792579344207-1792579344207-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.207Z","updated":"2026-10-21T10:42:24.207Z"}],"kind":"storage#buckets"}+ docker run --rm --read-only --network gcs-mimic-bucket-demo_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
++ docker compose stop
+ Container gcs-mimic-bucket-demo-gcs-1 Stopping
+ Container gcs-mimic-bucket-demo-gcs-1 Stopped
++ docker compose start --wait
+ Container gcs-mimic-bucket-demo-gcs-1 Starting
+ Container gcs-mimic-bucket-demo-gcs-1 Started
+ Container gcs-mimic-bucket-demo-gcs-1 Waiting
+ Container gcs-mimic-bucket-demo-gcs-1 Healthy
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55039/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   245k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792579344075-1792579344075-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.075Z","updated":"2026-10-21T10:42:24.075Z"}+ docker compose down
+ Container gcs-mimic-bucket-demo-gcs-1 Stopping
+ Container gcs-mimic-bucket-demo-gcs-1 Stopped
+ Container gcs-mimic-bucket-demo-gcs-1 Removing
+ Container gcs-mimic-bucket-demo-gcs-1 Removed
+ Network gcs-mimic-bucket-demo_default Removing
+ Network gcs-mimic-bucket-demo_default Removed
++ docker compose up -d --wait
+ Network gcs-mimic-bucket-demo_default Creating
+ Network gcs-mimic-bucket-demo_default Creating
+ Network gcs-mimic-bucket-demo_default Created
+ Network gcs-mimic-bucket-demo_default Created
+ Container gcs-mimic-bucket-demo-gcs-1 Creating
+ Container gcs-mimic-bucket-demo-gcs-1 Created
+ Container gcs-mimic-bucket-demo-gcs-1 Starting
+ Container gcs-mimic-bucket-demo-gcs-1 Started
+ Container gcs-mimic-bucket-demo-gcs-1 Waiting
+ Container gcs-mimic-bucket-demo-gcs-1 Healthy
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55039/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   213k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792579344075-1792579344075-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:24.075Z","updated":"2026-10-21T10:42:24.075Z"}+ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55039/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' http://127.0.0.1:55039/storage/v1/b/demo-bucket
+404
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"reset-bucket"}' 'http://127.0.0.1:55039/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   365  100    23   151k   9795 --:--:-- --:--:-- --:--:--  189k
+{"etag":"\"b-1792579349704-1792579349704-1\"","id":"reset-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"reset-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55039/storage/v1/b/reset-bucket","storageClass":"STANDARD","timeCreated":"2026-10-21T10:42:29.704Z","updated":"2026-10-21T10:42:29.704Z"}+ docker compose down --volumes
+ Container gcs-mimic-bucket-demo-gcs-1 Stopping
+ Container gcs-mimic-bucket-demo-gcs-1 Stopped
+ Container gcs-mimic-bucket-demo-gcs-1 Removing
+ Container gcs-mimic-bucket-demo-gcs-1 Removed
+ Volume gcs-mimic-bucket-demo_gcs-data Removing
+ Network gcs-mimic-bucket-demo_default Removing
+ Volume gcs-mimic-bucket-demo_gcs-data Removed
+ Network gcs-mimic-bucket-demo_default Removed
++ docker compose up -d --wait
+ Network gcs-mimic-bucket-demo_default Creating
+ Network gcs-mimic-bucket-demo_default Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Creating
+ Volume gcs-mimic-bucket-demo_gcs-data Created
+ Volume gcs-mimic-bucket-demo_gcs-data Created
+ Network gcs-mimic-bucket-demo_default Created
+ Network gcs-mimic-bucket-demo_default Created
+ Container gcs-mimic-bucket-demo-gcs-1 Creating
+ Container gcs-mimic-bucket-demo-gcs-1 Created
+ Container gcs-mimic-bucket-demo-gcs-1 Starting
+ Container gcs-mimic-bucket-demo-gcs-1 Started
+ Container gcs-mimic-bucket-demo-gcs-1 Waiting
+ Container gcs-mimic-bucket-demo-gcs-1 Healthy
++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' http://127.0.0.1:55039/storage/v1/b/reset-bucket
+404
++ cd sdk-tests/go
++ GCS_MIMIC_ENDPOINT=http://127.0.0.1:55039
++ GOTOOLCHAIN=auto
++ go test -count=1 -v ./...
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:99: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55039
+--- PASS: TestBucketLifecycle (0.04s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.338s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
++ docker compose down
+ Container gcs-mimic-bucket-demo-gcs-1 Stopping
+ Container gcs-mimic-bucket-demo-gcs-1 Stopped
+ Container gcs-mimic-bucket-demo-gcs-1 Removing
+ Container gcs-mimic-bucket-demo-gcs-1 Removed
+ Network gcs-mimic-bucket-demo_default Removing
+ Network gcs-mimic-bucket-demo_default Removed

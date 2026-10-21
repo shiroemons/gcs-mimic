@@ -1,145 +1,195 @@
 # Build and run gcs-mimic
 
-This guide runs the health/readiness shell. GCS APIs, fixtures, persistence, IAM/ACL, URL signing, CORS, TLS and SDK operations are unavailable. Unsupported routes return 404. The [future contract](getting-started-spec.md) describes later milestones, not runnable storage commands.
+The current slice supports JSON bucket create/get/list/delete with a persistent SQLite
+catalog. Objects, fixtures, IAM/ACL, signed URLs, CORS and TLS remain unavailable.
+Requests have no authentication enforcement; use an isolated local development environment.
+The [slice contract](slices/json-bucket-crud.md) lists supported fields and deviations.
 
-## Source, prepare and build
+## Build and start with Compose
 
-Install Git, Docker Engine/Desktop with Buildx, and curl. Linux amd64 and arm64 images build from source; Apple Silicon runs arm64 natively. No Python, Google credentials or cloud resources are needed.
+Install Git, Docker Engine/Desktop with Buildx and Compose v2 (`up --wait` and
+`start --wait`), curl and jq. No Google credentials or cloud resources are needed.
+Build from a checkout; no image is published. The commands use an isolated Compose
+project and a dynamically allocated loopback port to avoid other local emulators.
 
 ```sh
-git clone https://github.com/shiroemons/gcs-mimic.git
-cd gcs-mimic
 docker build -t gcs-mimic:dev .
-docker run --detach --rm --name gcs-mimic \
-  --read-only --memory 128m --cpus 1 --pids-limit 64 \
-  -p 127.0.0.1:4443:4443 gcs-mimic:dev
-docker exec gcs-mimic gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
-```
-
-The local image is `gcs-mimic:dev`; there is no published image. Builder/runtime images and the BuildKit frontend are digest-pinned. The runtime is Debian stable slim with the binary and non-root UID/GID 10001. The server needs no writable mounts. If starting before the first probe succeeds, inspect `docker logs gcs-mimic` and rerun the readiness command.
-
-```sh
-docker stop gcs-mimic
-```
-
-## Use with Docker Compose
-
-Compose is optional, useful when starting an application and emulator together. Requires Compose with `up --wait` support. After building the image, this repository's Compose configuration can be used directly:
-
-```sh
+export COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo
+export GCS_MIMIC_PORT=0
 docker compose config --quiet
 docker compose up -d --wait
-docker compose run --rm --no-deps gcs healthcheck --url http://gcs:4443/_internal/ready
+address=$(docker compose port gcs 4443)
+endpoint="http://$address"
+docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+curl --disable --noproxy '*' --fail "$endpoint/_internal/health"
+curl --disable --noproxy '*' --fail "$endpoint/_internal/ready"
 ```
 
-For another project's Compose file, add a service using the locally built image:
+The image runs as UID/GID 10001 on a read-only root. Compose mounts the named
+`gcs-data` volume at `/var/lib/gcs-mimic`, prepared with writable ownership by the
+image. SQLite, WAL and the ownership lock live there. Memory is limited to 128 MiB,
+CPU to one, PIDs to 64 and file descriptors to 1024; these are configured bounds,
+not measured resource requirements. The image also works with `docker run` when
+an explicit writable volume is mounted at that path.
 
-```yaml
-services:
-  gcs:
-    image: gcs-mimic:dev
-    read_only: true
-    mem_limit: 128m
-    cpus: 1.0
-    pids_limit: 64
-```
-
-Other services on that project's network reach `http://gcs:4443`; host port publishing is optional. The image includes a readiness healthcheck. This repository's Compose file additionally drops capabilities, limits descriptors to 1024 and publishes only host loopback.
-
-## Health and connectivity
-
-After starting with either Docker or Compose, run the host probes:
+The default fixed `selfLink` origin is `http://127.0.0.1:4443`, independent of the
+selected listener. With a dynamic port, set the actual advertised endpoint and
+recreate the service; the named volume preserves its catalog:
 
 ```sh
-curl --disable --noproxy '*' --fail http://127.0.0.1:4443/_internal/health
-curl --disable --noproxy '*' --fail http://127.0.0.1:4443/_internal/ready
-curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' \
-  'http://127.0.0.1:4443/storage/v1/b?project=local-project'
+export GCS_MIMIC_PORT=${address##*:}
+export GCS_MIMIC_API_BASE_URL="$endpoint"
+docker compose up -d --wait
 ```
 
-Probes return 200 with `{"status":"ok","unix_time":...}`. The GCS request returns 404. Probe methods are GET/HEAD; other methods return 405 with `Allow: GET, HEAD`. Probe bodies return 413 without being collected. Oversized/malformed headers fail at the HTTP parser. Unknown internal routes return 404; no reset/admin route exists.
+Host clients use `$endpoint`. Peers on the Compose network use `http://gcs:4443`.
+Inside a container, localhost refers to that container; `0.0.0.0` is a listener
+address. `selfLink` always uses the one configured origin. Set a peer-reachable
+origin instead if peers must follow those links. Host and forwarded headers are
+never used to construct links. Public object URLs are not implemented.
 
-Host clients use `127.0.0.1:4443`; peers use `gcs:4443` on the Compose network. Inside a container, localhost refers to that container. `0.0.0.0` is a bind address. The server generates no public URLs or resumable Locations and accepts no ineffective URL settings. Public/signed URLs and SDK instructions will accompany their actual implementations.
+## Create, inspect, list and delete buckets
 
-Startup JSON reports the listener, effective limits, protocol and `gcs_api:false`. Ready follows config validation, signal registration and successful bind. There is no recovery/seeding work yet; these must finish before future storage readiness. Readiness becomes false on shutdown. The healthcheck client accepts explicit HTTP probe URLs, bypasses proxies, caps responses at 16 KiB and rejects malformed/truncated responses. After DNS resolution, connection attempts and request/response I/O share one two-second deadline, including slowly streamed responses. DNS uses the OS resolver; numeric loopback avoids DNS for container healthchecks.
+```sh
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"
+```
+
+Create/get/list return 200 with JSON. Duplicate names return 409 across all local
+projects. `metageneration` is the string `"1"`; timestamps and labels survive restart.
+List is sorted and project/prefix scoped, with opaque continuation tokens. Limits
+are 1000 for `noAcl` and 200 for `full`; `full` currently omits ACL/owner fields.
+Only US/EU/ASIA locations and the documented storage classes are accepted.
+Recognized unsupported settings return 501; invalid names/queries return 400.
+Insert bodies are capped at 64 KiB; get/list/delete require no body.
+
+Peer-container curl uses a digest-pinned, test-only official curl image:
+
+```sh
+peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/peer-bucket
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b?project=local-project&prefix=peer-'
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
+```
+
+## Stop, restart and deliberate reset
+
+```sh
+docker compose stop
+docker compose start --wait
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
+docker compose down
+docker compose up -d --wait
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' \
+  "$endpoint/storage/v1/b/demo-bucket"
+```
+
+Stop/start and ordinary down/up preserve the named volume. Delete returns 204 with
+an empty body; the subsequent get returns 404. No reset/admin route exists.
+To demonstrate a deliberate reset, first create a disposable bucket:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"reset-bucket"}' "$endpoint/storage/v1/b?project=local-project"
+docker compose down --volumes
+docker compose up -d --wait
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' \
+  "$endpoint/storage/v1/b/reset-bucket"
+```
+
+`down --volumes` deletes **all data in this Compose project's managed volume**;
+the final get returns 404. Use it only for a disposable local catalog. There is no
+fixture replay or seeding. SIGINT/SIGTERM stop acceptance and drain; recovery and
+exclusive data-directory ownership must finish before bind/readiness. A second
+process using the same directory fails without reporting ready. Future-schema,
+corrupt or inaccessible catalogs also prevent startup.
+
+## Official Go SDK
+
+Install Go (the harness downloads pinned Go 1.27.3), then run against the Compose
+endpoint from the repository root:
+
+```sh
+(cd sdk-tests/go && GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...)
+```
+
+The harness pins `cloud.google.com/go/storage` v1.69.0 and `google.golang.org/api`
+v0.306.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
+and redirects, and confines requests to the explicit emulator. It exercises
+bucket CRUD, prefix/paged listing and 409/404 errors. It creates and cleans up its
+own random buckets. No object/ACL or unrestricted SDK support is claimed.
+For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
+
+Finish the Compose walkthrough by stopping and removing its containers and
+network. This preserves the named data volume:
+
+```sh
+docker compose down
+```
 
 ## Native binary and configuration
 
-Requires rustup. The verified exact stable compiler is Rust 1.99.1, edition 2024.
+Build with Rust 1.99.1 and the committed lockfile:
 
 ```sh
-rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
-cargo +1.99.1 fetch --locked
-cargo +1.99.1 xtask dependencies check
-cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
-./target/release/gcs-mimic --version
-./target/release/gcs-mimic --help
-./target/release/gcs-mimic serve --config config/development.json
+cargo +1.99.1 build --release --locked --bin gcs-mimic
+./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir data
 ```
 
-Use another terminal for probes, then Ctrl-C to stop. The binary needs no Rust installation, Python or curl at runtime.
-
-```sh
-./target/release/gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
-```
-
-Precedence is CLI > `GCS_MIMIC_` environment > JSON file > defaults. `--config` overrides `GCS_MIMIC_CONFIG`. JSON files are capped at 64 KiB. Unknown settings, duplicate CLI options, invalid addresses and out-of-range limits fail before readiness. The current configuration is JSON; the future TOML specification is not implemented.
+The resulting binary needs no Rust, Python, curl or Go installation. CLI overrides
+`GCS_MIMIC_` environment, JSON config and defaults; `--config` overrides
+`GCS_MIMIC_CONFIG`. Config files are capped at 64 KiB; invalid settings fail before
+readiness. The current configuration is JSON; future TOML settings are unavailable.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
+| `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
+| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `http://127.0.0.1:4443` | Absolute HTTP(S), optional base path; no credentials/query/fragment |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000 |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
 
-```sh
-GCS_MIMIC_MAX_CONNECTIONS=8 ./target/release/gcs-mimic serve \
-  --config config/development.json --max-connections 4
-```
+Each HTTP/1 connection handles one request, with a 16 KiB parser buffer, 64 headers
+and a deadline. Unknown routes return 404 without body reads; probes retain
+GET/HEAD support and body rejection. Catalog work has 32 admitted calls, one
+executing blocking job, a 2 MiB SQLite cache and no memory map. The runtime bounds
+blocking threads; queued/cancelled operations retain directory ownership until
+execution finishes. A connection timeout can leave an already admitted write
+committed, as with an uncertain network outcome; clients must read back state.
 
-This selects a connection cap of 4. Native defaults bind loopback; Docker binds `0.0.0.0:4443` inside the container and Compose publishes only host loopback. Auth, seed, storage, URL and TLS settings fail as unknown. Neither strict nor permissive authentication is claimed by a shell without GCS handlers.
-
-## Limits, stop and restart
-
-HTTP/1 keep-alive is disabled. Each connection handles one request with a 16 KiB parser buffer, 64 headers and a lifetime deadline. Admission stops at the connection cap, with no application work queue; the requested kernel backlog is 128. Async/blocking thread counts are bounded. No database caches or maintenance workers exist yet.
-
-SIGINT/SIGTERM stop acceptance and drain within the configured deadline. A drain timeout aborts remaining tasks and exits nonzero. No storage writes exist in the current implementation. The default five-second deadline fits Compose's 15-second grace period; keep the latter longer if overriding limits.
-
-When using Compose:
+## Verification and troubleshooting
 
 ```sh
-docker compose stop
-docker compose up -d --wait
-docker compose down
-```
-
-There is no user data to persist, seed or reset. Future storage will use separate read-only fixture input and durable volumes.
-
-## Isolated CI and updates
-
-```sh
-cargo +1.99.1 test --workspace --locked --offline
+cargo +1.99.1 test --workspace --locked
 cargo +1.99.1 fmt --all --check
-cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.99.1 xtask compatibility check
 bash scripts/smoke-containers.sh
 ```
 
-The smoke script optionally takes `linux/amd64` and/or `linux/arm64`. It builds each image, probes with `--network none`, then checks host and peer-container connectivity in an isolated Compose project. Unique project/image names and dynamic loopback ports avoid collisions. It verifies non-root/read-only/resource settings, 404/405 and both signals, and removes only its own containers/network. No volumes are created. Builds require registry access; runtime requests use local endpoints. Ordinary Rust tests make no outbound requests. Only the explicit freshness check fetches release metadata.
+The smoke script builds arm64/amd64 images, checks isolated probes, host and peer
+curl CRUD, stop/start and down/up persistence, deliberate reset, resource settings
+and both shutdown signals. It removes only its own test volumes and containers.
+On Apple Silicon, arm64 is native and amd64 uses emulation. Native amd64, remote
+CI, real-cloud conformance and performance measurements remain unverified.
 
-Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day, without cooldown. Remote runs and schedule activation have not been observed. Run `cargo +1.99.1 xtask dependencies check` at slice start and before release and inspect exceptions weekly. Exit 1 means updates; exit 2 means check failure. The checker does not modify manifests or publish changes.
-
-## Troubleshooting and limits of verification
-
-| Symptom | Check |
-| --- | --- |
-| Connection refused | `docker compose ps`, `docker compose logs gcs`, port mapping and host/container address. |
-| Port in use | Set `GCS_MIMIC_PORT=0`; inspect `docker compose port gcs 4443`. |
-| Config error | JSON syntax, option spelling, environment overrides and allowed ranges. |
-| Healthcheck fails | Ready URL, protocol and port; incomplete or malformed responses are rejected. |
-| GCS/SDK returns 404 | Expected in the current implementation; bucket/object APIs and authentication are pending. |
-| Build/update metadata unreachable | Check registry/network access; failures never count as current versions. |
-
-See [tests](evidence/p0-tests.txt), [containers](evidence/p0-containers.txt), [dependencies](evidence/p0-dependencies.txt) and the [ledger](../../compatibility/features.json). Local Docker testing was arm64 native and amd64 emulated. Native amd64 and remote CI are pending. No performance, SDK or real-cloud compatibility claims are made.
+For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
+port mapping and the caller's network. For startup errors, check catalog path
+ownership, disk space, another owner process and config overrides. Objects and
+other unsupported routes still return 404; unsupported bucket semantics return
+501 rather than false success. See [evidence](evidence/bucket-crud.md) and the
+[ledger](../../compatibility/features.json) for exact verification scope.

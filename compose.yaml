@@ -5,6 +5,10 @@ services:
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     read_only: true
+    volumes:
+      - gcs-data:/var/lib/gcs-mimic
+    environment:
+      GCS_MIMIC_API_BASE_URL: ${GCS_MIMIC_API_BASE_URL:-http://127.0.0.1:4443}
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     mem_limit: 128m
@@ -21,3 +25,5 @@ services:
       timeout: 2s
       start_period: 2s
       retries: 15
+volumes:
+  gcs-data:

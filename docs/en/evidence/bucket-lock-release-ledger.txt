@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/xtask compatibility validate`
+Validated 588 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 588 feature rows; 401 parameter locations and 357 schema fields are separate inventories.

@@ -1,0 +1,9 @@
+   Compiling gcs-mimic v0.1.0 (.)
+    Finished `release` profile [optimized] target(s) in 2.17s
+gcs-mimic 0.1.0
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  44811      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792579539}{"connection_timeout_ms":5000,"event":"ready","gcs_api":"json-bucket-crud","listen":"127.0.0.1:52438","max_blocking_threads":2,"max_connections":32,"protocol":"http1","shutdown_timeout_ms":5000,"worker_threads":2}
+{"event":"stopped"}
+PASS: release binary readiness, health and SIGTERM shutdown

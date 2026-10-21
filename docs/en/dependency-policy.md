@@ -1,6 +1,6 @@
 # Dependency and Rust version policy
 
-Status: project policy. P0 has a compiler pin, Cargo.lock, bounded HTTP runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json) and Rust daily detection tooling. No SDK ecosystem is present. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
+Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
 
 ## User requirement
 
@@ -60,9 +60,49 @@ The exact Rust toolchain, complete dependency lockfile, source commit, build set
 
 Source: https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 
+## Go SDK toolchain and module graph
+
+The [Go bucket harness](../../sdk-tests/go/README.md) pins the current stable Go
+patch with a `toolchain` directive and its language series with an exact
+`go MAJOR.MINOR.0` directive. Keep both: Go removes a redundant toolchain directive
+when both specify the same patch. `actions/setup-go` reads the toolchain from
+`sdk-tests/go/go.mod`; local Go can select/download it with `GOTOOLCHAIN=auto`.
+The verified 2026-10-21 snapshot uses Go 1.27.3, Storage v1.69.0 and API client
+v0.306.0. These are dated inputs, not permanent version requirements.
+
+Commit `go.mod` and `go.sum`. Go's minimum version selection uses the manifest's
+direct and indirect requirements; `go.sum` authenticates module content rather
+than selecting versions. Ordinary CI uses that graph. The API client is a large
+official generated module needed for options, iterators and error types; it also
+requires an auth pseudo-version transitively. Do not replace upstream graph
+constraints with incompatible overrides to remove that transitive pin.
+
+Freshness detection reads every direct `require` from the manifest, including
+single-line and grouped requirements. It checks the exact Go toolchain against
+the latest stable official download metadata and the language baseline against
+that release's major/minor series. It selects numeric stable module versions from
+`proxy.golang.org` and excludes single versions and inclusive ranges retracted in
+the highest release's `go.mod`, including self-retractions. Direct dependencies
+are checked on the current module path; new majors are discovered through successive
+`/v2`, `/v3`, etc. module paths (starting after an existing major suffix). A 404/410
+ends discovery; other HTTP failures and transport/parse failures fail closed.
+Pre-release-only paths do not count as stable updates. Indirect requirements
+remain graph constraints. Unsupported manifest directives fail explicitly.
+The checker uses the same bounded curl path and exit statuses as Rust and needs
+no Go installation. Unrecognized SDK ecosystems fail instead of being ignored.
+
+Official sources checked on 2026-10-21:
+
+- https://go.dev/dl/?mode=json
+- https://go.dev/doc/toolchain
+- https://go.dev/ref/mod
+- https://proxy.golang.org/cloud.google.com/go/storage/@latest
+- https://proxy.golang.org/google.golang.org/api/@latest
+- https://github.com/actions/setup-go/releases/tag/v7.0.0
+
 ## Daily update detection and bounded upgrade work
 
-Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks Action pins, Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day without cooldown. Local execution is verified; scheduled execution has not been observed. Add SDK detection when introduced; nonempty undeclared SDK scope currently fails the check.
+Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go SDK scope, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day without cooldown. Scheduled execution has not been observed.
 
 Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. There are no current freshness exceptions.
 
@@ -106,6 +146,7 @@ Source: https://docs.docker.com/build/building/best-practices/
 | --- | --- | --- |
 | Required PR/release | Exact pinned stable, committed lockfiles and digests | Reproduce the release inputs and validate supported targets. |
 | Current stable compatibility | Freshly updated stable toolchain, committed lockfile | Detect compiler drift immediately; passing alone does not update the committed baseline. |
+| Official Go JSON SDK | Go toolchain from go.mod, committed Go graph, pinned Rust | Build an isolated emulator and run bucket lifecycle/pagination via scripts/sdk-go.sh. |
 | Latest-dependency candidate | Verified current stable, proposed manifests/lockfiles | Exercise dependency upgrades, including deliberate major migrations. |
 | Optional experimental | Explicit beta/nightly | Early warning only; never substitutes for passing stable checks. |
 
