@@ -18,6 +18,7 @@ peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc
 container=
 project=
 volume=
+work=$(mktemp -d)
 cleanup() {
   local status=$?
   if [[ $status != 0 && -n "$project" ]]; then
@@ -29,6 +30,7 @@ cleanup() {
   fi
   if [[ -n "$project" ]]; then docker compose -p "$project" down --volumes; fi
   if [[ -n "$volume" ]]; then docker volume rm "$volume" >/dev/null; fi
+  rm -rf "$work"
 }
 trap cleanup EXIT
 
@@ -40,6 +42,13 @@ expect_status() {
     echo "Expected HTTP $3 for $1 $2, received $actual" >&2
     return 1
   fi
+}
+
+printf '\000gcs-mimic\377\n' >"$work/expected"
+expect_object() {
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/smoke-bucket/o/dir%2Ffile.bin?alt=media" >"$work/actual"
+  cmp "$work/expected" "$work/actual"
 }
 
 for platform in "$@"; do
@@ -87,6 +96,11 @@ for platform in "$@"; do
     -H 'Content-Type: application/json' --data '{"name":"smoke-bucket"}' \
     "http://$address/storage/v1/b?project=local-project" | jq -e '.name == "smoke-bucket"' >/dev/null
   expect_status GET /storage/v1/b/smoke-bucket 200
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
+    "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=media&name=dir%2Ffile.bin" \
+    | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
+  expect_object
   curl --disable --noproxy '*' --fail --silent --show-error \
     "http://$address/storage/v1/b?project=local-project" | jq -e '.items[0].name == "smoke-bucket"' >/dev/null
   expect_status POST /_internal/health 405
@@ -110,10 +124,14 @@ for platform in "$@"; do
   [[ $(docker compose -p "$project" ps --quiet gcs) == "$service" ]]
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
+  expect_object
   docker compose -p "$project" down
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
+  expect_object
+  expect_status DELETE '/storage/v1/b/smoke-bucket/o/dir%2Ffile.bin' 204
+  expect_status GET '/storage/v1/b/smoke-bucket/o/dir%2Ffile.bin?alt=media' 404
   expect_status DELETE /storage/v1/b/smoke-bucket 204
   expect_status GET /storage/v1/b/smoke-bucket 404
   curl --disable --noproxy '*' --fail --silent --show-error \
@@ -125,5 +143,5 @@ for platform in "$@"; do
   expect_status GET /storage/v1/b/reset-bucket 404
   docker compose -p "$project" down --volumes
   project=
-  echo "PASS: $platform build, isolated health, host/DNS access, bucket CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM"
+  echo "PASS: $platform build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM"
 done

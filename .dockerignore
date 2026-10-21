@@ -2,6 +2,8 @@
 !Cargo.toml
 !Cargo.lock
 !rust-toolchain.toml
+!LICENSE-MIT
+!LICENSE-APACHE
 !src/
 !src/**
 !xtask/

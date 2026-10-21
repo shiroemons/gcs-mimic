@@ -137,6 +137,17 @@ Verify the newest suitable supported builder/runtime image from its official pub
 
 Do not invent a `rust:<version>` tag before confirming that image exists. If the official Rust image has not yet published the new compiler, use a verified supported builder and install the exact official toolchain through a documented process, or record a visible publication-lag exception. Do not silently use the previous compiler.
 
+The runtime uses digest-pinned `gcr.io/distroless/cc-debian13:nonroot`. It supplies
+glibc/libgcc for the existing GNU Rust binary; the container build strips symbols
+without changing panic handling, checksums or persistence settings. Numeric
+UID/GID 10001 are retained so existing data volumes remain writable. Runtime
+containers contain no shell or package manager; the application supplies probes.
+
+The freshness checker supports Docker Hub and public `gcr.io` manifests. GCR
+requests send no Docker Hub token. Unsupported registries fail explicitly.
+Distroless tag/index/platform digests and Debian stable codename are checked
+independently, preserving detection when a new Debian generation becomes stable.
+
 The current workflow reports tag/digest drift; upgrade submission and latest-dependency candidate testing remain future work. Rebuild runtime images when accepted base-image updates change them; editing a Dockerfile does not update a published image. No image has been published yet.
 
 Use immutable release version tags and publish the resolved image digest in release metadata. A convenience latest tag may exist after releases are actually published, but installation and reproduction examples should also show an explicit release/digest. Before the first release, use a locally built lowercase gcs-mimic:dev image.

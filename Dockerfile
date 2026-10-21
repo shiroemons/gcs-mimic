@@ -5,14 +5,17 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src
 COPY src ./src
-RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+RUN cargo build --locked --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"' \
+    && install -d -o 10001 -g 10001 /runtime-data
 
-FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3 AS runtime
 LABEL org.opencontainers.image.source="https://github.com/shiroemons/gcs-mimic"
+LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 WORKDIR /app
-RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic \
-    && install -d -o 10001 -g 10001 /var/lib/gcs-mimic
-COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+COPY --link LICENSE-MIT LICENSE-APACHE /usr/share/licenses/gcs-mimic/
+# Preserve the numeric identity used by existing persistent volumes.
 USER 10001:10001
 EXPOSE 4443
 STOPSIGNAL SIGTERM

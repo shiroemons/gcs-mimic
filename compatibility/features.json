@@ -18376,7 +18376,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Source-built non-root read-only-root Docker/Compose starts persistent bucket CRUD with its writable data volume and no cloud credentials.",
+      "notes": "Source-built Distroless cc Docker/Compose preserves UID/GID 10001, read-only-root and persistent bucket/object media CRUD across restart/recreation. Container symbols are stripped; complete-image compressed layers are about 60% smaller than the Debian baseline. See docs/en/evidence/distroless.md.",
       "dependencies": [
         "DESIGN-064"
       ],
@@ -18398,11 +18398,20 @@
           "test_ids": [
             "container-bucket-smoke"
           ]
+        },
+        {
+          "id": "DESIGN-058-OBJECT-MEDIA",
+          "description": "Round-trip binary object media, preserve bytes across stop/start and down/up, then delete the object and verify 404 on both architectures.",
+          "result": "PASS",
+          "test_ids": [
+            "container-object-media-smoke"
+          ]
         }
       ],
       "test_ids": [
         "container-foundation-smoke",
-        "container-bucket-smoke"
+        "container-bucket-smoke",
+        "container-object-media-smoke"
       ],
       "verification": [
         {
@@ -18422,12 +18431,23 @@
           "test_ids": [
             "container-bucket-smoke"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/distroless.md",
+          "test_ids": [
+            "container-foundation-smoke",
+            "container-bucket-smoke",
+            "container-object-media-smoke"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-059",
@@ -18443,7 +18463,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "linux/amd64 builds and passes smoke under emulation on an arm64 Docker host. Native amd64 CI is configured.",
+      "notes": "Distroless linux/amd64 builds and passes bucket/object media persistence smoke under emulation on an arm64 Docker host. Native amd64 CI is configured. Current image and size evidence: docs/en/evidence/distroless.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -18475,6 +18495,15 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/distroless.md",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -18482,7 +18511,7 @@
         "Native amd64 and remote CI are unverified; local amd64 uses emulation."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-060",
@@ -18498,7 +18527,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "linux/arm64 image builds and runs natively with persistent bucket CRUD, host/peer curl, restart/reset and resource settings.",
+      "notes": "Distroless linux/arm64 builds and runs natively with persistent bucket/object media CRUD, host/peer curl, restart/reset and resource settings. Current image and size evidence: docs/en/evidence/distroless.md.",
       "dependencies": [
         "DESIGN-058"
       ],
@@ -18544,12 +18573,22 @@
           "test_ids": [
             "container-bucket-smoke"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/distroless.md",
+          "test_ids": [
+            "container-foundation-smoke",
+            "container-bucket-smoke"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-061",
@@ -22582,7 +22621,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Runtime/build/frontend and test-only curl 8.23.0 image indexes/platform digests verified; daily checker covers Dockerfile and smoke-script pins.",
+      "notes": "Distroless GCR runtime, Docker Hub build/frontend and test-only curl indexes/platform digests are verified. Daily checks retain Debian codename detection and avoid sending Docker Hub authentication to GCR. See docs/en/evidence/distroless.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -22602,11 +22641,26 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "id": "DEP-008-REGISTRY",
+          "description": "Preserve Docker Hub authentication, fetch public GCR without authentication, reject unsupported registries and parse GCR OCI index headers.",
+          "result": "PASS",
+          "test_ids": [
+            "docker_hub_registry_default_preserves_token_authentication",
+            "public_gcr_registry_does_not_request_or_send_authentication",
+            "unknown_or_malformed_registry_is_rejected_before_network_access",
+            "gcr_oci_index_and_lowercase_digest_headers_are_preserved"
+          ]
         }
       ],
       "test_ids": [
         "freshness-live-check",
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "docker_hub_registry_default_preserves_token_authentication",
+        "public_gcr_registry_does_not_request_or_send_authentication",
+        "unknown_or_malformed_registry_is_rejected_before_network_access",
+        "gcr_oci_index_and_lowercase_digest_headers_are_preserved"
       ],
       "verification": [
         {
@@ -22635,12 +22689,34 @@
           "test_ids": [
             "freshness-live-check"
           ]
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/distroless.md",
+          "test_ids": [
+            "freshness-live-check"
+          ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/distroless.md",
+          "test_ids": [
+            "container-foundation-smoke",
+            "docker_hub_registry_default_preserves_token_authentication",
+            "public_gcr_registry_does_not_request_or_send_authentication",
+            "unknown_or_malformed_registry_is_rejected_before_network_access",
+            "gcr_oci_index_and_lowercase_digest_headers_are_preserved"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DEP-009",

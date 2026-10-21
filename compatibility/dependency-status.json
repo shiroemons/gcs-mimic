@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-21T12:00:54Z",
-  "scope": "Object media integration: ten direct Rust crates, Rust/Go toolchains, SDK graph and container inputs. The four object-streaming crates were selected from latest non-yanked stable releases; the Rust builder digest update is adopted. API execution evidence is tracked separately in the feature ledger.",
+  "checked_at_utc": "2026-10-21T15:47:49Z",
+  "scope": "Distroless runtime migration: ten direct Rust crates, Rust/Go toolchains, SDK graph and container inputs. The GNU/glibc build is retained, with a stripped container binary and a digest-pinned Distroless cc runtime. API execution evidence is tracked separately in the feature ledger.",
   "freshness_check": {
     "command": "cargo +1.99.1 xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/object-media-dependencies.txt",
-    "follow_up": "Rust builder index refresh adopted; integration/container evidence is recorded separately. No freshness exception remains."
+    "artifact": "docs/en/evidence/distroless.md",
+    "follow_up": "Docker Hub and public GCR inputs are checked daily, including Debian stable codename drift. Container, migration and size evidence are recorded separately."
   },
   "toolchain": {
     "channel": "stable",
@@ -134,16 +134,18 @@
         "source_url": "https://github.com/rust-lang/docker-rust/tree/1b9592f08592a09d61dbc6d27a5c7cf2be1c2e92"
       },
       {
-        "repository": "library/debian", "reference": "debian:trixie-slim",
-        "tag": "trixie-slim", "latest_tag": "trixie-slim", "stable_codename": "trixie",
-        "digest": "sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad",
+        "registry": "gcr.io",
+        "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot",
+        "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
+        "digest": "sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3",
         "platforms": {
-          "linux/amd64": "sha256:4876fdea29cac1a33a3195f1eb1952feb1fca7dd6dd00be3e2f1879cf20d34d2",
-          "linux/arm64": "sha256:a66b19aa552f595b4ab276c6b4f9b24fa4546632c5ecd88cccdced4a6866323a"
+          "linux/amd64": "sha256:dbacffda11af7f57c0844462430fbe2602e87dc4083d487bb5b455374ed9673d",
+          "linux/arm64": "sha256:28eab0cc9bcf5c4e411f4f5fc2af23fe44d37abf8fa9c905cbe5496bfb9602ef"
         },
-        "source_url": "https://github.com/debuerreotype/docker-debian-artifacts",
+        "source_url": "https://github.com/GoogleContainerTools/distroless",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
-        "alias_note": "stable-slim uses moving APT suite names and has different layer/config digests. It is not an equivalent index to trixie-slim. Both architectures had identical 78 package versions at verification; detect codename drift separately from selected-tag digest changes."
+        "purpose": "Shell-free glibc/libgcc runtime for the existing GNU Rust binary. USER remains 10001:10001 for persistent-volume compatibility; the nonroot tag's default user is overridden.",
+        "alias_note": "The nonroot tag tracks updates within Debian 13. Debian stable codename is checked independently so a newer Debian generation is detected."
       },
       {
         "repository": "curlimages/curl", "reference": "curlimages/curl:8.23.0",
@@ -164,7 +166,7 @@
         "source_url": "https://docs.docker.com/build/buildkit/frontend/"
       }
     ],
-    "reason": "Official multiarch manifest indexes; floating stable selectors and pinned tags are both checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
+    "reason": "Official multiarch manifest indexes from Docker Hub and public GCR; floating selectors, pinned tags and Debian stable codename are checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
   },
   "sdk_ecosystems": [
     {

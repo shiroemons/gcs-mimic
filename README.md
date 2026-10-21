@@ -45,6 +45,17 @@ COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose stop
 
 The container runs as a non-root user on a read-only root, with a writable named data volume. Compose sets limits of 128 MiB memory, one CPU and 64 processes. These are configured limits, not measured resource requirements. Ordinary stop/down preserves the catalog; deliberate volume removal resets it.
 
+The runtime uses digest-pinned Distroless Debian 13 with glibc/libgcc and a stripped
+binary. It has no shell or package manager; use the built-in `healthcheck` command
+and container logs for diagnostics. UID/GID `10001:10001` remain compatible with
+existing data volumes. Project license texts are included in the image;
+third-party notice packaging remains a release prerequisite.
+
+Measured complete-image compressed layers decreased from 30.57 to 12.14 MiB on
+amd64 and from 30.92 to 12.38 MiB on arm64, about 60% in both cases. See the
+[measurement and verification details](docs/en/evidence/distroless.md). These are
+image-size results; runtime memory and CPU improvements have not been measured.
+
 ## Run the binary
 
 Requires rustup to build; the resulting binary needs no Rust installation or Python to run.

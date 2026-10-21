@@ -71,7 +71,13 @@ getrandom 0.4.3, with the selection reasons and package sizes in the
 
 The Go harness requires Go and jq; it pins Go 1.27.3, storage v1.69.0 and API v0.306.0 with committed go.mod/go.sum. Its high-level HTTP JSON bucket and object Attrs/NewReader/Delete workflows run against an isolated native server; the getting-started guide verifies the same suite against Compose. Raw media upload uses the harness HTTP client; SDK Writer's unsupported multipart mode is rejected and tested. Object GET/DELETE tokens are accepted without deduplication (SPEC-013). Tests make no Google/metadata-server requests. Rust integration tests use isolated temporary catalog directories, including startup failure, generations, condition races, restart and selected SIGKILL publication boundaries. Every fsync/deletion instruction window, power loss and memory/CPU/latency measurements remain unverified. See the [integration evidence](evidence/object-media.md) and [guide transcript](evidence/object-media-guide.txt).
 
-`dependencies check` contacts official Rust, Cargo, GitHub, Debian and Docker metadata. Other Rust tests are offline and use only loopback. All direct dependencies are compared against non-yanked stable releases, including new majors; Docker tags/digests and Debian stable codename are checked separately. Exit 1 means updates; exit 2 means verification failed. Run at slice start and before release and review exceptions weekly. No manifests are modified and nothing is published automatically.
+`dependencies check` contacts official Rust, Cargo, GitHub, Debian, Docker Hub and
+public GCR metadata. Other Rust tests are offline and use only loopback. All direct
+dependencies are compared against non-yanked stable releases, including new majors;
+Docker tags/digests and Debian stable codename are checked separately. Exit 1 means
+updates; exit 2 means verification failed. Run at slice start and before release
+and review exceptions weekly. No manifests are modified and nothing is published
+automatically.
 
 Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch. Remote CI/schedule execution remains unverified. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
 

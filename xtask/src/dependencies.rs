@@ -408,6 +408,34 @@ fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| format!("missing string: {key}"))
 }
 
+fn registry_manifest_source(
+    image: &Value,
+    mut get: impl FnMut(&str) -> Result<String>,
+) -> Result<(String, Vec<String>)> {
+    let repository = text(image, "repository")?;
+    let registry = if image.get("registry").is_some() {
+        text(image, "registry")?
+    } else {
+        "docker.io"
+    };
+    let mut headers = vec!["Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json".into()];
+    let host = match registry {
+        "docker.io" => {
+            let token = json(&get(&format!(
+                "https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repository}:pull"
+            ))?)?;
+            headers.push(format!("Authorization: Bearer {}", text(&token, "token")?));
+            "registry-1.docker.io"
+        }
+        "gcr.io" => "gcr.io",
+        _ => return Err(format!("unsupported image registry: {registry}")),
+    };
+    Ok((
+        format!("https://{host}/v2/{repository}/manifests/"),
+        headers,
+    ))
+}
+
 fn registry_response(response: &str) -> Result<(String, Value)> {
     let mut response = response;
     let mut headers = "";
@@ -571,7 +599,8 @@ pub fn check(root: &Path) -> Result<bool> {
         let repository = text(image, "repository")?;
         let reference = text(image, "reference")?;
         let digest = text(image, "digest")?;
-        if repository == "library/debian" {
+        if image.get("stable_codename").is_some() {
+            let expected = text(image, "stable_codename")?;
             let release = fetch(
                 "https://deb.debian.org/debian/dists/stable/Release",
                 &[],
@@ -581,33 +610,20 @@ pub fn check(root: &Path) -> Result<bool> {
                 .lines()
                 .find_map(|line| line.strip_prefix("Codename: "))
                 .ok_or("missing Debian stable codename")?;
-            drift |= compare(
-                "Debian stable codename",
-                text(image, "stable_codename")?,
-                codename,
-            );
+            drift |= compare("Debian stable codename", expected, codename);
         }
         let pin = format!("{reference}@{digest}");
         if !dockerfile.contains(&pin) && !smoke.contains(&pin) {
             return Err(format!("container pin mismatch: {reference}"));
         }
-        let token = json(&fetch(
-            &format!(
-                "https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repository}:pull"
-            ),
-            &[],
-            false,
-        )?)?;
-        let headers = [format!("Authorization: Bearer {}", text(&token, "token")?), "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json".into()];
+        let (manifest_source, headers) =
+            registry_manifest_source(image, |url| fetch(url, &[], false))?;
         for tag in [text(image, "tag")?, text(image, "latest_tag")?]
             .into_iter()
             .collect::<BTreeSet<_>>()
         {
-            let (actual, manifest) = registry_response(&fetch(
-                &format!("https://registry-1.docker.io/v2/{repository}/manifests/{tag}"),
-                &headers,
-                true,
-            )?)?;
+            let (actual, manifest) =
+                registry_response(&fetch(&format!("{manifest_source}{tag}"), &headers, true)?)?;
             drift |= compare(&format!("docker {repository}:{tag}"), digest, &actual);
             if tag == text(image, "tag")? && actual == digest {
                 for (platform, pinned) in image["platforms"]
@@ -793,5 +809,74 @@ mod tests {
         assert_eq!(registry_response(&response).unwrap().0, digest);
         assert!(registry_response("HTTP/2 200\r\n\r\n{}").is_err());
         assert!(registry_response("bad").is_err());
+    }
+
+    #[test]
+    fn docker_hub_registry_default_preserves_token_authentication() {
+        for source in [
+            r#"{"repository":"library/rust"}"#,
+            r#"{"registry":"docker.io","repository":"library/rust"}"#,
+        ] {
+            let (url, headers) = registry_manifest_source(&json(source).unwrap(), |url| {
+                assert_eq!(url, "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/rust:pull");
+                Ok(r#"{"token":"test-token"}"#.into())
+            })
+            .unwrap();
+            assert_eq!(
+                url,
+                "https://registry-1.docker.io/v2/library/rust/manifests/"
+            );
+            assert!(
+                headers
+                    .iter()
+                    .any(|header| header == "Authorization: Bearer test-token")
+            );
+        }
+    }
+
+    #[test]
+    fn public_gcr_registry_does_not_request_or_send_authentication() {
+        let image = json(r#"{"registry":"gcr.io","repository":"distroless/cc-debian13"}"#).unwrap();
+        let (url, headers) = registry_manifest_source(&image, |_| {
+            panic!("public GCR must not request a Docker Hub token")
+        })
+        .unwrap();
+        assert_eq!(url, "https://gcr.io/v2/distroless/cc-debian13/manifests/");
+        assert_eq!(headers.len(), 1);
+        assert!(headers[0].starts_with("Accept: application/vnd.oci.image.index.v1+json"));
+    }
+
+    #[test]
+    fn unknown_or_malformed_registry_is_rejected_before_network_access() {
+        for registry in [r#""unknown.example""#, "null", "42", "true"] {
+            let image = json(&format!(
+                r#"{{"registry":{registry},"repository":"distroless/cc-debian13"}}"#
+            ))
+            .unwrap();
+            assert!(
+                registry_manifest_source(&image, |_| {
+                    panic!("invalid registry must not trigger authentication")
+                })
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn gcr_oci_index_and_lowercase_digest_headers_are_preserved() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let body = format!(
+            r#"{{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{{"digest":"{digest}","platform":{{"os":"linux","architecture":"arm64"}}}}]}}"#
+        );
+        let response = format!(
+            "HTTP/2 200 \r\ncontent-type: application/vnd.oci.image.index.v1+json\r\ndocker-content-digest: {digest}\r\n\r\n{body}"
+        );
+        let (actual, manifest) = registry_response(&response).unwrap();
+        assert_eq!(actual, digest);
+        assert_eq!(manifest["manifests"][0]["digest"], digest);
+        assert_eq!(
+            manifest["manifests"][0]["platform"]["architecture"],
+            "arm64"
+        );
     }
 }
