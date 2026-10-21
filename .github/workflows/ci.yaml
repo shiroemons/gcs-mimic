@@ -49,3 +49,21 @@ jobs:
         with:
           persist-credentials: false
       - run: bash scripts/smoke-containers.sh '${{ matrix.platform }}'
+  sdk-go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: sdk-tests/go/go.mod
+          cache-dependency-path: sdk-tests/go/go.sum
+      - name: Install pinned Rust
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal
+      - run: bash -n scripts/sdk-go.sh
+      - run: bash scripts/sdk-go.sh

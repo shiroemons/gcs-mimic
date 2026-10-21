@@ -1,3 +1,30 @@
+#[test]
+fn go_sdk_scope_and_lockfile_are_declared() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let status: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("compatibility/dependency-status.json")).unwrap(),
+    )
+    .unwrap();
+    let scopes = status["sdk_ecosystems"].as_array().unwrap();
+    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes[0]["ecosystem"], "go");
+    assert_eq!(scopes[0]["manifest"], "sdk-tests/go/go.mod");
+    assert!(
+        std::fs::metadata(root.join("sdk-tests/go/go.sum"))
+            .unwrap()
+            .len()
+            > 0
+    );
+    assert!(
+        status["lockfiles"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("sdk-tests/go/go.sum"))
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn fetch_failure_is_never_reported_as_current() {
