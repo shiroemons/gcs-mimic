@@ -49,7 +49,15 @@ Catalog admission remains 32 calls with one executing SQLite job. The five-secon
 `connection_timeout_ms` bounds header reads, then object-route response startup and inactivity
 between chunks; each progressing chunk renews it. Upload advisory checks suspend this
 body-inactivity deadline while waiting for bounded catalog admission/execution; it restarts
-before body streaming. Bucket/probe/unknown routes retain their total connection deadline.
+before body streaming. Independently, `object_request_timeout_ms` defaults to 900000 ms
+(validated 1–86400000) from object upload/media request dispatch and never renews on chunks.
+Expiry closes an upload before EOF without an HTTP error response or publication, or
+truncates a media download after its headers. Large/slow transfers can raise
+`--object-request-timeout-ms` (for example, 3600000 ms for one hour).
+Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 30000 ms
+(validated 1–60000), capped by the remaining absolute request budget; expiry returns
+503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
+Bucket/probe/unknown routes retain their total connection deadline.
 Shutdown has its independent drain deadline. Compose additionally
 sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are inspected settings
 and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB transfer under
@@ -174,8 +182,13 @@ without confirmed EOF aborts
 the upload. The advisory check suspends body inactivity, which restarts before streaming.
 After EOF, body inactivity is suspended while storage completes; complete bodies
 may still commit after disconnect or shutdown. SQLite lock waiting keeps its five-second
-busy timeout. Remaining queued writes, fsync, rename, directory sync and shutdown catalog
-close wait on the filesystem without a wall-clock bound. Early responses use
+busy timeout. The post-EOF response wait is bounded by the catalog timeout and remaining
+request budget, including queued writes, fsync, rename, directory sync and commit/reclaim.
+After a post-EOF timeout, the mutation outcome is unknown: the commit may still complete.
+Clients should re-read state or retry with generation/metageneration preconditions; success
+is returned only after the storage result confirms the commit. Background filesystem work
+and shutdown catalog close still have no execution bound; timing out the response does not
+cancel a running filesystem/SQLite operation or release its ownership early. Early responses use
 a write half-close followed by at most 256 KiB of discarded input for at most 100 ms.
 Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid entries fail startup with
 their path in the diagnostic. These checks do not establish power-loss durability or

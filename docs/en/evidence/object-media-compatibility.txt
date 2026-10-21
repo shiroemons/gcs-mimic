@@ -1,16 +1,10 @@
 Local path prefixes were redacted; all other output is unchanged.
-Command: cargo +1.99.1 xtask compatibility validate
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
      Running `target/debug/xtask compatibility validate`
 Validated 588 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
-Exit status: 0
-Command: cargo +1.99.1 xtask compatibility render
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask compatibility render`
 Validated 588 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
-Exit status: 0
-Command: cargo +1.99.1 xtask compatibility check
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask compatibility check`
 Validated 588 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
-Exit status: 0

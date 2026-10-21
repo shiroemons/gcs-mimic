@@ -5,9 +5,8 @@ Exit status: 1 (no matches).
 Command: scoped tracked-file scan of docs, README, compatibility, SDK tests, scripts, source, tests and planning for machine-local absolute paths.
 Output: empty.
 Exit status: 1 (no matches).
-Relative Markdown link check: 78 relative paths across 10 changed Markdown files.
+Relative Markdown link check: all relative links across five changed Markdown files.
 Result: PASS; all paths resolve.
 Ledger comparison: PASS; all 588 feature IDs, implementation statuses, target fidelity and actual fidelity values unchanged.
-Runtime raw-log comparison: PASS; tool output retained verbatim with the redaction note.
-Protected-file comparison: PASS; runtime, tests, scripts and build inputs unchanged.
-git diff HEAD --check: PASS; exit status 0.
+git diff HEAD --check for source, ledger and Markdown: PASS; exit status 0.
+git diff HEAD --check including raw logs: exit status 2; original Compose trailing spaces and Cargo blank lines at EOF are retained verbatim.

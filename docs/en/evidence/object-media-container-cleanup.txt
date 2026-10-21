@@ -1,6 +1,6 @@
 Local path prefixes were redacted; all other output is unchanged.
-Untagged: gcs-mimic:bucket-smoke-amd64-9987
-Deleted: sha256:f2bc4c20f074fce5c51fdbd0bd0b6bfc085ec2dcdb4ffa616dc86a7ded8b82f5
-Untagged: gcs-mimic:bucket-smoke-arm64-9987
-Deleted: sha256:271ee0af1b530bfd473ce5739a49303a7ecd0c80cbf2841fbd6ff0f7dc60a0e3
-Scoped container/network/volume residue checks returned empty output (exit 0).
+Untagged: gcs-mimic:bucket-smoke-amd64-51430
+Deleted: sha256:d4e0194dfb61315bab903c41a4477e0ab9bbe65b54ea7c20ee464870ee4a5bed
+Untagged: gcs-mimic:bucket-smoke-arm64-51430
+Deleted: sha256:03cad341fd42a4b83eafd639ced6b54314698732b3e3c7f526aa699327432c53
+Scoped container/network/volume/image residue checks returned empty output (exit 0).

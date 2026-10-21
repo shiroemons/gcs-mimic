@@ -310,21 +310,40 @@ body input or by catalog jobs waiting for each other. File jobs and the single S
 share the bounded pool, so simultaneous large writes/fsyncs can delay catalog work;
 throughput/fairness and RSS/cgroup memory are not benchmarked here.
 Connection admission remains the configured `max_connections` (default 32).
-Trickle uploads can hold all eight permits indefinitely by progressing before each
-inactivity deadline; no total-upload deadline or minimum transfer rate is enforced.
+
+`object_request_timeout_ms` defaults to **900000 ms (15 minutes)** and accepts 1–86400000 ms
+(24 hours). `--object-request-timeout-ms`, `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` and JSON
+`object_request_timeout_ms` follow CLI > environment > JSON > default precedence.
+The absolute ceiling starts when a recognized upload/media request is dispatched and is
+never renewed by upload or download progress. Expiry during upload-body streaming closes
+the connection without an HTTP error response, cancels the unfinished body and preserves the previous generation without
+publishing partial data. Existing cleanup releases admission permits after its work ends.
+Expiry during media download closes the connection and truncates the stream; already
+buffered socket bytes may still reach the client. No minimum transfer rate is enforced.
+For large or slow transfers, raise `--object-request-timeout-ms 3600000` to allow one hour,
+or use the corresponding environment/JSON setting; zero never disables the ceiling.
 
 `connection_timeout_ms` remains 5 seconds by default. It is an HTTP header-read deadline;
 for recognized object routes it then bounds inactivity between upload/download chunks and
 response startup. Each progressed chunk renews the deadline, so active transfers may last
 longer than 5 seconds. The awaited upload advisory check suspends body inactivity and
-restarts its deadline before streaming; catalog admission stays bounded at 32 calls and
-SQLite lock waits retain their busy timeout. A fully sent upload queued behind another
-commit therefore still receives its result beyond the inactivity deadline. After Hyper
-confirms upload-body EOF, body inactivity no longer applies while storage syncs/publishes/commits;
-the connection waits for the storage result.
-After EOF, remaining queued writes, fsync, rename and directory sync, and shutdown's catalog
-close wait on the filesystem without a wall-clock bound. SQLite lock waits retain their
-five-second busy timeout. Backpressured downloads stop progressing and are closed on inactivity.
+restarts its deadline before streaming; catalog admission stays bounded at 32 calls.
+`catalog_wait_timeout_ms` defaults to **30000 ms** and accepts 1–60000 ms. CLI
+`--catalog-wait-timeout-ms`, environment `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` and JSON
+`catalog_wait_timeout_ms` use the same precedence. The advisory check and post-EOF storage
+wait each receive this separate budget, capped by the remaining absolute request budget.
+A completed upload queued behind another commit can still receive its result beyond the
+inactivity deadline. After Hyper confirms EOF, body inactivity no longer applies; the
+bounded storage wait includes sending the explicit EOF marker, queued writes, sync,
+publication, commit and reclamation. Either wait expiring returns deterministic
+503 `backendError` and closes the connection, rather than silently dropping it.
+After a post-EOF timeout, the mutation outcome is unknown: the complete body may still
+commit. Clients should re-read state or retry with generation/metageneration preconditions.
+Success is never returned for an unconfirmed commit. The timeout bounds the response wait,
+not background filesystem/SQLite execution; ongoing work retains directory ownership and
+its permit until cleanup/commit finishes. Filesystem operations and shutdown catalog close
+still have no separate execution bound. SQLite lock waits retain their five-second busy
+timeout. Backpressured downloads also remain subject to inactivity.
 Bucket/probe/unknown routes retain the previous total connection deadline. Keep-alive stays
 disabled; graceful drain still has the independent `shutdown_timeout_ms` network bound.
 Before confirmed EOF, timeout/disconnect cancels the upload and triggers bounded cleanup

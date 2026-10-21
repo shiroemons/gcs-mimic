@@ -281,15 +281,26 @@ readiness. The current configuration is JSON; future TOML settings are unavailab
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000 |
+| `--object-request-timeout-ms` | `GCS_MIMIC_OBJECT_REQUEST_TIMEOUT_MS` | 900000 (15 minutes) | 1–86400000 (24 hours) |
+| `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 30000 | 1–60000 |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 1073741824 (1 GiB) | 1–5497558138880 (5 TiB) |
 
 Each HTTP/1 connection handles one request, with a 16 KiB parser buffer, 64 headers
 and a deadline. Object routes use a header deadline followed by renewed chunk-inactivity
 deadlines; active transfers can exceed the default five seconds. After confirmed upload EOF,
-body inactivity is suspended until storage returns; complete bodies may commit after a
-disconnect or shutdown. SQLite lock waiting is bounded to five seconds, while filesystem
-sync has no separate wall-clock bound. Bucket/probe routes retain a total deadline.
+body inactivity is suspended while storage finishes. Upload/media requests additionally
+have an absolute 15-minute ceiling that chunks cannot renew. Expiry during upload body
+streaming closes the connection without an HTTP error response or publication; expiry
+during download truncates the stream after its headers and closes the connection.
+For large/slow transfers, use `--object-request-timeout-ms 3600000` for one hour or set
+the corresponding environment/JSON value. Advisory checks and post-EOF storage waits each default to 30 seconds,
+capped by the remaining absolute request budget, and return 503 `backendError` on expiry.
+After a post-EOF timeout the mutation outcome is unknown: the commit may still complete,
+so re-read state or retry with generation/metageneration preconditions. Complete bodies
+may also commit after disconnect or shutdown. SQLite lock waiting retains five seconds;
+background filesystem work and shutdown catalog close have no separate execution bound.
+Bucket/probe routes retain a total deadline.
 Uploads have eight admission slots, a two-slot channel with at most 64 KiB
 per copied chunk, and independent size checks before publication. Downloads use one channel
 slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
@@ -303,8 +314,8 @@ execution finishes. Before confirmed EOF, a timeout/disconnect aborts the upload
 publishing partial bytes. Early rejections send a response and half-close the socket, then
 discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and completed
 upload bodies can still commit after the client disconnects; clients must read back state
-when the response is lost. Trickle uploads can retain all eight slots indefinitely by
-progressing before each inactivity deadline; no total-upload deadline is enforced.
+when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
+cancelled uploads release slots after their cleanup finishes.
 
 Schema-v1 bucket catalogs contain no objects and migrate directly to v3 atomically. Unreleased schema-v2 catalogs
 are rejected without changing their data; automatic recovery of deleted v2 generations is

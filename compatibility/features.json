@@ -3441,7 +3441,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata and whole-media GET support exact live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "JSON metadata and whole-media GET support exact live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3473,6 +3473,14 @@
           "description": "Implement Range/If-Range, ETag conditions, fields/full ACL projection, version/soft-delete selection, IAM, download redirect/header parity and token replay.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "JSON-OBJECTS-005-TRANSFER-BOUNDS",
+          "description": "A progressing media download is truncated and its connection closed at the absolute request ceiling, before inactivity can expire.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_download_stops_at_absolute_deadline"
+          ]
         }
       ],
       "test_ids": [
@@ -3483,7 +3491,8 @@
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
         "TestObjectMediaLifecycle",
-        "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
+        "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+        "obj_http_trickle_download_stops_at_absolute_deadline"
       ],
       "verification": [
         {
@@ -3498,7 +3507,8 @@
             "obj_http_encoded_names_and_invalid_names",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
-            "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
+            "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+            "obj_http_trickle_download_stops_at_absolute_deadline"
           ]
         },
         {
@@ -3654,7 +3664,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Only uploadType=media: bounded raw body, Content-Type, MD5/CRC32C, atomic generation conditions and Object JSON publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Only uploadType=media: bounded raw body, Content-Type, MD5/CRC32C, atomic generation conditions and Object JSON publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3723,6 +3733,15 @@
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
           ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-TRANSFER-BOUNDS",
+          "description": "Trickle upload expiry cancels all eight admitted incomplete bodies, preserves old generations and releases permits after cleanup; advisory and post-EOF wait expiry returns 503, with a timed-out complete body still able to commit.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+          ]
         }
       ],
       "test_ids": [
@@ -3752,7 +3771,9 @@
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
         "rejects_future_schema_unversioned_data_and_corruption",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
       ],
       "verification": [
         {
@@ -3786,7 +3807,9 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
         },
         {
@@ -3829,7 +3852,7 @@
         "Media only; multipart/resumable, metadata/ACL/encryption/encoding and upload tokens return local 501; no permission enforcement.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
@@ -6602,7 +6625,7 @@
       "known_deviations": [
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
@@ -6761,7 +6784,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "No metadata mutation/object list/history/propagation profile.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -8362,7 +8385,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8421,6 +8444,15 @@
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
           ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-008-TRANSFER-BOUNDS",
+          "description": "Trickle upload expiry cancels incomplete bodies without publication and frees upload admission after cleanup; advisory and post-EOF waits return 503 at their own bound and the post-EOF outcome remains unknown.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+          ]
         }
       ],
       "test_ids": [
@@ -8442,7 +8474,9 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
       ],
       "verification": [
         {
@@ -8469,7 +8503,9 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
         },
         {
@@ -8486,7 +8522,7 @@
       "known_deviations": [
         "SPEC-008/010/011: local mutation/hash rules and missing Content-Type defaults to application/octet-stream.",
         "No ACL/IAM/auth, metadata upload, encoding/encryption or token replay; default cap 1 GiB and inspected bounds are not performance measurements.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
@@ -18721,7 +18757,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (1 GiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (1 GiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Transfer timeout defaults are 900000/30000 ms, with request/call bounds of 1..86400000/1..60000 ms.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -18749,12 +18785,21 @@
           "test_ids": [
             "config::tests::object_limit_precedence_and_bounds"
           ]
+        },
+        {
+          "id": "DESIGN-064-TRANSFER-BOUNDS",
+          "description": "Absolute object-request and upload-catalog timeout defaults, CLI/environment/JSON precedence and inclusive bounds are validated; zero, negative, excessive and noninteger settings fail.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::transfer_timeout_precedence_and_bounds"
+          ]
         }
       ],
       "test_ids": [
         "config_precedence_validation_and_size_limit",
         "cli_help_errors_and_bind_failure",
-        "config::tests::object_limit_precedence_and_bounds"
+        "config::tests::object_limit_precedence_and_bounds",
+        "config::tests::transfer_timeout_precedence_and_bounds"
       ],
       "verification": [
         {
@@ -18773,7 +18818,8 @@
           "verified_at": "2026-10-21",
           "artifact": "docs/en/evidence/object-media-tests.txt",
           "test_ids": [
-            "config::tests::object_limit_precedence_and_bounds"
+            "config::tests::object_limit_precedence_and_bounds",
+            "config::tests::transfer_timeout_precedence_and_bounds"
           ]
         }
       ],
@@ -19134,7 +19180,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "No fixture seeding or auth profiles; selected SIGKILL points are verified, not every instruction window or power loss.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -19292,7 +19338,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Object streams use at most 64 KiB copied chunks, two upload slots and one download slot; cap defaults to 1 GiB. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Object streams use at most 64 KiB copied chunks, two upload slots and one download slot; cap defaults to 1 GiB. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -19344,6 +19390,16 @@
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
+        },
+        {
+          "id": "DESIGN-070-TRANSFER-BOUNDS",
+          "description": "Absolute upload/media deadlines cannot be renewed by chunks; timeout cancels incomplete uploads, frees permits after cleanup and truncates media; both catalog wait phases return bounded 503 while a complete body may still commit.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+          ]
         }
       ],
       "test_ids": [
@@ -19359,7 +19415,10 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_trickle_download_stops_at_absolute_deadline",
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
       ],
       "verification": [
         {
@@ -19380,7 +19439,10 @@
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
         }
       ],
@@ -19388,7 +19450,7 @@
       "known_deviations": [
         "Bounds are inspected and functionally tested; no memory/throughput/CPU benchmark or 1 GiB constrained-container run.",
         "Only media transfers exist; other transfer modes and checksum throughput/fairness remain unverified.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -19411,7 +19473,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Connection/header limits remain; uploads admit eight streams immediately, catalog admits 32 calls and serializes execution before the bounded blocking pool. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Connection/header limits remain; uploads admit eight streams immediately, catalog admits 32 calls and serializes execution before the bounded blocking pool. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -19470,6 +19532,17 @@
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
+        },
+        {
+          "id": "DESIGN-071-TRANSFER-BOUNDS",
+          "description": "Validated transfer ceilings bound progressing uploads/downloads independently of inactivity; eight expired body streams release admission after cleanup, and advisory/post-EOF waits return 503 at a separate timeout without false commit success.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::transfer_timeout_precedence_and_bounds",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+          ]
         }
       ],
       "test_ids": [
@@ -19485,7 +19558,11 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "config::tests::transfer_timeout_precedence_and_bounds",
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_trickle_download_stops_at_absolute_deadline",
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
       ],
       "verification": [
         {
@@ -19506,14 +19583,18 @@
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+            "config::tests::transfer_timeout_precedence_and_bounds",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Current limits are functional/configuration evidence, not RSS/cgroup/CPU/latency or future maintenance bounds.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -19771,7 +19852,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "SQLite and filesystem publication are separate operations; selected process crashes pass, full power-loss durability is unverified.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -21657,7 +21738,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Read-only-root Compose profile has configured 128 MiB/one-CPU limits; multichunk cap/deadline/admission cases are functionally verified. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Read-only-root Compose profile has configured 128 MiB/one-CPU limits; multichunk cap/deadline/admission cases are functionally verified. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -21707,6 +21788,16 @@
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
+        },
+        {
+          "id": "UX-011-TRANSFER-BOUNDS",
+          "description": "Functional wire tests bound trickle transfers and catalog waits, preserving old data and releasing expired body-stream permits; these are timing/cancellation cases, not RSS/cgroup/CPU or 1 GiB container measurements.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+          ]
         }
       ],
       "test_ids": [
@@ -21720,7 +21811,10 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+        "obj_http_trickle_download_stops_at_absolute_deadline",
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
       ],
       "verification": [
         {
@@ -21738,7 +21832,10 @@
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+            "obj_http_trickle_upload_deadline_releases_permits_without_publication",
+            "obj_http_trickle_download_stops_at_absolute_deadline",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
         },
         {
@@ -21754,7 +21851,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "No 1 GiB constrained-container transfer or RSS/cgroup/CPU/latency measurements; configured bounds are not performance evidence.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -21909,7 +22006,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Current guide uses local source/cached image layers; native amd64, remote CI, signed/public URLs, CORS, fixtures and Ruby remain unverified or unavailable.",
-        "Body inactivity is suspended during the awaited advisory check and ends at confirmed EOF; remaining writes/fsync/rename/directory sync and shutdown catalog close wait on the filesystem without a wall-clock bound. SQLite lock waits retain busy_timeout. Complete bodies may commit after disconnect/shutdown.",
+        "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",

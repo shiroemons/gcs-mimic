@@ -1,131 +1,73 @@
 Local path prefixes were redacted; all other output is unchanged.
-OBJECT HTTP RUN 1/5
-   Compiling gcs-mimic v0.1.0 (<local-path>)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.92s
      Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
 
-running 17 tests
+running 20 tests
 test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
-test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
-test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
-test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
-test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
-test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
-test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
-test obj_http_concurrent_create_if_absent_has_one_winner ... ok
-test obj_http_encoded_names_and_invalid_names ... ok
-test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
-test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
-test obj_http_zero_multichunk_binary_and_size_limits ... ok
-test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
-test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
-connection deadline or object body inactivity timeout exceeded
-test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
-test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
-test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
-
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s
-
-OBJECT HTTP RUN 2/5
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
-     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
-
-running 17 tests
-test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
-test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
-test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
 test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
 test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
-test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
+test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
+test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
 test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
 test obj_http_encoded_names_and_invalid_names ... ok
-test obj_http_concurrent_create_if_absent_has_one_winner ... ok
+test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
 test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
-test obj_http_zero_multichunk_binary_and_size_limits ... ok
+test obj_http_concurrent_create_if_absent_has_one_winner ... ok
 test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
 test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
+test obj_http_zero_multichunk_binary_and_size_limits ... ok
+test obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish ... ok
 test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
 connection deadline or object body inactivity timeout exceeded
 test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
 test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
 test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_http_trickle_upload_deadline_releases_permits_without_publication ... ok
+object request deadline exceeded
+test obj_http_trickle_download_stops_at_absolute_deadline ... ok
 
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
 
-OBJECT HTTP RUN 3/5
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
      Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
 
-running 17 tests
+running 20 tests
 test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
-test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
-test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
-test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
-test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
-test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
-test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
-test obj_http_concurrent_create_if_absent_has_one_winner ... ok
-test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
-test obj_http_encoded_names_and_invalid_names ... ok
-test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
-test obj_http_zero_multichunk_binary_and_size_limits ... ok
-test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
-test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
-connection deadline or object body inactivity timeout exceeded
-test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
-test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
-test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
-
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s
-
-OBJECT HTTP RUN 4/5
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
-     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
-
-running 17 tests
-test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
-test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
 test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
 test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
 test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
-test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
-test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
-test obj_http_encoded_names_and_invalid_names ... ok
-test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
-test obj_http_concurrent_create_if_absent_has_one_winner ... ok
-test obj_http_zero_multichunk_binary_and_size_limits ... ok
-test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
-test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
-test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
-connection deadline or object body inactivity timeout exceeded
-test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
-test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
-test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
-
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
-
-OBJECT HTTP RUN 5/5
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
-     Running tests/object_http.rs (target/debug/deps/object_http-8786047e66469181)
-
-running 17 tests
-test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
-test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
 test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
-test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
-test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
-test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
 test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
-test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
 test obj_http_encoded_names_and_invalid_names ... ok
+test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
+test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
 test obj_http_concurrent_create_if_absent_has_one_winner ... ok
 test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
 test obj_http_zero_multichunk_binary_and_size_limits ... ok
 test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
 test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
 connection deadline or object body inactivity timeout exceeded
+test obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish ... ok
 test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
-test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
 test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_http_trickle_upload_deadline_releases_permits_without_publication ... ok
+object request deadline exceeded
+test obj_http_trickle_download_stops_at_absolute_deadline ... ok
 
-test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+

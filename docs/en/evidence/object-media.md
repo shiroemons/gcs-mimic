@@ -1,6 +1,6 @@
 # Object media verification
 
-Verified on 2026-10-21. Runtime and regression-test source: `9a9546c`; documentation and
+Verified on 2026-10-21. Runtime and regression-test source: `945d303`; documentation and
 ledger checks apply to the accompanying documentation. Implementation status belongs only
 to [the ledger](../../../compatibility/features.json). The
 [slice contract](../slices/json-object-media.md) defines the supported subset and local rules.
@@ -16,11 +16,11 @@ The [source record](object-media-sources.txt) pins Discovery revision `20261013`
 googleapis proto content digests; [the dependency snapshot](../../../compatibility/dependency-status.json)
 records compiler, crate, SDK and Docker pins.
 
-Raw logs replace machine-local paths with `<local-path>` and normalize trailing whitespace
-and blank lines at EOF. Tool output, assertions and results are retained. The guide transcript
+Raw logs replace machine-local path prefixes with `<checkout>` or `<local-path>`.
+Current tool output retains its original whitespace, assertions and results. The guide transcript
 records an executed first-use workflow; its response examples include a generation-bearing
 selfLink and are not evidence for the current generation-free selfLink. Current link behavior
-is asserted by the runtime wire tests. The complete guide was not rerun against `9a9546c`.
+is asserted by the runtime wire tests. The complete guide was not rerun against `945d303`.
 
 ## Verified behavior
 
@@ -40,6 +40,18 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
   the 200 ms inactivity timeout receives 200 and retains exact bytes. Inactivity also ends
   at confirmed EOF while storage finishes. Channel closure without an explicit successful
   EOF marker aborts, including disconnected overwrites that must preserve old bytes.
+- Absolute upload/media request ceilings default to 900000 ms; advisory and post-EOF
+  response waits each default to 30000 ms, capped by the remaining request budget.
+  CLI/environment/JSON/default precedence, inclusive upper/lower bounds and rejection
+  of zero, negative, excessive and noninteger values pass for both settings.
+  Eight admitted trickle uploads sending every 70 ms are closed at the 900 ms absolute
+  ceiling without an HTTP error response despite a 300 ms inactivity timeout; old metadata/bytes survive, cancelled
+  staging is removed, no new blob/object is published and a subsequent upload succeeds.
+  A progressing 32 MiB download is truncated at a 1200 ms ceiling before 3000 ms inactivity.
+  An external IMMEDIATE lock keeps a post-EOF commit and a queued advisory check waiting;
+  both return 503 `backendError` at their 600 ms wait bound before the lock is released.
+  Releasing the lock lets the complete body commit; the timed-out advisory request
+  publishes nothing. The post-EOF mutation outcome is unknown to the client.
 - A bounded close uses a write half-close and discards at most 256 KiB for at most 100 ms.
   Early 413/501/400 responses are readable on macOS loopback during an attempted 8 MiB
   body; this does not establish that lingering causes readability on every platform.
@@ -47,7 +59,7 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
   rendezvous plus simultaneous starts. Both overwrite/delete and upload/bucket-delete
   outcomes are asserted without staging/blob leaks. Five standalone runs each report
   overwrite=4, object_delete=8, upload=4 and bucket_delete=8; the same race also passes
-  in all three complete workspace runs.
+  in both complete workspace runs.
 - Publication syncs staging, publishes/syncs an opaque blob, then commits the SQL reference
   and generation allocator. Actual SIGKILL cases cover incomplete staging, a renamed blob
   waiting behind an external IMMEDIATE lock before catalog commit, and restart after
@@ -75,10 +87,10 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
 
 | Command | Result | Evidence |
 | --- | --- | --- |
-| `cargo +1.99.1 test --workspace --locked --offline` | PASS 3/3; 134 tests each, 0 failed/ignored | [Tests](object-media-tests.txt) |
-| `cargo +1.99.1 test --locked --offline --test object_http` | PASS 5/5; 17 tests each | [HTTP repeats](object-media-http-repeat.txt) |
-| `cargo +1.99.1 test --locked --offline --test object_http obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing -- --exact` | PASS 20/20; immediate and 300 ms delayed body cases | [Precedence repeats](object-media-precedence-repeat.txt) |
-| `cargo +1.99.1 test --locked --offline --test object_storage conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic -- --exact --nocapture` | PASS 5/5 standalone executions | [Race repeats](object-media-races.txt) |
+| `cargo +1.99.1 test --workspace --locked --offline` | PASS 2/2; 138 tests each, 0 failed/ignored | [Tests](object-media-tests.txt) |
+| Object HTTP cases in the complete workspace runs | PASS 2/2; 20 tests each, including transfer/catalog ceilings and listed regressions | [HTTP output](object-media-http-repeat.txt) |
+| Advisory precedence and explicit no-EOF storage cases in the complete workspace runs | PASS 2/2; immediate/300 ms delayed body and producer-closure cases | [Tests](object-media-tests.txt) |
+| Four-worker EOF-barrier storage races in the complete workspace runs | PASS 2/2; both mutation outcomes asserted | [Tests](object-media-tests.txt) |
 | `cargo +1.99.1 fmt --all --check` | PASS, exit 0 | [Fmt](object-media-fmt.txt) |
 | `cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS, exit 0 | [Clippy](object-media-clippy.txt) |
 | `cargo +1.99.1 xtask compatibility validate`, `render`, `check` | PASS; 588 rows, 401 parameter locations and 357 schema fields; both views match | [Compatibility](object-media-compatibility.txt) |
@@ -89,8 +101,8 @@ is asserted by the runtime wire tests. The complete guide was not rerun against 
 | Markdownlint on changed Markdown | PASS, 0 issues | [Markdownlint](object-media-markdownlint.txt) |
 | Scoped internal-label and local-path scans; relative Markdown links | No matches; all checked paths resolve | [Documentation scans](object-media-local-path-scan.txt) |
 
-Each complete workspace run contains 48 library, 6 bucket HTTP, 12 catalog, 10 foundation,
-17 object HTTP, 21 object storage, 7 xtask library, 11 compatibility and 2 dependency tests.
+Each complete workspace run contains 49 library, 6 bucket HTTP, 12 catalog, 10 foundation,
+20 object HTTP, 21 object storage, 7 xtask library, 11 compatibility and 2 dependency tests.
 The guide covers host/peer media, checksums/bytes, 412/304/409, stop/start and down/up
 identity persistence, deletion/404, explicit volume reset, Compose Go SDK, native release
 build/probes/upload/download and SIGTERM. Its disposable containers/networks/volumes/tags
@@ -110,11 +122,14 @@ remain outside this slice. SPEC-008..013 retain local condition precedence, dire
 media delivery, hash/MIME/header/opaque-resource choices and retry-token limitations.
 DESIGN-075 remains IMPLEMENTED only for its existing opaque-path project scope.
 
-Complete bodies may commit after disconnect or shutdown. Post-EOF queued writes, fsync,
-rename, directory sync and shutdown catalog close have no wall-clock bound; SQLite lock
-waits retain the five-second busy timeout. Advisory checks have bounded admission but can
-wait behind filesystem work while body inactivity is suspended. Progressing trickle uploads
-can retain all eight upload permits indefinitely. Immutable preflight does not consider a
+Complete bodies may commit after disconnect, shutdown or post-EOF response timeout.
+After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with
+generation/metageneration preconditions. Upload advisory and post-EOF response waits are
+bounded, but background filesystem/SQLite work and shutdown catalog close have no separate
+execution bound. Work retains directory ownership and permits until it finishes;
+permanently stalled filesystem work can therefore still retain permits. SQLite lock waits
+retain the five-second busy timeout. Absolute deadlines prevent clients from retaining
+upload slots indefinitely solely by trickling body chunks. Immutable preflight does not consider a
 hot rollback `-journal`, which gcs-mimic never creates in WAL mode but a foreign DELETE-mode
 catalog could. Generation nonreuse is established for identities allocated by v3 from an
 empty object catalog; accepted intermediate v3 catalogs do not reconstruct deleted history.
