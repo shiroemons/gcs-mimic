@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 291 | 0 | 7 | 0 | 0 | 0 |
 | behavior | 201 | 180 | 0 | 21 | 0 | 0 | 0 |
-| project_requirement | 89 | 49 | 0 | 24 | 16 | 0 | 0 |
+| project_requirement | 91 | 49 | 0 | 26 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 291 | 0 | 7 | 0 | 0 | 0 |
 | behavior | 180 | 0 | 19 | 2 | 0 | 0 |
-| project_requirement | 49 | 0 | 0 | 0 | 0 | 40 |
+| project_requirement | 49 | 0 | 0 | 0 | 0 | 42 |
 
 ## api_operation
 
@@ -848,6 +848,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-015 | プロジェクト・フォルダ・組織の継承設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+
+### Native distribution
+
+| ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
+| --- | --- | --- | --- | --- | --- | ---: |
+| DIST-001 | macOS・Windows・Linux向けのライセンス同梱バイナリ | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DIST-002 | 手動検証成果物と不変タグによるGitHub Release | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Observability
 

@@ -64,9 +64,12 @@ and verify the release's supported platforms in CI. Follow the existing
 the final changes, compatibility impact, migration instructions, tested platforms
 and known limitations.
 
-This policy defines release requirements. Release automation, binary archives,
-container publication and third-party notice packaging remain separate work;
-no published artifacts are claimed by this document.
+The [native distribution procedure](binary-distribution.md) defines the eight
+archive targets, manual verification and future tag-driven GitHub Release flow.
+Tag publication requires matching Cargo versions, committed release notes,
+dependency freshness, Foundation checks and all native suites. Container registry
+publication remains separate. Configured workflows do not establish that a public
+release or successful all-platform execution has occurred.
 
 ## License and redistribution
 

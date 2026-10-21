@@ -25,8 +25,10 @@ The comparison baseline is source commit `18a39ec` with its Debian slim runtime.
 Both variants use Rust 1.99.1 and the committed Cargo.lock. The Distroless cc
 nonroot index is
 `sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3`.
-The [dependency snapshot](../../../compatibility/dependency-status.json) records
-both platform manifests and all other input pins.
+The dependency snapshot in commit `bd55728` records both platform manifests and
+all other inputs for this comparison. The current
+[dependency snapshot](../../../compatibility/dependency-status.json) can advance
+those pins through later tested updates.
 
 The host is macOS arm64; linux/arm64 runs natively and linux/amd64 uses emulation.
 Native amd64 and remote GitHub Actions execution remain unverified. This scope

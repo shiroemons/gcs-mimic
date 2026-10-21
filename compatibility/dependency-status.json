@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-21T15:47:49Z",
-  "scope": "Distroless runtime migration: ten direct Rust crates, Rust/Go toolchains, SDK graph and container inputs. The GNU/glibc build is retained, with a stripped container binary and a digest-pinned Distroless cc runtime. API execution evidence is tracked separately in the feature ledger.",
+  "checked_at_utc": "2026-10-21T16:20:08Z",
+  "scope": "Native binary distribution foundation: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs and release Actions. Windows-only API bindings add no dependency on Unix. Platform execution evidence is tracked separately from workflow configuration.",
   "freshness_check": {
     "command": "cargo +1.99.1 xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/distroless.md",
-    "follow_up": "Docker Hub and public GCR inputs are checked daily, including Debian stable codename drift. Container, migration and size evidence are recorded separately."
+    "artifact": "docs/en/evidence/binary-distribution.md",
+    "follow_up": "Docker Hub, public GCR, direct Windows bindings and release Actions join the daily freshness gate. Native OS runtime/build-tool versions remain tied to the recorded hosted runner environment; complete platform execution is pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -114,6 +114,15 @@
       "maintenance": "Official publisher; latest non-yanked stable and active upstream development verified on 2026-10-21.",
       "source_urls": ["https://index.crates.io/ge/tr/getrandom", "https://crates.io/api/v1/crates/getrandom/0.4.3", "https://github.com/rust-random/getrandom"],
       "resolution_constraints": "Operating-system randomness only; no UUID format, parser or extra options."
+    },
+    {
+      "name": "windows-sys", "current": "0.61.2", "latest_non_yanked_stable": "0.61.2",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 2517186, "minimum_rust": "1.71",
+      "purpose": "Windows-only write-through blob publication and console process-group control in integration tests.",
+      "features": ["Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading"],
+      "maintenance": "Microsoft-maintained windows-rs bindings; official registry's newest stable non-yanked release verified 2026-10-22.",
+      "source_urls": ["https://index.crates.io/wi/nd/windows-sys", "https://github.com/microsoft/windows-rs", "https://docs.rs/crate/windows-sys/0.61.2"],
+      "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
   "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum"],
@@ -137,10 +146,10 @@
         "registry": "gcr.io",
         "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot",
         "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
-        "digest": "sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3",
+        "digest": "sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf",
         "platforms": {
-          "linux/amd64": "sha256:dbacffda11af7f57c0844462430fbe2602e87dc4083d487bb5b455374ed9673d",
-          "linux/arm64": "sha256:28eab0cc9bcf5c4e411f4f5fc2af23fe44d37abf8fa9c905cbe5496bfb9602ef"
+          "linux/amd64": "sha256:fe0b0247194032fa4c87259517e9686de4526f08caddbf169957264d06048a70",
+          "linux/arm64": "sha256:d9fa11a812eb4c61e3176222149a3030868b99be11fd7d197d9c4a4853db745c"
         },
         "source_url": "https://github.com/GoogleContainerTools/distroless",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
@@ -220,6 +229,18 @@
       "tag": "v7.0.0",
       "sha": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
       "source_url": "https://api.github.com/repos/actions/setup-go/git/ref/tags/v7.0.0"
+    },
+    {
+      "repository": "actions/upload-artifact",
+      "tag": "v7.0.2",
+      "sha": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+      "source_url": "https://api.github.com/repos/actions/upload-artifact/git/ref/tags/v7.0.2"
+    },
+    {
+      "repository": "actions/download-artifact",
+      "tag": "v8.0.2",
+      "sha": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+      "source_url": "https://api.github.com/repos/actions/download-artifact/git/ref/tags/v8.0.2"
     }
   ],
   "exceptions": []

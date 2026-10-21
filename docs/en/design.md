@@ -156,7 +156,11 @@ journal retains deferred work for startup. Reclamation checks
 for live references, unlinks/syncs the directory and removes the journal entry. A failed
 startup retry blocks readiness until its cause is fixed and names the blob ID.
 An already opened file descriptor continues to serve its selected immutable generation
-after overwrite/delete on the tested Unix platforms. Resumable sessions and Windows
+after overwrite/delete on the tested Unix platforms. The Windows distribution
+profile uses file flushes and same-volume write-through publication, without a
+Unix directory-fsync equivalent or a power-loss namespace guarantee; see the
+[native platform contract](binary-distribution.md#persistence-and-shutdown).
+Resumable sessions and Windows
 unlink behavior are outside the verified scope.
 
 Recovery holds the exclusive directory lock before bind/readiness. It removes staging,

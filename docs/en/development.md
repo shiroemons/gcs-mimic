@@ -47,6 +47,10 @@ network failure must be reported; it is not a passing freshness result.
 
 ## Direct verification commands
 
+Native archive preparation and the eight-target release CI are documented in the
+[binary distribution guide](binary-distribution.md). The local `just pre-push`
+recipe does not replace Windows/macOS Intel/native Linux matrix execution.
+
 ```sh
 rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
 cargo +1.99.1 fetch --locked

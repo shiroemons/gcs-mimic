@@ -8,7 +8,7 @@ COPY src ./src
 RUN cargo build --locked --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"' \
     && install -d -o 10001 -g 10001 /runtime-data
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:b7e81cb1af38d9345680e68bcf564d388f96304e25222030fc8c051faf8565b3 AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf AS runtime
 LABEL org.opencontainers.image.source="https://github.com/shiroemons/gcs-mimic"
 LABEL org.opencontainers.image.licenses="MIT OR Apache-2.0"
 WORKDIR /app

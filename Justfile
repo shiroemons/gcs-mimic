@@ -21,3 +21,7 @@ check-containers:
 
 # Stop on the first failure; run before pushing the final source.
 pre-push: check check-sdk check-containers
+
+# Stage a built native binary with licenses and build information.
+prepare-binary target binary output:
+    env -u RUSTUP_TOOLCHAIN cargo xtask release prepare {{ quote(target) }} {{ quote(binary) }} {{ quote(output) }}

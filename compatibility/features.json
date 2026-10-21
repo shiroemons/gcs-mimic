@@ -14,7 +14,7 @@
   "counts_by_kind": {
     "api_operation": 298,
     "behavior": 201,
-    "project_requirement": 89
+    "project_requirement": 91
   },
   "api_counts_by_category": {
     "JSON API / anywhereCaches": 7,
@@ -46,6 +46,121 @@
     "Storage Control REST": 1
   },
   "features": [
+    {
+      "id": "DIST-001",
+      "kind": "project_requirement",
+      "category": "Native distribution",
+      "title": "Licensed native archives for macOS, Windows and Linux",
+      "interface": "Project distribution",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": ["https://doc.rust-lang.org/rustc/platform-support.html"],
+      "source_checked_at": "2026-10-22",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "Eight native targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. Windows uses write-through blob publication and a documented restart/process-termination recovery profile; no OS-crash/power-loss namespace guarantee. See docs/en/binary-distribution.md.",
+      "dependencies": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DIST-001-PACKAGING",
+          "description": "Reject unsupported targets, existing outputs, mismatched binary versions, missing notices and escaping license paths; preserve all root notices and target-specific native requirements.",
+          "result": "PASS",
+          "test_ids": [
+            "invalid_target_and_existing_output_are_rejected_without_mutation",
+            "binary_version_must_match_exactly",
+            "all_root_notices_and_explicit_license_file_are_retained",
+            "missing_notices_and_escaping_license_files_fail_closed",
+            "native_notice_requirements_follow_the_target_runtime",
+            "reviewed_crc32c_sources_are_retained_and_new_versions_require_review"
+          ]
+        },
+        {
+          "id": "DIST-001-PLATFORMS",
+          "description": "Observe all eight native builds, full test suites, archive contents, Windows CRT imports, graceful shutdown and forced-termination recovery before publication.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "invalid_target_and_existing_output_are_rejected_without_mutation",
+        "binary_version_must_match_exactly",
+        "all_root_notices_and_explicit_license_file_are_retained",
+        "missing_notices_and_escaping_license_files_fail_closed",
+        "native_notice_requirements_follow_the_target_runtime",
+        "reviewed_crc32c_sources_are_retained_and_new_versions_require_review"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --package xtask --lib release::tests --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/binary-distribution.md",
+          "test_ids": [
+            "invalid_target_and_existing_output_are_rejected_without_mutation",
+            "binary_version_must_match_exactly",
+            "all_root_notices_and_explicit_license_file_are_retained",
+            "missing_notices_and_escaping_license_files_fail_closed",
+            "native_notice_requirements_follow_the_target_runtime",
+            "reviewed_crc32c_sources_are_retained_and_new_versions_require_review"
+          ]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": ["All-platform native CI and public archives remain unverified; unsigned/unnotarized artifacts and changing hosted OS/system compiler inputs do not establish byte-identical or origin-authenticated builds."],
+      "implemented_in": null,
+      "last_verified": "2026-10-22"
+    },
+    {
+      "id": "DIST-002",
+      "kind": "project_requirement",
+      "category": "Native distribution",
+      "title": "Verified manual artifacts and immutable tag-driven GitHub Releases",
+      "interface": "Project distribution",
+      "phase": "P0",
+      "priority": "HIGH",
+      "status": "PARTIAL",
+      "target_fidelity": "PROJECT",
+      "actual_fidelity": "PROJECT",
+      "source_urls": ["https://docs.github.com/en/actions/reference/runners/github-hosted-runners"],
+      "source_checked_at": "2026-10-22",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. See docs/en/binary-distribution.md.",
+      "dependencies": ["DIST-001"],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DIST-002-CONFIGURATION",
+          "description": "Validate release and reusable Foundation workflow syntax with actionlint.",
+          "result": "PASS",
+          "test_ids": ["binary-workflow-syntax"]
+        },
+        {
+          "id": "DIST-002-EXECUTION",
+          "description": "Observe manual eight-target artifacts and a separately authorized first tag release, including failure gates and downloaded checksums.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": ["binary-workflow-syntax"],
+      "verification": [
+        {
+          "command": "actionlint .github/workflows/ci.yaml .github/workflows/binaries.yaml .github/workflows/dependency-check.yaml",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/binary-distribution.md",
+          "test_ids": ["binary-workflow-syntax"]
+        }
+      ],
+      "sdk_evidence": [],
+      "known_deviations": ["Remote workflow execution and public publication have not occurred. The first-release roadmap scope is a maintainer review requirement, not automatically established by a release notes file."],
+      "implemented_in": null,
+      "last_verified": "2026-10-22"
+    },
     {
       "id": "JSON-ANYWHERECACHES-001",
       "kind": "api_operation",
@@ -19913,7 +20028,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",

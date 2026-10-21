@@ -9,6 +9,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Capability | Status | Current scope |
 | --- | --- | --- |
 | Standalone binary | ✅ Available | Build and run from source; no Rust installation is needed at runtime. |
+| Prebuilt binary distribution | 🚧 Partial | CI is configured for macOS/Windows ARM64 and x86-64, plus Linux GNU/musl on both CPUs. All-platform execution and public release are pending. |
 | Docker and Compose | 🚧 Partial | Non-root runtime; arm64 tested natively, amd64 tested under emulation. Native amd64 verification is pending. |
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
@@ -51,7 +52,7 @@ and container logs for diagnostics. UID/GID `10001:10001` remain compatible with
 existing data volumes. Project license texts are included in the image;
 third-party notice packaging remains a release prerequisite.
 
-Measured complete-image compressed layers decreased from 30.57 to 12.14 MiB on
+A prior build comparison measured complete-image compressed layers decreasing from 30.57 to 12.14 MiB on
 amd64 and from 30.92 to 12.38 MiB on arm64, about 60% in both cases. See the
 [measurement and verification details](docs/en/evidence/distroless.md). These are
 image-size results; runtime memory and CPU improvements have not been measured.
@@ -59,6 +60,13 @@ image-size results; runtime memory and CPU improvements have not been measured.
 ## Run the binary
 
 Requires rustup to build; the resulting binary needs no Rust installation or Python to run.
+
+The [native distribution foundation](docs/en/binary-distribution.md) defines eight
+future release targets, archive contents, checksums and the manual/tag workflows.
+No prebuilt release is available yet. Windows uses a separate persistence profile:
+normal restart and process termination recovery are tested by its configured CI;
+OS-crash and power-loss namespace durability are not guaranteed. All-platform CI
+execution remains pending.
 
 ```sh
 rustup toolchain install 1.99.1 --profile minimal
@@ -95,6 +103,12 @@ Breaking changes include documented CLI, configuration, API and persistent-data
 compatibility changes and require release notes and migration guidance. Published
 versions are immutable. See the [versioning and licensing policy](docs/en/release-policy.md)
 for the full contract and first-release requirements.
+
+The **Release binaries** workflow prepares verification artifacts on manual
+dispatch. Future `vX.Y.Z` tags require a matching Cargo version, committed release
+notes, freshness checks, the existing Foundation CI and all eight native suites
+before publishing archives with SHA-256 checksums. See the
+[release procedure and platform limits](docs/en/binary-distribution.md).
 
 ## License
 
