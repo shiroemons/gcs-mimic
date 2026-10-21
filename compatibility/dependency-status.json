@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-21T18:15:40Z",
-  "scope": "GHCR distribution foundation: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
+  "checked_at_utc": "2026-10-21T18:22:16Z",
+  "scope": "Integrated object listing and metadata slice: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
   "freshness_check": {
     "command": "cargo +1.99.1 xtask dependencies check",
-    "exit_code": 2,
-    "result": "CHECK_FAILED",
+    "exit_code": 0,
+    "result": "CURRENT",
     "artifact": "docs/en/evidence/object-list-metadata-dependencies.txt",
-    "follow_up": "API v0.307.0 was adopted after the initial check found only that update; targeted Go listing/metadata tests pass. Post-update checks time out fetching the next-major discovery path https://proxy.golang.org/google.golang.org/api/v2/@v/list; no freshness success is claimed. Retry by 2026-10-23 and before release; all preceding Rust, Action, container and Go toolchain/storage checks report CURRENT. Remote CI and release-platform execution remain pending."
+    "follow_up": "API v0.307.0 was adopted; the full official Go suite and both container architectures pass on the integrated source. Every freshness input reports CURRENT; there are no freshness exceptions. Remote CI, native amd64 and release-platform execution remain pending."
   },
   "toolchain": {
     "channel": "stable",

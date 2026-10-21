@@ -1,8 +1,8 @@
 Local path prefixes were redacted; all other output is unchanged.
 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask dependencies check`
-checked_at_unix_seconds=1792606565
+checked_at_unix_seconds=1792606913
 rust: CURRENT current=1.99.1 latest=1.99.1
 bytes: CURRENT current=1.12.1 latest=1.12.1
 crc32c: CURRENT current=0.6.8 latest=0.6.8
@@ -32,5 +32,4 @@ docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:ae4f3b55444
 Go language baseline: CURRENT current=1.27.0 latest=1.27.0
 Go toolchain: CURRENT current=1.27.3 latest=1.27.3
 cloud.google.com/go/storage: CURRENT current=v1.69.0 latest=v1.69.0
-curl: (28) Operation timed out after 30002 milliseconds with 0 bytes received
-CHECK_FAILED: fetch failed: https://proxy.golang.org/google.golang.org/api/v2/@v/list: exit status: 28
+google.golang.org/api: CURRENT current=v0.307.0 latest=v0.307.0
