@@ -76,4 +76,21 @@ run `just check` while editing, then `just pre-push` before pushing to run the
 Rust, Go SDK and both Linux container architecture checks. See the
 [development guide](docs/en/development.md) for prerequisites and CI limitations.
 
+## Versioning and releases
+
+The current `0.1.0` is an unreleased development version. During `0.x`, compatible
+fixes increment patch; new functionality and breaking changes increment minor.
+Breaking changes include documented CLI, configuration, API and persistent-data
+compatibility changes and require release notes and migration guidance. Published
+versions are immutable. See the [versioning and licensing policy](docs/en/release-policy.md)
+for the full contract and first-release requirements.
+
+## License
+
+Copyright (c) 2026 shiroemons
+
+Original project code and documentation are dual-licensed under the
+[MIT License](LICENSE-MIT) or the [Apache License, Version 2.0](LICENSE-APACHE),
+at your option (`MIT OR Apache-2.0`). Third-party material retains its own license.
+
 This is an independent project and is not an official Google product.

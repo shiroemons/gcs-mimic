@@ -17,6 +17,9 @@ Each milestone contains multiple small feature slices. Complete one requested sl
 
 The first developer release should target P1 plus the essential P2 public/private and URL path. Publish the tested single-request upload subset until resumable P3 support exists; do not claim unrestricted SDK large-upload support early. Explicitly select Go JSON reads for P1, then verify default/XML reads in P2. Do not wait for analytics, caches or ML enrichment before making a useful emulator available. Conversely, do not market the first release as fully GCS-compatible. Publish the tested API/profile/SDK subset.
 
+Version increments, immutable release identity and licensing follow the
+[versioning and licensing policy](release-policy.md).
+
 ## Suggested first slices
 
 P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
