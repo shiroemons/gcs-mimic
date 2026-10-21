@@ -4099,26 +4099,149 @@
       "interface": "storage.objects.list",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: delimiter, endOffset, filter, includeFoldersAsPrefixes, includeTrailingDelimiter, matchGlob, maxResults, pageToken, prefix, projection, softDeleted, startOffset, userProject, versions.",
+      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "OBJECT-LIST-RESOURCE",
+          "description": "GET collection returns identical object_resource metadata, omits empty arrays/final tokens and survives restart; full omits unsupported ACL/owner.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-GROUPING",
+          "description": "Binary prefix/delimiter/offsets, multibyte names/delimiter, repeated terminal delimiters and maxResults=1 preserve sorted deduplicated groups and items.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-ERRORS",
+          "description": "Missing bucket 404 notFound; invalid parameters/tokens 400 invalidParameter; explicit unsupported semantics 501; existing POST remains 404.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_invalid_unsupported_and_missing_bucket_errors"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-PAGINATION",
+          "description": "Query-bound cursors reject corruption/version/shape changes; page size may change; default/zero/full/uint32-max page sizes cap at 1000.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-CONSISTENCY",
+          "description": "Between-page deletion, overwrite, insertion, marker removal and restart preserve surviving names ahead and prevent duplicate prefixes.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-BOUNDED",
+          "description": "Twenty thousand children under one prefix are skipped within a 10000 SQLite VM instruction budget, including continuation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-GO",
+          "description": "Pinned Go Bucket.Objects iterator and pager with page size one exercise supported filter and marker options.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-PENDING",
+          "description": "Add production permissions/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_list_resources_defaults_empty_and_restart",
+        "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+        "object_list_invalid_unsupported_and_missing_bucket_errors",
+        "object_list_tokens_bind_query_and_reject_corruption",
+        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+        "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+        "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
+        "TestObjectList"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart",
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_invalid_unsupported_and_missing_bucket_errors",
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
+      ],
+      "implemented_in": "41c2490",
+      "last_verified": "2026-10-22",
       "http_method": "GET",
       "path": "b/{bucket}/o",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -6848,9 +6971,9 @@
         "https://docs.cloud.google.com/storage/docs/consistency",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Committed bucket/object live mutations are visible to subsequent local reads; opened object readers retain their selected generation. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "Committed bucket/object live mutations are visible to subsequent local reads; opened object readers retain their selected generation. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Live listing evidence: docs/en/slices/json-object-list.md and docs/en/evidence/object-list.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -6888,7 +7011,7 @@
         },
         {
           "id": "BEHAVIOR-COMMON-009-PENDING",
-          "description": "Add metadata/list/version consistency and propagation profiles.",
+          "description": "Add metadata/history consistency and propagation profiles beyond verified live-object listing.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -6907,6 +7030,15 @@
           "test_ids": [
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
           ]
+        },
+        {
+          "id": "OBJECT-LIST-COMMITTED",
+          "description": "Committed uploads/deletes/overwrites are visible in live lists; cursors survive deletion/restart without duplicating or skipping surviving names ahead.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors"
+          ]
         }
       ],
       "test_ids": [
@@ -6920,7 +7052,9 @@
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
+        "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
+        "object_list_resources_defaults_empty_and_restart",
+        "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors"
       ],
       "verification": [
         {
@@ -6950,16 +7084,26 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No metadata mutation/object list/history/propagation profile.",
+        "No metadata mutation/history/propagation profile; listing uses committed local pages, not a stable cross-request snapshot.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-COMMON-010",
@@ -7163,9 +7307,9 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket keyset tokens are versioned, corruption-checked, project/prefix-bound and backed by bounded sorted SQL queries.",
+      "notes": "Bucket keyset tokens are versioned, corruption-checked, project/prefix-bound and backed by bounded sorted SQL queries. Object cursors bind bucket/prefix/delimiter/offsets/trailing-marker/projection and skip complete prefix ranges; see docs/en/slices/json-object-list.md and docs/en/evidence/object-list.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -7198,16 +7342,36 @@
         },
         {
           "id": "BEHAVIOR-COMMON-013-PENDING",
-          "description": "Extend pagination to objects and other resources.",
+          "description": "Extend pagination to resources beyond buckets and live objects.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "OBJECT-LIST-CURSOR",
+          "description": "Bounded live-object pages validate query scope/corruption/shape, default zero to 1000, split markers at size one and tolerate between-page mutations.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
         }
       ],
       "test_ids": [
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "bkt_http_sorted_scoped_pagination_and_limits",
         "bkt_lst_002_token_tampering_and_invalid_shapes",
-        "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+        "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload",
+        "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+        "object_list_tokens_bind_query_and_reject_corruption",
+        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+        "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+        "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
+        "TestObjectList"
       ],
       "verification": [
         {
@@ -7221,16 +7385,59 @@
             "bkt_lst_002_token_tampering_and_invalid_shapes",
             "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        }
+      ],
       "known_deviations": [
         "Other-resource pagination is unimplemented; tokens are not authenticated snapshots.",
-        "maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
-        "The empty-token rule is local; full projection omits ACL/owner."
+        "Bucket maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
+        "The empty-token rule is local; full projection omits ACL/owner.",
+        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-COMMON-014",
@@ -9036,26 +9243,148 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Common prefixes, trailing delimiter objects, directory-like empty markers.",
+      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "OBJECT-LIST-RESOURCE",
+          "description": "GET collection returns identical object_resource metadata, omits empty arrays/final tokens and survives restart; full omits unsupported ACL/owner.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-GROUPING",
+          "description": "Binary prefix/delimiter/offsets, multibyte names/delimiter, repeated terminal delimiters and maxResults=1 preserve sorted deduplicated groups and items.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-ERRORS",
+          "description": "Missing bucket 404 notFound; invalid parameters/tokens 400 invalidParameter; explicit unsupported semantics 501; existing POST remains 404.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_invalid_unsupported_and_missing_bucket_errors"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-PAGINATION",
+          "description": "Query-bound cursors reject corruption/version/shape changes; page size may change; default/zero/full/uint32-max page sizes cap at 1000.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-CONSISTENCY",
+          "description": "Between-page deletion, overwrite, insertion, marker removal and restart preserve surviving names ahead and prevent duplicate prefixes.",
+          "result": "PASS",
+          "test_ids": [
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-BOUNDED",
+          "description": "Twenty thousand children under one prefix are skipped within a 10000 SQLite VM instruction budget, including continuation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-GO",
+          "description": "Pinned Go Bucket.Objects iterator and pager with page size one exercise supported filter and marker options.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        },
+        {
+          "id": "OBJECT-LIST-PENDING",
+          "description": "Add production permissions/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "object_list_resources_defaults_empty_and_restart",
+        "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+        "object_list_invalid_unsupported_and_missing_bucket_errors",
+        "object_list_tokens_bind_query_and_reject_corruption",
+        "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+        "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+        "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+        "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
+        "TestObjectList"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "object_list_resources_defaults_empty_and_restart",
+            "object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages",
+            "object_list_invalid_unsupported_and_missing_bucket_errors",
+            "object_list_tokens_bind_query_and_reject_corruption",
+            "json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads",
+            "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
+            "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
+            "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectList$' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-list-checks.txt",
+          "test_ids": [
+            "TestObjectList"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
+      ],
+      "implemented_in": "41c2490",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-019",

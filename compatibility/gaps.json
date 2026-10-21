@@ -3,6 +3,36 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-LIST-PAGING",
+      "title": "Object listing zero-size and cursor edge semantics require direct evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-008", "BEHAVIOR-OBJECT-018", "BEHAVIOR-COMMON-009", "BEHAVIOR-COMMON-013"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/consistency"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Discovery revision 20261013 defines uint32 maxResults minimum 0, default 1000 and a 1000 cap, while JSON references do not settle zero-page progress. The implementation treats zero as default, matching existing bucket listing. Trailing marker item/prefix representations count separately for size-one pages. Tokens bind bucket, prefix, delimiter, offsets, trailing-delimiter flag and projection through the existing corruption checksum; page size may change. These tokens are not cryptographically authenticated snapshots or Google-compatible encodings.",
+      "required_resolution": "Keep whole method/pagination claims PARTIAL and document the local rules. Obtain authorized differential evidence for zero, marker accounting and token-query changes before claiming exact edge compatibility; retain bounded seek and mutation-between-pages tests. See docs/en/slices/json-object-list.md and docs/en/evidence/object-list.md."
+    },
+    {
+      "id": "SPEC-LIST-RESOURCE-SHAPE",
+      "title": "Empty object-list fields and slash-specific delimiter wording need reconciliation",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-008", "BEHAVIOR-OBJECT-018"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/google-api-go-client/blob/v0.306.0/storage/v1/storage-gen.go"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The method page includes slash-specific common-prefix wording, but Discovery and the response field description explicitly preserve the requested delimiter. The implementation follows the latter for arbitrary complete delimiters. Empty items/prefixes/nextPageToken are omitted, consistent with the pinned official Go Objects response omitempty schema; the method reference does not explicitly establish service wire omission. No real-cloud request was made.",
+      "required_resolution": "Preserve multi-character/multibyte delimiter and empty-response wire tests, document the source distinction, and obtain authorized direct service evidence before claiming complete response-shape parity. Full projection still omits unsupported ACL/owner fields and production permissions remain unimplemented."
+    },
+    {
       "id": "SPEC-001",
       "title": "Atomic move eligibility for flat-namespace buckets is not established",
       "status": "OPEN",
