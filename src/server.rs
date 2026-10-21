@@ -49,6 +49,12 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[derive(Clone, Copy, Default)]
+struct ObjectActivity {
+    awaiting_catalog: bool,
+    deadline: Option<tokio::time::Instant>,
+}
+
 pub async fn serve(
     listener: TcpListener,
     config: Config,
@@ -74,35 +80,40 @@ pub async fn serve(
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
                 let timeout = Duration::from_millis(config.connection_timeout_ms);
-                let max_object_bytes = config.max_object_bytes;
+                let config = config.clone();
                 connections.spawn(async move {
-                    let (activity, mut progress) = watch::channel(false);
+                    let (activity, mut progress) = watch::channel(ObjectActivity::default());
                     let mut builder = http1::Builder::new();
                     builder.keep_alive(false).max_headers(64).max_buf_size(16 * 1024)
                         .timer(TokioTimer::new()).header_read_timeout(timeout);
                     let mut connection = builder.serve_connection(TokioIo::new(stream), service_fn(move |request| {
                         let state = state.clone();
                         let activity = activity.clone();
-                        Box::pin(async move { Ok::<_, Infallible>(respond(request, &state, max_object_bytes, &activity).await) })
+                        let config = config.clone();
+                        Box::pin(async move { Ok::<_, Infallible>(respond(request, &state, &config, &activity).await) })
                     }));
                     let deadline = tokio::time::sleep(timeout);
                     tokio::pin!(deadline);
-                    let mut awaiting_catalog = false;
+                    let mut current = ObjectActivity::default();
+                    let mut draining = false;
                     loop { tokio::select! {
                         biased;
                         Ok(()) = progress.changed() => {
-                            awaiting_catalog = *progress.borrow_and_update();
+                            current = *progress.borrow_and_update();
                             deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+                        },
+                        _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog => {
+                            eprintln!("object request deadline exceeded");
+                            break;
                         },
                         result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
                             if let Err(error) = result { eprintln!("connection error: {error}"); }
                             break;
                         }
-                        _ = &mut deadline, if !awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
-                        _ = stopping.changed() => {
+                        _ = &mut deadline, if !current.awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
+                        _ = stopping.changed(), if !draining => {
                             std::pin::Pin::new(&mut connection).graceful_shutdown();
-                            if let Err(error) = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)).await { eprintln!("connection drain error: {error}"); }
-                            break;
+                            draining = true;
                         }
                     }}
                     // Send FIN after the response, then bound unread-body disposal to avoid a reset
@@ -153,19 +164,28 @@ fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
 async fn respond(
     request: Request<Incoming>,
     state: &State,
-    max_object_bytes: u64,
-    activity: &watch::Sender<bool>,
+    config: &Config,
+    activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
     if let Some(parsed) = json::route_object(request.method(), request.uri()) {
-        activity.send_replace(false);
+        let media = matches!(&parsed, Ok(ObjectRequest::Get { params, .. }) if params.media);
+        let transfer = media || matches!(&parsed, Ok(ObjectRequest::Insert { .. }));
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: transfer.then_some(deadline),
+        });
         let result = match parsed {
             Ok(operation) => {
-                object_response(request, operation, state, max_object_bytes, activity).await
+                object_response(request, operation, state, config, activity, deadline).await
             }
             Err(error) => Err(error),
         };
+        if !media || result.is_err() {
+            activity.send_replace(ObjectActivity::default());
+        }
         let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
-        activity.send_replace(false);
         response
             .headers_mut()
             .insert("connection", "close".parse().unwrap());
@@ -189,9 +209,12 @@ async fn object_response(
     request: Request<Incoming>,
     operation: ObjectRequest,
     state: &State,
-    max_bytes: u64,
-    activity: &watch::Sender<bool>,
+    config: &Config,
+    activity: &watch::Sender<ObjectActivity>,
+    deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
+    let max_bytes = config.max_object_bytes;
+    let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     if !matches!(operation, ObjectRequest::Insert { .. })
         && (request.headers().contains_key("transfer-encoding")
             || request
@@ -220,13 +243,15 @@ async fn object_response(
                 return Err(ObjectError::TooLarge.into());
             }
             // Complete the advisory check before body-derived errors can race its result.
-            activity.send_replace(true);
-            let prepared = state
-                .catalog
-                .prepare_object_upload(&bucket, &name, params.conditions)
-                .await;
-            activity.send_replace(false);
-            let permit = prepared?;
+            let permit = await_upload_catalog(
+                state
+                    .catalog
+                    .prepare_object_upload(&bucket, &name, params.conditions),
+                catalog_timeout,
+                deadline,
+                activity,
+            )
+            .await?;
             let (sender, body) = mpsc::channel(2);
             let upload = state.catalog.put_object_prechecked(
                 &bucket,
@@ -248,8 +273,11 @@ async fn object_response(
                         }
                         return Err(error.into());
                     }
-                    drop(sender);
-                    upload.await?
+                    await_upload_catalog(async {
+                        let _ = sender.send(Ok(UploadChunk::End)).await;
+                        drop(sender);
+                        upload.await
+                    }, catalog_timeout, deadline, activity).await?
                 }
             };
             json::object_resource(&record, &state.api_base_url, params.projection)?
@@ -275,7 +303,7 @@ async fn object_response(
                                 if sender.send_data(bytes).await.is_err() {
                                     break;
                                 }
-                                activity.send_replace(false);
+                                activity.send_modify(|progress| progress.awaiting_catalog = false);
                             }
                             Ok(None) => break,
                             Err(error) => {
@@ -321,7 +349,7 @@ async fn stream_upload(
     mut body: Incoming,
     sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
     max_bytes: u64,
-    activity: &watch::Sender<bool>,
+    activity: &watch::Sender<ObjectActivity>,
 ) -> Result<(), ObjectError> {
     let mut size = 0_u64;
     while let Some(frame) = body.frame().await {
@@ -333,7 +361,7 @@ async fn stream_upload(
             .checked_add(bytes.len() as u64)
             .filter(|size| *size <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
-        activity.send_replace(false);
+        activity.send_modify(|progress| progress.awaiting_catalog = false);
         // Copy bounded chunks so queued slices cannot retain arbitrarily large transport frames.
         for part in bytes.chunks(64 * 1024) {
             if sender
@@ -346,10 +374,29 @@ async fn stream_upload(
             }
         }
     }
-    // Body inactivity no longer applies while the completed body is being committed.
-    activity.send_replace(true);
-    let _ = sender.send(Ok(UploadChunk::End)).await;
     Ok(())
+}
+
+async fn await_upload_catalog<T>(
+    operation: impl Future<Output = Result<T, ObjectError>>,
+    timeout: Duration,
+    request_deadline: tokio::time::Instant,
+    activity: &watch::Sender<ObjectActivity>,
+) -> Result<T, ObjectError> {
+    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    // A completed body may commit after this wait expires; only an observed commit is success.
+    let result = tokio::time::timeout_at(
+        request_deadline.min(tokio::time::Instant::now() + timeout),
+        operation,
+    )
+    .await
+    .unwrap_or_else(|_| {
+        Err(ObjectError::Unavailable(
+            "upload catalog wait timed out".into(),
+        ))
+    });
+    activity.send_modify(|progress| progress.awaiting_catalog = false);
+    result
 }
 
 async fn bucket_response(

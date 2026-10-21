@@ -16,6 +16,8 @@ pub struct Config {
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
     pub connection_timeout_ms: u64,
+    pub object_request_timeout_ms: u64,
+    pub catalog_wait_timeout_ms: u64,
     pub shutdown_timeout_ms: u64,
 }
 
@@ -30,6 +32,8 @@ impl Default for Config {
             worker_threads: 2,
             max_blocking_threads: 2,
             connection_timeout_ms: 5_000,
+            object_request_timeout_ms: 900_000,
+            catalog_wait_timeout_ms: 30_000,
             shutdown_timeout_ms: 5_000,
         }
     }
@@ -120,6 +124,12 @@ impl Config {
                 "connection_timeout_ms" => {
                     config.connection_timeout_ms = bounded(&key, &value, 1, 60_000)?
                 }
+                "object_request_timeout_ms" => {
+                    config.object_request_timeout_ms = bounded(&key, &value, 1, 86_400_000)?
+                }
+                "catalog_wait_timeout_ms" => {
+                    config.catalog_wait_timeout_ms = bounded(&key, &value, 1, 60_000)?
+                }
                 "shutdown_timeout_ms" => {
                     config.shutdown_timeout_ms = bounded(&key, &value, 1, 60_000)?
                 }
@@ -141,6 +151,57 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transfer_timeout_precedence_and_bounds() {
+        for (setting, default, maximum) in [
+            ("object_request_timeout_ms", 900_000, 86_400_000),
+            ("catalog_wait_timeout_ms", 30_000, 60_000),
+        ] {
+            let file = std::env::temp_dir()
+                .join(format!("gcs-mimic-{setting}-{}.json", std::process::id()));
+            let value = |config: Config| {
+                if setting == "object_request_timeout_ms" {
+                    config.object_request_timeout_ms
+                } else {
+                    config.catalog_wait_timeout_ms
+                }
+            };
+            let flag = format!("--{}", setting.replace('_', "-"));
+            let key = format!("GCS_MIMIC_{}", setting.to_ascii_uppercase());
+            let args = vec!["--config".into(), file.to_str().unwrap().into()];
+            std::fs::write(&file, format!(r#"{{"{setting}":100}}"#)).unwrap();
+            assert_eq!(value(Config::load(&[], &BTreeMap::new()).unwrap()), default);
+            assert_eq!(value(Config::load(&args, &BTreeMap::new()).unwrap()), 100);
+            let env = BTreeMap::from([(key.clone(), "200".into())]);
+            assert_eq!(value(Config::load(&args, &env).unwrap()), 200);
+            let mut cli = args.clone();
+            cli.extend([flag.clone(), "300".into()]);
+            assert_eq!(value(Config::load(&cli, &env).unwrap()), 300);
+            for invalid in [
+                "0".into(),
+                "-1".into(),
+                (maximum + 1).to_string(),
+                "unlimited".into(),
+            ] {
+                assert!(Config::load(&[flag.clone(), invalid.clone()], &BTreeMap::new()).is_err());
+                assert!(
+                    Config::load(&[], &BTreeMap::from([(key.clone(), invalid.clone())])).is_err()
+                );
+                std::fs::write(&file, format!(r#"{{"{setting}":"{invalid}"}}"#)).unwrap();
+                assert!(Config::load(&args, &BTreeMap::new()).is_err());
+            }
+            for bound in [1, maximum] {
+                assert_eq!(
+                    value(
+                        Config::load(&[flag.clone(), bound.to_string()], &BTreeMap::new()).unwrap()
+                    ),
+                    bound
+                );
+            }
+            std::fs::remove_file(file).unwrap();
+        }
+    }
 
     #[test]
     fn object_limit_precedence_and_bounds() {

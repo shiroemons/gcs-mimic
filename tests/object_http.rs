@@ -19,6 +19,16 @@ struct Server {
 
 impl Server {
     fn start(dir: &TestDir, limit: u64, timeout: u64) -> Self {
+        Self::with_timeouts(dir, limit, timeout, 900_000, 30_000)
+    }
+
+    fn with_timeouts(
+        dir: &TestDir,
+        limit: u64,
+        timeout: u64,
+        object_timeout: u64,
+        catalog_timeout: u64,
+    ) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
             .env_clear()
             .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
@@ -30,6 +40,10 @@ impl Server {
                 &limit.to_string(),
                 "--connection-timeout-ms",
                 &timeout.to_string(),
+                "--object-request-timeout-ms",
+                &object_timeout.to_string(),
+                "--catalog-wait-timeout-ms",
+                &catalog_timeout.to_string(),
             ])
             .stdout(Stdio::piped())
             .spawn()
@@ -40,6 +54,8 @@ impl Server {
         let ready: Value = serde_json::from_str(&line).expect("ready after recovery");
         assert_eq!(ready["event"], "ready");
         assert_eq!(ready["max_object_bytes"], limit);
+        assert_eq!(ready["object_request_timeout_ms"], object_timeout);
+        assert_eq!(ready["catalog_wait_timeout_ms"], catalog_timeout);
         Self {
             child,
             address: ready["listen"].as_str().unwrap().into(),
@@ -624,6 +640,144 @@ fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     assert!(start.elapsed() < Duration::from_secs(2));
     server.get("idle").error(404, "notFound");
     assert_eq!(server.upload("name=after-timeout", "", b"ok").status, 200);
+}
+
+#[test]
+fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
+    let dir = TestDir::new();
+    let server = Server::with_timeouts(&dir, 1000, 300, 900, 5000);
+    server.bucket();
+    let original = server.upload("name=held-0", "", b"original").json();
+    let started = Instant::now();
+    let mut uploads: Vec<_> = (0..8).map(|index| {
+        let mut stream = server.stream();
+        stream.write_all(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=held-{index} HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n").as_bytes()).unwrap();
+        stream
+    }).collect();
+    let admitted = Instant::now() + Duration::from_secs(2);
+    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
+        assert!(Instant::now() < admitted, "all eight uploads admitted");
+        thread::sleep(Duration::from_millis(5));
+    }
+    for _ in 0..10 {
+        thread::sleep(Duration::from_millis(70));
+        for stream in &mut uploads {
+            stream.write_all(b"1\r\na\r\n").unwrap();
+        }
+    }
+    for mut stream in uploads {
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        assert!(response.is_empty(), "unfinished upload must not succeed");
+    }
+    assert!(started.elapsed() >= Duration::from_millis(800));
+    assert!(started.elapsed() < Duration::from_secs(3));
+    let cleaned = Instant::now() + Duration::from_secs(3);
+    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 0 {
+        assert!(Instant::now() < cleaned, "cancelled stages cleaned");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(server.get("held-0").json(), original);
+    assert_eq!(server.get("held-0?alt=media").body, b"original");
+    for index in 1..8 {
+        server.get(&format!("held-{index}")).error(404, "notFound");
+    }
+    assert_eq!(
+        std::fs::read_dir(dir.0.join("blobs"))
+            .unwrap()
+            .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+            .sum::<usize>(),
+        1
+    );
+    assert_eq!(server.upload("name=after-deadline", "", b"ok").status, 200);
+}
+
+#[test]
+fn obj_http_trickle_download_stops_at_absolute_deadline() {
+    let dir = TestDir::new();
+    let size = 32 * 1024 * 1024;
+    let mut server = Server::start(&dir, size as u64, 5000);
+    server.bucket();
+    assert_eq!(
+        server.upload("name=large", "", &vec![b'x'; size]).status,
+        200
+    );
+    server.stop();
+    let server = Server::with_timeouts(&dir, size as u64, 3000, 1200, 5000);
+    let mut stream = server.stream();
+    let started = Instant::now();
+    stream
+        .write_all(
+            b"GET /storage/v1/b/test-bucket/o/large?alt=media HTTP/1.1\r\nHost: local\r\n\r\n",
+        )
+        .unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut headers = Vec::new();
+    while !headers.ends_with(b"\r\n\r\n") {
+        assert_ne!(reader.read_until(b'\n', &mut headers).unwrap(), 0);
+    }
+    assert!(headers.starts_with(b"HTTP/1.1 200"));
+    let mut received = 0;
+    let mut chunk = vec![0; 256 * 1024];
+    for _ in 0..20 {
+        received += reader.read(&mut chunk).unwrap();
+        thread::sleep(Duration::from_millis(80));
+    }
+    let mut rest = Vec::new();
+    reader.read_to_end(&mut rest).unwrap();
+    received += rest.len();
+    assert!(
+        received > 0 && received < size,
+        "truncated media: {received}/{size}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(2800),
+        "deadline precedes inactivity"
+    );
+    assert_eq!(server.get("large").json()["size"], size.to_string());
+}
+
+#[test]
+fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() {
+    let dir = TestDir::new();
+    let server = Server::with_timeouts(&dir, 1000, 100, 5000, 600);
+    server.bucket();
+    let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    database.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let started = Instant::now();
+    let mut first = server.stream();
+    first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committing HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
+    let published = Instant::now() + Duration::from_secs(2);
+    while std::fs::read_dir(dir.0.join("blobs"))
+        .unwrap()
+        .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
+    {
+        assert!(
+            Instant::now() < published,
+            "first upload reached publication"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    // The first commit owns the serialized catalog slot while the external lock is held.
+    thread::sleep(Duration::from_millis(100));
+    let mut second = server.stream();
+    second.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=queued HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\ntwo").unwrap();
+    Reply::read(first).error(503, "backendError");
+    Reply::read(second).error(503, "backendError");
+    assert!(started.elapsed() >= Duration::from_millis(500));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "both waits bounded before lock release"
+    );
+    database.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(server.get("committing?alt=media").body, b"one");
+    server.get("queued").error(404, "notFound");
+    assert_eq!(
+        server
+            .upload("name=after-catalog-timeout", "", b"ok")
+            .status,
+        200
+    );
 }
 
 #[test]

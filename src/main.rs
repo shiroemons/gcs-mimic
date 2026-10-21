@@ -27,6 +27,8 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --worker-threads N           2 (1..32)
   --max-blocking-threads N     2 (1..32)
   --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
+  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
   --shutdown-timeout-ms N      5000 (1..60000)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
@@ -88,7 +90,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 socket.bind(config.listen)?;
                 let listener = socket.listen(128)?;
                 let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone() });
-                println!("{}", serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms}));
+                println!("{}", serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms}));
                 server::serve(listener, config, state, shutdown).await?;
                 println!("{{\"event\":\"stopped\"}}");
                 Ok::<_, io::Error>(())
