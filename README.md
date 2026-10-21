@@ -71,6 +71,9 @@ Object APIs support only the [media subset](docs/en/slices/json-object-media.md)
 
 Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Native amd64, host power-loss durability and Ruby/Rails remain unverified.
 
-For contributors, see the [development guide](docs/en/development.md).
+For contributors, install [just](https://github.com/casey/just#installation) and
+run `just check` while editing, then `just pre-push` before pushing to run the
+Rust, Go SDK and both Linux container architecture checks. See the
+[development guide](docs/en/development.md) for prerequisites and CI limitations.
 
 This is an independent project and is not an official Google product.

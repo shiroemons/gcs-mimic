@@ -2,6 +2,51 @@
 
 Requires rustup and curl for the explicit online freshness check. Python is not required. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
+## Development commands and push checks
+
+Install [just](https://github.com/casey/just#installation) to use the checked-in
+`Justfile`; `just` lists the available recipes. The recipes are intended for
+macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
+Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
+execute both Linux amd64 and arm64 containers, using emulation where needed.
+
+```sh
+just check
+just check-sdk
+just check-containers
+just pre-push
+```
+
+Run `just pre-push` on the final source before every push. It runs the Rust/shell
+checks, the complete Go SDK suite, and both container architectures in order,
+stopping at the first failure. Run `just check` while editing and reserve the
+SDK/container checks for the final source. The existing harnesses use isolated
+temporary data and Compose volumes. Dependency downloads and container pulls
+can require network access; this is not an entirely offline command.
+
+The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
+repository pin. The SDK recipe clears `GCS_MIMIC_GO_TEST_RUN` so an inherited
+filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly,
+preserving its selected pinned/current-stable toolchain; CI does not require
+just. `scripts/test-check.sh` verifies command order and failure propagation
+without compiling or starting containers.
+
+No Git hook is installed and no commit or push is performed. Re-run the checks
+after changes. A local pass does not establish native amd64 or GitHub Actions
+success: the configured remote lanes must also pass after pushing.
+
+Run the separate online freshness check at slice start and before release:
+
+```sh
+just check-dependencies
+```
+
+Freshness remains a separate gate because it checks changing upstream metadata,
+while `pre-push` validates the working tree and locked inputs. An update or a
+network failure must be reported; it is not a passing freshness result.
+
+## Direct verification commands
+
 ```sh
 rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
 cargo +1.99.1 fetch --locked

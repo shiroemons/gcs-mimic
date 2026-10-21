@@ -20955,7 +20955,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Generated docs, Rust checks and native-platform Docker jobs are configured and locally validated.",
+      "notes": "Generated docs, Rust checks and native-platform Docker jobs are configured and locally validated. Justfile pre-push checks reuse the CI Rust/shell runner and existing SDK/container harnesses; command order and failure propagation are self-tested. See docs/en/evidence/pre-push.md.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -20979,6 +20979,15 @@
           ]
         },
         {
+          "id": "DESIGN-099-local-checks",
+          "description": "Run shared local/CI checks in order, stop at every injected Cargo failure, and complete the local pre-push Rust, Go SDK and both container architecture checks.",
+          "result": "PASS",
+          "test_ids": [
+            "shared-check-failure-propagation",
+            "local-pre-push-suite"
+          ]
+        },
+        {
           "id": "DESIGN-099-P1",
           "description": "Observe remote CI gates execute, including native amd64.",
           "result": "PENDING",
@@ -20987,7 +20996,9 @@
       ],
       "test_ids": [
         "workflow-yaml-syntax",
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "shared-check-failure-propagation",
+        "local-pre-push-suite"
       ],
       "verification": [
         {
@@ -21007,6 +21018,24 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "command": "bash scripts/test-check.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/pre-push.md",
+          "test_ids": [
+            "shared-check-failure-propagation"
+          ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/pre-push.md",
+          "test_ids": [
+            "local-pre-push-suite"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -21014,7 +21043,7 @@
         "Remote CI has not run; local amd64 uses emulation."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "UX-001",
