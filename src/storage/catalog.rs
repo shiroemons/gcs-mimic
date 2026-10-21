@@ -2,7 +2,6 @@ use super::lock;
 use crate::bucket::{BucketRecord, CatalogError};
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, types::Type};
 use std::{
-    fs::File,
     path::Path,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -15,11 +14,15 @@ const COLUMNS: &str = "name, project, location, location_type, storage_class, la
                       metageneration, time_created, updated";
 
 struct Inner {
-    connection: Mutex<Connection>,
+    resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
+}
+
+struct Resources {
     // Drop the connection before releasing directory ownership, including on cancelled calls.
-    _lock: File,
+    connection: Connection,
+    lock: lock::DirectoryLock,
 }
 
 /// A single SQLite connection with at most 32 admitted operations and one blocking job.
@@ -122,10 +125,9 @@ impl Catalog {
                 .prepare(&format!("SELECT {COLUMNS} FROM buckets LIMIT 0"))
                 .map_err(unavailable)?;
             Ok(Self(Arc::new(Inner {
-                connection: Mutex::new(connection),
+                resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
-                _lock: lock,
             })))
         })
         .await
@@ -133,7 +135,38 @@ impl Catalog {
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.0.connection.is_poisoned()
+        !self.0.resources.is_poisoned() && !self.0.admission.is_closed()
+    }
+
+    /// Stops admission on all handles and waits for blocking work before releasing ownership.
+    /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
+    pub async fn close(&self) -> Result<(), CatalogError> {
+        self.0.admission.close();
+        let execution = self
+            .0
+            .execution
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(unavailable)?;
+        let inner = self.0.clone();
+        tokio::task::spawn_blocking(move || {
+            let _execution = execution;
+            // Poison must not prevent shutdown from closing the connection and its lock.
+            let mut resources = inner
+                .resources
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(Resources { connection, lock }) = resources.take() {
+                connection
+                    .close()
+                    .map_err(|(_, error)| unavailable(error))?;
+                lock.release().map_err(unavailable)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(unavailable)?
     }
 
     async fn run<T: Send + 'static>(
@@ -156,8 +189,11 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let (_admission, _execution) = (admission, execution);
-            let result = match inner.connection.lock() {
-                Ok(mut connection) => operation(&mut connection),
+            let result = match inner.resources.lock() {
+                Ok(mut resources) => match resources.as_mut() {
+                    Some(resources) => operation(&mut resources.connection),
+                    None => Err(CatalogError::Unavailable("catalog is closed".into())),
+                },
                 Err(error) => Err(unavailable(error)),
             };
             // Release ownership before Tokio publishes completion to an immediate reopen.
@@ -357,6 +393,52 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn close_waits_for_cancelled_blocking_work_and_invalidates_clones() {
+        use std::{future::Future, task::Poll};
+
+        let dir =
+            std::env::temp_dir().join(format!("gcs-mimic-catalog-close-{}", std::process::id()));
+        let catalog = Catalog::open(&dir).await.unwrap();
+        let worker = catalog.clone();
+        let (started, running) = tokio::sync::oneshot::channel();
+        let (release, finish) = std::sync::mpsc::channel();
+        let task = tokio::spawn(async move {
+            worker
+                .run(move |_| {
+                    started.send(()).unwrap();
+                    finish.recv().unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        running.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        {
+            let mut close = std::pin::pin!(catalog.close());
+            assert!(
+                std::future::poll_fn(|cx| Poll::Ready(close.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            assert!(!catalog.is_healthy());
+            assert!(matches!(
+                catalog.get_bucket("missing").await,
+                Err(CatalogError::Unavailable(_))
+            ));
+            assert!(Catalog::open(&dir).await.is_err());
+            release.send(()).unwrap();
+            close.await.unwrap();
+        }
+        let reopened = Catalog::open(&dir).await.unwrap();
+        catalog.close().await.unwrap();
+        drop(catalog);
+        assert!(Catalog::open(&dir).await.is_err());
+        reopened.close().await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn poisoned_catalog_permanently_revokes_readiness() {
         use crate::{clock::SystemClock, server::State};
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -384,6 +466,8 @@ mod tests {
             Err(CatalogError::Unavailable(_))
         ));
         assert!(!state.is_ready());
+        catalog.close().await.unwrap();
+        Catalog::open(&dir).await.unwrap().close().await.unwrap();
         drop(state);
         drop(catalog);
         std::fs::remove_dir_all(dir).unwrap();

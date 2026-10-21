@@ -233,6 +233,76 @@ async fn directory_lock_lives_until_the_last_handle_drops() {
     Catalog::open(&dir.0).await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn repeated_concurrent_use_close_and_reopen_preserves_data() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let expected = catalog
+        .insert_bucket(bucket("persisted", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    for _ in 0..64 {
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..16 {
+            let catalog = catalog.clone();
+            tasks.spawn(async move { catalog.get_bucket("persisted").await });
+        }
+        while let Some(result) = tasks.join_next().await {
+            assert_eq!(result.unwrap().unwrap(), Some(expected.clone()));
+        }
+        catalog.close().await.unwrap();
+        let reopened = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            reopened.get_bucket("persisted").await.unwrap(),
+            Some(expected.clone())
+        );
+        catalog.close().await.unwrap();
+        drop(catalog);
+        assert!(Catalog::open(&dir.0).await.is_err());
+        reopened.close().await.unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn drop_releases_lock_while_a_forked_child_has_not_execed() {
+    use std::{
+        io::{Read, Write},
+        os::unix::{net::UnixStream, process::CommandExt},
+    };
+
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let (mut parent, mut child) = UnixStream::pair().unwrap();
+    parent
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    child
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let process = std::thread::spawn(move || {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact", "catalog_child_process"]);
+        // Only fixed-size socket I/O runs after fork; no allocation or locks are used.
+        unsafe {
+            command.pre_exec(move || {
+                child.write_all(&[1])?;
+                child.read_exact(&mut [0])?;
+                Ok(())
+            });
+        }
+        command.output().unwrap()
+    });
+    parent.read_exact(&mut [0]).unwrap();
+    drop(catalog);
+    let reopened = Catalog::open(&dir.0).await;
+    parent.write_all(&[1]).unwrap();
+    assert!(process.join().unwrap().status.success());
+    reopened.unwrap();
+}
+
 #[tokio::test]
 async fn rejects_future_schema_unversioned_data_and_corruption() {
     for fixture in [

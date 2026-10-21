@@ -1,10 +1,30 @@
 use crate::bucket::CatalogError;
 use std::{
     fs::{self, File, OpenOptions, TryLockError},
+    io,
     path::Path,
 };
 
-pub(super) fn acquire(data_dir: &Path) -> Result<File, CatalogError> {
+pub(super) struct DirectoryLock(Option<File>);
+
+impl DirectoryLock {
+    pub(super) fn release(mut self) -> io::Result<()> {
+        self.0.take().expect("owned directory lock").unlock()
+    }
+}
+
+impl Drop for DirectoryLock {
+    fn drop(&mut self) {
+        // Closing alone leaves flock held by descriptors inherited between fork and exec.
+        if let Some(file) = &self.0
+            && let Err(error) = file.unlock()
+        {
+            eprintln!("release data directory lock: {error}");
+        }
+    }
+}
+
+pub(super) fn acquire(data_dir: &Path) -> Result<DirectoryLock, CatalogError> {
     fs::create_dir_all(data_dir).map_err(|e| {
         CatalogError::Unavailable(format!("create data directory {}: {e}", data_dir.display()))
     })?;
@@ -24,5 +44,5 @@ pub(super) fn acquire(data_dir: &Path) -> Result<File, CatalogError> {
         })
     })?;
     // Keep the file in place: unlinking it would let another process lock a different inode.
-    Ok(file)
+    Ok(DirectoryLock(Some(file)))
 }

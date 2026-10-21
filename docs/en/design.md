@@ -34,7 +34,7 @@ The bucket catalog is concrete; no generic persistence trait is frozen for futur
 
 The server caps connections (default 32), headers (64 and 16 KiB), connection lifetime (5 seconds), shutdown drain (5 seconds), async workers (2) and blocking workers (2). Connection admission stops when full; the requested kernel backlog is 128. Every response closes its connection. Only insert reads a body, capped at 64 KiB. Probe and other bucket methods reject bodies from headers. Compose additionally sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are settings, not benchmarks. Catalog admission and cache limits are described below; no maintenance polling exists.
 
-Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. An already running blocking catalog call can finish after connection cancellation, retaining ownership until it finishes. Fixture seeding, clock-backed expiration and an explicit maintenance scheduler remain future work.
+Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Fixture seeding, clock-backed expiration and an explicit maintenance scheduler remain future work.
 
 ## Implemented bucket catalog and recovery
 
@@ -60,8 +60,14 @@ Labels and time values are persisted; names never become filesystem paths.
 SQLite performs committed-WAL recovery while the directory lock is held. Tests cover
 process exit without drop after a committed write, immediate close/reopen, schema/corruption
 rejection and a second server process failing to acquire the directory. The connection
-is dropped before the lock; blocking jobs explicitly release captured ownership before
-publishing completion. No object blobs, filesystem rename protocol, uncommitted blob
+is dropped before explicitly unlocking the lock file. Closing a file alone can leave
+the lock held by an unrelated child between fork and exec. Blocking jobs explicitly
+release captured ownership before publishing completion. `Catalog::close()` stops
+admission across all clones, waits for blocking execution, closes SQLite and releases
+the directory even when old handles remain alive. Repeated close/drop of old handles
+cannot unlock a reopened catalog. Without explicit close, the last handle or running
+job still owns the resources until its synchronous drop. See the
+[lock-release evidence](evidence/bucket-lock-release.md). No object blobs, filesystem rename protocol, uncommitted blob
 reconciliation or power-loss durability measurement is implemented. The object publication
 contract below remains planned and must be verified before exposing object writes.
 

@@ -1,0 +1,22 @@
+   Compiling gcs-mimic v0.1.0 (<workspace>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.94s
+     Running tests/catalog.rs (target/debug/deps/catalog-90083a4796d12790)
+
+running 1 test
+test drop_releases_lock_while_a_forked_child_has_not_execed ... FAILED
+
+failures:
+
+---- drop_releases_lock_while_a_forked_child_has_not_execed stdout ----
+
+thread 'drop_releases_lock_while_a_forked_child_has_not_execed' (109127639) panicked at tests/catalog.rs:267:14:
+called `Result::unwrap()` on an `Err` value: Unavailable("data directory <test-data-dir> is already in use")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    drop_releases_lock_while_a_forked_child_has_not_execed
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test catalog`

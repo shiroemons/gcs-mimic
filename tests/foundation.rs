@@ -162,6 +162,29 @@ async fn shutdown_stops_accepting_on_original_listener() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
+    let (_address, state, stop, task, dir) = start(Config::default()).await;
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+    assert!(!state.is_ready());
+    assert!(state.catalog.get_bucket("missing").await.is_err());
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let config = Config::default();
+    let restarted = Arc::new(State {
+        ready: AtomicBool::new(true),
+        clock: Arc::new(FixedClock),
+        catalog,
+        api_base_url: config.api_base_url.clone(),
+    });
+    server::serve(listener, config, restarted.clone(), async { Ok(()) })
+        .await
+        .unwrap();
+    assert!(!restarted.is_ready());
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejects_bodies_and_oversized_or_malformed_headers() {
     let (address, _, stop, task, _dir) = start(Config::default()).await;
     for header in ["Content-Length: 1073741824", "Transfer-Encoding: chunked"] {

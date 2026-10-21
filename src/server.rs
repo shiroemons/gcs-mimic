@@ -56,10 +56,15 @@ pub async fn serve(
         tokio::select! {
             result = &mut shutdown => break result,
             result = connections.join_next(), if !connections.is_empty() => {
-                result.expect("nonempty task set").map_err(io::Error::other)?;
+                if let Err(error) = result.expect("nonempty task set") {
+                    break Err(io::Error::other(error));
+                }
             }
             incoming = listener.accept(), if connections.len() < config.max_connections => {
-                let (stream, _) = incoming?;
+                let (stream, _) = match incoming {
+                    Ok(incoming) => incoming,
+                    Err(error) => break Err(error),
+                };
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
                 let timeout = Duration::from_millis(config.connection_timeout_ms);
@@ -95,18 +100,24 @@ pub async fn serve(
         }
         Ok::<_, io::Error>(())
     };
-    match tokio::time::timeout(Duration::from_millis(config.shutdown_timeout_ms), drain).await {
-        Ok(result) => result?,
-        Err(_) => {
-            connections.abort_all();
-            while connections.join_next().await.is_some() {}
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "shutdown drain deadline exceeded",
-            ));
-        }
+    let drain_result = match tokio::time::timeout(
+        Duration::from_millis(config.shutdown_timeout_ms),
+        drain,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "shutdown drain deadline exceeded",
+        )),
+    };
+    if drain_result.is_err() {
+        connections.abort_all();
+        while connections.join_next().await.is_some() {}
     }
-    signal_result
+    state.catalog.close().await.map_err(io::Error::other)?;
+    signal_result.and(drain_result)
 }
 
 async fn respond(request: Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
