@@ -1,42 +1,9 @@
-   Compiling libc v0.2.191
-   Compiling proc-macro2 v1.0.107
-   Compiling quote v1.0.47
-   Compiling unicode-ident v1.0.27
-   Compiling itoa v1.0.18
-   Compiling bytes v1.12.1
-   Compiling shlex v2.0.1
-   Compiling find-msvc-tools v0.1.15
-   Compiling pin-project-lite v0.2.17
-   Compiling vcpkg v0.2.15
-   Compiling pkg-config v0.3.34
-   Compiling httparse v1.10.1
-   Compiling zmij v1.0.23
-   Compiling futures-core v0.3.34
-   Compiling smallvec v1.16.3
-   Compiling cc v1.9.0
-   Compiling serde_core v1.0.229
-   Compiling httpdate v1.0.3
-   Compiling serde_json v1.0.154
-   Compiling atomic-waker v1.1.2
-   Compiling fallible-streaming-iterator v0.1.9
-   Compiling fallible-iterator v0.3.0
-   Compiling bitflags v2.13.2
-   Compiling http v1.5.0
-   Compiling memchr v2.8.3
-   Compiling libsqlite3-sys v0.38.2
-   Compiling http-body v1.1.0
-   Compiling http-body-util v0.1.5
-   Compiling errno v0.3.14
-   Compiling socket2 v0.6.5
-   Compiling mio v1.2.4
-   Compiling syn v3.0.9
-   Compiling signal-hook-registry v1.4.8
-   Compiling tokio-macros v2.7.2
-   Compiling tokio v1.54.0
-   Compiling hyper v1.12.0
-   Compiling hyper-util v0.1.21
-   Compiling rusqlite v0.40.2
    Compiling gcs-mimic v0.1.0 (.)
-    Finished `release` profile [optimized] target(s) in 14.89s
-{"connection_timeout_ms":5000,"event":"ready","gcs_api":"json-bucket-crud","listen":"127.0.0.1:52156","max_blocking_threads":2,"max_connections":32,"protocol":"http1","shutdown_timeout_ms":5000,"worker_threads":2}
+    Finished `release` profile [optimized] target(s) in 2.17s
+gcs-mimic 0.1.0
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  44811      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792579539}{"connection_timeout_ms":5000,"event":"ready","gcs_api":"json-bucket-crud","listen":"127.0.0.1:52438","max_blocking_threads":2,"max_connections":32,"protocol":"http1","shutdown_timeout_ms":5000,"worker_threads":2}
 {"event":"stopped"}
+PASS: release binary readiness, health and SIGTERM shutdown

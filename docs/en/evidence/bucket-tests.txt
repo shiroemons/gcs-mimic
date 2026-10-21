@@ -1,39 +1,187 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+Consecutive final workspace run 1: env -u RUSTUP_TOOLCHAIN cargo test --workspace --locked
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
      Running unittests src/lib.rs (target/debug/deps/gcs_mimic-436f3b361fb52349)
 
-running 30 tests
+running 32 tests
+test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
+test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-5e1ba687a898a46e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-fb7307095327d6d9)
+
+running 6 tests
+test bkt_http_failed_recovery_never_reports_ready ... ok
+test bkt_http_sorted_scoped_pagination_and_limits ... ok
+test bkt_http_crud_metadata_conditions_and_errors ... ok
+test bkt_http_query_body_name_and_route_boundaries ... ok
+test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
+test bkt_http_list_clamps_to_1000_with_lookahead ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+     Running tests/catalog.rs (target/debug/deps/catalog-90083a4796d12790)
+
+running 8 tests
+test catalog_child_process ... ok
+test delete_preconditions_are_atomic_and_preserve_failed_records ... ok
+test recovers_committed_wal_after_process_exit_without_drop ... ok
+test concurrent_duplicate_creates_have_exactly_one_winner ... ok
+test create_get_delete_and_restart_preserve_every_field ... ok
+test directory_lock_lives_until_the_last_handle_drops ... ok
+test indexed_listing_orders_filters_pages_and_limits ... ok
+test rejects_future_schema_unversioned_data_and_corruption ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-28492bb84d97fddf)
+
+running 9 tests
+test config_precedence_validation_and_size_limit ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test cli_help_errors_and_bind_failure ... ok
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.41s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
+
+running 7 tests
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test tests::schema_enumerations_match_validator ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
+
+running 11 tests
+test partial_and_simulated_work_remain_explicit ... ok
+test coverage_dimensions_remain_separate ... ok
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test baseline_and_completed_evidence_validate ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
+
+running 2 tests
+test go_sdk_scope_and_lockfile_are_declared ... ok
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests gcs_mimic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Consecutive final workspace run 2: env -u RUSTUP_TOOLCHAIN cargo test --workspace --locked
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-436f3b361fb52349)
+
+running 32 tests
 test config::tests::advertised_endpoint_precedence_and_validation ... ok
 test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
-test config::tests::data_directory_precedence_and_validation ... ok
 test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
-test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
-test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
-test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
 test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
-test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
-test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
-test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
-test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
-test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
-test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
-test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
-test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
-test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
-test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
-test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
-test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
-test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
 test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
-test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
-test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
-test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
 test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
-test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
 test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
 test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
 test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
 
-test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running unittests src/main.rs (target/debug/deps/gcs_mimic-5e1ba687a898a46e)
 
@@ -51,26 +199,27 @@ test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
 test bkt_http_query_body_name_and_route_boundaries ... ok
 test bkt_http_list_clamps_to_1000_with_lookahead ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s
 
      Running tests/catalog.rs (target/debug/deps/catalog-90083a4796d12790)
 
 running 8 tests
 test catalog_child_process ... ok
-test recovers_committed_wal_after_process_exit_without_drop ... ok
 test concurrent_duplicate_creates_have_exactly_one_winner ... ok
 test delete_preconditions_are_atomic_and_preserve_failed_records ... ok
 test create_get_delete_and_restart_preserve_every_field ... ok
-test indexed_listing_orders_filters_pages_and_limits ... ok
+test recovers_committed_wal_after_process_exit_without_drop ... ok
 test directory_lock_lives_until_the_last_handle_drops ... ok
+test indexed_listing_orders_filters_pages_and_limits ... ok
 test rejects_future_schema_unversioned_data_and_corruption ... ok
 
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
      Running tests/foundation.rs (target/debug/deps/foundation-28492bb84d97fddf)
 
-running 8 tests
+running 9 tests
 test config_precedence_validation_and_size_limit ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
 test rejects_bodies_and_oversized_or_malformed_headers ... ok
 test wire_probes_clock_and_unimplemented_routes ... ok
 test healthcheck_exit_status_tracks_readiness ... ok
@@ -79,18 +228,20 @@ test cli_help_errors_and_bind_failure ... ok
 test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
 test healthcheck_deadline_includes_slow_streaming_responses ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
 
      Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
 
-running 5 tests
+running 7 tests
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
 test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
 test dependencies::tests::stable_major_selection_and_registry_paths ... ok
 test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
-test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
 test tests::schema_enumerations_match_validator ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
 
@@ -101,19 +252,19 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
 
 running 11 tests
-test partial_and_simulated_work_remain_explicit ... ok
 test coverage_dimensions_remain_separate ... ok
 test invalid_identity_enums_counts_and_provenance_fail ... ok
-test rendering_is_order_independent_and_escapes_markup ... ok
+test partial_and_simulated_work_remain_explicit ... ok
 test unknown_cyclic_and_incomplete_dependencies_fail ... ok
-test evidence_artifacts_cannot_escape_repository ... ok
 test completed_claims_require_linked_passing_evidence ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
 test baseline_and_completed_evidence_validate ... ok
-test cli_usage_and_errors_have_correct_exit_status ... ok
 test malformed_oversized_and_mismatched_inputs_fail ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
 test render_check_detects_stale_views_without_mutating ... ok
 
-test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
 
      Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
 
@@ -122,6 +273,150 @@ test go_sdk_scope_and_lockfile_are_declared ... ok
 test fetch_failure_is_never_reported_as_current ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+   Doc-tests gcs_mimic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Consecutive final workspace run 3: env -u RUSTUP_TOOLCHAIN cargo test --workspace --locked
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-436f3b361fb52349)
+
+running 32 tests
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
+test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
+test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
+test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
+test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-5e1ba687a898a46e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-fb7307095327d6d9)
+
+running 6 tests
+test bkt_http_failed_recovery_never_reports_ready ... ok
+test bkt_http_sorted_scoped_pagination_and_limits ... ok
+test bkt_http_crud_metadata_conditions_and_errors ... ok
+test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
+test bkt_http_query_body_name_and_route_boundaries ... ok
+test bkt_http_list_clamps_to_1000_with_lookahead ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/catalog.rs (target/debug/deps/catalog-90083a4796d12790)
+
+running 8 tests
+test catalog_child_process ... ok
+test concurrent_duplicate_creates_have_exactly_one_winner ... ok
+test delete_preconditions_are_atomic_and_preserve_failed_records ... ok
+test recovers_committed_wal_after_process_exit_without_drop ... ok
+test create_get_delete_and_restart_preserve_every_field ... ok
+test indexed_listing_orders_filters_pages_and_limits ... ok
+test directory_lock_lives_until_the_last_handle_drops ... ok
+test rejects_future_schema_unversioned_data_and_corruption ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-28492bb84d97fddf)
+
+running 9 tests
+test config_precedence_validation_and_size_limit ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test cli_help_errors_and_bind_failure ... ok
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
+
+running 7 tests
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test tests::schema_enumerations_match_validator ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
+
+running 11 tests
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test partial_and_simulated_work_remain_explicit ... ok
+test coverage_dimensions_remain_separate ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test baseline_and_completed_evidence_validate ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
+
+running 2 tests
+test go_sdk_scope_and_lockfile_are_declared ... ok
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
 
    Doc-tests gcs_mimic
 

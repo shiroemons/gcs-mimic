@@ -289,7 +289,7 @@ The verified compiler was Rust 1.99.1 (`58cf8f9c3`, 2026-10-13).
 | --- | --- |
 | `fmt --check` | PASS |
 | `clippy --locked --all-targets -- -D warnings` | PASS |
-| `test --workspace --locked` | PASS: adapter/config/catalog, six binary HTTP tests, eight catalog tests, eight foundation tests and xtask suites; no skips |
+| `test --workspace --locked` | PASS three consecutive times: adapter/config/catalog, six binary HTTP tests, eight catalog tests, nine foundation tests and xtask suites; no skips |
 | `xtask dependencies check` | PASS: compiler, all direct dependencies, Action and container inputs CURRENT |
 
 The wire cases are `bkt_http_crud_metadata_conditions_and_errors`,

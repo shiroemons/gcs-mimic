@@ -1,7 +1,6 @@
-   Compiling xtask v0.1.0 (./xtask)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.64s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask dependencies check`
-checked_at_unix_seconds=1792577313
+checked_at_unix_seconds=1792579098
 rust: CURRENT current=1.99.1 latest=1.99.1
 http-body-util: CURRENT current=0.1.5 latest=0.1.5
 hyper: CURRENT current=1.12.0 latest=1.12.0

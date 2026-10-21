@@ -9,26 +9,27 @@ cloud.google.com/go/storage v1.69.0 and google.golang.org/api v0.306.0.
 Cargo commands used `env -u RUSTUP_TOOLCHAIN` with the rustup proxy first in PATH
 because the mise shim otherwise reintroduces Rust 1.93.0. Socket/network/container
 checks ran with the sandbox permissions needed for loopback and Docker access.
-Machine-local compiler paths in the retained logs are normalized to `.` or `./xtask`;
-commands, versions and results are preserved.
+Machine-local compiler paths in the retained logs are normalized to `.` or `./xtask`,
+and trailing whitespace is removed; commands, versions and results are preserved.
 
 | Command | Result | Log |
 | --- | --- | --- |
-| `cargo test --workspace --locked` | PASS, 70 tests; zero failed/ignored | [Rust](bucket-tests.txt) |
+| `cargo test --workspace --locked`, three consecutive runs | PASS, 75 tests per run; zero failed/ignored | [Rust](bucket-tests.txt) |
 | `cargo fmt --all --check` | PASS, exit 0, no output | This report |
 | `cargo clippy --workspace --locked --all-targets -- -D warnings` | PASS, exit 0 | [Clippy](bucket-clippy.txt) |
 | `bash scripts/sdk-go.sh` with the rustup proxy first in PATH | PASS, vet and both Go tests; no integration skip | [Go SDK](bucket-sdk-go.txt) |
 | `docker build -t gcs-mimic:dev .` | PASS, source build with bundled SQLite | [Guide](bucket-guide.txt) |
 | `bash scripts/smoke-containers.sh linux/arm64 linux/amd64` | PASS, native arm64 and emulated amd64 | [Containers](bucket-containers.txt) |
-| Getting-started shell blocks through the Go section | PASS, host/peer CRUD, restart and explicit reset, Go SDK on Compose | [Guide](bucket-guide.txt) |
+| Getting-started shell blocks through the Go section and final `docker compose down` | PASS, host/peer CRUD, restart and explicit reset, Go SDK on Compose, shutdown | [Guide](bucket-guide.txt) |
 | `cargo build --release --locked --bin gcs-mimic` plus guide native serve/probe/stop | PASS | [Native](bucket-native.txt) |
 | `cargo xtask dependencies check` | PASS, all direct Rust/Go/Actions/container inputs CURRENT | [Dependencies](bucket-dependencies.txt) |
 | `cargo xtask compatibility validate`, `render`, `check` | PASS, 588 rows and current generated English/Japanese matrices | [Ledger](bucket-ledger.txt) |
 
 The guide's shell blocks were extracted with awk and executed together using
 `bash -euxo pipefail -c`, preserving variables across blocks. The dedicated
-`gcs-mimic-bucket-demo` project used allocated port 55030 and was removed with its
-test volume after execution. Existing unrelated containers were untouched.
+`gcs-mimic-bucket-demo` project used allocated port 55039. Its final documented
+`down` removed containers/network while preserving the volume; the empty test
+volume was then removed separately. Existing unrelated containers were untouched.
 The smoke creates unique project/image/volume names and removes only its own data.
 Its peer curl image is 8.23.0 at index digest
 `sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac`;
@@ -42,10 +43,12 @@ the dependency checker also verifies that pin and its current stable selector.
 | BKT-ROUTE-001/002/003, QRY-001/002, INS-002/003, NAME-001/002, BODY-001 | `bkt_http_query_body_name_and_route_boundaries` plus exhaustive parameter/field/body adapter units |
 | BKT-LST-001/002/003 | `bkt_http_sorted_scoped_pagination_and_limits`, `bkt_http_list_clamps_to_1000_with_lookahead` and token corruption/version units |
 | Concurrent duplicate insert, process restart, exclusive directory ownership | `bkt_http_concurrent_duplicates_restart_and_exclusive_directory` (exactly one 200 and fifteen 409) |
-| Failure before readiness | `bkt_http_failed_recovery_never_reports_ready` (corruption/path error) and catalog schema/lock units |
+| Failure before readiness; poison after startup | `bkt_http_failed_recovery_never_reports_ready` (corruption/path error), catalog schema/lock units and `poisoned_catalog_permanently_revokes_readiness` |
 | Committed WAL recovery after abrupt process exit | `recovers_committed_wal_after_process_exit_without_drop` |
 | Close/reopen ownership release, indexed queries, atomic conditions | Catalog integration tests and bounded-admission/cache unit test |
-| Existing probe/resource/connection behavior | All eight foundation tests |
+| Existing probe/resource/connection behavior | All nine foundation tests, including `shutdown_stops_accepting_on_original_listener` |
+| Insert output-only values and signed query syntax | `bkt_ins_002_output_only_fields_do_not_override_server_state`, `bkt_get_002_and_del_002_signed_conditions` |
+| Go new-major detection and failures | `go_new_major_paths_are_checked_until_missing`, `go_missing_majors_and_proxy_failures_are_distinct` |
 
 The six HTTP tests run the real binary, not a route mock. They cover exact 64 KiB
 metadata acceptance, advertised-length and chunked oversize rejection, unknown
@@ -64,11 +67,20 @@ ownership, billing, quotas, retention, soft delete or object side effects exist.
 selected to preserve unchanged official high-level SDK calls. `projectNumber`
 normalizes a decimal project or returns `"0"` for string IDs, a local simulation.
 Unknown body fields are ignored under an unverified local rule; recognized
-unsupported semantics return 501. GET failed not-match returns empty 304.
+unsupported semantics return 501. Documented output-only insert fields are ignored
+without overriding server state, following the JSON resource writable column,
+pinned proto and AIP-203; real JSON service behavior remains unverified.
+GET failed not-match returns empty 304.
 DELETE failed not-match returns 412, an explicitly unverified deviation from the
 general preconditions table; see both official sources in the slice document.
-ETags, cursor checksums, zero-size pages and naming edge cases retain the slice's
-documented local limits.
+`maxResults=0` selects the projection default (1000 noAcl / 200 full), preserving
+continuation. The v2 proto's implicit scalar presence motivates this choice;
+JSON zero behavior remains unverified against the real service. ETags, cursor
+checksums and naming edge cases retain the slice's documented local limits.
+
+The native Go harness advertises the same selected loopback origin it binds.
+High-level `storage.BucketAttrs` does not expose `selfLink`; the Go workflow does
+not check it. Rust wire tests verify configured links.
 
 Only bucket/catalog WAL recovery is implemented. Blob publication/reconciliation,
 object streaming, fixtures, permission persistence, native amd64, remote CI/scheduled
@@ -111,3 +123,15 @@ executable. The final smoke uses the pinned official curl image and passes on bo
 architectures. Restricted-sandbox freshness initially failed DNS resolution; the
 explicit online run passed with network access. None of these failures was skipped
 or counted as passing evidence.
+
+During review remediation, the first replacement shutdown test attempted an
+immediate nonblocking accept and failed with `Os { code: 35, kind: WouldBlock,
+message: "Resource temporarily unavailable" }`. It now awaits accept with a
+two-second deadline on the retained original socket. Three consecutive final
+workspace runs pass. The final clippy run also passes after removing an
+unnecessary closure borrow reported by `needless_borrows_for_generic_args`.
+
+Per-finding fixes, commits and verification are recorded in the
+[review remediation report](bucket-review-fixes.md). All feature statuses remain
+unchanged; implementation provenance now names full, reachable implementation
+commits rather than an unrelated projection fix.
