@@ -2,7 +2,10 @@ use gcs_mimic::{
     clock::Clock,
     config::Config,
     server::{self, State},
+    storage::Catalog,
 };
+mod common;
+use common::TestDir;
 use std::{
     collections::BTreeMap,
     fs,
@@ -31,18 +34,22 @@ async fn start(
     Arc<State>,
     oneshot::Sender<()>,
     tokio::task::JoinHandle<std::io::Result<()>>,
+    TestDir,
 ) {
+    let dir = TestDir::new();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let state = Arc::new(State {
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
+        catalog: Catalog::open(&dir.0).await.unwrap(),
+        api_base_url: config.api_base_url.clone(),
     });
     let (stop, shutdown) = oneshot::channel();
     let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
         shutdown.await.map_err(std::io::Error::other)
     }));
-    (address, state, stop, task)
+    (address, state, stop, task, dir)
 }
 
 fn stream(address: SocketAddr) -> TcpStream {
@@ -66,7 +73,7 @@ fn request(address: SocketAddr, request: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wire_probes_clock_and_unimplemented_routes() {
-    let (address, state, stop, task) = start(Config::default()).await;
+    let (address, state, stop, task, _dir) = start(Config::default()).await;
     let get = |path: &str| {
         request(
             address,
@@ -81,7 +88,6 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     assert!(get("/_internal/ready").starts_with("HTTP/1.1 503"));
     assert!(get("/_internal/health").starts_with("HTTP/1.1 200"));
     for path in [
-        "/storage/v1/b?project=local",
         "/upload/storage/v1/b/b/o",
         "/bucket/object",
         "/google.storage.v2.Storage/ReadObject",
@@ -110,7 +116,7 @@ async fn wire_probes_clock_and_unimplemented_routes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejects_bodies_and_oversized_or_malformed_headers() {
-    let (address, _, stop, task) = start(Config::default()).await;
+    let (address, _, stop, task, _dir) = start(Config::default()).await;
     for header in ["Content-Length: 1073741824", "Transfer-Encoding: chunked"] {
         let response = request(
             address,
@@ -148,7 +154,7 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
         connection_timeout_ms: 300,
         ..Config::default()
     };
-    let (address, _, stop, task) = start(config).await;
+    let (address, _, stop, task, _dir) = start(config).await;
     let mut first = stream(address);
     first
         .write_all(b"GET /_internal/health HTTP/1.1\r\n")
@@ -297,12 +303,15 @@ fn cli_help_errors_and_bind_failure() {
         assert!(!output.stderr.is_empty());
     }
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dir = TestDir::new();
     let output = Command::new(bin)
         .env_clear()
         .args([
             "serve",
             "--listen",
             &listener.local_addr().unwrap().to_string(),
+            "--data-dir",
+            dir.0.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -366,7 +375,7 @@ fn healthcheck_rejects_truncated_malformed_and_oversized_responses() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn healthcheck_exit_status_tracks_readiness() {
-    let (address, state, stop, task) = start(Config::default()).await;
+    let (address, state, stop, task, _dir) = start(Config::default()).await;
     let bin = env!("CARGO_BIN_EXE_gcs-mimic");
     let probe = || {
         Command::new(bin)

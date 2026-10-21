@@ -1,4 +1,10 @@
-use crate::{clock::Clock, config::Config};
+use crate::{
+    bucket::CatalogError,
+    clock::Clock,
+    config::Config,
+    json::{self, BucketRequest, JsonError},
+    storage::Catalog,
+};
 use http_body_util::Full;
 use hyper::{
     Method, Request, Response, StatusCode,
@@ -22,7 +28,11 @@ use tokio::{net::TcpListener, sync::watch, task::JoinSet};
 pub struct State {
     pub ready: AtomicBool,
     pub clock: Arc<dyn Clock>,
+    pub catalog: Catalog,
+    pub api_base_url: String,
 }
+
+pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
 pub async fn serve(
     listener: TcpListener,
@@ -50,7 +60,7 @@ pub async fn serve(
                         .timer(TokioTimer::new()).header_read_timeout(timeout);
                     let connection = builder.serve_connection(TokioIo::new(stream), service_fn(move |request| {
                         let state = state.clone();
-                        async move { Ok::<_, Infallible>(respond(&request, &state)) }
+                        async move { Ok::<_, Infallible>(respond(request, &state).await) }
                     }));
                     tokio::pin!(connection);
                     tokio::select! {
@@ -90,7 +100,116 @@ pub async fn serve(
     signal_result
 }
 
-fn respond(request: &Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
+async fn respond(request: Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
+    if let Some(parsed) = json::route(request.method(), request.uri()) {
+        let result = match parsed {
+            Ok(operation) => bucket_response(request, operation, state).await,
+            Err(error) => Err(error),
+        };
+        let mut response = result.unwrap_or_else(JsonError::into_response);
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
+    probe_or_unknown(&request, state)
+}
+
+async fn bucket_response(
+    request: Request<Incoming>,
+    operation: BucketRequest,
+    state: &State,
+) -> Result<Response<Full<Bytes>>, JsonError> {
+    if !matches!(operation, BucketRequest::Insert(_))
+        && (request.headers().contains_key("transfer-encoding")
+            || request
+                .headers()
+                .get("content-length")
+                .is_some_and(|v| v != "0"))
+    {
+        return Err(JsonError::invalid_argument(
+            "This method requires an empty body",
+        ));
+    }
+    let value = match operation {
+        BucketRequest::Insert(params) => {
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let record = json::parse_insert(&bytes, &params.project, state.clock.now())?;
+            let record = state.catalog.insert_bucket(record).await?;
+            json::bucket_resource(&record, &state.api_base_url, params.projection)?
+        }
+        BucketRequest::Get { bucket, params } => {
+            let record = state
+                .catalog
+                .get_bucket(&bucket)
+                .await?
+                .ok_or(CatalogError::NotFound)?;
+            let conditions = params.conditions;
+            if conditions
+                .if_metageneration_match
+                .is_some_and(|v| v != record.metageneration)
+            {
+                return Err(CatalogError::PreconditionFailed.into());
+            }
+            if conditions.if_metageneration_not_match == Some(record.metageneration) {
+                return Ok(empty_response(StatusCode::NOT_MODIFIED));
+            }
+            json::bucket_resource(&record, &state.api_base_url, params.projection)?
+        }
+        BucketRequest::List(params) => {
+            let limit = params.max_results as usize;
+            let mut records = state
+                .catalog
+                .list_buckets(
+                    &params.project,
+                    Some(&params.prefix),
+                    params.start_after.as_deref(),
+                    if limit == 0 { 0 } else { limit + 1 },
+                )
+                .await?;
+            let token = if records.len() > limit {
+                records.truncate(limit);
+                Some(json::encode_page_token(
+                    &params.project,
+                    &params.prefix,
+                    &records[limit - 1].name,
+                )?)
+            } else {
+                None
+            };
+            json::bucket_list(
+                &records,
+                token.as_deref(),
+                &state.api_base_url,
+                params.projection,
+            )?
+        }
+        BucketRequest::Delete { bucket, conditions } => {
+            state
+                .catalog
+                .delete_bucket(
+                    &bucket,
+                    conditions.if_metageneration_match,
+                    conditions.if_metageneration_not_match,
+                )
+                .await?;
+            return Ok(empty_response(StatusCode::NO_CONTENT));
+        }
+    };
+    Ok(Response::builder()
+        .header("content-type", "application/json; charset=UTF-8")
+        .body(Full::new(Bytes::from(value.to_string())))
+        .unwrap())
+}
+
+fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
+        .body(Full::new(Bytes::new()))
+        .unwrap()
+}
+
+fn probe_or_unknown(request: &Request<Incoming>, state: &State) -> Response<Full<Bytes>> {
     let path = request.uri().path();
     let internal = matches!(path, "/_internal/health" | "/_internal/ready");
     let (status, body) = if !internal {

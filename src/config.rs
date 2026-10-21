@@ -10,6 +10,7 @@ use std::{
 pub struct Config {
     pub listen: SocketAddr,
     pub data_dir: PathBuf,
+    pub api_base_url: String,
     pub max_connections: usize,
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
@@ -22,6 +23,7 @@ impl Default for Config {
         Self {
             listen: "127.0.0.1:4443".parse().unwrap(),
             data_dir: PathBuf::from("data"),
+            api_base_url: "http://127.0.0.1:4443".into(),
             max_connections: 32,
             worker_threads: 2,
             max_blocking_threads: 2,
@@ -81,6 +83,17 @@ impl Config {
         let mut config = Self::default();
         for (key, value) in settings {
             match key.as_str() {
+                "api_base_url" => {
+                    let uri: hyper::Uri = value.parse().map_err(|_| "invalid api_base_url")?;
+                    if !matches!(uri.scheme_str(), Some("http" | "https"))
+                        || uri.authority().is_none_or(|a| a.as_str().contains('@'))
+                        || uri.query().is_some()
+                        || value.contains('#')
+                    {
+                        return Err("api_base_url must be an absolute HTTP(S) URL without credentials, query or fragment".into());
+                    }
+                    config.api_base_url = value.trim_end_matches('/').to_owned();
+                }
                 "data_dir" => {
                     if value.is_empty() {
                         return Err("data_dir must not be empty".into());
@@ -123,6 +136,41 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advertised_endpoint_precedence_and_validation() {
+        let env = BTreeMap::from([(
+            "GCS_MIMIC_API_BASE_URL".into(),
+            "https://example.invalid/base/".into(),
+        )]);
+        assert_eq!(
+            Config::load(&[], &env).unwrap().api_base_url,
+            "https://example.invalid/base"
+        );
+        assert_eq!(
+            Config::load(
+                &["--api-base-url".into(), "http://127.0.0.1:1234".into()],
+                &env
+            )
+            .unwrap()
+            .api_base_url,
+            "http://127.0.0.1:1234"
+        );
+        for value in [
+            "relative",
+            "ftp://example.invalid",
+            "http://a@b",
+            "http://a?q=x",
+            "http://a/#fragment",
+            "http://",
+            "http://a\r\n",
+        ] {
+            assert!(
+                Config::load(&["--api-base-url".into(), value.into()], &BTreeMap::new()).is_err(),
+                "{value}"
+            );
+        }
+    }
 
     #[test]
     fn data_directory_precedence_and_validation() {

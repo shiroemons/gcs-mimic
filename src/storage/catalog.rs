@@ -145,8 +145,13 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let (_admission, _execution) = (admission, execution);
-            let mut connection = inner.connection.lock().map_err(unavailable)?;
-            operation(&mut connection)
+            let result = match inner.connection.lock() {
+                Ok(mut connection) => operation(&mut connection),
+                Err(error) => Err(unavailable(error)),
+            };
+            // Release ownership before Tokio publishes completion to an immediate reopen.
+            drop(inner);
+            result
         })
         .await
         .map_err(unavailable)?
