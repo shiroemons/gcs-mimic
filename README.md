@@ -25,6 +25,82 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
+## Feature comparison
+
+Snapshot reviewed on **2026-10-22**: gcs-mimic's unreleased `0.1.0`
+compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
+Planned features are not counted.
+
+**Legend:** ✅ implementation available for the named operation;
+🚧 partial implementation or an explicit limitation; ❌ unavailable.
+Cells describe the reviewed scope, not complete Google API compatibility.
+gcs-mimic's status follows the project's feature ledger.
+The other products were reviewed through their documentation, source and tests;
+their tests were not run as part of this comparison.
+
+### 🧩 JSON API operations
+
+| Operation | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+| --- | --- | --- | --- |
+| Bucket create (`buckets.insert`) | 🚧 Validated metadata subset | ✅ Implemented | ✅ Implemented |
+| Bucket metadata GET (`buckets.get`) | 🚧 Modeled fields; no ACL/owner | ✅ Implemented | ✅ Implemented |
+| Bucket list (`buckets.list`) | 🚧 Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no paging |
+| Bucket delete (`buckets.delete`) | 🚧 Empty buckets; metageneration checks | ✅ Implemented | ✅ Implemented |
+| Bucket metadata PATCH (`buckets.patch`) | ❌ | 🚧 Versioning/default event-based hold fields | 🚧 Writable metadata subset |
+| Bucket metadata PUT (`buckets.update`) | ❌ | ❌ | ❌ |
+| Raw media upload | 🚧 Single-request media subset | ✅ | ✅ |
+| JSON multipart upload | ❌ | ✅ | ✅ |
+| Resumable upload | ❌ | ✅ Sessions and chunk uploads | 🚧 Chunk uploads and status queries |
+| Object metadata GET (`objects.get`) | 🚧 Current live generation only | ✅ | ✅ |
+| Whole-object media download | 🚧 Whole object; direct HTTP 200 | ✅ | ✅ |
+| Byte-range download | ❌ | ✅ | 🚧 Single range; explicit start required |
+| Object listing (`objects.list`) | ❌ | ✅ Prefix/delimiter/offsets | 🚧 Prefix/delimiter/glob filters |
+| Object list pagination | ❌ | ✅ `maxResults` / `pageToken` | ❌ |
+| Object metadata PATCH (`objects.patch`) | ❌ | 🚧 Metadata/content/ACL subset | 🚧 Writable metadata subset |
+| Object metadata PUT (`objects.update`) | ❌ | 🚧 Metadata/content/ACL subset | ❌ |
+| Object delete (`objects.delete`) | 🚧 Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
+| Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
+| Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
+| Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
+| Retained object version history | ❌ One live generation | 🚧 Memory backend only | ❌ Versioning metadata is not history |
+| Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
+| Generation/metageneration preconditions | 🚧 Atomic object checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
+| MD5 and CRC32C calculation | 🚧 Media upload metadata/headers | ✅ | ✅ |
+| Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
+
+### 🔐 Protocols and access
+
+| Capability | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+| --- | --- | --- | --- |
+| XML-style object endpoints | ❌ | 🚧 Selected listing/download/upload routes | 🚧 Public-path GET/PUT only |
+| gRPC API | ❌ | 🚧 Storage **v1** subset; not Storage v2 | ❌ |
+| TLS listener | ❌ HTTP only | ✅ HTTPS, HTTP or both | ❌ HTTP only |
+| Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
+| ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
+| IAM policy operations | ❌ | ❌ | 🚧 Stored policies and permissive stubs |
+| Authentication / permission enforcement | ❌ | ❌ | ❌ |
+| Signed-URL GET/PUT requests | ❌ | 🚧 Accepted without signature/expiry checks | 🚧 Accepted without signature/expiry checks |
+| Signed-URL signature / expiry validation | ❌ | ❌ | ❌ |
+
+An ACL value, stored IAM policy, accepted signed URL or CORS response does not
+establish access control.
+
+### 🛠️ Local development and distribution
+
+| Capability | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+| --- | --- | --- | --- |
+| Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
+| Disk persistence | 🚧 SQLite catalog and opaque blobs; documented recovery limits | ✅ Filesystem backend | ✅ Files and JSON metadata |
+| Optional in-memory backend | ❌ | ✅ | ✅ |
+| Fixture import | ❌ | ✅ Seed directory / initial objects | 🚧 Default bucket creation only |
+| Published native binaries | 🚧 Eight-target CI configured; no release yet | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
+| Published Docker image | 🚧 Source build; GHCR workflow configured | ✅ Docker Hub | ✅ Docker Hub |
+| Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
+
+Disk persistence does not imply equivalent crash or power-loss guarantees.
+CPU, memory, throughput and image size are not ranked: no equivalent cross-product
+benchmark was run.
+
 ## Run with Docker
 
 Requires Git, Docker Engine/Desktop with Buildx, and curl. Linux amd64 and arm64 are supported. Build from source; no container image is published.
