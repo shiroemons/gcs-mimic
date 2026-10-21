@@ -8,15 +8,15 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
-| behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 64 | 0 | 11 | 14 | 0 | 0 |
+| api_operation | 298 | 294 | 0 | 4 | 0 | 0 | 0 |
+| behavior | 201 | 189 | 0 | 12 | 0 | 0 | 0 |
+| project_requirement | 89 | 54 | 0 | 20 | 15 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 0 | 0 | 0 | 0 | 0 |
-| behavior | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 64 | 0 | 0 | 0 | 0 | 25 |
+| api_operation | 294 | 0 | 4 | 0 | 0 | 0 |
+| behavior | 189 | 0 | 10 | 2 | 0 | 0 |
+| project_requirement | 54 | 0 | 0 | 0 | 0 | 35 |
 
 ## api_operation
 
@@ -71,12 +71,12 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-BUCKETS-001 | buckets.delete | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| JSON-BUCKETS-002 | buckets.get | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-003 | buckets.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-BUCKETS-005 | buckets.insert | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| JSON-BUCKETS-006 | buckets.list | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-008 | buckets.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -478,10 +478,10 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-BUCKET-001 | バケット識別子と時刻 | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-002 | バケットラベル | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-003 | ロケーションと配置設定 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-BUCKET-004 | ストレージクラス | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-001 | バケット識別子と時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-BUCKET-002 | バケットラベル | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-BUCKET-003 | ロケーションと配置設定 | PARTIAL | P7 | LOCAL_SIMULATION | METADATA_ONLY | 0 |
+| BEHAVIOR-BUCKET-004 | ストレージクラス | PARTIAL | P1 | EXACT | METADATA_ONLY | 0 |
 | BEHAVIOR-BUCKET-005 | RPO・レプリケーション設定 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-BUCKET-006 | バケット既定暗号鍵 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-007 | 暗号方式の強制設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -522,20 +522,20 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-COMMON-001 | バケット名・オブジェクト名の検証 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-001 | バケット名・オブジェクト名の検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-002 | オブジェクト名とURIエンコード | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-003 | JSON整数の文字列表現 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-003 | JSON整数の文字列表現 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-004 | fieldsによる部分レスポンス | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-005 | projectionのfull/noAcl | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-005 | projectionのfull/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT置換とPATCH部分更新 | NOT_STARTED | P1 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-008 | HTTPバッチ形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-009 | データと一覧の強整合性 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-012 | HTTP条件付き要求 | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-013 | ページングとトークン検証 | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-014 | プロジェクト・課金コンテキスト | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-014 | プロジェクト・課金コンテキスト | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### CONTEXT
 
@@ -818,7 +818,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-060 | linux/arm64コンテナの提供 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-061 | ホスト・Compose内からの接続例 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-062 | 読み取り専用フィクスチャ投入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-063 | 永続データボリューム | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-063 | 永続データボリューム | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI・環境変数の優先順位 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-065 | HTTP・任意のテストTLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-066 | 非root・最小ランタイムイメージ | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
@@ -832,13 +832,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | クリーンチェックアウトからDockerビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | 初期データ投入後の起動完了 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-003 | ホスト・別コンテナ双方からのCRUD | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-004 | Go・Rubyの初回利用例 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | UX-005 | 非公開・公開の権限制御フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | ブラウザCORS・直接アップロード | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| UX-008 | 再起動後のデータ・権限保持 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-009 | 停止と明示的データ初期化の区別 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | 停止と明示的データ初期化の区別 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | 資源制限下の大容量オブジェクト操作 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-012 | 英語正本の導入ガイド・トラブルシューティング検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -879,12 +879,12 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-012 | ディスク枯渇・書込失敗時の整合性 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-013 | ファイル記述子・稼働セッションの上限 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-070 | 固定上限バッファによる本体ストリーミング | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-071 | リクエスト・ワーカー同時実行数の上限 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-072 | ディスク上メタデータ・索引付き一覧取得 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-071 | リクエスト・ワーカー同時実行数の上限 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-072 | ディスク上メタデータ・索引付き一覧取得 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-073 | 不変blobとカタログの原子的更新 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-074 | 複数ファイルにまたがるクラッシュ回復 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-075 | 不透明なblob保存パスとキーの完全保持 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-076 | データディレクトリの単一プロセス制約 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-076 | データディレクトリの単一プロセス制約 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-077 | 上限付きインメモリ動作 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-078 | ビジーループを避けたアイドルCPU低減 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-079 | RSS・cgroupメモリ測定 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -900,7 +900,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -928,6 +928,6 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-046 | 権限を変えない公開URLの組み立て | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | クライアントから到達できる再開用Location | NOT_STARTED | P2 | PROJECT | NONE | 0 |

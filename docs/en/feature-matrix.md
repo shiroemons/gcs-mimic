@@ -8,15 +8,15 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
-| behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 64 | 0 | 11 | 14 | 0 | 0 |
+| api_operation | 298 | 294 | 0 | 4 | 0 | 0 | 0 |
+| behavior | 201 | 189 | 0 | 12 | 0 | 0 | 0 |
+| project_requirement | 89 | 54 | 0 | 20 | 15 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 0 | 0 | 0 | 0 | 0 |
-| behavior | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 64 | 0 | 0 | 0 | 0 | 25 |
+| api_operation | 294 | 0 | 4 | 0 | 0 | 0 |
+| behavior | 189 | 0 | 10 | 2 | 0 | 0 |
+| project_requirement | 54 | 0 | 0 | 0 | 0 | 35 |
 
 ## api_operation
 
@@ -71,12 +71,12 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-BUCKETS-001 | buckets.delete | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| JSON-BUCKETS-002 | buckets.get | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-003 | buckets.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-BUCKETS-005 | buckets.insert | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| JSON-BUCKETS-006 | buckets.list | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-008 | buckets.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -478,10 +478,10 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-BUCKET-001 | Bucket identity and timestamps | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-002 | Labels | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-003 | Location and placement configuration | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-BUCKET-004 | Storage classes | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-001 | Bucket identity and timestamps | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-BUCKET-002 | Labels | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-BUCKET-003 | Location and placement configuration | PARTIAL | P7 | LOCAL_SIMULATION | METADATA_ONLY | 0 |
+| BEHAVIOR-BUCKET-004 | Storage classes | PARTIAL | P1 | EXACT | METADATA_ONLY | 0 |
 | BEHAVIOR-BUCKET-005 | RPO and replication properties | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-BUCKET-006 | Bucket default encryption key | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-007 | Encryption enforcement configuration | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -522,20 +522,20 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-COMMON-001 | Bucket and object name validation | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-001 | Bucket and object name validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-002 | Literal object names and URI encoding | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-003 | JSON integer representation | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-003 | JSON integer representation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-004 | Partial response fields selectors | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-005 | Projection full/noAcl | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-005 | Projection full/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT replacement versus PATCH merge | NOT_STARTED | P1 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-008 | HTTP batch request format | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-009 | Strong data and listing consistency | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-009 | Strong data and listing consistency | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | Authorization propagation model | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-012 | HTTP conditional requests | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-013 | Pagination and token validation | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-014 | Project and billing context | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-013 | Pagination and token validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-014 | Project and billing context | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### CONTEXT
 
@@ -818,7 +818,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-060 | Native linux/arm64 container | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-061 | Host and compose-network connection examples | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-062 | Read-only fixture seeding | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-063 | Persistent data volume | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-063 | Persistent data volume | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI and environment precedence | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-065 | HTTP and optional test TLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-066 | Non-root minimal runtime image | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
@@ -832,13 +832,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | Seed then ready startup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-003 | Host and peer-container CRUD flow | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-004 | Go and Ruby first-use examples | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | UX-005 | Private/public authorization journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-006 | Signed access and invalid-signature journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | Browser CORS and direct upload journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| UX-008 | Restart preserves data and permissions | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-009 | Stop versus deliberate reset semantics | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | Stop versus deliberate reset semantics | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | Resource-limited large-object workflow | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-012 | Canonical English guide and troubleshooting verification | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -879,12 +879,12 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-012 | Disk exhaustion and write failure integrity | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-013 | File descriptor and active-session budgets | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-070 | Streaming bodies with bounded buffers | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-071 | Bounded request and worker concurrency | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-072 | Disk-backed metadata and indexed listing | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-071 | Bounded request and worker concurrency | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-072 | Disk-backed metadata and indexed listing | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-073 | Immutable blobs and atomic catalog updates | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-074 | Cross-file crash recovery journal | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-075 | Opaque blob paths preserve object keys | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-076 | Single-process data-directory lock | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-076 | Single-process data-directory lock | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-077 | Bounded memory-backend mode | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-078 | Idle CPU without busy polling | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-079 | RSS and cgroup memory benchmarks | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -900,7 +900,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -928,6 +928,6 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-046 | Public URL construction without permission mutation | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-055 | Listen versus advertised API/public addresses | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-055 | Listen versus advertised API/public addresses | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | Proxy-aware advertised URLs with explicit trust | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | Resumable Location reachable by clients | NOT_STARTED | P2 | PROJECT | NONE | 0 |

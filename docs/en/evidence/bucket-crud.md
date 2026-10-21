@@ -77,6 +77,22 @@ No real Cloud Storage or metadata endpoint was contacted by runtime tests. Onlin
 freshness/builds fetched only release metadata, dependency artifacts and images.
 The next slice is one bounded object media path with proven blob/catalog recovery.
 
+## Ledger changes
+
+Each changed row includes dated cases, test IDs and existing verification artifacts.
+The required seed row UX-002 remains NOT_STARTED because no seeding exists.
+
+| Previous → current status | Rows |
+| --- | --- |
+| NOT_STARTED → PARTIAL | `JSON-BUCKETS-001`, `JSON-BUCKETS-002`, `JSON-BUCKETS-005`, `JSON-BUCKETS-006`, `BEHAVIOR-COMMON-001`, `BEHAVIOR-COMMON-007`, `BEHAVIOR-COMMON-013`, `BEHAVIOR-BUCKET-001`, `DESIGN-072`, `DESIGN-082`, `UX-008`, `UX-009`, `DESIGN-055`, `DESIGN-063`, `DESIGN-071`, `UX-003`, `BEHAVIOR-COMMON-003`, `BEHAVIOR-COMMON-005`, `BEHAVIOR-COMMON-009`, `BEHAVIOR-COMMON-011`, `BEHAVIOR-COMMON-014`, `BEHAVIOR-BUCKET-002`, `BEHAVIOR-BUCKET-003`, `BEHAVIOR-BUCKET-004`, `UX-004` |
+| NOT_STARTED → IMPLEMENTED | `DESIGN-076` |
+| PARTIAL → PARTIAL | `DEP-005`, `DESIGN-067` |
+| IMPLEMENTED → IMPLEMENTED | `DESIGN-058`, `DESIGN-060`, `DEP-001`, `DEP-003`, `DEP-008` |
+
+API operations and behavior remain visibly partial; only directory ownership reaches
+IMPLEMENTED in this slice. Location and storage-class achievement is METADATA_ONLY;
+project/identity and supported local protocol subsets retain LOCAL_SIMULATION.
+
 ## Resolved failures during integration
 
 The first merged catalog run failed immediate reopen with

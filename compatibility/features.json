@@ -616,26 +616,89 @@
       "interface": "storage.buckets.delete",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: ifMetagenerationMatch, ifMetagenerationNotMatch, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Delete an empty local bucket with atomic metageneration conditions; 204 empty success and structured missing/condition errors.",
+      "dependencies": [
+        "DESIGN-072",
+        "DESIGN-076"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-DEL-001",
+          "description": "Empty delete/missing bucket responses and no successful body.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors"
+          ]
+        },
+        {
+          "id": "BKT-DEL-002",
+          "description": "Both conditions are atomic and failed deletion preserves the record.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "delete_preconditions_are_atomic_and_preserve_failed_records"
+          ]
+        },
+        {
+          "id": "JSON-BUCKETS-001-PENDING",
+          "description": "Enforce delete permission, nonempty object checks and soft-delete/retention interactions.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "delete_preconditions_are_atomic_and_preserve_failed_records"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "delete_preconditions_are_atomic_and_preserve_failed_records"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "DELETE ifMetagenerationNotMatch failure returns 412, unverified against the general 304 preconditions table and the method-specific delete reference.",
+        "NotEmpty is unreachable until objects exist; empty local delete is immediate without Google's default soft-delete retention."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21",
       "http_method": "DELETE",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -666,26 +729,85 @@
       "interface": "storage.buckets.get",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: generation, ifMetagenerationMatch, ifMetagenerationNotMatch, projection, softDeleted, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412.",
+      "dependencies": [
+        "DESIGN-072",
+        "DESIGN-076"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-GET-001",
+          "description": "Persisted identity, labels, fixed selfLink, noAcl/full and missing-bucket errors.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors"
+          ]
+        },
+        {
+          "id": "BKT-GET-002",
+          "description": "Match/not-match and both-present conditions with 304/412 precedence.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors"
+          ]
+        },
+        {
+          "id": "JSON-BUCKETS-002-PENDING",
+          "description": "Enforce get permission, complete ACL/owner metadata and soft-deleted generations.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
+        "Recognized unsupported field selection/generation/billing semantics return 501."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21",
       "http_method": "GET",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -816,26 +938,101 @@
       "interface": "storage.buckets.insert",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: (none). Query parameters: enableObjectRetention, predefinedAcl, predefinedDefaultObjectAcl, project, projection, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably.",
+      "dependencies": [
+        "DESIGN-072",
+        "DESIGN-076"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-INS-001",
+          "description": "Metadata defaults/labels/location, project and timestamps survive get.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_001_defaults_and_server_owned_values"
+          ]
+        },
+        {
+          "id": "BKT-INS-002",
+          "description": "Invalid names/JSON/labels, unsupported semantics and oversized bodies fail.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_query_body_name_and_route_boundaries"
+          ]
+        },
+        {
+          "id": "BKT-INS-004",
+          "description": "Sixteen concurrent HTTP creates have one 200 and fifteen 409.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        },
+        {
+          "id": "JSON-BUCKETS-005-PENDING",
+          "description": "Enforce create permissions, project/domain ownership and advanced bucket settings/default policies.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_ins_001_defaults_and_server_owned_values",
+        "bkt_http_query_body_name_and_route_boundaries",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_001_defaults_and_server_owned_values",
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
+        "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
+        "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21",
       "http_method": "POST",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -874,26 +1071,98 @@
       "interface": "storage.buckets.list",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: (none). Query parameters: maxResults, pageToken, prefix, project, projection, returnPartialSuccess, softDeleted, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens.",
+      "dependencies": [
+        "DESIGN-072",
+        "DESIGN-076"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-LST-001",
+          "description": "Zero/default/boundary limits and lookahead obey projection-specific caps over 1001 buckets.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead"
+          ]
+        },
+        {
+          "id": "BKT-LST-002",
+          "description": "Invalid/corrupt/version/scope tokens fail and an empty initial token works.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_lst_002_token_tampering_and_invalid_shapes"
+          ]
+        },
+        {
+          "id": "BKT-LST-003",
+          "description": "Sorted pages, insertion behind cursor and no project leakage.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_sorted_scoped_pagination_and_limits"
+          ]
+        },
+        {
+          "id": "JSON-BUCKETS-006-PENDING",
+          "description": "Enforce list permissions, complete full projection, soft-deleted listing and regional partial failures.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_list_clamps_to_1000_with_lookahead",
+        "bkt_http_sorted_scoped_pagination_and_limits",
+        "bkt_lst_002_token_tampering_and_invalid_shapes"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_lst_002_token_tampering_and_invalid_shapes"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 is an explicit local rule.",
+        "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21",
       "http_method": "GET",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -5430,26 +5699,69 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/objects",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Validate UTF-8 byte lengths, reserved names, and flat/HNS differences.",
+      "notes": "Bucket name validation covers ASCII, length/dot boundaries and documented reserved-name subsets.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-NAME-001",
+          "description": "Name length/alphabet/dot and encoded slash boundaries at HTTP ingress.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_name_001_length_charset_and_dot_boundaries"
+          ]
+        },
+        {
+          "id": "BKT-NAME-002",
+          "description": "Reject dotted IPv4, goog/google/g00gle local patterns.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_name_002_ipv4_and_reserved_names"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-001-PENDING",
+          "description": "Implement object-key validation and verify ambiguous reserved/dotted naming rules.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_query_body_name_and_route_boundaries",
+        "bkt_name_001_length_charset_and_dot_boundaries",
+        "bkt_name_002_ipv4_and_reserved_names"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_name_001_length_charset_and_dot_boundaries",
+            "bkt_name_002_ipv4_and_reserved_names"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Objects are unimplemented; domain ownership and the undocumented complete misspelling set need conformance evidence."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-002",
@@ -5488,26 +5800,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Encode documented int64/uint64 values as strings without precision loss.",
+      "notes": "Bucket projectNumber/metageneration fields are emitted as JSON strings.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-003-BUCKET",
+          "description": "Bucket projectNumber/metageneration fields are emitted as JSON strings.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_get_001_and_id_001_bucket_wire_fields"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-003-PENDING",
+          "description": "Cover object generations/sizes and other 64-bit fields across transports.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_get_001_and_id_001_bucket_wire_fields"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_get_001_and_id_001_bucket_wire_fields"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Only current bucket numeric fields; projectNumber derives from a local project-ID simulation."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-004",
@@ -5546,26 +5890,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Return or omit ACL and owner fields according to the API and permission.",
+      "notes": "Bucket noAcl and full return modeled metadata; full list is capped to 200 versus 1000 noAcl.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-005-BUCKET",
+          "description": "Bucket noAcl and full return modeled metadata; full list is capped to 200 versus 1000 noAcl.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_list_clamps_to_1000_with_lookahead"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-005-PENDING",
+          "description": "Implement ACL/default ACL/owner fields and object projections.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_list_clamps_to_1000_with_lookahead"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_list_clamps_to_1000_with_lookahead"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-006",
@@ -5604,26 +5980,65 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Track status, reason, domain, message, and header shape for negative cases.",
+      "notes": "Bucket JSON error.code/message/errors envelopes, content type, status and method Allow; unknown/probe routes retain their existing contract.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-ERR-001",
+          "description": "Assert 400/404/405/409/412/413/501 JSON errors and empty 204/304 responses.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_err_001_envelope_content_type_and_catalog_mappings"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-007-PENDING",
+          "description": "Implement object/XML/gRPC errors and permission-denied behavior.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_query_body_name_and_route_boundaries",
+        "bkt_err_001_envelope_content_type_and_catalog_mappings"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bkt_err_001_envelope_content_type_and_catalog_mappings"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "DELETE ifMetagenerationNotMatch failure returns 412, unverified against the general 304 preconditions table and the method-specific delete reference.",
+        "Unsupported semantics use local 501; NotEmpty reason, metadata cap and exact messages are local choices."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-008",
@@ -5662,26 +6077,61 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/consistency",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "A completed mutation is visible to immediate reads and listings.",
+      "notes": "Committed local bucket mutations are visible to subsequent get/list; duplicate creates serialize in SQL.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-009-BUCKET",
+          "description": "Committed local bucket mutations are visible to subsequent get/list; duplicate creates serialize in SQL.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-009-PENDING",
+          "description": "Extend consistency and selected-generation behavior to objects and metadata updates.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_sorted_scoped_pagination_and_limits",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Only local bucket catalog consistency is exercised; objects, updates and propagation models are unavailable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-010",
@@ -5720,26 +6170,59 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Atomic check and mutate; cover match/not-match, zero sentinel, source/destination, incompatible pairs.",
+      "notes": "Bucket get evaluates metageneration conditions against the returned record; delete checks both atomically inside its transaction.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-011-BUCKET",
+          "description": "Bucket get evaluates metageneration conditions against the returned record; delete checks both atomically inside its transaction.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "delete_preconditions_are_atomic_and_preserve_failed_records"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-PENDING",
+          "description": "Add object generation/precondition interactions, updates and other methods.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "delete_preconditions_are_atomic_and_preserve_failed_records"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "delete_preconditions_are_atomic_and_preserve_failed_records"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "DELETE failed not-match returns 412 as an unverified deviation; GET failed not-match returns empty 304 per the general preconditions table."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-012",
@@ -5778,26 +6261,80 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Correct continuation, lexicographic order, empty pages, malformed tokens and concurrent changes.",
+      "notes": "Bucket keyset tokens are versioned, corruption-checked, project/prefix-bound and backed by bounded sorted SQL queries.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-LST-001",
+          "description": "Projection page caps and zero size over 1001 HTTP-created buckets.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead"
+          ]
+        },
+        {
+          "id": "BKT-LST-002",
+          "description": "Round-trip/corrupt/version/scope/shape validation.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_lst_002_token_tampering_and_invalid_shapes",
+            "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+          ]
+        },
+        {
+          "id": "BKT-LST-003",
+          "description": "New names behind the cursor remain skipped.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_sorted_scoped_pagination_and_limits"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-013-PENDING",
+          "description": "Extend pagination to objects and other resources.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_list_clamps_to_1000_with_lookahead",
+        "bkt_http_sorted_scoped_pagination_and_limits",
+        "bkt_lst_002_token_tampering_and_invalid_shapes",
+        "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bkt_lst_002_token_tampering_and_invalid_shapes",
+            "json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Other-resource pagination is unimplemented; tokens are not authenticated snapshots.",
+        "Zero and empty-token rules are local; full projection omits ACL/owner."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-COMMON-014",
@@ -5807,26 +6344,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Project ownership, userProject, Requester Pays validation; no real billing.",
+      "notes": "Insert/list require a local project identifier; listing and tokens are project scoped.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-014-BUCKET",
+          "description": "Insert/list require a local project identifier; listing and tokens are project scoped.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_sorted_scoped_pagination_and_limits"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-014-PENDING",
+          "description": "Implement real project resolution, requester-pays/billing and permission context.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_sorted_scoped_pagination_and_limits"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_sorted_scoped_pagination_and_limits"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Projects are local opaque IDs; numeric projectNumber is normalized and string IDs map to \"0\"; userProject returns 501."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-BUCKET-001",
@@ -5836,26 +6405,74 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "id, name, projectNumber, etag, generation, metageneration, timeCreated, updated, selfLink.",
+      "notes": "Persistent name/id, metageneration 1, UTC millisecond creation/update times, deterministic local etag, labels and fixed advertised selfLink.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BKT-ID-001",
+          "description": "Wire identity/timestamps/selfLink and restart preservation.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "bkt_id_001_utc_milliseconds_leap_century_and_range"
+          ]
+        },
+        {
+          "id": "BKT-ID-002",
+          "description": "Local ETag stability, metageneration/incarnation changes and labels omission.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_id_002_etag_changes_with_revision_and_incarnation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-BUCKET-001-PENDING",
+          "description": "Resolve project identity, ownership and soft-deleted bucket generations.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+        "bkt_id_001_utc_milliseconds_leap_century_and_range",
+        "bkt_id_002_etag_changes_with_revision_and_incarnation"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "bkt_id_001_utc_milliseconds_leap_century_and_range",
+            "bkt_id_002_etag_changes_with_revision_and_incarnation"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
+        "ETags are deterministic local identifiers; same-name recreation within one millisecond is indistinguishable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-BUCKET-002",
@@ -5865,26 +6482,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Validate and round-trip labels with PATCH deletion semantics.",
+      "notes": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-BUCKET-002-BUCKET",
+          "description": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_002_labels_unicode_boundaries_and_count"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-BUCKET-002-PENDING",
+          "description": "Verify broader Unicode combining-mark behavior and object labels when applicable.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_ins_002_labels_unicode_boundaries_and_count"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_002_labels_unicode_boundaries_and_count"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Label combining marks and ambiguous international characters are rejected under a documented subset."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-BUCKET-003",
@@ -5894,26 +6543,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P7",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "LOCAL_SIMULATION",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "location, locationType, customPlacementConfig.dataLocations and allowed combinations; local metadata only.",
+      "notes": "US/EU/ASIA and derived multi-region locationType persist in bucket metadata.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-BUCKET-003-BUCKET",
+          "description": "US/EU/ASIA and derived multi-region locationType persist in bucket metadata.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_003_location_and_storage_class_subset"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-BUCKET-003-PENDING",
+          "description": "Implement regional/dual-region/zonal placement and related object/infrastructure semantics.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_ins_003_location_and_storage_class_subset"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_003_location_and_storage_class_subset"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Only US/EU/ASIA metadata is supported; no geographic placement, residency, durability or SLA is simulated."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-BUCKET-004",
@@ -5923,26 +6604,58 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "METADATA_ONLY",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "STANDARD, NEARLINE, COLDLINE, ARCHIVE, RAPID plus accepted legacy aliases; enforce restrictions without claiming cloud-tier hardware.",
+      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-BUCKET-004-BUCKET",
+          "description": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_003_location_and_storage_class_subset"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-BUCKET-004-PENDING",
+          "description": "Apply storage classes to object behavior, transitions and supported region/zone interactions.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_ins_003_location_and_storage_class_subset"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_ins_003_location_and_storage_class_subset"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Bucket class is metadata only; no object placement, class transitions, billing or retention effects."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "BEHAVIOR-BUCKET-005",
@@ -16283,25 +16996,57 @@
       "interface": "Emulator configuration",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Separate bind address, API external URL and public base URL; never advertise 0.0.0.0.",
+      "notes": "Separate listen socket from fixed api_base_url; validate HTTP(S) base and ignore Host/forwarded values for selfLink.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-055-BUCKET",
+          "description": "Separate listen socket from fixed api_base_url; validate HTTP(S) base and ignore Host/forwarded values for selfLink.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "advertised_endpoint_precedence_and_validation"
+          ]
+        },
+        {
+          "id": "DESIGN-055-PENDING",
+          "description": "Add public object base URL and request-origin/allowlist modes when object URLs exist.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "advertised_endpoint_precedence_and_validation"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "advertised_endpoint_precedence_and_validation"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Only fixed advertised API selfLink is implemented; public/signed URLs and validated-request-origin mode are unavailable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-056",
@@ -16375,7 +17120,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Source-built Docker starts the probe shell without cloud credentials; no GCS API is implied.",
+      "notes": "Source-built non-root read-only-root Docker/Compose starts persistent bucket CRUD with its writable data volume and no cloud credentials.",
       "dependencies": [
         "DESIGN-064"
       ],
@@ -16389,10 +17134,19 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "id": "DESIGN-058-BUCKET",
+          "description": "Execute bucket CRUD, persistence and explicit volume reset with non-root/read-only/resource settings.",
+          "result": "PASS",
+          "test_ids": [
+            "container-bucket-smoke"
+          ]
         }
       ],
       "test_ids": [
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "container-bucket-smoke"
       ],
       "verification": [
         {
@@ -16402,6 +17156,15 @@
           "artifact": "docs/en/evidence/p0-containers.txt",
           "test_ids": [
             "container-foundation-smoke"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-bucket-smoke"
           ]
         }
       ],
@@ -16479,7 +17242,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "linux/arm64 builds and executes natively on Docker Desktop arm64 without amd64 emulation.",
+      "notes": "linux/arm64 image builds and runs natively with persistent bucket CRUD, host/peer curl, restart/reset and resource settings.",
       "dependencies": [
         "DESIGN-058"
       ],
@@ -16493,10 +17256,19 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "id": "DESIGN-060-BUCKET",
+          "description": "Execute bucket CRUD, persistence and explicit volume reset with non-root/read-only/resource settings.",
+          "result": "PASS",
+          "test_ids": [
+            "container-bucket-smoke"
+          ]
         }
       ],
       "test_ids": [
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "container-bucket-smoke"
       ],
       "verification": [
         {
@@ -16506,6 +17278,15 @@
           "artifact": "docs/en/evidence/p0-containers.txt",
           "test_ids": [
             "container-foundation-smoke"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-bucket-smoke"
           ]
         }
       ],
@@ -16599,25 +17380,57 @@
       "interface": "Emulator extension",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Separate fixture input from persisted blobs/catalog; verify restart preservation.",
+      "notes": "Non-root image prepares /var/lib/gcs-mimic; Compose mounts a writable named catalog volume under read-only root.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-063-BUCKET",
+          "description": "Non-root image prepares /var/lib/gcs-mimic; Compose mounts a writable named catalog volume under read-only root.",
+          "result": "PASS",
+          "test_ids": [
+            "container-bucket-persistence",
+            "container-bucket-reset"
+          ]
+        },
+        {
+          "id": "DESIGN-063-PENDING",
+          "description": "Add persisted opaque blobs and distinct read-only fixture import.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "container-bucket-persistence",
+        "container-bucket-reset"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-bucket-persistence",
+            "container-bucket-reset"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Volume stores only bucket catalog/WAL/lock; object blobs and fixtures remain unavailable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-064",
@@ -16798,14 +17611,14 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Probe shell validates startup, returns readiness, stops acceptance and drains within a deadline. Recovery/seed gating awaits storage.",
+      "notes": "Configuration and catalog lock/recovery complete before bind/readiness; probes/deadlines/drain remain verified. Fixture seeding remains unavailable.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "DESIGN-067-A1",
-          "description": "Verify GET/HEAD health/ready, 503 while not-ready, method errors, GCS namespace 404 and injected unix_time=42.",
+          "description": "Verify GET/HEAD health/ready, not-ready 503, injected unix_time=42 and unrelated/unimplemented namespaces 404.",
           "result": "PASS",
           "test_ids": [
             "wire_probes_clock_and_unimplemented_routes"
@@ -16853,9 +17666,19 @@
         },
         {
           "id": "DESIGN-067-P1",
-          "description": "Gate readiness on actual recovery and fixture import when introduced.",
+          "description": "Gate readiness on fixture import when seeding is introduced.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-067-RECOVERY",
+          "description": "Lock/recovery failure prevents a ready event; successful restart recovers the catalog before serving.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_failed_recovery_never_reports_ready",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
         }
       ],
       "test_ids": [
@@ -16864,7 +17687,10 @@
         "healthcheck_rejects_truncated_malformed_and_oversized_responses",
         "connection_limit_deadline_and_shutdown_release_idle_clients",
         "healthcheck_deadline_includes_slow_streaming_responses",
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "bkt_http_failed_recovery_never_reports_ready",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+        "rejects_future_schema_unversioned_data_and_corruption"
       ],
       "verification": [
         {
@@ -16888,11 +17714,22 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_failed_recovery_never_reports_ready",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No catalog, recovery or seeding exists yet; only stateless readiness and shutdown are verified."
+        "Fixture import/seeding, object recovery and strict/permissive authentication profiles remain unavailable."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"
@@ -17019,26 +17856,61 @@
       "interface": "Emulator implementation",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://tokio.rs/tokio/tutorial/channels",
         "https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Bound queues, CPU jobs and blocking operations; apply backpressure.",
+      "notes": "HTTP admission/deadlines/async and blocking threads remain capped; catalog admits 32 operations, executes one blocking job and returns 503 on saturation.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-071-BUCKET",
+          "description": "HTTP admission/deadlines/async and blocking threads remain capped; catalog admits 32 operations, executes one blocking job and returns 503 on saturation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
+            "connection_limit_deadline_and_shutdown_release_idle_clients",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        },
+        {
+          "id": "DESIGN-071-PENDING",
+          "description": "Validate bounds for future object streams, checksum CPU jobs and maintenance work.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
+        "connection_limit_deadline_and_shutdown_release_idle_clients",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
+            "connection_limit_deadline_and_shutdown_release_idle_clients",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Only current HTTP/bucket/catalog workers are implemented; object and maintenance resource behavior is pending."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-072",
@@ -17048,25 +17920,73 @@
       "interface": "Emulator implementation",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://www.sqlite.org/wal.html"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Avoid loading all objects into RAM or scanning every blob for each listing.",
+      "notes": "SQLite schema v1, project/name index, synchronous FULL WAL, 2 MiB cache, mmap disabled and bounded keyset queries.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "CATALOG-INDEX",
+          "description": "Indexed filtering/order/paging and at most 1001 rows.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "indexed_listing_orders_filters_pages_and_limits"
+          ]
+        },
+        {
+          "id": "CATALOG-RECOVERY",
+          "description": "Persist bucket fields and recover committed WAL after abrupt exit.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "create_get_delete_and_restart_preserve_every_field",
+            "recovers_committed_wal_after_process_exit_without_drop"
+          ]
+        },
+        {
+          "id": "DESIGN-072-PENDING",
+          "description": "Implement object/generation indexes and catalog/blob publication recovery.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_list_clamps_to_1000_with_lookahead",
+        "indexed_listing_orders_filters_pages_and_limits",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+        "create_get_delete_and_restart_preserve_every_field",
+        "recovers_committed_wal_after_process_exit_without_drop"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "indexed_listing_orders_filters_pages_and_limits",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "create_get_delete_and_restart_preserve_every_field",
+            "recovers_committed_wal_after_process_exit_without_drop"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Buckets only; object indexes, cross-file recovery and memory/CPU measurements remain pending."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-073",
@@ -17160,25 +18080,59 @@
       "interface": "Emulator implementation",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://www.sqlite.org/wal.html"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Reject simultaneous writers from independent emulator processes unless deliberately supported.",
+      "notes": "Exclusive OS directory ownership spans every catalog handle and in-flight job; connection closes before lock release; startup fails before bind/readiness for a second process.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "LOCK-LIFETIME",
+          "description": "Final-handle lock lifetime and immediate reopen after job completion.",
+          "result": "PASS",
+          "test_ids": [
+            "directory_lock_lives_until_the_last_handle_drops",
+            "create_get_delete_and_restart_preserve_every_field"
+          ]
+        },
+        {
+          "id": "LOCK-PROCESS",
+          "description": "A second real server fails startup and restart succeeds after the owner exits.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        }
+      ],
+      "test_ids": [
+        "directory_lock_lives_until_the_last_handle_drops",
+        "create_get_delete_and_restart_preserve_every_field",
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "directory_lock_lives_until_the_last_handle_drops",
+            "create_get_delete_and_restart_preserve_every_field",
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-077",
@@ -17324,25 +18278,89 @@
       "interface": "SDK compatibility",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Pin SDK version and transport; exercise emulator host, CRUD, conditions, signed URLs and resumable workflows.",
+      "notes": "Unchanged official high-level Go HTTP JSON client passes bucket CRUD/prefix/paging/409/404 on native and Compose; Go 1.27.3, storage v1.69.0, API v0.306.0.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "GO-BUCKET",
+          "description": "Pinned SDK lifecycle and vet pass without skips.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        },
+        {
+          "id": "GO-COMPOSE",
+          "description": "Same SDK lifecycle passes against the read-only-root Compose service.",
+          "result": "PASS",
+          "test_ids": [
+            "go-compose-bucket-lifecycle"
+          ]
+        },
+        {
+          "id": "DESIGN-082-PENDING",
+          "description": "Add objects, signing, resumable transfers and broader transport workflows.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestBucketLifecycle",
+        "go-compose-bucket-lifecycle"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        },
+        {
+          "command": "Getting-started shell blocks through the official Go SDK section",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-guide.txt",
+          "test_ids": [
+            "go-compose-bucket-lifecycle"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only bucket workflows; objects, signing, resumable transfers, XML/gRPC and permissions are unimplemented.",
+        "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-083",
@@ -18104,23 +19122,52 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Both caller locations create a bucket, upload an encoded object key, read/list/delete it and complete a resumable upload using reachable Location headers.",
+      "notes": "Getting-started and smoke execute bucket create/get/list/delete from host and peer curl containers, with one explicit advertised endpoint.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-003-BUCKET",
+          "description": "Getting-started and smoke execute bucket create/get/list/delete from host and peer curl containers, with one explicit advertised endpoint.",
+          "result": "PASS",
+          "test_ids": [
+            "container-host-peer-bucket-crud"
+          ]
+        },
+        {
+          "id": "UX-003-PENDING",
+          "description": "Implement encoded object keys, upload/download/delete and resumable Location behavior.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "container-host-peer-bucket-crud"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-host-peer-bucket-crud"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Bucket CRUD only; objects, media transfers and resumable sessions are not implemented."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-004",
@@ -18130,23 +19177,68 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Pinned complete Go/Ruby example projects execute against a new local instance without real Google credentials or network calls.",
+      "notes": "Pinned Go SDK bucket lifecycle passes from the guide against Compose.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-004-BUCKET",
+          "description": "Pinned Go SDK bucket lifecycle passes from the guide against Compose.",
+          "result": "PASS",
+          "test_ids": [
+            "go-compose-bucket-lifecycle"
+          ]
+        },
+        {
+          "id": "UX-004-PENDING",
+          "description": "Add Ruby and object first-use workflows.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "go-compose-bucket-lifecycle"
+      ],
+      "verification": [
+        {
+          "command": "Getting-started shell blocks through the official Go SDK section",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-guide.txt",
+          "test_ids": [
+            "go-compose-bucket-lifecycle"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/bucket-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only Go bucket workflow; Ruby/Rails, objects, ACL/IAM and transfers remain unavailable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-005",
@@ -18234,23 +19326,70 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Objects added after seed and metadata/permissions survive restart/down-up; fixtures do not overwrite state; interrupted upload recovery is checked.",
+      "notes": "Bucket metadata persists over binary restart, Compose stop/start and down/up without fixture replay.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RESTART-BINARY",
+          "description": "Persist metadata and delete across real binary restarts.",
+          "result": "PASS",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        },
+        {
+          "id": "RESTART-COMPOSE",
+          "description": "Preserve buckets across stop/start and down/up on both container architectures.",
+          "result": "PASS",
+          "test_ids": [
+            "container-bucket-persistence"
+          ]
+        },
+        {
+          "id": "UX-008-PENDING",
+          "description": "Preserve objects/permissions and reconcile interrupted uploads.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+        "container-bucket-persistence"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-bucket-persistence"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Objects, permissions, initial seeding and interrupted-upload recovery are unavailable."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-009",
@@ -18260,23 +19399,52 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. stop/start and down preserve state; documented deliberate down -v only resets that project's local volume and reapplies initial seed.",
+      "notes": "Ordinary Compose stop/down preserves the catalog; explicit down --volumes resets only that project's managed volume.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RESET-COMPOSE",
+          "description": "Demonstrate persistence, deliberate reset and 404 after next startup.",
+          "result": "PASS",
+          "test_ids": [
+            "container-bucket-reset"
+          ]
+        },
+        {
+          "id": "UX-009-PENDING",
+          "description": "Reapply configured initial seed after deliberate reset once seeding exists.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "container-bucket-reset"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-containers.txt",
+          "test_ids": [
+            "container-bucket-reset"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "No fixture import/reseeding or admin reset route; documented volume removal destroys the local catalog."
+      ],
+      "implemented_in": "bdb4ee3",
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-010",
@@ -18493,6 +19661,15 @@
           "test_ids": [
             "fetch_failure_is_never_reported_as_current"
           ]
+        },
+        {
+          "command": "cargo xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -18588,7 +19765,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Latest stable direct releases: tokio 1.54.0, hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154. Minimal features; no prior runtime release to migrate.",
+      "notes": "Latest stable direct crates are Tokio 1.54.0, Hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154 and bundled-only rusqlite 0.40.2.",
       "dependencies": [
         "DEP-001"
       ],
@@ -18633,6 +19810,15 @@
           "artifact": "docs/en/evidence/p0-tests.txt",
           "test_ids": [
             "dependencies::tests::stable_major_selection_and_registry_paths"
+          ]
+        },
+        {
+          "command": "cargo xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
           ]
         }
       ],
@@ -18736,7 +19922,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Rust xtask checks Rust/Cargo majors, Actions, Docker digests/tags and Debian stable codename. Every-day workflow has no cooldown.",
+      "notes": "Daily xtask detects Rust/direct Cargo, Actions, Docker runtime and peer-curl pins, Debian stable, Go language/toolchain and direct Go modules; every-calendar-day workflow has no cooldown.",
       "dependencies": [
         "DEP-001",
         "DEP-003"
@@ -18781,13 +19967,26 @@
           "description": "Observe default-branch scheduled execution, including weekends.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DEP-005-GO",
+          "description": "Discover actual Go scope, compare stable non-retracted releases and reject malformed declarations.",
+          "result": "PASS",
+          "test_ids": [
+            "go_sdk_scope_and_lockfile_are_declared",
+            "go_versions_exclude_prereleases_and_retractions",
+            "go_manifest_direct_requirements_and_exact_toolchain"
+          ]
         }
       ],
       "test_ids": [
         "freshness-live-check",
         "fetch_failure_is_never_reported_as_current",
         "dependencies::tests::stable_major_selection_and_registry_paths",
-        "dependencies::tests::metadata_and_proxy_headers_fail_closed"
+        "dependencies::tests::metadata_and_proxy_headers_fail_closed",
+        "go_sdk_scope_and_lockfile_are_declared",
+        "go_versions_exclude_prereleases_and_retractions",
+        "go_manifest_direct_requirements_and_exact_toolchain"
       ],
       "verification": [
         {
@@ -18809,11 +20008,31 @@
             "dependencies::tests::stable_major_selection_and_registry_paths",
             "dependencies::tests::metadata_and_proxy_headers_fail_closed"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-tests.txt",
+          "test_ids": [
+            "go_sdk_scope_and_lockfile_are_declared",
+            "go_versions_exclude_prereleases_and_retractions",
+            "go_manifest_direct_requirements_and_exact_toolchain"
+          ]
+        },
+        {
+          "command": "cargo xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Workflow is not pushed; scheduled execution is unverified. No SDK ecosystem exists."
+        "Default-branch scheduled execution, including weekends, remains unobserved; detection is verified locally."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"
@@ -18922,7 +20141,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Official Rust/Debian multiarch indexes, per-platform digests and BuildKit frontend verified. Both architectures build/run; drift detection checks selected tags and stable selectors.",
+      "notes": "Runtime/build/frontend and test-only curl 8.23.0 image indexes/platform digests verified; daily checker covers Dockerfile and smoke-script pins.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -18965,6 +20184,15 @@
           "artifact": "docs/en/evidence/p0-containers.txt",
           "test_ids": [
             "container-foundation-smoke"
+          ]
+        },
+        {
+          "command": "cargo xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/bucket-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
           ]
         }
       ],
