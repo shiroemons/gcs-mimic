@@ -149,11 +149,25 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
         "ifMetagenerationNotMatch=2",
         "ifMetagenerationMatch=1&ifMetagenerationNotMatch=2",
         "projection=noAcl&softDeleted=false&prettyPrint=false",
+        "projection=full",
     ] {
         assert_eq!(
             server.request("GET", &format!("{path}?{query}"), "").status,
             200
         );
+    }
+    assert_eq!(
+        server
+            .request("GET", &format!("{path}?projection=full"), "")
+            .json(),
+        bucket
+    );
+    let full_list = server
+        .request("GET", "/storage/v1/b?project=00042&projection=full", "")
+        .json();
+    assert_eq!(full_list["items"][0], bucket);
+    for field in ["acl", "defaultObjectAcl", "owner"] {
+        assert!(full_list["items"][0].get(field).is_none());
     }
     for query in [
         "ifMetagenerationMatch=0",
@@ -229,7 +243,6 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         assert_eq!(reply.status, 400, "{query}: {}", reply.body);
     }
     for query in [
-        "projection=full",
         "fields=name",
         "softDeleted=true",
         "returnPartialSuccess=true",
@@ -550,4 +563,14 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
         assert_eq!(next["items"][0]["name"], "limit-1000");
         assert!(next.get("nextPageToken").is_none());
     }
+    let full = server
+        .request(
+            "GET",
+            "/storage/v1/b?project=limits&projection=full&maxResults=1000&pageToken=",
+            "",
+        )
+        .json();
+    assert_eq!(full["items"].as_array().unwrap().len(), 200);
+    assert_eq!(full["items"][199]["name"], "limit-0199");
+    assert!(full["nextPageToken"].is_string());
 }

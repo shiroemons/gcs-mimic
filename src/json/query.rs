@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 pub enum Projection {
     #[default]
     NoAcl,
+    Full,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -117,8 +118,13 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
             false_only(&mut query, "returnPartialSuccess")?;
             let project = project(&mut query)?;
             let projection = projection(&mut query)?;
+            let page_cap = if projection == Projection::Full {
+                200
+            } else {
+                1000
+            };
             let max_results = match query.remove("maxResults") {
-                None => 1000,
+                None => page_cap,
                 Some(value) => {
                     if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
                         return Err(JsonError::invalid_parameter("maxResults must be a uint32"));
@@ -126,7 +132,7 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
                     value
                         .parse::<u32>()
                         .map_err(|_| JsonError::invalid_parameter("maxResults must be a uint32"))?
-                        .min(1000)
+                        .min(page_cap)
                 }
             };
             let prefix = query.remove("prefix").unwrap_or_default();
@@ -135,6 +141,7 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
             }
             let start_after = query
                 .remove("pageToken")
+                .filter(|token| !token.is_empty())
                 .map(|token| decode_page_token(&token, &project, &prefix))
                 .transpose()?;
             finish(query)?;
@@ -256,7 +263,7 @@ pub(super) fn validate_project(project: &str) -> Result<(), JsonError> {
 fn projection(query: &mut BTreeMap<String, String>) -> Result<Projection, JsonError> {
     match query.remove("projection").as_deref() {
         None | Some("noAcl") => Ok(Projection::NoAcl),
-        Some("full") => Err(JsonError::unsupported("projection=full")),
+        Some("full") => Ok(Projection::Full),
         Some(_) => Err(JsonError::invalid_parameter(
             "projection must be noAcl or full",
         )),

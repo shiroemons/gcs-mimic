@@ -247,12 +247,7 @@ fn bkt_qry_002_projection_alt_and_boolean_validation() {
         (Method::GET, "/storage/v1/b/abc?alt=json"),
     ] {
         assert!(request(method.clone(), &format!("{path}&projection=noAcl")).is_ok());
-        assert_eq!(
-            request(method.clone(), &format!("{path}&projection=full"))
-                .unwrap_err()
-                .status,
-            StatusCode::NOT_IMPLEMENTED
-        );
+        assert!(request(method.clone(), &format!("{path}&projection=full")).is_ok());
         for value in ["", "FULL", "other"] {
             assert_eq!(
                 request(method.clone(), &format!("{path}&projection={value}"))
@@ -784,7 +779,13 @@ fn bkt_lst_002_token_tampering_and_invalid_shapes() {
             "invalidParameter"
         );
     }
-    assert!(request(Method::GET, "/storage/v1/b?project=p&pageToken=").is_err());
+    assert!(matches!(
+        request(Method::GET, "/storage/v1/b?project=p&pageToken="),
+        Ok(BucketRequest::List(ListParams {
+            start_after: None,
+            ..
+        }))
+    ));
 }
 
 #[tokio::test]

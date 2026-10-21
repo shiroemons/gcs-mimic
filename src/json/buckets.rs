@@ -195,7 +195,8 @@ pub fn bucket_resource(
     base_url: &str,
     projection: Projection,
 ) -> Result<Value, JsonError> {
-    let Projection::NoAcl = projection;
+    // ACL and owner fields are not modeled, so both projections expose the same local subset.
+    let (Projection::NoAcl | Projection::Full) = projection;
     let project_number = if bucket.project.bytes().all(|byte| byte.is_ascii_digit()) {
         bucket.project.parse::<u64>().unwrap_or(0).to_string()
     } else {
