@@ -1,0 +1,28 @@
+Local verification on 2026-10-21; remote CI has not run.
+Captured logs retain their output with only trailing spaces and excess final blank lines removed.
+
+cargo +1.99.1 fmt --all --check
+Exit: 0 (no output)
+
+cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
+Exit: 0; full output: docs/en/evidence/p0-clippy.txt
+
+actionlint .github/workflows/ci.yaml .github/workflows/dependency-check.yaml
+Exit: 0 (no output)
+
+shellcheck scripts/smoke-containers.sh
+Exit: 0 (no output)
+
+Both architectures were built/run on Docker Desktop arm64, so amd64 used emulation.
+Full container logs: docs/en/evidence/p0-containers.txt
+Two simultaneous isolated arm64 runs: docs/en/evidence/p0-parallel-containers.txt
+
+Fresh source verification used a local git clone --local --no-hardlinks of the existing
+repository, followed by its current uncommitted patch and new source/config files.
+This was not a clone of a published commit containing these changes.
+The new checkout had no target directory before the build.
+Command: /Users/shiroemons/.cargo/bin/cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
+Result: exit 0, Finished release profile in 4.94s. No performance claim is made.
+Then: bash /tmp/gcs-mimic-native-onboarding.sh
+Result: exit 0; output: docs/en/evidence/p0-onboarding.txt
+Docker Compose build from that source checkout: exit 0 (cached image layers).

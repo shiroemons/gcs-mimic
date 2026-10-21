@@ -1,0 +1,433 @@
+P0 parallel container smoke evidence
+Checked: 2026-10-21 (Asia/Tokyo)
+Context: Docker Desktop, linux/arm64 engine; two native arm64 smoke processes
+launched concurrently through Promise.allSettled(exec_command(...)).
+Each process used its own image tag, Compose project and dynamically allocated
+localhost port. No repository implementation files were changed for this check.
+
+Commands (launched concurrently):
+bash -x scripts/smoke-containers.sh linux/arm64 > /tmp/gcs-mimic-container-parallel-a.log 2>&1
+bash -x scripts/smoke-containers.sh linux/arm64 > /tmp/gcs-mimic-container-parallel-b.log 2>&1
+
+Results:
+Process A: exit 0; project gcs-mimic-p0-arm64-68342; host 127.0.0.1:55008.
+Process B: exit 0; project gcs-mimic-p0-arm64-68455; host 127.0.0.1:55009.
+Both passed health/readiness, DNS access, unsupported routes, resource limits,
+SIGINT and SIGTERM checks. The traces record cleanup scoped to each process's
+own isolated container ID and Compose project.
+
+Post-run checks (both exit 0 with empty output):
+docker ps --all --filter name=gcs-mimic-p0-arm64- --format '{{.Names}} {{.Status}}'
+docker network ls --filter name=gcs-mimic-p0-arm64- --format '{{.Name}}'
+
+Full shell traces follow in process A, then process B order.
++ set -euo pipefail
++ [[ linux/arm64 == --help ]]
++ [[ 1 == 0 ]]
++ for platform in '"$@"'
++ case "$platform" in
+++ dirname scripts/smoke-containers.sh
++ cd scripts/..
++ container=
++ project=
++ trap cleanup EXIT
++ for platform in '"$@"'
++ arch=arm64
++ export DOCKER_DEFAULT_PLATFORM=linux/arm64
++ DOCKER_DEFAULT_PLATFORM=linux/arm64
++ export GCS_MIMIC_IMAGE=gcs-mimic:p0-smoke-arm64-68342
++ GCS_MIMIC_IMAGE=gcs-mimic:p0-smoke-arm64-68342
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ project=gcs-mimic-p0-arm64-68342
++ docker buildx build --platform linux/arm64 --load --tag gcs-mimic:p0-smoke-arm64-68342 .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.15kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#8 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#8 DONE 0.0s
+
+#9 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#9 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#9 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 490B done
+#7 DONE 0.0s
+
+#10 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic
+#10 CACHED
+
+#11 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 CACHED
+
+#12 [build 6/7] COPY src ./src
+#12 CACHED
+
+#13 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#13 CACHED
+
+#14 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#14 CACHED
+
+#15 [build 5/7] COPY xtask/src ./xtask/src
+#15 CACHED
+
+#16 [runtime 2/4] WORKDIR /app
+#16 CACHED
+
+#17 [build 2/7] WORKDIR /build
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 CACHED
+
+#19 exporting to image
+#19 exporting layers done
+#19 exporting manifest sha256:c1e5f11340a77bb55f4955d8c0123cce83fa444e3ac321c633bbb0121eea2d24 done
+#19 exporting config sha256:99cb2eb58892efdfe5f07e950b037d39ed45137276dd1d30725ea640d3da9f3e done
+#19 exporting attestation manifest sha256:c3a9fb814a94750628d17cb4e36cb1fb64f1d4d40c536684546ff744e6b7f96a done
+#19 exporting manifest list sha256:1a5191674e9fa79588be1194bddfc91d92501cc75a60e15df5bf02e4b59f2bb5 done
+#19 naming to docker.io/library/gcs-mimic:p0-smoke-arm64-68342 done
+#19 unpacking to docker.io/library/gcs-mimic:p0-smoke-arm64-68342 done
+#19 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/nqhurbx6qpretng3jpbtrp21k
+++ docker image inspect --format '{{.Os}}/{{.Architecture}}' gcs-mimic:p0-smoke-arm64-68342
++ [[ linux/arm64 == \l\i\n\u\x\/\a\r\m\6\4 ]]
+++ docker image inspect --format '{{.Config.User}}' gcs-mimic:p0-smoke-arm64-68342
++ [[ 10001:10001 == 10001:10001 ]]
++ docker run --rm --network none --read-only gcs-mimic:p0-smoke-arm64-68342 --help
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+Only HTTP/1 health/readiness is implemented. GCS, TLS and authentication are unavailable.
++ docker run --rm --network none --read-only gcs-mimic:p0-smoke-arm64-68342 --version
+gcs-mimic 0.1.0
+++ docker run --detach --network none --read-only --cap-drop ALL --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 --ulimit nofile=1024:1024 gcs-mimic:p0-smoke-arm64-68342
++ container=9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ ready=false
++ (( attempt = 0 ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ [[ starting == healthy ]]
++ sleep 1
++ (( attempt++ ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ [[ starting == healthy ]]
++ sleep 1
++ (( attempt++ ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ [[ healthy == healthy ]]
++ ready=true
++ break
++ [[ true != true ]]
++ docker exec 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/health
++ docker stop --signal SIGINT --timeout 15 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
+++ docker inspect --format '{{.State.ExitCode}}' 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ [[ 0 == 0 ]]
++ docker rm 9bfa45b79f5fb0cf839b68f3ad42655c044ded6d1c0dfa16a80bc60195b86b1f
++ container=
++ docker compose -p gcs-mimic-p0-arm64-68342 config --quiet
++ docker compose -p gcs-mimic-p0-arm64-68342 up --detach --no-build --wait --wait-timeout 40
+ Network gcs-mimic-p0-arm64-68342_default Creating
+ Network gcs-mimic-p0-arm64-68342_default Creating
+ Network gcs-mimic-p0-arm64-68342_default Created
+ Network gcs-mimic-p0-arm64-68342_default Created
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Creating
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Created
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Starting
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Started
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Waiting
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Healthy
+++ docker compose -p gcs-mimic-p0-arm64-68342 ps --quiet gcs
++ service=f17ec108ac075f08d9cc82ebc407d48c62cc087ca55428530ce25a587fdeea0a
+++ docker compose -p gcs-mimic-p0-arm64-68342 port gcs 4443
++ address=127.0.0.1:55008
++ [[ 127.0.0.1:55008 == 127.0.0.1:* ]]
+++ docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' f17ec108ac075f08d9cc82ebc407d48c62cc087ca55428530ce25a587fdeea0a
++ [[ true 134217728 1000000000 64 == \t\r\u\e\ \1\3\4\2\1\7\7\2\8\ \1\0\0\0\0\0\0\0\0\0\ \6\4 ]]
++ expect_status GET /_internal/health 200
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55008/_internal/health
++ actual=200
++ [[ 200 != \2\0\0 ]]
++ expect_status GET /_internal/ready 200
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55008/_internal/ready
++ actual=200
++ [[ 200 != \2\0\0 ]]
++ expect_status GET '/storage/v1/b?project=local-project' 404
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' 'http://127.0.0.1:55008/storage/v1/b?project=local-project'
++ actual=404
++ [[ 404 != \4\0\4 ]]
++ expect_status POST /_internal/health 405
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request POST --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55008/_internal/health
++ actual=405
++ [[ 405 != \4\0\5 ]]
++ docker compose -p gcs-mimic-p0-arm64-68342 run --rm --no-deps gcs healthcheck --url http://gcs:4443/_internal/ready
+ Container gcs-mimic-p0-arm64-68342-gcs-run-b36a119564e7 Creating
+ Container gcs-mimic-p0-arm64-68342-gcs-run-b36a119564e7 Created
++ docker compose -p gcs-mimic-p0-arm64-68342 stop --timeout 15
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Stopped
+++ docker inspect --format '{{.State.ExitCode}}' f17ec108ac075f08d9cc82ebc407d48c62cc087ca55428530ce25a587fdeea0a
++ [[ 0 == 0 ]]
++ docker compose -p gcs-mimic-p0-arm64-68342 down
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Stopped
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Removing
+ Container gcs-mimic-p0-arm64-68342-gcs-1 Removed
+ Network gcs-mimic-p0-arm64-68342_default Removing
+ Network gcs-mimic-p0-arm64-68342_default Removed
++ project=
++ echo 'PASS: linux/arm64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM'
+PASS: linux/arm64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM
++ cleanup
++ local status=0
++ [[ 0 != 0 ]]
++ [[ -n '' ]]
++ [[ -n '' ]]
++ set -euo pipefail
++ [[ linux/arm64 == --help ]]
++ [[ 1 == 0 ]]
++ for platform in '"$@"'
++ case "$platform" in
+++ dirname scripts/smoke-containers.sh
++ cd scripts/..
++ container=
++ project=
++ trap cleanup EXIT
++ for platform in '"$@"'
++ arch=arm64
++ export DOCKER_DEFAULT_PLATFORM=linux/arm64
++ DOCKER_DEFAULT_PLATFORM=linux/arm64
++ export GCS_MIMIC_IMAGE=gcs-mimic:p0-smoke-arm64-68455
++ GCS_MIMIC_IMAGE=gcs-mimic:p0-smoke-arm64-68455
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ project=gcs-mimic-p0-arm64-68455
++ docker buildx build --platform linux/arm64 --load --tag gcs-mimic:p0-smoke-arm64-68455 .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.15kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 490B done
+#9 DONE 0.0s
+
+#10 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#10 CACHED
+
+#11 [build 2/7] WORKDIR /build
+#11 CACHED
+
+#12 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#12 CACHED
+
+#13 [runtime 2/4] WORKDIR /app
+#13 CACHED
+
+#14 [build 6/7] COPY src ./src
+#14 CACHED
+
+#15 [build 5/7] COPY xtask/src ./xtask/src
+#15 CACHED
+
+#16 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic
+#16 CACHED
+
+#17 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 CACHED
+
+#19 exporting to image
+#19 exporting layers done
+#19 exporting manifest sha256:c1e5f11340a77bb55f4955d8c0123cce83fa444e3ac321c633bbb0121eea2d24 done
+#19 exporting config sha256:99cb2eb58892efdfe5f07e950b037d39ed45137276dd1d30725ea640d3da9f3e
+#19 exporting config sha256:99cb2eb58892efdfe5f07e950b037d39ed45137276dd1d30725ea640d3da9f3e done
+#19 exporting attestation manifest sha256:0fdcf00bc806d06673943cd4d4c089d813b2e3fffe0f74c4db3660d8e6836366 done
+#19 exporting manifest list sha256:c60db679184d2a6a205c167823d5290749fa7101adbf7eb4a608add4a837dee4 done
+#19 naming to docker.io/library/gcs-mimic:p0-smoke-arm64-68455 done
+#19 unpacking to docker.io/library/gcs-mimic:p0-smoke-arm64-68455 done
+#19 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/q58j9yhmdywodfb3hk3falcry
+++ docker image inspect --format '{{.Os}}/{{.Architecture}}' gcs-mimic:p0-smoke-arm64-68455
++ [[ linux/arm64 == \l\i\n\u\x\/\a\r\m\6\4 ]]
+++ docker image inspect --format '{{.Config.User}}' gcs-mimic:p0-smoke-arm64-68455
++ [[ 10001:10001 == 10001:10001 ]]
++ docker run --rm --network none --read-only gcs-mimic:p0-smoke-arm64-68455 --help
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+Only HTTP/1 health/readiness is implemented. GCS, TLS and authentication are unavailable.
++ docker run --rm --network none --read-only gcs-mimic:p0-smoke-arm64-68455 --version
+gcs-mimic 0.1.0
+++ docker run --detach --network none --read-only --cap-drop ALL --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 --ulimit nofile=1024:1024 gcs-mimic:p0-smoke-arm64-68455
++ container=4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ ready=false
++ (( attempt = 0 ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ [[ starting == healthy ]]
++ sleep 1
++ (( attempt++ ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ [[ starting == healthy ]]
++ sleep 1
++ (( attempt++ ))
++ (( attempt < 40 ))
+++ docker inspect --format '{{.State.Health.Status}}' 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ [[ healthy == healthy ]]
++ ready=true
++ break
++ [[ true != true ]]
++ docker exec 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/health
++ docker stop --signal SIGINT --timeout 15 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
+++ docker inspect --format '{{.State.ExitCode}}' 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ [[ 0 == 0 ]]
++ docker rm 4b1b213d6f5c27c6d666d9f56c91317dc6bb2e70d70f343450b30616a9516e7e
++ container=
++ docker compose -p gcs-mimic-p0-arm64-68455 config --quiet
++ docker compose -p gcs-mimic-p0-arm64-68455 up --detach --no-build --wait --wait-timeout 40
+ Network gcs-mimic-p0-arm64-68455_default Creating
+ Network gcs-mimic-p0-arm64-68455_default Creating
+ Network gcs-mimic-p0-arm64-68455_default Created
+ Network gcs-mimic-p0-arm64-68455_default Created
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Creating
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Created
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Starting
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Started
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Waiting
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Healthy
+++ docker compose -p gcs-mimic-p0-arm64-68455 ps --quiet gcs
++ service=70ec3236824d8f24eaa715179a134f8d83338d4b495215d8480425efe3dca8b2
+++ docker compose -p gcs-mimic-p0-arm64-68455 port gcs 4443
++ address=127.0.0.1:55009
++ [[ 127.0.0.1:55009 == 127.0.0.1:* ]]
+++ docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' 70ec3236824d8f24eaa715179a134f8d83338d4b495215d8480425efe3dca8b2
++ [[ true 134217728 1000000000 64 == \t\r\u\e\ \1\3\4\2\1\7\7\2\8\ \1\0\0\0\0\0\0\0\0\0\ \6\4 ]]
++ expect_status GET /_internal/health 200
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55009/_internal/health
++ actual=200
++ [[ 200 != \2\0\0 ]]
++ expect_status GET /_internal/ready 200
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55009/_internal/ready
++ actual=200
++ [[ 200 != \2\0\0 ]]
++ expect_status GET '/storage/v1/b?project=local-project' 404
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request GET --output /dev/null --write-out '%{http_code}' 'http://127.0.0.1:55009/storage/v1/b?project=local-project'
++ actual=404
++ [[ 404 != \4\0\4 ]]
++ expect_status POST /_internal/health 405
++ local actual
+++ curl --disable --noproxy '*' --silent --show-error --max-time 5 --request POST --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55009/_internal/health
++ actual=405
++ [[ 405 != \4\0\5 ]]
++ docker compose -p gcs-mimic-p0-arm64-68455 run --rm --no-deps gcs healthcheck --url http://gcs:4443/_internal/ready
+ Container gcs-mimic-p0-arm64-68455-gcs-run-761875492e24 Creating
+ Container gcs-mimic-p0-arm64-68455-gcs-run-761875492e24 Created
++ docker compose -p gcs-mimic-p0-arm64-68455 stop --timeout 15
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Stopped
+++ docker inspect --format '{{.State.ExitCode}}' 70ec3236824d8f24eaa715179a134f8d83338d4b495215d8480425efe3dca8b2
++ [[ 0 == 0 ]]
++ docker compose -p gcs-mimic-p0-arm64-68455 down
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Stopped
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Removing
+ Container gcs-mimic-p0-arm64-68455-gcs-1 Removed
+ Network gcs-mimic-p0-arm64-68455_default Removing
+ Network gcs-mimic-p0-arm64-68455_default Removed
++ project=
++ echo 'PASS: linux/arm64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM'
+PASS: linux/arm64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM
++ cleanup
++ local status=0
++ [[ 0 != 0 ]]
++ [[ -n '' ]]
++ [[ -n '' ]]

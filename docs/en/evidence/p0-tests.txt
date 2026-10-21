@@ -1,0 +1,78 @@
+   Compiling gcs-mimic v0.1.0 (/Users/shiroemons/src/github.com/shiroemons/gcs-mimic)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-2ab1350b50da4ec3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-4046d58a17ba7e3a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-28808b7793bfe034)
+
+running 8 tests
+test config_precedence_validation_and_size_limit ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test cli_help_errors_and_bind_failure ... ok
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.68s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
+
+running 3 tests
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test tests::schema_enumerations_match_validator ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
+
+running 11 tests
+test partial_and_simulated_work_remain_explicit ... ok
+test coverage_dimensions_remain_separate ... ok
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test baseline_and_completed_evidence_validate ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
+
+running 1 test
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests gcs_mimic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

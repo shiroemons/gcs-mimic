@@ -16367,25 +16367,48 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Document a working minimal invocation without mandatory cloud credentials.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "Source-built Docker starts the probe shell without cloud credentials; no GCS API is implied.",
+      "dependencies": [
+        "DESIGN-064"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-058-A1",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-059",
@@ -16395,23 +16418,52 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project requirement. Build and smoke-test the native architecture image.",
+      "notes": "linux/amd64 builds and passes smoke under emulation on an arm64 Docker host. Native amd64 CI is configured.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-059-A1",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        },
+        {
+          "id": "DESIGN-059-P1",
+          "description": "Execute the same image smoke on native amd64 hardware.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Native amd64 and remote CI are unverified; local amd64 uses emulation."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-060",
@@ -16421,23 +16473,46 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project requirement. Support Apple Silicon development without requiring amd64 emulation.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "linux/arm64 builds and executes natively on Docker Desktop arm64 without amd64 emulation.",
+      "dependencies": [
+        "DESIGN-058"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-060-A1",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-061",
@@ -16447,25 +16522,46 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Explain that localhost and service DNS refer to different network locations; execute both examples.",
+      "notes": "Probe examples run from the host and a separate container using Compose service DNS. No public/SDK URL semantics are claimed.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-061-A1",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-062",
@@ -16531,25 +16627,56 @@
       "interface": "Emulator configuration",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Flags override environment and invalid configuration fails at startup.",
+      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults. Unknown/unimplemented settings, duplicate flags and invalid resource limits fail startup.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-064-A1",
+          "description": "Verify CLI/environment/file/default precedence and reject unknown, duplicate, malformed, oversized or out-of-range configuration.",
+          "result": "PASS",
+          "test_ids": [
+            "config_precedence_validation_and_size_limit"
+          ]
+        },
+        {
+          "id": "DESIGN-064-A2",
+          "description": "Verify help/version success and invalid command/config or occupied listener failure before readiness.",
+          "result": "PASS",
+          "test_ids": [
+            "cli_help_errors_and_bind_failure"
+          ]
+        }
+      ],
+      "test_ids": [
+        "config_precedence_validation_and_size_limit",
+        "cli_help_errors_and_bind_failure"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-tests.txt",
+          "test_ids": [
+            "config_precedence_validation_and_size_limit",
+            "cli_help_errors_and_bind_failure"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-065",
@@ -16559,25 +16686,54 @@
       "interface": "Emulator configuration",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Allow explicit local HTTP and configurable TLS; document trust setup rather than requiring global insecure TLS.",
+      "notes": "HTTP/1 probes work; TLS settings are rejected instead of accepted without effect.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-065-A1",
+          "description": "Verify GET/HEAD health/ready, 503 while not-ready, method errors, GCS namespace 404 and injected unix_time=42.",
+          "result": "PASS",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes"
+          ]
+        },
+        {
+          "id": "DESIGN-065-P1",
+          "description": "Implement optional test TLS and certificate trust guidance.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "wire_probes_clock_and_unimplemented_routes"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-tests.txt",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "TLS is not implemented."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-066",
@@ -16587,23 +16743,44 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project requirement. Only data/temp locations require writes; use correct volume permissions.",
+      "notes": "Debian slim multi-stage runtime uses UID/GID 10001 and works with a read-only root and no writable mounts in this stateless shell.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-066-A1",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-067",
@@ -16613,25 +16790,112 @@
       "interface": "Emulator extension",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Ready only after recovery/seed; shutdown stops acceptance and drains or safely records active work.",
+      "notes": "Probe shell validates startup, returns readiness, stops acceptance and drains within a deadline. Recovery/seed gating awaits storage.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-067-A1",
+          "description": "Verify GET/HEAD health/ready, 503 while not-ready, method errors, GCS namespace 404 and injected unix_time=42.",
+          "result": "PASS",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes"
+          ]
+        },
+        {
+          "id": "DESIGN-067-A2",
+          "description": "Verify healthcheck exit status for ready, not-ready and stopped listeners.",
+          "result": "PASS",
+          "test_ids": [
+            "healthcheck_exit_status_tracks_readiness"
+          ]
+        },
+        {
+          "id": "DESIGN-067-A3",
+          "description": "Reject truncated status/header/body, malformed status/header and oversized responses; accept a complete valid response.",
+          "result": "PASS",
+          "test_ids": [
+            "healthcheck_rejects_truncated_malformed_and_oversized_responses"
+          ]
+        },
+        {
+          "id": "DESIGN-067-A4",
+          "description": "Enforce a one-connection admission cap and deadlines; shutdown releases idle clients and closes listener.",
+          "result": "PASS",
+          "test_ids": [
+            "connection_limit_deadline_and_shutdown_release_idle_clients"
+          ]
+        },
+        {
+          "id": "DESIGN-067-A5",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        },
+        {
+          "id": "DESIGN-067-A6",
+          "description": "Enforce one two-second healthcheck deadline across connection and I/O after DNS resolution, including slowly streamed responses.",
+          "result": "PASS",
+          "test_ids": [
+            "healthcheck_deadline_includes_slow_streaming_responses"
+          ]
+        },
+        {
+          "id": "DESIGN-067-P1",
+          "description": "Gate readiness on actual recovery and fixture import when introduced.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "wire_probes_clock_and_unimplemented_routes",
+        "healthcheck_exit_status_tracks_readiness",
+        "healthcheck_rejects_truncated_malformed_and_oversized_responses",
+        "connection_limit_deadline_and_shutdown_release_idle_clients",
+        "healthcheck_deadline_includes_slow_streaming_responses",
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-tests.txt",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes",
+            "healthcheck_exit_status_tracks_readiness",
+            "healthcheck_rejects_truncated_malformed_and_oversized_responses",
+            "connection_limit_deadline_and_shutdown_release_idle_clients",
+            "healthcheck_deadline_includes_slow_streaming_responses"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "No catalog, recovery or seeding exists yet; only stateless readiness and shutdown are verified."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-068",
@@ -16669,26 +16933,55 @@
       "interface": "Emulator extension",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access",
         "https://docs.cloud.google.com/storage/docs/access-control/signed-urls"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Test retention/lifecycle/expiry without wall-clock sleeps; default normal clock remains available.",
+      "notes": "Business Clock is injectable and probe JSON uses it. Socket/drain deadlines use monotonic Tokio time.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-069-A1",
+          "description": "Verify GET/HEAD health/ready, 503 while not-ready, method errors, GCS namespace 404 and injected unix_time=42.",
+          "result": "PASS",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes"
+          ]
+        },
+        {
+          "id": "DESIGN-069-P1",
+          "description": "Implement explicit maintenance stepping for lifecycle/retention/expiry.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "wire_probes_clock_and_unimplemented_routes"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-tests.txt",
+          "test_ids": [
+            "wire_probes_clock_and_unimplemented_routes"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Only the Clock seam exists; scheduler and time-dependent GCS behaviors are not implemented."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DESIGN-070",
@@ -17643,7 +17936,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Generated-view checks are locally executable and configured as CI gates; Docker is outside the tooling slice.",
+      "notes": "Generated docs, Rust checks and native-platform Docker jobs are configured and locally validated.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -17651,37 +17944,55 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "DESIGN-099-A",
-          "description": "Execute the generated-view drift gate locally.",
+          "id": "DESIGN-099-A1",
+          "description": "Validate the configured pinned/current-stable and native-platform workflows with actionlint.",
           "result": "PASS",
           "test_ids": [
-            "generated-view-check"
+            "workflow-yaml-syntax"
           ]
         },
         {
-          "id": "DESIGN-099-B",
-          "description": "Run remote generated-document and Docker build/start/stop gates.",
+          "id": "DESIGN-099-A2",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        },
+        {
+          "id": "DESIGN-099-P1",
+          "description": "Observe remote CI gates execute, including native amd64.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
-        "generated-view-check"
+        "workflow-yaml-syntax",
+        "container-foundation-smoke"
       ],
       "verification": [
         {
-          "command": "cargo +1.99.1 xtask compatibility check",
+          "command": "actionlint .github/workflows/ci.yaml .github/workflows/dependency-check.yaml",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/compatibility-check.txt",
+          "artifact": "docs/en/evidence/p0-checks.txt",
           "test_ids": [
-            "generated-view-check"
+            "workflow-yaml-syntax"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "GitHub CI has not executed; no Docker runtime or smoke test exists yet."
+        "Remote CI has not run; local amd64 uses emulation."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"
@@ -17694,23 +18005,70 @@
       "interface": "Emulator user journey",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. A fresh checkout builds its own local image on linux/amd64 and linux/arm64; no nonexistent registry image is required.",
+      "notes": "Fresh source verification used a separate local checkout plus the working snapshot before local commits. The runtime and Rust tooling are now committed; native amd64 and a published remote checkout remain unverified.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-001-A1",
+          "description": "Build/run a separate local source snapshot, load configuration, probe, reject GCS routes and stop with SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "native-onboarding"
+          ]
+        },
+        {
+          "id": "UX-001-A2",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        },
+        {
+          "id": "UX-001-P1",
+          "description": "Verify a published clean checkout containing this change and native amd64.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "native-onboarding",
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash /tmp/gcs-mimic-native-onboarding.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-onboarding.txt",
+          "test_ids": [
+            "native-onboarding"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Fresh source verification applied a working snapshot to a local clone. No push or published remote checkout is claimed; amd64 uses emulation."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-002",
@@ -17928,23 +18286,52 @@
       "interface": "Emulator user journey",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Unique compose projects/volumes/ports run concurrently without collisions, then clean up only their own resources; two clean runs yield repeatable results.",
+      "notes": "Two simultaneous arm64 smoke runs used separate projects/dynamic loopback ports and removed only their own containers/networks; both passed.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-010-A1",
+          "description": "Run two simultaneous clean arm64 jobs with different projects/ports and verify scoped cleanup.",
+          "result": "PASS",
+          "test_ids": [
+            "parallel-isolation-smoke"
+          ]
+        },
+        {
+          "id": "UX-010-P1",
+          "description": "Verify durable-volume isolation when storage is introduced.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "parallel-isolation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash -x scripts/smoke-containers.sh linux/arm64 (two simultaneous processes)",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-parallel-containers.txt",
+          "test_ids": [
+            "parallel-isolation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "No volumes/storage state exist; verified scope is stateless project/port/container/network isolation."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "UX-011",
@@ -17980,23 +18367,70 @@
       "interface": "Emulator user journey",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Canonical English instructions reference existing files and verified commands, cover major endpoint/signature/CORS/persistence failures, and distinguish implemented versus planned behavior. Any Japanese planning companion stays outside canonical project documentation.",
+      "notes": "README uses Docker-first user instructions; internal roadmap/ledger/update details are in developer docs. Native and container workflows pass.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-012-A1",
+          "description": "Build/run a separate local source snapshot, load configuration, probe, reject GCS routes and stop with SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "native-onboarding"
+          ]
+        },
+        {
+          "id": "UX-012-A2",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        },
+        {
+          "id": "UX-012-P1",
+          "description": "Execute storage, SDK, signed/public URL, CORS, persistence and reset workflows when implemented.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "native-onboarding",
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash /tmp/gcs-mimic-native-onboarding.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-onboarding.txt",
+          "test_ids": [
+            "native-onboarding"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Guide covers only implemented runtime behavior; later storage workflows remain explicitly unavailable."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DEP-001",
@@ -18015,55 +18449,55 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Tooling bootstrap verified official stable Rust 1.99.1 and current direct crate releases; exact versions and UTC check time are recorded in dependency-status.json.",
+      "notes": "Official stable compiler, every direct crate and Docker input independently verified. No Python dependency remains.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
-          "id": "DEP-001-A",
-          "description": "Compare adopted versions with official stable release metadata and record UTC time/provenance.",
+          "id": "DEP-001-A1",
+          "description": "Compare actual adopted compiler, all direct crates, Action commit and container/stable metadata against official current sources.",
           "result": "PASS",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "id": "DEP-001-B",
-          "description": "Distinguish updates and network failures from current dependencies.",
+          "id": "DEP-001-A2",
+          "description": "Simulate failed metadata retrieval offline and require CHECK_FAILED/exit 2, never CURRENT.",
           "result": "PASS",
           "test_ids": [
-            "test_full_check_current_drift_and_network_error"
+            "fetch_failure_is_never_reported_as_current"
           ]
         }
       ],
       "test_ids": [
         "freshness-live-check",
-        "test_full_check_current_drift_and_network_error"
+        "fetch_failure_is_never_reported_as_current"
       ],
       "verification": [
         {
-          "command": "python3 scripts/check-dependencies.py",
+          "command": "cargo +1.99.1 xtask dependencies check",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-check.txt",
+          "artifact": "docs/en/evidence/p0-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "command": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-tests.txt",
+          "artifact": "docs/en/evidence/p0-tests.txt",
           "test_ids": [
-            "test_full_check_current_drift_and_network_error"
+            "fetch_failure_is_never_reported_as_current"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
+      "implemented_in": null,
       "last_verified": "2026-10-21"
     },
     {
@@ -18154,7 +18588,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "The only direct library is serde_json 1.0.154, verified from official registry/publisher independently of manifest ranges. No previous major exists in this new workspace to migrate.",
+      "notes": "Latest stable direct releases: tokio 1.54.0, hyper 1.12.0, hyper-util 0.1.21, http-body-util 0.1.5, serde_json 1.0.154. Minimal features; no prior runtime release to migrate.",
       "dependencies": [
         "DEP-001"
       ],
@@ -18162,49 +18596,49 @@
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
-          "id": "DEP-003-A",
-          "description": "Verify the resolved direct library is the newest non-yanked stable release.",
+          "id": "DEP-003-A1",
+          "description": "Compare actual adopted compiler, all direct crates, Action commit and container/stable metadata against official current sources.",
           "result": "PASS",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "id": "DEP-003-B",
-          "description": "Detect new majors while excluding prerelease and yanked candidates.",
+          "id": "DEP-003-A2",
+          "description": "Select new stable majors, exclude yanked/prerelease candidates and verify official registry paths.",
           "result": "PASS",
           "test_ids": [
-            "test_stable_including_major_updates_ignores_yanked_and_prerelease"
+            "dependencies::tests::stable_major_selection_and_registry_paths"
           ]
         }
       ],
       "test_ids": [
         "freshness-live-check",
-        "test_stable_including_major_updates_ignores_yanked_and_prerelease"
+        "dependencies::tests::stable_major_selection_and_registry_paths"
       ],
       "verification": [
         {
-          "command": "python3 scripts/check-dependencies.py",
+          "command": "cargo +1.99.1 xtask dependencies check",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-check.txt",
+          "artifact": "docs/en/evidence/p0-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "command": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-tests.txt",
+          "artifact": "docs/en/evidence/p0-tests.txt",
           "test_ids": [
-            "test_stable_including_major_updates_ignores_yanked_and_prerelease"
+            "dependencies::tests::stable_major_selection_and_registry_paths"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
+      "implemented_in": null,
       "last_verified": "2026-10-21"
     },
     {
@@ -18223,7 +18657,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Cargo-generated workspace lockfile is committed; locked offline builds/tests pass. No server or SDK example exists yet.",
+      "notes": "Cargo generated the application/workspace lockfile; locked offline builds/tests pass and the expanded lockfile is committed in 2ea23e11599a6f6171416a8da2674cd88d9385d2.",
       "dependencies": [
         "DEP-003"
       ],
@@ -18231,49 +18665,59 @@
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
-          "id": "DEP-004-A",
-          "description": "Generate Cargo.lock through Cargo and execute locked offline builds/tests.",
+          "id": "DEP-004-A1",
+          "description": "Verify CLI/environment/file/default precedence and reject unknown, duplicate, malformed, oversized or out-of-range configuration.",
           "result": "PASS",
           "test_ids": [
-            "locked-workspace-tests"
+            "config_precedence_validation_and_size_limit"
           ]
         },
         {
-          "id": "DEP-004-B",
-          "description": "Commit the generated lockfile.",
+          "id": "DEP-004-A2",
+          "description": "Validate actual ledger and complete rows using evidence and dependency gates.",
           "result": "PASS",
           "test_ids": [
-            "committed-build-inputs"
+            "baseline_and_completed_evidence_validate"
+          ]
+        },
+        {
+          "id": "DEP-004-P1",
+          "description": "Commit the current generated application/workspace lockfile.",
+          "result": "PASS",
+          "test_ids": [
+            "committed-runtime-inputs"
           ]
         }
       ],
       "test_ids": [
-        "locked-workspace-tests",
-        "committed-build-inputs"
+        "config_precedence_validation_and_size_limit",
+        "baseline_and_completed_evidence_validate",
+        "committed-runtime-inputs"
       ],
       "verification": [
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/ledger-bootstrap.txt",
+          "artifact": "docs/en/evidence/p0-tests.txt",
           "test_ids": [
-            "locked-workspace-tests"
+            "config_precedence_validation_and_size_limit",
+            "baseline_and_completed_evidence_validate"
           ]
         },
         {
-          "command": "git ls-tree b6681e5d553e0fc49a6cc5fc9abd9e816475faeb -- Cargo.toml Cargo.lock rust-toolchain.toml xtask/Cargo.toml",
+          "command": "git ls-tree 2ea23e11599a6f6171416a8da2674cd88d9385d2 -- Cargo.toml Cargo.lock rust-toolchain.toml xtask/Cargo.toml",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/committed-inputs.txt",
+          "artifact": "docs/en/evidence/p0-committed-inputs.txt",
           "test_ids": [
-            "committed-build-inputs"
+            "committed-runtime-inputs"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "b6681e5d553e0fc49a6cc5fc9abd9e816475faeb",
+      "implemented_in": "2ea23e11599a6f6171416a8da2674cd88d9385d2",
       "last_verified": "2026-10-21"
     },
     {
@@ -18292,7 +18736,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Every-calendar-day workflow configured with no cooldown for actual Rust/Cargo/Action inputs; the checker was exercised locally.",
+      "notes": "Rust xtask checks Rust/Cargo majors, Actions, Docker digests/tags and Debian stable codename. Every-day workflow has no cooldown.",
       "dependencies": [
         "DEP-001",
         "DEP-003"
@@ -18301,48 +18745,75 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "DEP-005-A",
-          "description": "Execute current ecosystem checks, including major-version detection and network failure.",
+          "id": "DEP-005-A1",
+          "description": "Compare actual adopted compiler, all direct crates, Action commit and container/stable metadata against official current sources.",
           "result": "PASS",
           "test_ids": [
-            "freshness-live-check",
-            "test_full_check_current_drift_and_network_error"
+            "freshness-live-check"
           ]
         },
         {
-          "id": "DEP-005-B",
-          "description": "Observe scheduled checks execute from the default branch, including weekends.",
+          "id": "DEP-005-A2",
+          "description": "Simulate failed metadata retrieval offline and require CHECK_FAILED/exit 2, never CURRENT.",
+          "result": "PASS",
+          "test_ids": [
+            "fetch_failure_is_never_reported_as_current"
+          ]
+        },
+        {
+          "id": "DEP-005-A3",
+          "description": "Select new stable majors, exclude yanked/prerelease candidates and verify official registry paths.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::tests::stable_major_selection_and_registry_paths"
+          ]
+        },
+        {
+          "id": "DEP-005-A4",
+          "description": "Reject malformed metadata and missing digest; parse registry headers behind an HTTPS CONNECT proxy.",
+          "result": "PASS",
+          "test_ids": [
+            "dependencies::tests::metadata_and_proxy_headers_fail_closed"
+          ]
+        },
+        {
+          "id": "DEP-005-P1",
+          "description": "Observe default-branch scheduled execution, including weekends.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
         "freshness-live-check",
-        "test_full_check_current_drift_and_network_error"
+        "fetch_failure_is_never_reported_as_current",
+        "dependencies::tests::stable_major_selection_and_registry_paths",
+        "dependencies::tests::metadata_and_proxy_headers_fail_closed"
       ],
       "verification": [
         {
-          "command": "python3 scripts/check-dependencies.py",
+          "command": "cargo +1.99.1 xtask dependencies check",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-check.txt",
+          "artifact": "docs/en/evidence/p0-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "command": "python3 -m unittest discover -s scripts -p 'test_*.py'",
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-tests.txt",
+          "artifact": "docs/en/evidence/p0-tests.txt",
           "test_ids": [
-            "test_full_check_current_drift_and_network_error"
+            "fetch_failure_is_never_reported_as_current",
+            "dependencies::tests::stable_major_selection_and_registry_paths",
+            "dependencies::tests::metadata_and_proxy_headers_fail_closed"
           ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Scheduled GitHub execution has not been observed; workflow is not pushed. Add Docker/SDK detection when those inputs are introduced."
+        "Workflow is not pushed; scheduled execution is unverified. No SDK ecosystem exists."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"
@@ -18363,7 +18834,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Reusable read-only check and start/release/weekly review procedures are documented.",
+      "notes": "Slice-start official-source freshness check passed through Rust xtask. Release and weekly-review procedures are documented.",
       "dependencies": [
         "DEP-001"
       ],
@@ -18371,16 +18842,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "DEP-006-A",
-          "description": "Provide and execute an official-source freshness check.",
+          "id": "DEP-006-A1",
+          "description": "Compare actual adopted compiler, all direct crates, Action commit and container/stable metadata against official current sources.",
           "result": "PASS",
           "test_ids": [
             "freshness-live-check"
           ]
         },
         {
-          "id": "DEP-006-B",
-          "description": "Exercise release gates and weekly exception review in repository operation.",
+          "id": "DEP-006-P1",
+          "description": "Exercise a release gate and weekly exception-review cycle.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -18390,10 +18861,10 @@
       ],
       "verification": [
         {
-          "command": "python3 scripts/check-dependencies.py",
+          "command": "cargo +1.99.1 xtask dependencies check",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/dependency-check.txt",
+          "artifact": "docs/en/evidence/p0-dependencies.txt",
           "test_ids": [
             "freshness-live-check"
           ]
@@ -18401,7 +18872,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No release or weekly maintenance cycle has occurred; those operational checks are unverified."
+        "No release or weekly maintenance cycle has occurred."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"
@@ -18443,25 +18914,64 @@
       "interface": "Project dependency and toolchain policy",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.docker.com/build/building/best-practices/"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project acceptance requirement. Verify real current builder/runtime images, pin correct multiarch/per-platform digests, test amd64+arm64 and update published images through new releases.",
+      "notes": "Official Rust/Debian multiarch indexes, per-platform digests and BuildKit frontend verified. Both architectures build/run; drift detection checks selected tags and stable selectors.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DEP-008-A1",
+          "description": "Compare actual adopted compiler, all direct crates, Action commit and container/stable metadata against official current sources.",
+          "result": "PASS",
+          "test_ids": [
+            "freshness-live-check"
+          ]
+        },
+        {
+          "id": "DEP-008-A2",
+          "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
+          "result": "PASS",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "freshness-live-check",
+        "container-foundation-smoke"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 xtask dependencies check",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-21",
+          "artifact": "docs/en/evidence/p0-containers.txt",
+          "test_ids": [
+            "container-foundation-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-21"
     },
     {
       "id": "DEP-009",
@@ -18480,22 +18990,22 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned and floating-stable ledger CI lanes are configured; candidate-upgrade testing remains future work.",
+      "notes": "Pinned/current-stable Rust CI and native amd64/arm64 Docker lanes are configured with locked builds and generated-doc gates.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
-          "id": "DEP-009-A",
-          "description": "Parse configured CI workflow syntax.",
+          "id": "DEP-009-A1",
+          "description": "Validate the configured pinned/current-stable and native-platform workflows with actionlint.",
           "result": "PASS",
           "test_ids": [
             "workflow-yaml-syntax"
           ]
         },
         {
-          "id": "DEP-009-B",
-          "description": "Execute pinned/current-stable CI and latest-dependency candidate builds.",
+          "id": "DEP-009-P1",
+          "description": "Observe remote pinned/current-stable/native-platform runs and latest-dependency candidate builds.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -18505,10 +19015,10 @@
       ],
       "verification": [
         {
-          "command": "ruby -ryaml -e 'ARGV.each { |path| YAML.parse_file(path); puts \"YAML syntax valid: #{path}\" }' .github/workflows/ci.yaml .github/workflows/dependency-check.yaml",
+          "command": "actionlint .github/workflows/ci.yaml .github/workflows/dependency-check.yaml",
           "result": "PASS",
           "verified_at": "2026-10-21",
-          "artifact": "docs/en/evidence/workflow-syntax.txt",
+          "artifact": "docs/en/evidence/p0-checks.txt",
           "test_ids": [
             "workflow-yaml-syntax"
           ]
@@ -18516,7 +19026,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Remote CI has not executed. Latest-dependency candidate build/test lane is not implemented; daily detection only reports drift."
+        "Remote CI has not run; latest-dependency candidate builds are not implemented."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-21"

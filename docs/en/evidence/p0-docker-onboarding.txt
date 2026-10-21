@@ -1,0 +1,32 @@
+Verified on 2026-10-21 using Docker Desktop arm64.
+Source: separate local checkout plus current uncommitted working snapshot.
+No released/published commit containing this change is claimed.
+
+docker build -t gcs-mimic:source-onboarding .
+Exit: 0; full log: docs/en/evidence/p0-docker-build.txt
+
+docker run --detach --rm --name gcs-mimic-readme-check --read-only --memory 128m --cpus 1 --pids-limit 64 -p 127.0.0.1::4443 gcs-mimic:source-onboarding
+Exit: 0
+Container: d26f8aa1086c5a9c27b65eee1434247ecc2d4e2a59e9721f54e6a0e9cec3410c
+
+docker port gcs-mimic-readme-check 4443
+Exit: 0
+127.0.0.1:57201
+
+docker exec gcs-mimic-readme-check gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+Exit: 0
+
+curl --disable --noproxy '*' --silent --show-error --fail http://127.0.0.1:57201/_internal/health
+Exit: 0
+{"status":"ok","unix_time":1792573601}
+
+curl --disable --noproxy '*' --silent --show-error --fail http://127.0.0.1:57201/_internal/ready
+Exit: 0
+{"status":"ok","unix_time":1792573601}
+
+docker stop gcs-mimic-readme-check
+Exit: 0
+gcs-mimic-readme-check
+
+The README uses the normal fixed loopback port and image/container names.
+This verification used a dynamic port and task-owned names to avoid other projects.

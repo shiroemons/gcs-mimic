@@ -19,7 +19,9 @@ The first developer release should target P1 plus the essential P2 public/privat
 
 ## Suggested first slices
 
-The initial NEXT slice is P0 ledger tooling: DESIGN-091/092/093/097. It establishes shared status, evidence gates and deterministic views before runtime work. Next is configuration and the HTTP health/readiness shell (DESIGN-064/067), with bounded work and a clock seam as required prerequisites. Docker smoke testing follows that runnable shell. Current progress is recorded only in the ledger.
+P0 ledger tooling (DESIGN-091/092/093/097) and bounded configuration/HTTP probes now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Storage, seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
+
+The next small slice is bucket create/get/list/delete backed by an indexed transactional catalog, with exclusive data-directory ownership, bounded queries, restart/recovery tests and official Go JSON SDK evidence. Decompose its exact subset and verify latest dependencies before implementing. Do not introduce object bodies or broader milestones implicitly.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.

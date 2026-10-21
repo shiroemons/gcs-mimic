@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 77 | 0 | 4 | 8 | 0 | 0 |
+| project_requirement | 89 | 64 | 0 | 11 | 14 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 77 | 0 | 0 | 0 | 0 | 12 |
+| project_requirement | 64 | 0 | 0 | 0 | 0 | 25 |
 
 ## api_operation
 
@@ -806,31 +806,31 @@ API operations, behaviors and project requirements have separate denominators. P
 | DEP-005 | 複数エコシステムの毎日更新検出 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | 作業開始・リリース前確認と毎週の例外見直し | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | 期限付きの非互換例外管理 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DEP-008 | 更新されるdigest固定の複数arch Docker入力 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DEP-008 | 更新されるdigest固定の複数arch Docker入力 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-009 | 固定版と最新stableのCI検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Developer ergonomics
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-058 | Dockerの単一コマンド起動 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-059 | linux/amd64コンテナの提供 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-060 | linux/arm64コンテナの提供 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-061 | ホスト・Compose内からの接続例 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-058 | Dockerの単一コマンド起動 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-059 | linux/amd64コンテナの提供 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-060 | linux/arm64コンテナの提供 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-061 | ホスト・Compose内からの接続例 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-062 | 読み取り専用フィクスチャ投入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-063 | 永続データボリューム | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-064 | CLI・環境変数の優先順位 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-065 | HTTP・任意のテストTLS | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-066 | 非root・最小ランタイムイメージ | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-067 | ヘルス・準備完了確認・正常停止 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-064 | CLI・環境変数の優先順位 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-065 | HTTP・任意のテストTLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-066 | 非root・最小ランタイムイメージ | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-067 | ヘルス・準備完了確認・正常停止 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-068 | 分離された初期化・再投入管理操作 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-069 | 決定的な時計・メンテナンス実行 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-069 | 決定的な時計・メンテナンス実行 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### End-to-end onboarding
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| UX-001 | クリーンチェックアウトからDockerビルド | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-001 | クリーンチェックアウトからDockerビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | 初期データ投入後の起動完了 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-003 | ホスト・別コンテナ双方からのCRUD | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-004 | Go・Rubyの初回利用例 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -839,9 +839,9 @@ API operations, behaviors and project requirements have separate denominators. P
 | UX-007 | ブラウザCORS・直接アップロード | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-009 | 停止と明示的データ初期化の区別 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-010 | 並列CI実行の分離 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | 資源制限下の大容量オブジェクト操作 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-012 | 英語正本の導入ガイド・トラブルシューティング検証 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-012 | 英語正本の導入ガイド・トラブルシューティング検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### IAM enforcement
 

@@ -1,0 +1,73 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.15kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 490B done
+#9 DONE 0.0s
+
+#10 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#10 CACHED
+
+#11 [build 6/7] COPY src ./src
+#11 CACHED
+
+#12 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#12 CACHED
+
+#13 [build 5/7] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic
+#14 CACHED
+
+#15 [runtime 2/4] WORKDIR /app
+#15 CACHED
+
+#16 [build 2/7] WORKDIR /build
+#16 CACHED
+
+#17 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 CACHED
+
+#19 exporting to image
+#19 exporting layers done
+#19 exporting manifest sha256:c1e5f11340a77bb55f4955d8c0123cce83fa444e3ac321c633bbb0121eea2d24 done
+#19 exporting config sha256:99cb2eb58892efdfe5f07e950b037d39ed45137276dd1d30725ea640d3da9f3e done
+#19 exporting attestation manifest sha256:6743f0824ae6d6eb37141eb7917a6f251e372523adf42f786e75dde982f30d45 done
+#19 exporting manifest list sha256:4f4adc55e48a30684d24484438a238e51beb9450dd457cae0e47150f58766ecf done
+#19 naming to docker.io/library/gcs-mimic:source-onboarding done
+#19 unpacking to docker.io/library/gcs-mimic:source-onboarding done
+#19 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/7tow182g49q39c0eg6cey0wtn

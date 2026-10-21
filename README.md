@@ -1,59 +1,73 @@
 # gcs-mimic
 
-A lightweight Google Cloud Storage emulator in Rust.
+A Google Cloud Storage emulator in Rust for local development and CI.
 
-**Foundation stage: compatibility-ledger tooling is available. The storage server, Docker image, fixture importer and SDK examples are not implemented yet.** Resource efficiency is a design goal, not a measured result. The selected project name and future binary are `gcs-mimic`.
+The current implementation provides a configurable HTTP server with health/readiness checks and graceful shutdown. **Bucket and object APIs are not available yet.** Storage requests return 404, so applications cannot use it for storage yet.
 
-## Contributor quick start
+## Implementation status
 
-Prerequisites: Git, rustup and Python 3.11+ for dependency checks. The pinned compiler is Rust 1.99.1, edition 2024. No Google credentials or cloud project are needed.
+| Capability | Status | Current scope |
+| --- | --- | --- |
+| Standalone binary | ✅ Available | Build and run from source; no Rust installation is needed at runtime. |
+| Docker and Compose | 🚧 Partial | Non-root runtime; arm64 tested natively, amd64 tested under emulation. Native amd64 verification is pending. |
+| CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. |
+| Health, readiness and graceful shutdown | 🚧 Partial | Server probes and SIGINT/SIGTERM shutdown work. Storage recovery and fixture initialization are not available. |
+| HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
+| Bucket and object APIs | ❌ Unavailable | JSON, XML and gRPC storage operations are not implemented; unsupported HTTP routes return 404. |
+| Fixture loading and persistence | ❌ Unavailable | No initial data import or persistent bucket/object storage. |
+| Authentication, IAM and ACLs | ❌ Unavailable | Neither permissive nor strict storage authentication is implemented. |
+| Public and signed URLs | ❌ Unavailable | No URL helpers, signing or signature verification. |
+| Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
+| Official SDK workflows | ❌ Unavailable | No supported SDK integration workflow yet. |
+
+See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
+
+## Run with Docker
+
+Requires Git, Docker Engine/Desktop with Buildx, and curl. Linux amd64 and arm64 are supported. Build from source; no container image is published.
 
 ```sh
 git clone https://github.com/shiroemons/gcs-mimic.git
 cd gcs-mimic
-rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
-cargo +1.99.1 fetch --locked
-python3 scripts/check-dependencies.py
-cargo +1.99.1 xtask compatibility validate
-cargo +1.99.1 xtask compatibility render
-cargo +1.99.1 xtask compatibility check
-cargo +1.99.1 test --workspace --locked --offline
-cargo +1.99.1 fmt --all --check
-cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings
-python3 -m unittest discover -s scripts -p 'test_*.py'
+docker build -t gcs-mimic:dev .
+docker run --detach --rm --name gcs-mimic \
+  --read-only --memory 128m --cpus 1 --pids-limit 64 \
+  -p 127.0.0.1:4443:4443 gcs-mimic:dev
+docker exec gcs-mimic gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+curl --disable --noproxy '*' --fail http://127.0.0.1:4443/_internal/health
+curl --disable --noproxy '*' --fail http://127.0.0.1:4443/_internal/ready
 ```
 
-The `cargo xtask` alias uses the lockfile and offline resolution. Run `cargo fetch --locked` once before offline checks. Explicit `+1.99.1` overrides a conflicting `RUSTUP_TOOLCHAIN` environment variable; ordinary `cargo` uses `rust-toolchain.toml` when no environment override exists.
+Both checks return HTTP 200 when ready. The service is exposed only on host loopback at port 4443.
 
-Run the read-only dependency check at each slice start and before release. It compares official Rust metadata, Cargo registry releases (including new majors) and the pinned GitHub Action. Exit 1 means updates are available; exit 2 means the check failed. Daily detection is configured for every calendar day with no cooldown; activation requires the workflow to reach the default branch. Scheduled/remote CI execution has not been verified yet.
+```sh
+docker stop gcs-mimic
+```
 
-`compatibility/features.json` is the only feature-status authority. English and Japanese tables are generated together. See the [ledger workflow](docs/en/compatibility-policy.md), [dependency snapshot](compatibility/dependency-status.json) and [verification evidence](docs/en/evidence/ledger-bootstrap.txt). Supplementary kit material is organized under [planning/](planning/README.md); canonical project files are at repository root.
+The container runs as a non-root user. The command above sets a read-only filesystem and limits of 128 MiB memory, one CPU and 64 processes. These are configured limits, not measured resource requirements. For an application stack, see the [Compose instructions](docs/en/getting-started.md#use-with-docker-compose).
 
-## Planned experience
+## Run the binary
 
-Build and run a local Docker service, seed fixture buckets from a read-only directory, persist changes in a separate volume, connect official SDKs, and exercise private/public/signed object access. Use a permissive development profile for convenient startup and a strict local-identity profile for authorization and signature tests.
+Requires rustup to build; the resulting binary needs no Rust installation or Python to run.
 
-See the [proposed getting-started contract](docs/en/getting-started-spec.md) for the full installation-to-CI journey. Its configuration, initial data, Docker build/start, health, CRUD, SDK, public/signed URL, persistence, stop/reset and isolated CI commands are future acceptance targets. No container base image or digest has been selected; DEP-008 remains pending.
+```sh
+rustup toolchain install 1.99.1 --profile minimal
+cargo +1.99.1 build --release --locked --bin gcs-mimic
+./target/release/gcs-mimic serve --config config/development.json
+```
 
-## Project documents
+Check readiness from another terminal, then stop with Ctrl-C:
 
-- [Design](docs/en/design.md)
-- [Incremental roadmap](docs/en/roadmap.md)
-- [Compatibility policy](docs/en/compatibility-policy.md)
-- [Complete feature matrix](docs/en/feature-matrix.md)
-- [API inventory](docs/en/api-inventory.md)
-- [Source provenance and known gaps](docs/en/sources.md)
-- [Latest stable dependency policy](docs/en/dependency-policy.md)
-- [Machine-readable feature ledger](compatibility/features.json)
-- [Known specification gaps](compatibility/gaps.json)
-- [Coding-agent rules](AGENTS.md)
+```sh
+./target/release/gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+```
 
-## Implementation principles
+Configuration precedence is command-line options, `GCS_MIMIC_` environment variables, JSON configuration, then defaults. Use `--help` for options and limits. See the [build and run guide](docs/en/getting-started.md) for configuration, container connectivity and troubleshooting.
 
-Use bounded streaming with disk-backed data, transactional metadata, atomic generation conditions and explicit crash recovery. Share domain semantics across JSON, XML and gRPC adapters. Keep cloud infrastructure simulations clearly distinguished from exact local wire behavior.
+## Current limitations
 
-Adopt the latest stable Rust and chosen dependencies, including intentional major-version migrations. Record verified versions in the toolchain file, lockfiles and image digests. Refresh them continuously through tested updates.
+Fixture loading, persisted buckets/objects, SDK workflows, authentication, signed URLs, CORS and TLS are not available. No user data is stored, so there is nothing to persist or reset.
 
-Code, comments, commit messages, CLI output and canonical documentation are English. The owner's implementation prompts and work reports are Japanese. Implement one small feature slice and update evidence-backed status at a time.
+For contributors, see the [development guide](docs/en/development.md).
 
-This is an independent emulator project. It is not an official Google product.
+This is an independent project and is not an official Google product.

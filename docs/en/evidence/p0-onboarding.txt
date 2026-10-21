@@ -1,0 +1,10 @@
+gcs-mimic 0.1.0
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  32730      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792573328}  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  37438      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792573328}{"connection_timeout_ms":5000,"event":"ready","gcs_api":false,"listen":"127.0.0.1:56925","max_blocking_threads":2,"max_connections":32,"protocol":"http1","shutdown_timeout_ms":5000,"worker_threads":2}
+{"event":"stopped"}
+PASS: fresh local checkout plus current uncommitted snapshot; native build, configuration, probes, 404 and SIGTERM exit 0

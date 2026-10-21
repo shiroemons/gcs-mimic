@@ -1,10 +1,10 @@
 # Getting started: proposed end-to-end contract
 
-**Status: design specification, not a runnable release.** No emulator implementation or published image is claimed. Every command below is the expected flow that implementation must make pass. The selected project/CLI/image name is `gcs-mimic`. Replace only `REPOSITORY_URL` with the real repository URL when a repository exists. All commands in this document are acceptance targets for the future implementation.
+**Status: future end-to-end design specification.** The implemented HTTP shell has a separate [runnable guide](getting-started.md). This document retains later acceptance targets, including TOML configuration, fixtures, SDKs and signed URLs. Its commands/settings are not the current runtime contract. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
-The currently executable contributor path is in the [README](../../README.md): source checkout, dependency preparation, ledger commands and local checks. All runtime sections below remain future acceptance targets, including Docker, fixtures, health, SDK connection, URLs, persistence, stopping, reset and isolated CI. No storage operation is supported by this tooling-only slice.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover checkout, preparation, Docker/native builds, probes, configuration, stopping and isolated smoke checks. No storage operation is supported. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build
 

@@ -4,7 +4,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-There is no implemented storage server or measured performance result yet. The first P0 slice supplies ledger validation and generated views; current status is authoritative only in `compatibility/features.json`. The project name, future CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.** The name reflects the goal of mimicking Cloud Storage behavior.
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. No storage API or persistence is implemented and no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -16,7 +16,27 @@ Method names alone are insufficient. Compatibility includes required and optiona
 
 Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_api/v1), [XML API](https://docs.cloud.google.com/storage/docs/xml-api/reference-methods), [Storage v2 RPC](https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2), [Storage Control v2](https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.control.v2).
 
-## Proposed architecture
+## Implemented foundation and extension boundaries
+
+One application crate contains `config`, `clock` and `server`; `main` owns runtime creation, signals and listener setup. The server handles only emulator-internal probes. Unknown routes return 404 without reading bodies. No JSON/XML/gRPC success stubs or empty service implementations are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded JSON configuration rather than adding a TOML/CLI framework solely for P0.
+
+| Boundary | Contract for subsequent slices |
+| --- | --- |
+| JSON adapter | Own JSON API parsing/errors/headers and media/upload routes; preserve raw URI until protocol decoding. |
+| XML adapter | Own path/virtual-host canonicalization, XML errors, CORS and signed request parsing. |
+| gRPC adapter | Own pinned protobuf, stream framing, status and metadata; no gRPC listener in P0. |
+| Shared services | Own authorization, generations, atomic preconditions and state transitions; transport types do not enter persistence. |
+| Metadata catalog | Own indexed transactions, short atomic condition checks and reference publication; no transaction across body transfer. |
+| Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
+| Clock | Inject business wall time through `Clock::now`; production uses `SystemClock`, tests supply deterministic time. Socket/drain deadlines use Tokio monotonic time independently. |
+
+No persistence traits are frozen before a real bucket/object slice needs them. These boundaries are design contracts, not implementations. Recovery and authorization must become shared-service prerequisites before adapters report success. Existing SPEC-001/002/003/004/006/007 gaps affect business APIs; P0 resolves none by inference.
+
+P0 caps connections (default 32), headers (64 and 16 KiB), connection lifetime (5 seconds), shutdown drain (5 seconds), async workers (2) and blocking workers (2). Admission stops when full; no application queue exists. The requested kernel backlog is 128. Every response closes its connection. Probe bodies are rejected. Compose additionally sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are settings, not benchmarks. No database caches, CPU jobs or maintenance tasks exist yet; future slices must bound them when introduced.
+
+Startup validates config and registers signals before bind/readiness. P0 has no recovery/seed step. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts remaining tasks and returns an error. Future storage recovery and seeding must finish before readiness. Clock-backed expiration and an explicit maintenance scheduler remain future work; no idle polling loop is introduced.
+
+## Planned storage architecture
 
 | Component | Proposed responsibility |
 | --- | --- |
@@ -40,6 +60,8 @@ Tokio's file operations may use blocking workers; merely using async functions d
 Use generated, opaque blob identifiers. Object names such as Unicode strings, repeated slashes, encoded `%2F`, dot segments and trailing delimiters are logical keys, not native filesystem paths.
 
 A suggested ordinary-object write path is: allocate upload state, stream to a temporary blob while checking length/checksums, make the blob durable according to the selected profile, publish its immutable file, and commit the catalog reference with atomic precondition checks. File publication and SQL commit are separate operations. A recovery journal or an explicitly proven reconciliation protocol must cover every crash boundary, orphan blob and dangling reference. Garbage collection must not remove a generation still being read or needed by a resumable operation.
+
+Before exposing writes, validate this publication protocol: stage and fsync a temporary blob; rename to an opaque immutable ID on the same filesystem and fsync its directory; atomically check preconditions and commit the catalog reference. A crash before publication leaves staging data; before catalog commit it leaves an orphan; after commit the referenced blob must be durable. Recovery takes the exclusive directory lock before serving and reconciles staging/orphans against indexed references in bounded pages. Missing referenced blobs are corruption that prevents readiness. Failed preconditions expose no generation, and GC must respect readers/sessions. This is a planned crash-boundary contract, not verified durability or an atomic SQLite/filesystem transaction.
 
 Make generation/metageneration compare-and-swap part of the committing mutation. Two concurrent `ifGenerationMatch=0` creates must not both succeed. Ordinary uploads must not expose partial objects. Rapid appendable objects have different visibility and single-writer handoff rules, so model them separately. [Preconditions](https://docs.cloud.google.com/storage/docs/request-preconditions), [Rapid Bucket](https://docs.cloud.google.com/storage/docs/rapid/rapid-bucket).
 

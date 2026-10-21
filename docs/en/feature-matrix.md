@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 89 | 77 | 0 | 4 | 8 | 0 | 0 |
+| project_requirement | 89 | 64 | 0 | 11 | 14 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 0 | 0 | 0 | 0 | 0 |
 | behavior | 201 | 0 | 0 | 0 | 0 | 0 |
-| project_requirement | 77 | 0 | 0 | 0 | 0 | 12 |
+| project_requirement | 64 | 0 | 0 | 0 | 0 | 25 |
 
 ## api_operation
 
@@ -806,31 +806,31 @@ API operations, behaviors and project requirements have separate denominators. P
 | DEP-005 | Daily multi-ecosystem update detection | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-006 | Start/release checks and weekly exception review | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DEP-007 | Explicit expiring incompatibility exceptions | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DEP-008 | Updated digest-pinned multiarch Docker inputs | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DEP-008 | Updated digest-pinned multiarch Docker inputs | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DEP-009 | Pinned and current-stable CI lanes | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### Developer ergonomics
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-058 | Docker single-command startup | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-059 | Native linux/amd64 container | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-060 | Native linux/arm64 container | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-061 | Host and compose-network connection examples | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-058 | Docker single-command startup | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-059 | Native linux/amd64 container | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-060 | Native linux/arm64 container | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-061 | Host and compose-network connection examples | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-062 | Read-only fixture seeding | NOT_STARTED | P0 | PROJECT | NONE | 0 |
 | DESIGN-063 | Persistent data volume | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-064 | CLI and environment precedence | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-065 | HTTP and optional test TLS | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-066 | Non-root minimal runtime image | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-067 | Health, readiness and graceful shutdown | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-064 | CLI and environment precedence | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-065 | HTTP and optional test TLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-066 | Non-root minimal runtime image | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-067 | Health, readiness and graceful shutdown | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-068 | Isolated reset/reseed admin operations | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-069 | Deterministic clock and maintenance stepping | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-069 | Deterministic clock and maintenance stepping | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### End-to-end onboarding
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| UX-001 | Clean-checkout source Docker build | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | Seed then ready startup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-003 | Host and peer-container CRUD flow | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-004 | Go and Ruby first-use examples | NOT_STARTED | P1 | PROJECT | NONE | 0 |
@@ -839,9 +839,9 @@ API operations, behaviors and project requirements have separate denominators. P
 | UX-007 | Browser CORS and direct upload journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | Restart preserves data and permissions | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | UX-009 | Stop versus deliberate reset semantics | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-010 | Isolated parallel CI runs | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | Resource-limited large-object workflow | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| UX-012 | Canonical English guide and troubleshooting verification | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| UX-012 | Canonical English guide and troubleshooting verification | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 
 ### IAM enforcement
 

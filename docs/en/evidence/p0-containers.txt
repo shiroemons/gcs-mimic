@@ -1,0 +1,345 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.15kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 8.35kB done
+#9 DONE 0.0s
+
+#10 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#10 CACHED
+
+#11 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#11 CACHED
+
+#12 [build 2/7] WORKDIR /build
+#12 CACHED
+
+#13 [build 5/7] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build 6/7] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#15 0.136 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#15 0.503 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#15 0.514 info: downloading 2 components
+#15 1.249     Updating crates.io index
+#15 1.734  Downloading crates ...
+#15 1.872   Downloaded atomic-waker v1.1.2
+#15 1.880   Downloaded tokio-macros v2.7.2
+#15 1.898   Downloaded pin-project-lite v0.2.17
+#15 1.907   Downloaded futures-core v0.3.34
+#15 1.909   Downloaded errno v0.3.14
+#15 1.931   Downloaded http-body v1.1.0
+#15 1.952   Downloaded httpdate v1.0.3
+#15 1.954   Downloaded itoa v1.0.18
+#15 1.956   Downloaded http-body-util v0.1.5
+#15 1.960   Downloaded quote v1.0.47
+#15 1.971   Downloaded signal-hook-registry v1.4.8
+#15 1.975   Downloaded zmij v1.0.23
+#15 1.978   Downloaded unicode-ident v1.0.27
+#15 1.982   Downloaded httparse v1.10.1
+#15 1.985   Downloaded proc-macro2 v1.0.107
+#15 1.989   Downloaded smallvec v1.16.3
+#15 1.990   Downloaded serde_core v1.0.229
+#15 1.993   Downloaded socket2 v0.6.5
+#15 1.995   Downloaded bytes v1.12.1
+#15 2.003   Downloaded mio v1.2.4
+#15 2.010   Downloaded memchr v2.8.3
+#15 2.015   Downloaded http v1.5.0
+#15 2.019   Downloaded hyper-util v0.1.21
+#15 2.025   Downloaded serde_json v1.0.154
+#15 2.031   Downloaded hyper v1.12.0
+#15 2.038   Downloaded syn v3.0.9
+#15 2.051   Downloaded libc v0.2.191
+#15 2.101   Downloaded tokio v1.54.0
+#15 2.166    Compiling libc v0.2.191
+#15 2.166    Compiling proc-macro2 v1.0.107
+#15 2.377    Compiling unicode-ident v1.0.27
+#15 2.409    Compiling quote v1.0.47
+#15 2.763    Compiling itoa v1.0.18
+#15 2.873    Compiling bytes v1.12.1
+#15 2.974    Compiling syn v3.0.9
+#15 3.206    Compiling http v1.5.0
+#15 4.026    Compiling errno v0.3.14
+#15 4.080    Compiling httparse v1.10.1
+#15 4.178    Compiling pin-project-lite v0.2.17
+#15 4.203    Compiling signal-hook-registry v1.4.8
+#15 4.308    Compiling tokio-macros v2.7.2
+#15 4.350    Compiling http-body v1.1.0
+#15 4.391    Compiling socket2 v0.6.5
+#15 4.569    Compiling mio v1.2.4
+#15 4.694    Compiling serde_core v1.0.229
+#15 4.782    Compiling futures-core v0.3.34
+#15 4.793    Compiling zmij v1.0.23
+#15 4.826    Compiling tokio v1.54.0
+#15 5.047    Compiling httpdate v1.0.3
+#15 5.167    Compiling serde_json v1.0.154
+#15 5.230    Compiling atomic-waker v1.1.2
+#15 5.260    Compiling smallvec v1.16.3
+#15 6.311    Compiling hyper v1.12.0
+#15 7.521    Compiling memchr v2.8.3
+#15 8.460    Compiling hyper-util v0.1.21
+#15 8.518    Compiling http-body-util v0.1.5
+#15 8.602    Compiling gcs-mimic v0.1.0 (/build)
+#15 10.15     Finished `release` profile [optimized] target(s) in 8.92s
+#15 DONE 10.6s
+
+#16 [runtime 2/4] WORKDIR /app
+#16 CACHED
+
+#17 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers 0.1s done
+#19 exporting manifest sha256:4d98d3abc5d20c8c106040450ed48b551795775c1d92f7155ec09a6fd5156ed4 done
+#19 exporting config sha256:0ea8055b57081ef7b8606cbda8ad7d95f3f86d4a790d6c7ac77fe22150432763 done
+#19 exporting attestation manifest sha256:4bc02b6cb2ba0e1661b4847941538c7faa8213b0b7e217e3342eb0191a1cf761 done
+#19 exporting manifest list sha256:14948dad1e6c61d4f48843682402f764c0eda5de820f273cad0d593f3ef507d6 done
+#19 naming to docker.io/library/gcs-mimic:p0-smoke-arm64-15230 done
+#19 unpacking to docker.io/library/gcs-mimic:p0-smoke-arm64-15230 0.0s done
+#19 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/fi1004ytzwwtivxo41y7c4zvm
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+Only HTTP/1 health/readiness is implemented. GCS, TLS and authentication are unavailable.
+gcs-mimic 0.1.0
+ Network gcs-mimic-p0-arm64-15230_default Creating
+ Network gcs-mimic-p0-arm64-15230_default Creating
+ Network gcs-mimic-p0-arm64-15230_default Created
+ Network gcs-mimic-p0-arm64-15230_default Created
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Creating
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Created
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Starting
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Started
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Waiting
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Healthy
+ Container gcs-mimic-p0-arm64-15230-gcs-run-c4887528b738 Creating
+ Container gcs-mimic-p0-arm64-15230-gcs-run-c4887528b738 Created
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Stopped
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Stopping
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Stopped
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Removing
+ Container gcs-mimic-p0-arm64-15230-gcs-1 Removed
+ Network gcs-mimic-p0-arm64-15230_default Removing
+ Network gcs-mimic-p0-arm64-15230_default Removed
+PASS: linux/arm64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.15kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 154B done
+#6 DONE 0.0s
+
+#7 [runtime 1/4] FROM docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+#7 resolve docker.io/library/debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad done
+#7 DONE 0.0s
+
+#8 [build 1/7] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:00544ccc9431a2fe93e65185d21381b0a039342f5cefcf84fbddac273c9e573d done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 490B done
+#9 DONE 0.0s
+
+#10 [build 4/7] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#10 CACHED
+
+#11 [build 2/7] WORKDIR /build
+#11 CACHED
+
+#12 [build 3/7] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#12 CACHED
+
+#13 [build 5/7] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build 6/7] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build 7/7] RUN cargo build --locked --release --bin gcs-mimic --jobs 2
+#15 0.292 info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+#15 0.702 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#15 0.718 info: downloading 2 components
+#15 1.846     Updating crates.io index
+#15 2.461  Downloading crates ...
+#15 2.566   Downloaded http-body v1.1.0
+#15 2.578   Downloaded errno v0.3.14
+#15 2.584   Downloaded atomic-waker v1.1.2
+#15 2.600   Downloaded zmij v1.0.23
+#15 2.622   Downloaded itoa v1.0.18
+#15 2.627   Downloaded tokio-macros v2.7.2
+#15 2.642   Downloaded http-body-util v0.1.5
+#15 2.646   Downloaded httpdate v1.0.3
+#15 2.648   Downloaded pin-project-lite v0.2.17
+#15 2.656   Downloaded quote v1.0.47
+#15 2.659   Downloaded futures-core v0.3.34
+#15 2.661   Downloaded signal-hook-registry v1.4.8
+#15 2.673   Downloaded httparse v1.10.1
+#15 2.678   Downloaded smallvec v1.16.3
+#15 2.680   Downloaded unicode-ident v1.0.27
+#15 2.683   Downloaded serde_core v1.0.229
+#15 2.686   Downloaded proc-macro2 v1.0.107
+#15 2.689   Downloaded socket2 v0.6.5
+#15 2.694   Downloaded bytes v1.12.1
+#15 2.699   Downloaded memchr v2.8.3
+#15 2.706   Downloaded mio v1.2.4
+#15 2.714   Downloaded http v1.5.0
+#15 2.718   Downloaded hyper-util v0.1.21
+#15 2.725   Downloaded serde_json v1.0.154
+#15 2.732   Downloaded hyper v1.12.0
+#15 2.738   Downloaded syn v3.0.9
+#15 2.775   Downloaded libc v0.2.191
+#15 2.819   Downloaded tokio v1.54.0
+#15 2.962    Compiling libc v0.2.191
+#15 2.963    Compiling proc-macro2 v1.0.107
+#15 5.007    Compiling unicode-ident v1.0.27
+#15 5.613    Compiling quote v1.0.47
+#15 6.639    Compiling itoa v1.0.18
+#15 8.059    Compiling bytes v1.12.1
+#15 8.408    Compiling syn v3.0.9
+#15 10.92    Compiling http v1.5.0
+#15 12.64    Compiling errno v0.3.14
+#15 13.85    Compiling httparse v1.10.1
+#15 14.63    Compiling pin-project-lite v0.2.17
+#15 15.08    Compiling signal-hook-registry v1.4.8
+#15 15.15    Compiling http-body v1.1.0
+#15 16.16    Compiling tokio-macros v2.7.2
+#15 16.99    Compiling socket2 v0.6.5
+#15 17.89    Compiling mio v1.2.4
+#15 19.49    Compiling serde_core v1.0.229
+#15 19.90    Compiling futures-core v0.3.34
+#15 20.46    Compiling zmij v1.0.23
+#15 21.07    Compiling tokio v1.54.0
+#15 23.46    Compiling serde_json v1.0.154
+#15 24.23    Compiling atomic-waker v1.1.2
+#15 25.27    Compiling smallvec v1.16.3
+#15 26.55    Compiling httpdate v1.0.3
+#15 28.31    Compiling hyper v1.12.0
+#15 33.07    Compiling memchr v2.8.3
+#15 35.74    Compiling hyper-util v0.1.21
+#15 37.02    Compiling http-body-util v0.1.5
+#15 38.24    Compiling gcs-mimic v0.1.0 (/build)
+#15 44.95     Finished `release` profile [optimized] target(s) in 43.33s
+#15 DONE 45.3s
+
+#16 [runtime 2/4] WORKDIR /app
+#16 CACHED
+
+#17 [runtime 3/4] RUN groupadd --gid 10001 gcs-mimic && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin gcs-mimic
+#17 CACHED
+
+#18 [runtime 4/4] COPY --from=build --chown=10001:10001 /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#18 DONE 0.0s
+
+#19 exporting to image
+#19 exporting layers 0.1s done
+#19 exporting manifest sha256:80e357f1ebda759ec3779d806960061d763c2326a8e1f306e0b41516e4ea8888 done
+#19 exporting config sha256:2eab09af5d9a87f735dabe7e752fd6adc1a3a85f64712c745d808aa8d78723af done
+#19 exporting attestation manifest sha256:cb93aef736ab97b86ac0666da1cb49908a5e7ffaf6f6b52a27ab5d50e88fd8b5 done
+#19 exporting manifest list sha256:f464910377a74c1326d127af8ec918691fd20781158ddac52fe7efb6c2fa5686 done
+#19 naming to docker.io/library/gcs-mimic:p0-smoke-amd64-15230 done
+#19 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/5dwfbirl1emzhs3zq2gywa45t
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --max-connections N          32 (1..1024)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+Only HTTP/1 health/readiness is implemented. GCS, TLS and authentication are unavailable.
+gcs-mimic 0.1.0
+ Network gcs-mimic-p0-amd64-15230_default Creating
+ Network gcs-mimic-p0-amd64-15230_default Creating
+ Network gcs-mimic-p0-amd64-15230_default Created
+ Network gcs-mimic-p0-amd64-15230_default Created
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Creating
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Created
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Starting
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Started
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Waiting
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Healthy
+ Container gcs-mimic-p0-amd64-15230-gcs-run-0787b12ccdfb Creating
+ Container gcs-mimic-p0-amd64-15230-gcs-run-0787b12ccdfb Created
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Stopping
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Stopped
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Stopping
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Stopped
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Removing
+ Container gcs-mimic-p0-amd64-15230-gcs-1 Removed
+ Network gcs-mimic-p0-amd64-15230_default Removing
+ Network gcs-mimic-p0-amd64-15230_default Removed
+PASS: linux/amd64 build, isolated health, host/DNS access, resource limits, SIGINT and SIGTERM
