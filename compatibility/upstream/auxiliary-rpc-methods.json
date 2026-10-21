@@ -1,0 +1,1187 @@
+{
+  "retrieved_at": "2026-10-21",
+  "provenance": "Google-owned googleapis/googleapis source files fetched through GitHub connector",
+  "sources": [
+    {
+      "local": "storage_control.proto",
+      "sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto"
+    },
+    {
+      "local": "storageinsights.proto",
+      "sha": "fcefa7c8848c46a9c390550729b4b8715717d750",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto"
+    },
+    {
+      "key": "batchproto",
+      "sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto"
+    },
+    {
+      "key": "batchtypes",
+      "sha": "d29b3de5faa6abfb52003e7c31d9958b6954ba88",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations_types.proto"
+    },
+    {
+      "key": "batchyaml",
+      "sha": "56cdc70278df8a8fa01e6befcc9fe0a22286f99d",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storagebatchoperations_v1.yaml"
+    },
+    {
+      "key": "insightsyaml",
+      "sha": "9ce7ce7d94540add0625e01ee6aa51912efe2a45",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights_v1.yaml"
+    },
+    {
+      "key": "locationsproto",
+      "sha": "36a0b0e89ddcfdbf42a73239a006d804abbde341",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/location/locations.proto"
+    },
+    {
+      "local": "storage_control_v2.yaml",
+      "sha": "b1e3c833dc6853fd8bb9ef6d0cde60dfb739e3ba",
+      "display_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_v2.yaml"
+    }
+  ],
+  "methods": [
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "CreateFolder",
+      "request": "google.storage.control.v2.CreateFolderRequest",
+      "response": "google.storage.control.v2.Folder",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v2/{parent=projects/*/buckets/*}/folders"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "DeleteFolder",
+      "request": "google.storage.control.v2.DeleteFolderRequest",
+      "response": "google.protobuf.Empty",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "DELETE",
+          "path": "/v2/{name=projects/*/buckets/*/folders/**}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetFolder",
+      "request": "google.storage.control.v2.GetFolderRequest",
+      "response": "google.storage.control.v2.Folder",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/buckets/*/folders/**}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListFolders",
+      "request": "google.storage.control.v2.ListFoldersRequest",
+      "response": "google.storage.control.v2.ListFoldersResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=projects/*/buckets/*}/folders"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "RenameFolder",
+      "request": "google.storage.control.v2.RenameFolderRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v2/{name=projects/*/buckets/*/folders/**}:rename"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "Folder",
+      "lro_metadata_type": "RenameFolderMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "DeleteFolderRecursive",
+      "request": "google.storage.control.v2.DeleteFolderRecursiveRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v2/{name=projects/*/buckets/*/folders/**}:deleteRecursive"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "google.protobuf.Empty",
+      "lro_metadata_type": "DeleteFolderRecursiveMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetStorageLayout",
+      "request": "google.storage.control.v2.GetStorageLayoutRequest",
+      "response": "google.storage.control.v2.StorageLayout",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/buckets/*/storageLayout}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "CreateManagedFolder",
+      "request": "google.storage.control.v2.CreateManagedFolderRequest",
+      "response": "google.storage.control.v2.ManagedFolder",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "DeleteManagedFolder",
+      "request": "google.storage.control.v2.DeleteManagedFolderRequest",
+      "response": "google.protobuf.Empty",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetManagedFolder",
+      "request": "google.storage.control.v2.GetManagedFolderRequest",
+      "response": "google.storage.control.v2.ManagedFolder",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListManagedFolders",
+      "request": "google.storage.control.v2.ListManagedFoldersRequest",
+      "response": "google.storage.control.v2.ListManagedFoldersResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateManagedFolder",
+      "request": "google.storage.control.v2.UpdateManagedFolderRequest",
+      "response": "google.storage.control.v2.ManagedFolder",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "CreateAnywhereCache",
+      "request": "google.storage.control.v2.CreateAnywhereCacheRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": true,
+      "lro_response_type": "AnywhereCache",
+      "lro_metadata_type": "CreateAnywhereCacheMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateAnywhereCache",
+      "request": "google.storage.control.v2.UpdateAnywhereCacheRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": true,
+      "lro_response_type": "AnywhereCache",
+      "lro_metadata_type": "UpdateAnywhereCacheMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "DisableAnywhereCache",
+      "request": "google.storage.control.v2.DisableAnywhereCacheRequest",
+      "response": "google.storage.control.v2.AnywhereCache",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "PauseAnywhereCache",
+      "request": "google.storage.control.v2.PauseAnywhereCacheRequest",
+      "response": "google.storage.control.v2.AnywhereCache",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ResumeAnywhereCache",
+      "request": "google.storage.control.v2.ResumeAnywhereCacheRequest",
+      "response": "google.storage.control.v2.AnywhereCache",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetAnywhereCache",
+      "request": "google.storage.control.v2.GetAnywhereCacheRequest",
+      "response": "google.storage.control.v2.AnywhereCache",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListAnywhereCaches",
+      "request": "google.storage.control.v2.ListAnywhereCachesRequest",
+      "response": "google.storage.control.v2.ListAnywhereCachesResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "CreateRapidCache",
+      "request": "google.storage.control.v2.CreateRapidCacheRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": true,
+      "lro_response_type": "RapidCache",
+      "lro_metadata_type": "CreateRapidCacheMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateRapidCache",
+      "request": "google.storage.control.v2.UpdateRapidCacheRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": true,
+      "lro_response_type": "RapidCache",
+      "lro_metadata_type": "UpdateRapidCacheMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "DisableRapidCache",
+      "request": "google.storage.control.v2.DisableRapidCacheRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": true,
+      "lro_response_type": "RapidCache",
+      "lro_metadata_type": "DisableRapidCacheMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetRapidCache",
+      "request": "google.storage.control.v2.GetRapidCacheRequest",
+      "response": "google.storage.control.v2.RapidCache",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListRapidCaches",
+      "request": "google.storage.control.v2.ListRapidCachesRequest",
+      "response": "google.storage.control.v2.ListRapidCachesResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetProjectIntelligenceConfig",
+      "request": "google.storage.control.v2.GetProjectIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateProjectIntelligenceConfig",
+      "request": "google.storage.control.v2.UpdateProjectIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "PATCH",
+          "path": "/v2/{intelligence_config.name=projects/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetFolderIntelligenceConfig",
+      "request": "google.storage.control.v2.GetFolderIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=folders/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateFolderIntelligenceConfig",
+      "request": "google.storage.control.v2.UpdateFolderIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "PATCH",
+          "path": "/v2/{intelligence_config.name=folders/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetOrganizationIntelligenceConfig",
+      "request": "google.storage.control.v2.GetOrganizationIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=organizations/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "UpdateOrganizationIntelligenceConfig",
+      "request": "google.storage.control.v2.UpdateOrganizationIntelligenceConfigRequest",
+      "response": "google.storage.control.v2.IntelligenceConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "PATCH",
+          "path": "/v2/{intelligence_config.name=organizations/*/locations/*/intelligenceConfig}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetIamPolicy",
+      "request": "google.iam.v1.GetIamPolicyRequest",
+      "response": "google.iam.v1.Policy",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "SetIamPolicy",
+      "request": "google.iam.v1.SetIamPolicyRequest",
+      "response": "google.iam.v1.Policy",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "TestIamPermissions",
+      "request": "google.iam.v1.TestIamPermissionsRequest",
+      "response": "google.iam.v1.TestIamPermissionsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetIntelligenceFinding",
+      "request": "google.storage.control.v2.GetIntelligenceFindingRequest",
+      "response": "google.storage.control.v2.IntelligenceFinding",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/locations/*/intelligenceFindings/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListIntelligenceFindings",
+      "request": "google.storage.control.v2.ListIntelligenceFindingsRequest",
+      "response": "google.storage.control.v2.ListIntelligenceFindingsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=projects/*/locations/*}/intelligenceFindings"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "SummarizeIntelligenceFindings",
+      "request": "google.storage.control.v2.SummarizeIntelligenceFindingsRequest",
+      "response": "google.storage.control.v2.SummarizeIntelligenceFindingsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=projects/*/locations/*}/intelligenceFindings:summarize"
+        },
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=folders/*/locations/*}/intelligenceFindings:summarize"
+        },
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=organizations/*/locations/*}/intelligenceFindings:summarize"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "GetIntelligenceFindingRevision",
+      "request": "google.storage.control.v2.GetIntelligenceFindingRevisionRequest",
+      "response": "google.storage.control.v2.IntelligenceFindingRevision",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/locations/*/intelligenceFindings/*/revisions/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ListIntelligenceFindingRevisions",
+      "request": "google.storage.control.v2.ListIntelligenceFindingRevisionsRequest",
+      "response": "google.storage.control.v2.ListIntelligenceFindingRevisionsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{parent=projects/*/locations/*/intelligenceFindings/*}/revisions"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.storage.control.v2.StorageControl",
+      "method": "ViewObjectFullContext",
+      "request": "google.storage.control.v2.ViewObjectFullContextRequest",
+      "response": "google.storage.control.v2.ObjectFullContext",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v2/{name=projects/*/buckets/*/objects/**}:viewFullContext"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/control/v2/storage_control.proto",
+      "blob_sha": "07c56cc3c529feaf4f21731c7f18711ff34a3e69"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "ListReportConfigs",
+      "request": "google.cloud.storageinsights.v1.ListReportConfigsRequest",
+      "response": "google.cloud.storageinsights.v1.ListReportConfigsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{parent=projects/*/locations/*}/reportConfigs"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "GetReportConfig",
+      "request": "google.cloud.storageinsights.v1.GetReportConfigRequest",
+      "response": "google.cloud.storageinsights.v1.ReportConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*/reportConfigs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "CreateReportConfig",
+      "request": "google.cloud.storageinsights.v1.CreateReportConfigRequest",
+      "response": "google.cloud.storageinsights.v1.ReportConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{parent=projects/*/locations/*}/reportConfigs"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "UpdateReportConfig",
+      "request": "google.cloud.storageinsights.v1.UpdateReportConfigRequest",
+      "response": "google.cloud.storageinsights.v1.ReportConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "PATCH",
+          "path": "/v1/{report_config.name=projects/*/locations/*/reportConfigs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "DeleteReportConfig",
+      "request": "google.cloud.storageinsights.v1.DeleteReportConfigRequest",
+      "response": "google.protobuf.Empty",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "DELETE",
+          "path": "/v1/{name=projects/*/locations/*/reportConfigs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "ListReportDetails",
+      "request": "google.cloud.storageinsights.v1.ListReportDetailsRequest",
+      "response": "google.cloud.storageinsights.v1.ListReportDetailsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{parent=projects/*/locations/*/reportConfigs/*}/reportDetails"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "GetReportDetail",
+      "request": "google.cloud.storageinsights.v1.GetReportDetailRequest",
+      "response": "google.cloud.storageinsights.v1.ReportDetail",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*/reportConfigs/*/reportDetails/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "ListDatasetConfigs",
+      "request": "google.cloud.storageinsights.v1.ListDatasetConfigsRequest",
+      "response": "google.cloud.storageinsights.v1.ListDatasetConfigsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{parent=projects/*/locations/*}/datasetConfigs"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "GetDatasetConfig",
+      "request": "google.cloud.storageinsights.v1.GetDatasetConfigRequest",
+      "response": "google.cloud.storageinsights.v1.DatasetConfig",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*/datasetConfigs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "CreateDatasetConfig",
+      "request": "google.cloud.storageinsights.v1.CreateDatasetConfigRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{parent=projects/*/locations/*}/datasetConfigs"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "DatasetConfig",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "UpdateDatasetConfig",
+      "request": "google.cloud.storageinsights.v1.UpdateDatasetConfigRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "PATCH",
+          "path": "/v1/{dataset_config.name=projects/*/locations/*/datasetConfigs/*}"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "DatasetConfig",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "DeleteDatasetConfig",
+      "request": "google.cloud.storageinsights.v1.DeleteDatasetConfigRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "DELETE",
+          "path": "/v1/{name=projects/*/locations/*/datasetConfigs/*}"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "google.protobuf.Empty",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "LinkDataset",
+      "request": "google.cloud.storageinsights.v1.LinkDatasetRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{name=projects/*/locations/*/datasetConfigs/*}:linkDataset"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "LinkDatasetResponse",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storageinsights.v1.StorageInsights",
+      "method": "UnlinkDataset",
+      "request": "google.cloud.storageinsights.v1.UnlinkDatasetRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{name=projects/*/locations/*/datasetConfigs/*}:unlinkDataset"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "google.protobuf.Empty",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights.proto",
+      "blob_sha": "fcefa7c8848c46a9c390550729b4b8715717d750"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "ListJobs",
+      "request": "google.cloud.storagebatchoperations.v1.ListJobsRequest",
+      "response": "google.cloud.storagebatchoperations.v1.ListJobsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{parent=projects/*/locations/*}/jobs"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "GetJob",
+      "request": "google.cloud.storagebatchoperations.v1.GetJobRequest",
+      "response": "google.cloud.storagebatchoperations.v1.Job",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*/jobs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "CreateJob",
+      "request": "google.cloud.storagebatchoperations.v1.CreateJobRequest",
+      "response": "google.longrunning.Operation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{parent=projects/*/locations/*}/jobs"
+        }
+      ],
+      "long_running_response": true,
+      "lro_response_type": "Job",
+      "lro_metadata_type": "OperationMetadata",
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "DeleteJob",
+      "request": "google.cloud.storagebatchoperations.v1.DeleteJobRequest",
+      "response": "google.protobuf.Empty",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "DELETE",
+          "path": "/v1/{name=projects/*/locations/*/jobs/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "CancelJob",
+      "request": "google.cloud.storagebatchoperations.v1.CancelJobRequest",
+      "response": "google.cloud.storagebatchoperations.v1.CancelJobResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "POST",
+          "path": "/v1/{name=projects/*/locations/*/jobs/*}:cancel"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "ListBucketOperations",
+      "request": "google.cloud.storagebatchoperations.v1.ListBucketOperationsRequest",
+      "response": "google.cloud.storagebatchoperations.v1.ListBucketOperationsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{parent=projects/*/locations/*/jobs/*}/bucketOperations"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    },
+    {
+      "service": "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "method": "GetBucketOperation",
+      "request": "google.cloud.storagebatchoperations.v1.GetBucketOperationRequest",
+      "response": "google.cloud.storagebatchoperations.v1.BucketOperation",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*/jobs/*/bucketOperations/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storage_batch_operations.proto",
+      "blob_sha": "556b7d378c9a10df1f9eea6214a329add35c8dcf"
+    }
+  ],
+  "shared_location_methods": [
+    {
+      "service": "google.cloud.location.Locations",
+      "method": "ListLocations",
+      "request": "google.cloud.location.ListLocationsRequest",
+      "response": "google.cloud.location.ListLocationsResponse",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=locations}"
+        },
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*}/locations"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/location/locations.proto",
+      "blob_sha": "36a0b0e89ddcfdbf42a73239a006d804abbde341"
+    },
+    {
+      "service": "google.cloud.location.Locations",
+      "method": "GetLocation",
+      "request": "google.cloud.location.GetLocationRequest",
+      "response": "google.cloud.location.Location",
+      "client_streaming": false,
+      "server_streaming": false,
+      "http_bindings": [
+        {
+          "verb": "GET",
+          "path": "/v1/{name=locations/*}"
+        },
+        {
+          "verb": "GET",
+          "path": "/v1/{name=projects/*/locations/*}"
+        }
+      ],
+      "long_running_response": false,
+      "lro_response_type": null,
+      "lro_metadata_type": null,
+      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/cloud/location/locations.proto",
+      "blob_sha": "36a0b0e89ddcfdbf42a73239a006d804abbde341"
+    }
+  ],
+  "registered_apis": {
+    "storageinsights.googleapis.com": [
+      "google.cloud.location.Locations",
+      "google.cloud.storageinsights.v1.StorageInsights",
+      "google.longrunning.Operations"
+    ],
+    "storagebatchoperations.googleapis.com": [
+      "google.cloud.location.Locations",
+      "google.cloud.storagebatchoperations.v1.StorageBatchOperations",
+      "google.longrunning.Operations"
+    ],
+    "storage.googleapis.com (Control)": [
+      "google.longrunning.Operations",
+      "google.storage.control.v2.StorageControl"
+    ]
+  },
+  "notes": [
+    "Service YAML explicitly registers Locations and Operations on both extended endpoints; no generic IAM service binding is inferred.",
+    "Long-running Operations five methods are tracked separately as EXT-LRO-001..005.",
+    "HTTP bindings are verbatim descriptor templates; lack of a method-level HTTP annotation does not authorize inventing a REST route.",
+    "Request/response streaming flags are extracted from RPC signatures; all listed direct Control/Insights/Batch methods are unary.",
+    "Current Control proto declares 39 methods; HTML reference observed during research listed only 23. GetIntelligenceFindingRevision was resolved from this descriptor."
+  ],
+  "shared_location_bindings": [
+    {
+      "endpoint": "storageinsights.googleapis.com",
+      "service": "google.cloud.location.Locations",
+      "methods": [
+        "ListLocations",
+        "GetLocation"
+      ],
+      "service_config_source": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storageinsights/v1/storageinsights_v1.yaml"
+    },
+    {
+      "endpoint": "storagebatchoperations.googleapis.com",
+      "service": "google.cloud.location.Locations",
+      "methods": [
+        "ListLocations",
+        "GetLocation"
+      ],
+      "service_config_source": "https://github.com/googleapis/googleapis/blob/master/google/cloud/storagebatchoperations/v1/storagebatchoperations_v1.yaml"
+    }
+  ]
+}

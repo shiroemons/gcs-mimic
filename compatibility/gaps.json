@@ -1,0 +1,141 @@
+{
+  "as_of": "2026-10-21",
+  "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
+  "gaps": [
+    {
+      "id": "SPEC-001",
+      "title": "Atomic move eligibility for flat-namespace buckets is not established",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-OBJECTS-009",
+        "RPC-STORAGE-024",
+        "BEHAVIOR-OBJECT-028"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/move"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "The overview states HNS-only; omission of that restriction on the dedicated page does not prove its removal. Reconcile current compatibility tables, release notes and an authorized real-service fixture before choosing a strict rule. Never substitute copy plus delete for atomic move.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The objects resource overview describes move as HNS-only. The dedicated move page, updated 2026-10-20, describes same-bucket atomic moves without restating that restriction. Omission of a restriction is not evidence that it was removed."
+    },
+    {
+      "id": "SPEC-002",
+      "title": "Folder rename precondition parameter spellings differ",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-FOLDERS-006"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/folders/rename"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Discovery uses ifSourceMetagenerationMatch/NotMatch; the dedicated page uses ifMetagenerationMatch/NotMatch. Verify accepted protocol-specific names and exact error behavior.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Live Discovery revision 20261013 names ifSourceMetagenerationMatch and ifSourceMetagenerationNotMatch. The folders.rename method reference names ifMetagenerationMatch and ifMetagenerationNotMatch."
+    },
+    {
+      "id": "SPEC-003",
+      "title": "Bulk restore matchGlob versus matchGlobs discrepancy",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-OBJECTS-001"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/bulkRestore"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Determine the accepted request field and any transitional aliases from current SDK schemas and authorized conformance evidence.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The bulkRestore request documentation uses matchGlob. The retained and verified live schema uses matchGlobs."
+    },
+    {
+      "id": "SPEC-004",
+      "title": "FeatureConfig bucket selectors: regex schema versus exact-name guidance",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-FEATURECONFIG-001",
+        "JSON-FEATURECONFIG-005",
+        "EXT-BEH-023"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/featureConfigs",
+        "https://docs.cloud.google.com/storage/docs/object-enrichments/configure-object-enrichments"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Verify the current preview restrictions. Do not infer enabled regex behavior from a field name.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "FeatureConfig schema wording refers to bucket regular expressions. The enrichment configuration guide restricts bucket filters to exact bucket names and says regular expressions and wildcards are unsupported."
+    },
+    {
+      "id": "SPEC-006",
+      "title": "Discovery and proto exposure do not establish launch stage or availability",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-ANYWHERECACHES-005",
+        "JSON-FOLDERS-002",
+        "JSON-MANAGEDFOLDERS-008",
+        "JSON-OBJECTS-006",
+        "JSON-OBJECTS-013",
+        "JSON-OBJECTS-014",
+        "JSON-RAPIDCACHES-001",
+        "JSON-RAPIDCACHES-002",
+        "JSON-RAPIDCACHES-003",
+        "JSON-RAPIDCACHES-004",
+        "JSON-RAPIDCACHES-005"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/release-notes"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "Check launch stage and eligibility for less documented routes, lifecycle matchesPattern early access and preview features. Reserved satisfiesPZS/satisfiesPZI outputs must not be interpreted as real residency guarantees.",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "These routes are present in the full public live Discovery document, while overview and individual method documentation coverage varies. Other retained fields explicitly include Early Access or reserved-output wording."
+    },
+    {
+      "id": "SPEC-007",
+      "title": "Shared LRO definitions need per-service applicability verification",
+      "status": "OPEN",
+      "affected_features": [
+        "EXT-LRO-001",
+        "EXT-LRO-002",
+        "EXT-LRO-003",
+        "EXT-LRO-004",
+        "EXT-LRO-005"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/reference/rpc/google.longrunning",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/folders/rename"
+      ],
+      "observed_at": "2026-10-21",
+      "required_resolution": "A registered Operations service does not guarantee all five methods for every operation. Verify unsupported/cancellation behavior; Delete is not Cancel and Wait is not an unconditional completion promise.",
+      "kind": "SCOPE_VERIFICATION"
+    }
+  ],
+  "resolved_research_items": [
+    {
+      "title": "Full live Discovery reconciliation",
+      "resolution": "Fetched revision20261013; recursive comparison against mirror20261009 changed only revision and etag. All87 methods and38 schemas match."
+    },
+    {
+      "title": "Storage Control native method count",
+      "resolution": "Current Google-owned proto and generated Go reference show39 direct RPCs; the shorter HTML page is incomplete."
+    },
+    {
+      "title": "Intelligence finding revision get",
+      "resolution": "Verified concrete GET HTTP annotation and direct RPC in current proto."
+    },
+    {
+      "title": "Insights and Batch native RPC inventories",
+      "resolution": "Parsed14 and7 direct methods plus explicit common-service registrations."
+    },
+    {
+      "title": "ViewObjectFullContext v1 and v2 REST routes",
+      "resolution": "The dedicated JSON reference and live Discovery agree on the v1 route. Control proto separately advertises the v2 route. Both and the native RPC are tracked independently; this is not a source contradiction."
+    }
+  ]
+}

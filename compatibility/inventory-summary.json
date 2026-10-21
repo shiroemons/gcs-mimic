@@ -1,0 +1,42 @@
+{
+  "as_of": "2026-10-21",
+  "total_rows": 588,
+  "by_kind": {
+    "api_operation": 298,
+    "behavior": 201,
+    "project_requirement": 89
+  },
+  "api_surfaces": {
+    "Core JSON API v1": 87,
+    "gRPC Storage v2": 24,
+    "FeatureConfigs v2 REST": 5,
+    "XML API": 52,
+    "Storage Control v2": 39,
+    "Storage Insights": 20,
+    "Storage Batch Operations": 13,
+    "Storage Intelligence": 11,
+    "Cloud Storage MCP": 9,
+    "Shared long-running RPC": 5,
+    "Storage Insights RPC": 14,
+    "Storage Batch Operations RPC": 7,
+    "Shared location RPC": 4,
+    "Storage Control v2 REST binding": 7,
+    "Storage Control REST": 1
+  },
+  "json_schema_count": 38,
+  "json_property_locations": 357,
+  "json_parameter_locations": 401,
+  "status_counts": {
+    "NOT_STARTED": 588
+  },
+  "phase_counts": {
+    "P0": 39,
+    "P1": 66,
+    "P2": 99,
+    "P3": 78,
+    "P4": 32,
+    "P5": 55,
+    "P6": 35,
+    "P7": 184
+  }
+}

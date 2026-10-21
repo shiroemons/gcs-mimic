@@ -1,0 +1,221 @@
+{
+  "as_of": "2026-10-21",
+  "methods": [
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "DeleteBucket",
+      "request": "DeleteBucketRequest",
+      "response": "google.protobuf.Empty",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "GetBucket",
+      "request": "GetBucketRequest",
+      "response": "Bucket",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "CreateBucket",
+      "request": "CreateBucketRequest",
+      "response": "Bucket",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "ListBuckets",
+      "request": "ListBucketsRequest",
+      "response": "ListBucketsResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "LockBucketRetentionPolicy",
+      "request": "LockBucketRetentionPolicyRequest",
+      "response": "Bucket",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "GetIamPolicy",
+      "request": "google.iam.v1.GetIamPolicyRequest",
+      "response": "google.iam.v1.Policy",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "SetIamPolicy",
+      "request": "google.iam.v1.SetIamPolicyRequest",
+      "response": "google.iam.v1.Policy",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "TestIamPermissions",
+      "request": "google.iam.v1.TestIamPermissionsRequest",
+      "response": "google.iam.v1.TestIamPermissionsResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "UpdateBucket",
+      "request": "UpdateBucketRequest",
+      "response": "Bucket",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "ComposeObject",
+      "request": "ComposeObjectRequest",
+      "response": "Object",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "DeleteObject",
+      "request": "DeleteObjectRequest",
+      "response": "google.protobuf.Empty",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "RestoreObject",
+      "request": "RestoreObjectRequest",
+      "response": "Object",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "CancelResumableWrite",
+      "request": "CancelResumableWriteRequest",
+      "response": "CancelResumableWriteResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "GetObject",
+      "request": "GetObjectRequest",
+      "response": "Object",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "ReadObject",
+      "request": "ReadObjectRequest",
+      "response": "ReadObjectResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": true
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "BidiReadObject",
+      "request": "BidiReadObjectRequest",
+      "response": "BidiReadObjectResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": true,
+      "server_streaming": true
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "UpdateObject",
+      "request": "UpdateObjectRequest",
+      "response": "Object",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "WriteObject",
+      "request": "WriteObjectRequest",
+      "response": "WriteObjectResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": true,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "BidiWriteObject",
+      "request": "BidiWriteObjectRequest",
+      "response": "BidiWriteObjectResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": true,
+      "server_streaming": true
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "ListObjects",
+      "request": "ListObjectsRequest",
+      "response": "ListObjectsResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "RewriteObject",
+      "request": "RewriteObjectRequest",
+      "response": "RewriteResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "StartResumableWrite",
+      "request": "StartResumableWriteRequest",
+      "response": "StartResumableWriteResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "QueryWriteStatus",
+      "request": "QueryWriteStatusRequest",
+      "response": "QueryWriteStatusResponse",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    },
+    {
+      "service": "google.storage.v2.Storage",
+      "method": "MoveObject",
+      "request": "MoveObjectRequest",
+      "response": "Object",
+      "source": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "client_streaming": false,
+      "server_streaming": false
+    }
+  ]
+}

@@ -1,0 +1,5260 @@
+{
+  "as_of": "2026-10-21",
+  "note": "Global and per-method JSON Discovery path/query parameter locations. Repeated parameters remain separate because their contracts may differ. Not independent product features.",
+  "count": 401,
+  "parameters": [
+    {
+      "id": "PARAM:GLOBAL:alt",
+      "owner": "GLOBAL",
+      "name": "alt",
+      "shape": {
+        "default": "json",
+        "enum": [
+          "json",
+          "media"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:fields",
+      "owner": "GLOBAL",
+      "name": "fields",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:key",
+      "owner": "GLOBAL",
+      "name": "key",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:oauth_token",
+      "owner": "GLOBAL",
+      "name": "oauth_token",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:prettyPrint",
+      "owner": "GLOBAL",
+      "name": "prettyPrint",
+      "shape": {
+        "default": "true",
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:quotaUser",
+      "owner": "GLOBAL",
+      "name": "quotaUser",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:uploadType",
+      "owner": "GLOBAL",
+      "name": "uploadType",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:GLOBAL:userIp",
+      "owner": "GLOBAL",
+      "name": "userIp",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.disable:anywhereCacheId",
+      "owner": "storage.anywhereCaches.disable",
+      "name": "anywhereCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.disable:bucket",
+      "owner": "storage.anywhereCaches.disable",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.get:anywhereCacheId",
+      "owner": "storage.anywhereCaches.get",
+      "name": "anywhereCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.get:bucket",
+      "owner": "storage.anywhereCaches.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.insert:bucket",
+      "owner": "storage.anywhereCaches.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.list:bucket",
+      "owner": "storage.anywhereCaches.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.list:pageSize",
+      "owner": "storage.anywhereCaches.list",
+      "name": "pageSize",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.list:pageToken",
+      "owner": "storage.anywhereCaches.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.pause:anywhereCacheId",
+      "owner": "storage.anywhereCaches.pause",
+      "name": "anywhereCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.pause:bucket",
+      "owner": "storage.anywhereCaches.pause",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.resume:anywhereCacheId",
+      "owner": "storage.anywhereCaches.resume",
+      "name": "anywhereCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.resume:bucket",
+      "owner": "storage.anywhereCaches.resume",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.update:anywhereCacheId",
+      "owner": "storage.anywhereCaches.update",
+      "name": "anywhereCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.anywhereCaches.update:bucket",
+      "owner": "storage.anywhereCaches.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.delete:bucket",
+      "owner": "storage.bucketAccessControls.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.delete:entity",
+      "owner": "storage.bucketAccessControls.delete",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.delete:userProject",
+      "owner": "storage.bucketAccessControls.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.get:bucket",
+      "owner": "storage.bucketAccessControls.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.get:entity",
+      "owner": "storage.bucketAccessControls.get",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.get:userProject",
+      "owner": "storage.bucketAccessControls.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.insert:bucket",
+      "owner": "storage.bucketAccessControls.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.insert:userProject",
+      "owner": "storage.bucketAccessControls.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.list:bucket",
+      "owner": "storage.bucketAccessControls.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.list:userProject",
+      "owner": "storage.bucketAccessControls.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.patch:bucket",
+      "owner": "storage.bucketAccessControls.patch",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.patch:entity",
+      "owner": "storage.bucketAccessControls.patch",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.patch:userProject",
+      "owner": "storage.bucketAccessControls.patch",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.update:bucket",
+      "owner": "storage.bucketAccessControls.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.update:entity",
+      "owner": "storage.bucketAccessControls.update",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.bucketAccessControls.update:userProject",
+      "owner": "storage.bucketAccessControls.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.delete:bucket",
+      "owner": "storage.buckets.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.delete:ifMetagenerationMatch",
+      "owner": "storage.buckets.delete",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.delete:ifMetagenerationNotMatch",
+      "owner": "storage.buckets.delete",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.delete:userProject",
+      "owner": "storage.buckets.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:bucket",
+      "owner": "storage.buckets.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:generation",
+      "owner": "storage.buckets.get",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:ifMetagenerationMatch",
+      "owner": "storage.buckets.get",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:ifMetagenerationNotMatch",
+      "owner": "storage.buckets.get",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:projection",
+      "owner": "storage.buckets.get",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:softDeleted",
+      "owner": "storage.buckets.get",
+      "name": "softDeleted",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.get:userProject",
+      "owner": "storage.buckets.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.getIamPolicy:bucket",
+      "owner": "storage.buckets.getIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.getIamPolicy:optionsRequestedPolicyVersion",
+      "owner": "storage.buckets.getIamPolicy",
+      "name": "optionsRequestedPolicyVersion",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "1",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.getIamPolicy:userProject",
+      "owner": "storage.buckets.getIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.getStorageLayout:bucket",
+      "owner": "storage.buckets.getStorageLayout",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.getStorageLayout:prefix",
+      "owner": "storage.buckets.getStorageLayout",
+      "name": "prefix",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:enableObjectRetention",
+      "owner": "storage.buckets.insert",
+      "name": "enableObjectRetention",
+      "shape": {
+        "default": "false",
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:predefinedAcl",
+      "owner": "storage.buckets.insert",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "private",
+          "projectPrivate",
+          "publicRead",
+          "publicReadWrite"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:predefinedDefaultObjectAcl",
+      "owner": "storage.buckets.insert",
+      "name": "predefinedDefaultObjectAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:project",
+      "owner": "storage.buckets.insert",
+      "name": "project",
+      "shape": {
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:projection",
+      "owner": "storage.buckets.insert",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.insert:userProject",
+      "owner": "storage.buckets.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:maxResults",
+      "owner": "storage.buckets.list",
+      "name": "maxResults",
+      "shape": {
+        "default": "1000",
+        "format": "uint32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:pageToken",
+      "owner": "storage.buckets.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:prefix",
+      "owner": "storage.buckets.list",
+      "name": "prefix",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:project",
+      "owner": "storage.buckets.list",
+      "name": "project",
+      "shape": {
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:projection",
+      "owner": "storage.buckets.list",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:returnPartialSuccess",
+      "owner": "storage.buckets.list",
+      "name": "returnPartialSuccess",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:softDeleted",
+      "owner": "storage.buckets.list",
+      "name": "softDeleted",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.list:userProject",
+      "owner": "storage.buckets.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.lockRetentionPolicy:bucket",
+      "owner": "storage.buckets.lockRetentionPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.lockRetentionPolicy:ifMetagenerationMatch",
+      "owner": "storage.buckets.lockRetentionPolicy",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.lockRetentionPolicy:userProject",
+      "owner": "storage.buckets.lockRetentionPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:bucket",
+      "owner": "storage.buckets.patch",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:ifMetagenerationMatch",
+      "owner": "storage.buckets.patch",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:ifMetagenerationNotMatch",
+      "owner": "storage.buckets.patch",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:predefinedAcl",
+      "owner": "storage.buckets.patch",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "private",
+          "projectPrivate",
+          "publicRead",
+          "publicReadWrite"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:predefinedDefaultObjectAcl",
+      "owner": "storage.buckets.patch",
+      "name": "predefinedDefaultObjectAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:projection",
+      "owner": "storage.buckets.patch",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.patch:userProject",
+      "owner": "storage.buckets.patch",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.relocate:bucket",
+      "owner": "storage.buckets.relocate",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.restore:bucket",
+      "owner": "storage.buckets.restore",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.restore:generation",
+      "owner": "storage.buckets.restore",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.restore:projection",
+      "owner": "storage.buckets.restore",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.restore:userProject",
+      "owner": "storage.buckets.restore",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.setIamPolicy:bucket",
+      "owner": "storage.buckets.setIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.setIamPolicy:userProject",
+      "owner": "storage.buckets.setIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.testIamPermissions:bucket",
+      "owner": "storage.buckets.testIamPermissions",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.testIamPermissions:permissions",
+      "owner": "storage.buckets.testIamPermissions",
+      "name": "permissions",
+      "shape": {
+        "location": "query",
+        "repeated": true,
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.testIamPermissions:userProject",
+      "owner": "storage.buckets.testIamPermissions",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:bucket",
+      "owner": "storage.buckets.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:ifMetagenerationMatch",
+      "owner": "storage.buckets.update",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:ifMetagenerationNotMatch",
+      "owner": "storage.buckets.update",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:predefinedAcl",
+      "owner": "storage.buckets.update",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "private",
+          "projectPrivate",
+          "publicRead",
+          "publicReadWrite"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:predefinedDefaultObjectAcl",
+      "owner": "storage.buckets.update",
+      "name": "predefinedDefaultObjectAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:projection",
+      "owner": "storage.buckets.update",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.update:userProject",
+      "owner": "storage.buckets.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.delete:bucket",
+      "owner": "storage.defaultObjectAccessControls.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.delete:entity",
+      "owner": "storage.defaultObjectAccessControls.delete",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.delete:userProject",
+      "owner": "storage.defaultObjectAccessControls.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.get:bucket",
+      "owner": "storage.defaultObjectAccessControls.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.get:entity",
+      "owner": "storage.defaultObjectAccessControls.get",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.get:userProject",
+      "owner": "storage.defaultObjectAccessControls.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.insert:bucket",
+      "owner": "storage.defaultObjectAccessControls.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.insert:userProject",
+      "owner": "storage.defaultObjectAccessControls.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.list:bucket",
+      "owner": "storage.defaultObjectAccessControls.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.list:ifMetagenerationMatch",
+      "owner": "storage.defaultObjectAccessControls.list",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.list:ifMetagenerationNotMatch",
+      "owner": "storage.defaultObjectAccessControls.list",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.list:userProject",
+      "owner": "storage.defaultObjectAccessControls.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.patch:bucket",
+      "owner": "storage.defaultObjectAccessControls.patch",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.patch:entity",
+      "owner": "storage.defaultObjectAccessControls.patch",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.patch:userProject",
+      "owner": "storage.defaultObjectAccessControls.patch",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.update:bucket",
+      "owner": "storage.defaultObjectAccessControls.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.update:entity",
+      "owner": "storage.defaultObjectAccessControls.update",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.defaultObjectAccessControls.update:userProject",
+      "owner": "storage.defaultObjectAccessControls.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.delete:bucket",
+      "owner": "storage.folders.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.delete:folder",
+      "owner": "storage.folders.delete",
+      "name": "folder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.delete:ifMetagenerationMatch",
+      "owner": "storage.folders.delete",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.delete:ifMetagenerationNotMatch",
+      "owner": "storage.folders.delete",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.deleteRecursive:bucket",
+      "owner": "storage.folders.deleteRecursive",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.deleteRecursive:folder",
+      "owner": "storage.folders.deleteRecursive",
+      "name": "folder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.deleteRecursive:ifMetagenerationMatch",
+      "owner": "storage.folders.deleteRecursive",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.deleteRecursive:ifMetagenerationNotMatch",
+      "owner": "storage.folders.deleteRecursive",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.get:bucket",
+      "owner": "storage.folders.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.get:folder",
+      "owner": "storage.folders.get",
+      "name": "folder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.get:ifMetagenerationMatch",
+      "owner": "storage.folders.get",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.get:ifMetagenerationNotMatch",
+      "owner": "storage.folders.get",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.insert:bucket",
+      "owner": "storage.folders.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.insert:recursive",
+      "owner": "storage.folders.insert",
+      "name": "recursive",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:bucket",
+      "owner": "storage.folders.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:delimiter",
+      "owner": "storage.folders.list",
+      "name": "delimiter",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:endOffset",
+      "owner": "storage.folders.list",
+      "name": "endOffset",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:pageSize",
+      "owner": "storage.folders.list",
+      "name": "pageSize",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:pageToken",
+      "owner": "storage.folders.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:prefix",
+      "owner": "storage.folders.list",
+      "name": "prefix",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.list:startOffset",
+      "owner": "storage.folders.list",
+      "name": "startOffset",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.rename:bucket",
+      "owner": "storage.folders.rename",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.rename:destinationFolder",
+      "owner": "storage.folders.rename",
+      "name": "destinationFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.rename:ifSourceMetagenerationMatch",
+      "owner": "storage.folders.rename",
+      "name": "ifSourceMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.rename:ifSourceMetagenerationNotMatch",
+      "owner": "storage.folders.rename",
+      "name": "ifSourceMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.folders.rename:sourceFolder",
+      "owner": "storage.folders.rename",
+      "name": "sourceFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.delete:allowNonEmpty",
+      "owner": "storage.managedFolders.delete",
+      "name": "allowNonEmpty",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.delete:bucket",
+      "owner": "storage.managedFolders.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.delete:ifMetagenerationMatch",
+      "owner": "storage.managedFolders.delete",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.delete:ifMetagenerationNotMatch",
+      "owner": "storage.managedFolders.delete",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.delete:managedFolder",
+      "owner": "storage.managedFolders.delete",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.get:bucket",
+      "owner": "storage.managedFolders.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.get:ifMetagenerationMatch",
+      "owner": "storage.managedFolders.get",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.get:ifMetagenerationNotMatch",
+      "owner": "storage.managedFolders.get",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.get:managedFolder",
+      "owner": "storage.managedFolders.get",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.getIamPolicy:bucket",
+      "owner": "storage.managedFolders.getIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.getIamPolicy:managedFolder",
+      "owner": "storage.managedFolders.getIamPolicy",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.getIamPolicy:optionsRequestedPolicyVersion",
+      "owner": "storage.managedFolders.getIamPolicy",
+      "name": "optionsRequestedPolicyVersion",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "1",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.getIamPolicy:userProject",
+      "owner": "storage.managedFolders.getIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.insert:bucket",
+      "owner": "storage.managedFolders.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.list:bucket",
+      "owner": "storage.managedFolders.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.list:pageSize",
+      "owner": "storage.managedFolders.list",
+      "name": "pageSize",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.list:pageToken",
+      "owner": "storage.managedFolders.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.list:prefix",
+      "owner": "storage.managedFolders.list",
+      "name": "prefix",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.setIamPolicy:bucket",
+      "owner": "storage.managedFolders.setIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.setIamPolicy:managedFolder",
+      "owner": "storage.managedFolders.setIamPolicy",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.setIamPolicy:userProject",
+      "owner": "storage.managedFolders.setIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.testIamPermissions:bucket",
+      "owner": "storage.managedFolders.testIamPermissions",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.testIamPermissions:managedFolder",
+      "owner": "storage.managedFolders.testIamPermissions",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.testIamPermissions:permissions",
+      "owner": "storage.managedFolders.testIamPermissions",
+      "name": "permissions",
+      "shape": {
+        "location": "query",
+        "repeated": true,
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.testIamPermissions:userProject",
+      "owner": "storage.managedFolders.testIamPermissions",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.update:bucket",
+      "owner": "storage.managedFolders.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.update:ifMetagenerationMatch",
+      "owner": "storage.managedFolders.update",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.update:ifMetagenerationNotMatch",
+      "owner": "storage.managedFolders.update",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.managedFolders.update:managedFolder",
+      "owner": "storage.managedFolders.update",
+      "name": "managedFolder",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.delete:bucket",
+      "owner": "storage.notifications.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.delete:notification",
+      "owner": "storage.notifications.delete",
+      "name": "notification",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.delete:userProject",
+      "owner": "storage.notifications.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.get:bucket",
+      "owner": "storage.notifications.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.get:notification",
+      "owner": "storage.notifications.get",
+      "name": "notification",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.get:userProject",
+      "owner": "storage.notifications.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.insert:bucket",
+      "owner": "storage.notifications.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.insert:userProject",
+      "owner": "storage.notifications.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.list:bucket",
+      "owner": "storage.notifications.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.notifications.list:userProject",
+      "owner": "storage.notifications.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.delete:bucket",
+      "owner": "storage.objectAccessControls.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.delete:entity",
+      "owner": "storage.objectAccessControls.delete",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.delete:generation",
+      "owner": "storage.objectAccessControls.delete",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.delete:object",
+      "owner": "storage.objectAccessControls.delete",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.delete:userProject",
+      "owner": "storage.objectAccessControls.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.get:bucket",
+      "owner": "storage.objectAccessControls.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.get:entity",
+      "owner": "storage.objectAccessControls.get",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.get:generation",
+      "owner": "storage.objectAccessControls.get",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.get:object",
+      "owner": "storage.objectAccessControls.get",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.get:userProject",
+      "owner": "storage.objectAccessControls.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.insert:bucket",
+      "owner": "storage.objectAccessControls.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.insert:generation",
+      "owner": "storage.objectAccessControls.insert",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.insert:object",
+      "owner": "storage.objectAccessControls.insert",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.insert:userProject",
+      "owner": "storage.objectAccessControls.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.list:bucket",
+      "owner": "storage.objectAccessControls.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.list:generation",
+      "owner": "storage.objectAccessControls.list",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.list:object",
+      "owner": "storage.objectAccessControls.list",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.list:userProject",
+      "owner": "storage.objectAccessControls.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.patch:bucket",
+      "owner": "storage.objectAccessControls.patch",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.patch:entity",
+      "owner": "storage.objectAccessControls.patch",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.patch:generation",
+      "owner": "storage.objectAccessControls.patch",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.patch:object",
+      "owner": "storage.objectAccessControls.patch",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.patch:userProject",
+      "owner": "storage.objectAccessControls.patch",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.update:bucket",
+      "owner": "storage.objectAccessControls.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.update:entity",
+      "owner": "storage.objectAccessControls.update",
+      "name": "entity",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.update:generation",
+      "owner": "storage.objectAccessControls.update",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.update:object",
+      "owner": "storage.objectAccessControls.update",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objectAccessControls.update:userProject",
+      "owner": "storage.objectAccessControls.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.bulkRestore:bucket",
+      "owner": "storage.objects.bulkRestore",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:destinationBucket",
+      "owner": "storage.objects.compose",
+      "name": "destinationBucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:destinationObject",
+      "owner": "storage.objects.compose",
+      "name": "destinationObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:destinationPredefinedAcl",
+      "owner": "storage.objects.compose",
+      "name": "destinationPredefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:dropContextGroups",
+      "owner": "storage.objects.compose",
+      "name": "dropContextGroups",
+      "shape": {
+        "location": "query",
+        "repeated": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:ifGenerationMatch",
+      "owner": "storage.objects.compose",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:ifMetagenerationMatch",
+      "owner": "storage.objects.compose",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:kmsKeyName",
+      "owner": "storage.objects.compose",
+      "name": "kmsKeyName",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.compose:userProject",
+      "owner": "storage.objects.compose",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:destinationBucket",
+      "owner": "storage.objects.copy",
+      "name": "destinationBucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:destinationKmsKeyName",
+      "owner": "storage.objects.copy",
+      "name": "destinationKmsKeyName",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:destinationObject",
+      "owner": "storage.objects.copy",
+      "name": "destinationObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:destinationPredefinedAcl",
+      "owner": "storage.objects.copy",
+      "name": "destinationPredefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifGenerationMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifGenerationNotMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifMetagenerationMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifMetagenerationNotMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifSourceGenerationMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifSourceGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifSourceGenerationNotMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifSourceGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifSourceMetagenerationMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifSourceMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:ifSourceMetagenerationNotMatch",
+      "owner": "storage.objects.copy",
+      "name": "ifSourceMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:projection",
+      "owner": "storage.objects.copy",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:sourceBucket",
+      "owner": "storage.objects.copy",
+      "name": "sourceBucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:sourceGeneration",
+      "owner": "storage.objects.copy",
+      "name": "sourceGeneration",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:sourceObject",
+      "owner": "storage.objects.copy",
+      "name": "sourceObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.copy:userProject",
+      "owner": "storage.objects.copy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:bucket",
+      "owner": "storage.objects.delete",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:generation",
+      "owner": "storage.objects.delete",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:ifGenerationMatch",
+      "owner": "storage.objects.delete",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:ifGenerationNotMatch",
+      "owner": "storage.objects.delete",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:ifMetagenerationMatch",
+      "owner": "storage.objects.delete",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:ifMetagenerationNotMatch",
+      "owner": "storage.objects.delete",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:object",
+      "owner": "storage.objects.delete",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.delete:userProject",
+      "owner": "storage.objects.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:bucket",
+      "owner": "storage.objects.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:generation",
+      "owner": "storage.objects.get",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:ifGenerationMatch",
+      "owner": "storage.objects.get",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:ifGenerationNotMatch",
+      "owner": "storage.objects.get",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:ifMetagenerationMatch",
+      "owner": "storage.objects.get",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:ifMetagenerationNotMatch",
+      "owner": "storage.objects.get",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:object",
+      "owner": "storage.objects.get",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:projection",
+      "owner": "storage.objects.get",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:restoreToken",
+      "owner": "storage.objects.get",
+      "name": "restoreToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:softDeleted",
+      "owner": "storage.objects.get",
+      "name": "softDeleted",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.get:userProject",
+      "owner": "storage.objects.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.getIamPolicy:bucket",
+      "owner": "storage.objects.getIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.getIamPolicy:generation",
+      "owner": "storage.objects.getIamPolicy",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.getIamPolicy:object",
+      "owner": "storage.objects.getIamPolicy",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.getIamPolicy:userProject",
+      "owner": "storage.objects.getIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:bucket",
+      "owner": "storage.objects.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:contentEncoding",
+      "owner": "storage.objects.insert",
+      "name": "contentEncoding",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:ifGenerationMatch",
+      "owner": "storage.objects.insert",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:ifGenerationNotMatch",
+      "owner": "storage.objects.insert",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:ifMetagenerationMatch",
+      "owner": "storage.objects.insert",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:ifMetagenerationNotMatch",
+      "owner": "storage.objects.insert",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:kmsKeyName",
+      "owner": "storage.objects.insert",
+      "name": "kmsKeyName",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:name",
+      "owner": "storage.objects.insert",
+      "name": "name",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:predefinedAcl",
+      "owner": "storage.objects.insert",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:projection",
+      "owner": "storage.objects.insert",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.insert:userProject",
+      "owner": "storage.objects.insert",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:bucket",
+      "owner": "storage.objects.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:delimiter",
+      "owner": "storage.objects.list",
+      "name": "delimiter",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:endOffset",
+      "owner": "storage.objects.list",
+      "name": "endOffset",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:filter",
+      "owner": "storage.objects.list",
+      "name": "filter",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:includeFoldersAsPrefixes",
+      "owner": "storage.objects.list",
+      "name": "includeFoldersAsPrefixes",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:includeTrailingDelimiter",
+      "owner": "storage.objects.list",
+      "name": "includeTrailingDelimiter",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:matchGlob",
+      "owner": "storage.objects.list",
+      "name": "matchGlob",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:maxResults",
+      "owner": "storage.objects.list",
+      "name": "maxResults",
+      "shape": {
+        "default": "1000",
+        "format": "uint32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:pageToken",
+      "owner": "storage.objects.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:prefix",
+      "owner": "storage.objects.list",
+      "name": "prefix",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:projection",
+      "owner": "storage.objects.list",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:softDeleted",
+      "owner": "storage.objects.list",
+      "name": "softDeleted",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:startOffset",
+      "owner": "storage.objects.list",
+      "name": "startOffset",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:userProject",
+      "owner": "storage.objects.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.list:versions",
+      "owner": "storage.objects.list",
+      "name": "versions",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:bucket",
+      "owner": "storage.objects.move",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:destinationObject",
+      "owner": "storage.objects.move",
+      "name": "destinationObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifGenerationMatch",
+      "owner": "storage.objects.move",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifGenerationNotMatch",
+      "owner": "storage.objects.move",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifMetagenerationMatch",
+      "owner": "storage.objects.move",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifMetagenerationNotMatch",
+      "owner": "storage.objects.move",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifSourceGenerationMatch",
+      "owner": "storage.objects.move",
+      "name": "ifSourceGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifSourceGenerationNotMatch",
+      "owner": "storage.objects.move",
+      "name": "ifSourceGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifSourceMetagenerationMatch",
+      "owner": "storage.objects.move",
+      "name": "ifSourceMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:ifSourceMetagenerationNotMatch",
+      "owner": "storage.objects.move",
+      "name": "ifSourceMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:projection",
+      "owner": "storage.objects.move",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:sourceObject",
+      "owner": "storage.objects.move",
+      "name": "sourceObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.move:userProject",
+      "owner": "storage.objects.move",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:bucket",
+      "owner": "storage.objects.patch",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:generation",
+      "owner": "storage.objects.patch",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:ifGenerationMatch",
+      "owner": "storage.objects.patch",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:ifGenerationNotMatch",
+      "owner": "storage.objects.patch",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:ifMetagenerationMatch",
+      "owner": "storage.objects.patch",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:ifMetagenerationNotMatch",
+      "owner": "storage.objects.patch",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:object",
+      "owner": "storage.objects.patch",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:overrideUnlockedRetention",
+      "owner": "storage.objects.patch",
+      "name": "overrideUnlockedRetention",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:predefinedAcl",
+      "owner": "storage.objects.patch",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:projection",
+      "owner": "storage.objects.patch",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.patch:userProject",
+      "owner": "storage.objects.patch",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:bucket",
+      "owner": "storage.objects.restore",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:copySourceAcl",
+      "owner": "storage.objects.restore",
+      "name": "copySourceAcl",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:generation",
+      "owner": "storage.objects.restore",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:ifGenerationMatch",
+      "owner": "storage.objects.restore",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:ifGenerationNotMatch",
+      "owner": "storage.objects.restore",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:ifMetagenerationMatch",
+      "owner": "storage.objects.restore",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:ifMetagenerationNotMatch",
+      "owner": "storage.objects.restore",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:object",
+      "owner": "storage.objects.restore",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:projection",
+      "owner": "storage.objects.restore",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:restoreToken",
+      "owner": "storage.objects.restore",
+      "name": "restoreToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.restore:userProject",
+      "owner": "storage.objects.restore",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:destinationBucket",
+      "owner": "storage.objects.rewrite",
+      "name": "destinationBucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:destinationKmsKeyName",
+      "owner": "storage.objects.rewrite",
+      "name": "destinationKmsKeyName",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:destinationObject",
+      "owner": "storage.objects.rewrite",
+      "name": "destinationObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:destinationPredefinedAcl",
+      "owner": "storage.objects.rewrite",
+      "name": "destinationPredefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:dropContextGroups",
+      "owner": "storage.objects.rewrite",
+      "name": "dropContextGroups",
+      "shape": {
+        "location": "query",
+        "repeated": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifGenerationMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifGenerationNotMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifMetagenerationMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifMetagenerationNotMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifSourceGenerationMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifSourceGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifSourceGenerationNotMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifSourceGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifSourceMetagenerationMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifSourceMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:ifSourceMetagenerationNotMatch",
+      "owner": "storage.objects.rewrite",
+      "name": "ifSourceMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:maxBytesRewrittenPerCall",
+      "owner": "storage.objects.rewrite",
+      "name": "maxBytesRewrittenPerCall",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:projection",
+      "owner": "storage.objects.rewrite",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:rewriteToken",
+      "owner": "storage.objects.rewrite",
+      "name": "rewriteToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:sourceBucket",
+      "owner": "storage.objects.rewrite",
+      "name": "sourceBucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:sourceGeneration",
+      "owner": "storage.objects.rewrite",
+      "name": "sourceGeneration",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:sourceObject",
+      "owner": "storage.objects.rewrite",
+      "name": "sourceObject",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.rewrite:userProject",
+      "owner": "storage.objects.rewrite",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.setIamPolicy:bucket",
+      "owner": "storage.objects.setIamPolicy",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.setIamPolicy:generation",
+      "owner": "storage.objects.setIamPolicy",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.setIamPolicy:object",
+      "owner": "storage.objects.setIamPolicy",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.setIamPolicy:userProject",
+      "owner": "storage.objects.setIamPolicy",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.testIamPermissions:bucket",
+      "owner": "storage.objects.testIamPermissions",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.testIamPermissions:generation",
+      "owner": "storage.objects.testIamPermissions",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.testIamPermissions:object",
+      "owner": "storage.objects.testIamPermissions",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.testIamPermissions:permissions",
+      "owner": "storage.objects.testIamPermissions",
+      "name": "permissions",
+      "shape": {
+        "location": "query",
+        "repeated": true,
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.testIamPermissions:userProject",
+      "owner": "storage.objects.testIamPermissions",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:bucket",
+      "owner": "storage.objects.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:generation",
+      "owner": "storage.objects.update",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:ifGenerationMatch",
+      "owner": "storage.objects.update",
+      "name": "ifGenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:ifGenerationNotMatch",
+      "owner": "storage.objects.update",
+      "name": "ifGenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:ifMetagenerationMatch",
+      "owner": "storage.objects.update",
+      "name": "ifMetagenerationMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:ifMetagenerationNotMatch",
+      "owner": "storage.objects.update",
+      "name": "ifMetagenerationNotMatch",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:object",
+      "owner": "storage.objects.update",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:overrideUnlockedRetention",
+      "owner": "storage.objects.update",
+      "name": "overrideUnlockedRetention",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:predefinedAcl",
+      "owner": "storage.objects.update",
+      "name": "predefinedAcl",
+      "shape": {
+        "enum": [
+          "authenticatedRead",
+          "bucketOwnerFullControl",
+          "bucketOwnerRead",
+          "private",
+          "projectPrivate",
+          "publicRead"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:projection",
+      "owner": "storage.objects.update",
+      "name": "projection",
+      "shape": {
+        "enum": [
+          "full",
+          "noAcl"
+        ],
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.update:userProject",
+      "owner": "storage.objects.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.viewFullContext:bucket",
+      "owner": "storage.objects.viewFullContext",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.viewFullContext:contextKey",
+      "owner": "storage.objects.viewFullContext",
+      "name": "contextKey",
+      "shape": {
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.viewFullContext:generation",
+      "owner": "storage.objects.viewFullContext",
+      "name": "generation",
+      "shape": {
+        "format": "int64",
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.viewFullContext:object",
+      "owner": "storage.objects.viewFullContext",
+      "name": "object",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.objects.viewFullContext:userProject",
+      "owner": "storage.objects.viewFullContext",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.advanceRelocateBucket:bucket",
+      "owner": "storage.buckets.operations.advanceRelocateBucket",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.advanceRelocateBucket:operationId",
+      "owner": "storage.buckets.operations.advanceRelocateBucket",
+      "name": "operationId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.cancel:bucket",
+      "owner": "storage.buckets.operations.cancel",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.cancel:operationId",
+      "owner": "storage.buckets.operations.cancel",
+      "name": "operationId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.get:bucket",
+      "owner": "storage.buckets.operations.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.get:operationId",
+      "owner": "storage.buckets.operations.get",
+      "name": "operationId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.list:bucket",
+      "owner": "storage.buckets.operations.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.list:filter",
+      "owner": "storage.buckets.operations.list",
+      "name": "filter",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.list:pageSize",
+      "owner": "storage.buckets.operations.list",
+      "name": "pageSize",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.buckets.operations.list:pageToken",
+      "owner": "storage.buckets.operations.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.create:projectId",
+      "owner": "storage.projects.hmacKeys.create",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.create:serviceAccountEmail",
+      "owner": "storage.projects.hmacKeys.create",
+      "name": "serviceAccountEmail",
+      "shape": {
+        "location": "query",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.create:userProject",
+      "owner": "storage.projects.hmacKeys.create",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.delete:accessId",
+      "owner": "storage.projects.hmacKeys.delete",
+      "name": "accessId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.delete:projectId",
+      "owner": "storage.projects.hmacKeys.delete",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.delete:userProject",
+      "owner": "storage.projects.hmacKeys.delete",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.get:accessId",
+      "owner": "storage.projects.hmacKeys.get",
+      "name": "accessId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.get:projectId",
+      "owner": "storage.projects.hmacKeys.get",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.get:userProject",
+      "owner": "storage.projects.hmacKeys.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:maxResults",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "maxResults",
+      "shape": {
+        "default": "250",
+        "format": "uint32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:pageToken",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:projectId",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:serviceAccountEmail",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "serviceAccountEmail",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:showDeletedKeys",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "showDeletedKeys",
+      "shape": {
+        "location": "query",
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.list:userProject",
+      "owner": "storage.projects.hmacKeys.list",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.update:accessId",
+      "owner": "storage.projects.hmacKeys.update",
+      "name": "accessId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.update:projectId",
+      "owner": "storage.projects.hmacKeys.update",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.hmacKeys.update:userProject",
+      "owner": "storage.projects.hmacKeys.update",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.serviceAccount.get:projectId",
+      "owner": "storage.projects.serviceAccount.get",
+      "name": "projectId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.projects.serviceAccount.get:userProject",
+      "owner": "storage.projects.serviceAccount.get",
+      "name": "userProject",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.disable:bucket",
+      "owner": "storage.rapidCaches.disable",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.disable:rapidCacheId",
+      "owner": "storage.rapidCaches.disable",
+      "name": "rapidCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.get:bucket",
+      "owner": "storage.rapidCaches.get",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.get:rapidCacheId",
+      "owner": "storage.rapidCaches.get",
+      "name": "rapidCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.insert:bucket",
+      "owner": "storage.rapidCaches.insert",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.list:bucket",
+      "owner": "storage.rapidCaches.list",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.list:pageSize",
+      "owner": "storage.rapidCaches.list",
+      "name": "pageSize",
+      "shape": {
+        "format": "int32",
+        "location": "query",
+        "minimum": "0",
+        "type": "integer"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.list:pageToken",
+      "owner": "storage.rapidCaches.list",
+      "name": "pageToken",
+      "shape": {
+        "location": "query",
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.update:bucket",
+      "owner": "storage.rapidCaches.update",
+      "name": "bucket",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "PARAM:storage.rapidCaches.update:rapidCacheId",
+      "owner": "storage.rapidCaches.update",
+      "name": "rapidCacheId",
+      "shape": {
+        "location": "path",
+        "required": true,
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    }
+  ]
+}

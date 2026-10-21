@@ -1,0 +1,1771 @@
+{
+  "retrieved": "2026-10-21",
+  "revision": "20261013",
+  "source": "https://storage.googleapis.com/$discovery/rest?version=v1",
+  "parameters": {
+    "alt": {
+      "default": "json",
+      "enum": [
+        "json",
+        "media"
+      ],
+      "location": "query",
+      "type": "string"
+    },
+    "fields": {
+      "location": "query",
+      "type": "string"
+    },
+    "key": {
+      "location": "query",
+      "type": "string"
+    },
+    "oauth_token": {
+      "location": "query",
+      "type": "string"
+    },
+    "prettyPrint": {
+      "default": "true",
+      "location": "query",
+      "type": "boolean"
+    },
+    "quotaUser": {
+      "location": "query",
+      "type": "string"
+    },
+    "uploadType": {
+      "location": "query",
+      "type": "string"
+    },
+    "userIp": {
+      "location": "query",
+      "type": "string"
+    }
+  },
+  "schemas": {
+    "AdvanceRelocateBucketOperationRequest": {
+      "id": "AdvanceRelocateBucketOperationRequest",
+      "properties": {
+        "expireTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "ttl": {
+          "format": "google-duration",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AnywhereCache": {
+      "id": "AnywhereCache",
+      "properties": {
+        "admissionPolicy": {
+          "type": "string"
+        },
+        "anywhereCacheId": {
+          "type": "string"
+        },
+        "bucket": {
+          "type": "string"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ingestOnWrite": {
+          "type": "boolean"
+        },
+        "kind": {
+          "default": "storage#anywhereCache",
+          "type": "string"
+        },
+        "pendingUpdate": {
+          "type": "boolean"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "ttl": {
+          "format": "google-duration",
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "zone": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AnywhereCaches": {
+      "id": "AnywhereCaches",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "AnywhereCache"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#anywhereCaches",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Bucket": {
+      "id": "Bucket",
+      "properties": {
+        "acl": {
+          "annotations": {
+            "required": [
+              "storage.buckets.update"
+            ]
+          },
+          "items": {
+            "$ref": "BucketAccessControl"
+          },
+          "type": "array"
+        },
+        "autoclass": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "terminalStorageClass": {
+              "type": "string"
+            },
+            "terminalStorageClassUpdateTime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "toggleTime": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "billing": {
+          "properties": {
+            "requesterPays": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "cors": {
+          "items": {
+            "properties": {
+              "maxAgeSeconds": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "method": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "origin": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "responseHeader": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "customPlacementConfig": {
+          "properties": {
+            "dataLocations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "defaultEventBasedHold": {
+          "type": "boolean"
+        },
+        "defaultObjectAcl": {
+          "items": {
+            "$ref": "ObjectAccessControl"
+          },
+          "type": "array"
+        },
+        "encryption": {
+          "properties": {
+            "customerManagedEncryptionEnforcementConfig": {
+              "properties": {
+                "effectiveTime": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "restrictionMode": {
+                  "enum": [
+                    "NotRestricted",
+                    "FullyRestricted"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "customerSuppliedEncryptionEnforcementConfig": {
+              "properties": {
+                "effectiveTime": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "restrictionMode": {
+                  "enum": [
+                    "NotRestricted",
+                    "FullyRestricted"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "defaultKmsKeyName": {
+              "type": "string"
+            },
+            "googleManagedEncryptionEnforcementConfig": {
+              "properties": {
+                "effectiveTime": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "restrictionMode": {
+                  "enum": [
+                    "NotRestricted",
+                    "FullyRestricted"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "int64",
+          "type": "string"
+        },
+        "hardDeleteTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "hierarchicalNamespace": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "iamConfiguration": {
+          "properties": {
+            "bucketPolicyOnly": {
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "lockedTime": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "publicAccessPrevention": {
+              "type": "string"
+            },
+            "uniformBucketLevelAccess": {
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "lockedTime": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ipFilter": {
+          "properties": {
+            "allowAllServiceAgentAccess": {
+              "type": "boolean"
+            },
+            "allowCrossOrgVpcs": {
+              "type": "boolean"
+            },
+            "mode": {
+              "type": "string"
+            },
+            "publicNetworkSource": {
+              "properties": {
+                "allowedIpCidrRanges": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "vpcNetworkSources": {
+              "items": {
+                "properties": {
+                  "allowedIpCidrRanges": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "network": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "kind": {
+          "default": "storage#bucket",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "lifecycle": {
+          "properties": {
+            "rule": {
+              "items": {
+                "properties": {
+                  "action": {
+                    "properties": {
+                      "storageClass": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "condition": {
+                    "properties": {
+                      "age": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
+                      "createdBefore": {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      "customTimeBefore": {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      "daysSinceCustomTime": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
+                      "daysSinceNoncurrentTime": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
+                      "isLive": {
+                        "type": "boolean"
+                      },
+                      "matchesPattern": {
+                        "type": "string"
+                      },
+                      "matchesPrefix": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "matchesStorageClass": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "matchesSuffix": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "noncurrentTimeBefore": {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      "numNewerVersions": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
+                      "sizeAboveBytes": {
+                        "format": "int64",
+                        "type": "string"
+                      },
+                      "sizeBelowBytes": {
+                        "format": "int64",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "location": {
+          "type": "string"
+        },
+        "locationType": {
+          "type": "string"
+        },
+        "logging": {
+          "properties": {
+            "logBucket": {
+              "type": "string"
+            },
+            "logObjectPrefix": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "metageneration": {
+          "format": "int64",
+          "type": "string"
+        },
+        "name": {
+          "annotations": {
+            "required": [
+              "storage.buckets.insert"
+            ]
+          },
+          "type": "string"
+        },
+        "objectRetention": {
+          "properties": {
+            "mode": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "owner": {
+          "properties": {
+            "entity": {
+              "type": "string"
+            },
+            "entityId": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "projectNumber": {
+          "format": "uint64",
+          "type": "string"
+        },
+        "retentionPolicy": {
+          "properties": {
+            "effectiveTime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "isLocked": {
+              "type": "boolean"
+            },
+            "retentionPeriod": {
+              "format": "int64",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "rpo": {
+          "type": "string"
+        },
+        "satisfiesPZI": {
+          "type": "boolean"
+        },
+        "satisfiesPZS": {
+          "type": "boolean"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "softDeletePolicy": {
+          "properties": {
+            "effectiveTime": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "hardDeletePause": {
+              "properties": {
+                "effectiveTime": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "retentionDurationSeconds": {
+              "format": "int64",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "softDeleteTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "timeCreated": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "updated": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "versioning": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "website": {
+          "properties": {
+            "mainPageSuffix": {
+              "type": "string"
+            },
+            "notFoundPage": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "BucketAccessControl": {
+      "id": "BucketAccessControl",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "entity": {
+          "annotations": {
+            "required": [
+              "storage.bucketAccessControls.insert"
+            ]
+          },
+          "type": "string"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#bucketAccessControl",
+          "type": "string"
+        },
+        "projectTeam": {
+          "properties": {
+            "projectNumber": {
+              "type": "string"
+            },
+            "team": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "role": {
+          "annotations": {
+            "required": [
+              "storage.bucketAccessControls.insert"
+            ]
+          },
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BucketAccessControls": {
+      "id": "BucketAccessControls",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "BucketAccessControl"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#bucketAccessControls",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BucketStorageLayout": {
+      "id": "BucketStorageLayout",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "customPlacementConfig": {
+          "properties": {
+            "dataLocations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "hierarchicalNamespace": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "kind": {
+          "default": "storage#storageLayout",
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "locationType": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Buckets": {
+      "id": "Buckets",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "Bucket"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#buckets",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        },
+        "unreachable": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "BulkRestoreObjectsRequest": {
+      "id": "BulkRestoreObjectsRequest",
+      "properties": {
+        "allowOverwrite": {
+          "type": "boolean"
+        },
+        "copySourceAcl": {
+          "type": "boolean"
+        },
+        "createdAfterTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "createdBeforeTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "matchGlobs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "softDeletedAfterTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "softDeletedBeforeTime": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ComposeRequest": {
+      "id": "ComposeRequest",
+      "properties": {
+        "deleteSourceObjects": {
+          "type": "boolean"
+        },
+        "destination": {
+          "$ref": "Object"
+        },
+        "kind": {
+          "default": "storage#composeRequest",
+          "type": "string"
+        },
+        "sourceObjects": {
+          "annotations": {
+            "required": [
+              "storage.objects.compose"
+            ]
+          },
+          "items": {
+            "properties": {
+              "generation": {
+                "format": "int64",
+                "type": "string"
+              },
+              "name": {
+                "annotations": {
+                  "required": [
+                    "storage.objects.compose"
+                  ]
+                },
+                "type": "string"
+              },
+              "objectPreconditions": {
+                "properties": {
+                  "ifGenerationMatch": {
+                    "format": "int64",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Expr": {
+      "id": "Expr",
+      "properties": {
+        "expression": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Folder": {
+      "id": "Folder",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#folder",
+          "type": "string"
+        },
+        "metageneration": {
+          "format": "int64",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pendingRenameInfo": {
+          "properties": {
+            "operationId": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Folders": {
+      "id": "Folders",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "Folder"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#folders",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "GoogleLongrunningListOperationsResponse": {
+      "id": "GoogleLongrunningListOperationsResponse",
+      "properties": {
+        "kind": {
+          "default": "storage#operations",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "$ref": "GoogleLongrunningOperation"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "GoogleLongrunningOperation": {
+      "id": "GoogleLongrunningOperation",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "GoogleRpcStatus"
+        },
+        "kind": {
+          "default": "storage#operation",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "any"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "response": {
+          "additionalProperties": {
+            "type": "any"
+          },
+          "type": "object"
+        },
+        "selfLink": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "GoogleRpcStatus": {
+      "id": "GoogleRpcStatus",
+      "properties": {
+        "code": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "details": {
+          "items": {
+            "additionalProperties": {
+              "type": "any"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HmacKey": {
+      "id": "HmacKey",
+      "properties": {
+        "kind": {
+          "default": "storage#hmacKey",
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "HmacKeyMetadata"
+        },
+        "secret": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HmacKeyMetadata": {
+      "id": "HmacKeyMetadata",
+      "properties": {
+        "accessId": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#hmacKeyMetadata",
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "serviceAccountEmail": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "timeCreated": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "updated": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HmacKeysMetadata": {
+      "id": "HmacKeysMetadata",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "HmacKeyMetadata"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#hmacKeysMetadata",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedFolder": {
+      "id": "ManagedFolder",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#managedFolder",
+          "type": "string"
+        },
+        "metageneration": {
+          "format": "int64",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "rapidCacheConfig": {
+          "$ref": "RapidCacheConfig"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedFolders": {
+      "id": "ManagedFolders",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "ManagedFolder"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#managedFolders",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Notification": {
+      "id": "Notification",
+      "properties": {
+        "custom_attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "event_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#notification",
+          "type": "string"
+        },
+        "object_name_prefix": {
+          "type": "string"
+        },
+        "payload_format": {
+          "annotations": {
+            "required": [
+              "storage.notifications.insert"
+            ]
+          },
+          "default": "JSON_API_V1",
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "topic": {
+          "annotations": {
+            "required": [
+              "storage.notifications.insert"
+            ]
+          },
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Notifications": {
+      "id": "Notifications",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "Notification"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#notifications",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Object": {
+      "id": "Object",
+      "properties": {
+        "acl": {
+          "annotations": {
+            "required": [
+              "storage.objects.update"
+            ]
+          },
+          "items": {
+            "$ref": "ObjectAccessControl"
+          },
+          "type": "array"
+        },
+        "bucket": {
+          "type": "string"
+        },
+        "cacheControl": {
+          "type": "string"
+        },
+        "componentCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "contentDisposition": {
+          "type": "string"
+        },
+        "contentEncoding": {
+          "type": "string"
+        },
+        "contentLanguage": {
+          "type": "string"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "contexts": {
+          "properties": {
+            "custom": {
+              "additionalProperties": {
+                "$ref": "ObjectCustomContextPayload"
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "crc32c": {
+          "type": "string"
+        },
+        "customTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "customerEncryption": {
+          "properties": {
+            "encryptionAlgorithm": {
+              "type": "string"
+            },
+            "keySha256": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "eventBasedHold": {
+          "type": "boolean"
+        },
+        "generation": {
+          "format": "int64",
+          "type": "string"
+        },
+        "hardDeleteTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#object",
+          "type": "string"
+        },
+        "kmsKeyName": {
+          "type": "string"
+        },
+        "md5Hash": {
+          "type": "string"
+        },
+        "mediaLink": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "metageneration": {
+          "format": "int64",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "properties": {
+            "entity": {
+              "type": "string"
+            },
+            "entityId": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "restoreToken": {
+          "type": "string"
+        },
+        "retention": {
+          "properties": {
+            "mode": {
+              "type": "string"
+            },
+            "retainUntilTime": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "retentionExpirationTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "type": "string"
+        },
+        "softDeleteTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "storageClass": {
+          "type": "string"
+        },
+        "temporaryHold": {
+          "type": "boolean"
+        },
+        "timeCreated": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "timeDeleted": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "timeFinalized": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "timeStorageClassUpdated": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "updated": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectAccessControl": {
+      "id": "ObjectAccessControl",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "entity": {
+          "annotations": {
+            "required": [
+              "storage.defaultObjectAccessControls.insert",
+              "storage.objectAccessControls.insert"
+            ]
+          },
+          "type": "string"
+        },
+        "entityId": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "int64",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#objectAccessControl",
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "projectTeam": {
+          "properties": {
+            "projectNumber": {
+              "type": "string"
+            },
+            "team": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "role": {
+          "annotations": {
+            "required": [
+              "storage.defaultObjectAccessControls.insert",
+              "storage.objectAccessControls.insert"
+            ]
+          },
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectAccessControls": {
+      "id": "ObjectAccessControls",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "ObjectAccessControl"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#objectAccessControls",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectCustomContextPayload": {
+      "id": "ObjectCustomContextPayload",
+      "properties": {
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "extendedDataTypeUrl": {
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectFullContext": {
+      "id": "ObjectFullContext",
+      "properties": {
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "extendedData": {
+          "additionalProperties": {
+            "type": "any"
+          },
+          "type": "object"
+        },
+        "key": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#objectFullContext",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "CUSTOM"
+          ],
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Objects": {
+      "id": "Objects",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "Object"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#objects",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        },
+        "prefixes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Policy": {
+      "id": "Policy",
+      "properties": {
+        "bindings": {
+          "annotations": {
+            "required": [
+              "storage.buckets.setIamPolicy",
+              "storage.objects.setIamPolicy",
+              "storage.managedFolders.setIamPolicy"
+            ]
+          },
+          "items": {
+            "properties": {
+              "condition": {
+                "$ref": "Expr"
+              },
+              "members": {
+                "annotations": {
+                  "required": [
+                    "storage.buckets.setIamPolicy",
+                    "storage.objects.setIamPolicy",
+                    "storage.managedFolders.setIamPolicy"
+                  ]
+                },
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "role": {
+                "annotations": {
+                  "required": [
+                    "storage.buckets.setIamPolicy",
+                    "storage.objects.setIamPolicy",
+                    "storage.managedFolders.setIamPolicy"
+                  ]
+                },
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "etag": {
+          "format": "byte",
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#policy",
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "version": {
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "RapidCache": {
+      "id": "RapidCache",
+      "properties": {
+        "admissionPolicy": {
+          "type": "string"
+        },
+        "bucket": {
+          "type": "string"
+        },
+        "cacheType": {
+          "type": "string"
+        },
+        "createTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ingestOnWrite": {
+          "type": "boolean"
+        },
+        "kind": {
+          "default": "storage#rapidCache",
+          "type": "string"
+        },
+        "pendingUpdate": {
+          "type": "boolean"
+        },
+        "rapidCacheId": {
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "ttl": {
+          "format": "google-duration",
+          "type": "string"
+        },
+        "updateTime": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "zone": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RapidCacheConfig": {
+      "id": "RapidCacheConfig",
+      "properties": {
+        "policies": {
+          "additionalProperties": {
+            "$ref": "RapidCachePolicy"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "RapidCachePolicy": {
+      "id": "RapidCachePolicy",
+      "properties": {
+        "ingestOnWrite": {
+          "enum": [
+            "enabled",
+            "unspecified"
+          ],
+          "type": "string"
+        },
+        "rapidCacheId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RapidCaches": {
+      "id": "RapidCaches",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "RapidCache"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": "storage#rapidCaches",
+          "type": "string"
+        },
+        "nextPageToken": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RelocateBucketRequest": {
+      "id": "RelocateBucketRequest",
+      "properties": {
+        "destinationCustomPlacementConfig": {
+          "properties": {
+            "dataLocations": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "destinationKmsKeyName": {
+          "type": "string"
+        },
+        "destinationLocation": {
+          "type": "string"
+        },
+        "validateOnly": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "RewriteResponse": {
+      "id": "RewriteResponse",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "kind": {
+          "default": "storage#rewriteResponse",
+          "type": "string"
+        },
+        "objectSize": {
+          "format": "int64",
+          "type": "string"
+        },
+        "resource": {
+          "$ref": "Object"
+        },
+        "rewriteToken": {
+          "type": "string"
+        },
+        "totalBytesRewritten": {
+          "format": "int64",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ServiceAccount": {
+      "id": "ServiceAccount",
+      "properties": {
+        "email_address": {
+          "type": "string"
+        },
+        "kind": {
+          "default": "storage#serviceAccount",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TestIamPermissionsResponse": {
+      "id": "TestIamPermissionsResponse",
+      "properties": {
+        "kind": {
+          "default": "storage#testIamPermissionsResponse",
+          "type": "string"
+        },
+        "permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "source_sha256": "1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0",
+  "mirror_revision": "20261009",
+  "live_discovery_revision_observed": "20261013",
+  "note": "Full live Discovery fetched 2026-10-21. Complete structural comparison against Google-maintained mirror revision 20261009 found no method, parameter, or schema differences; only revision and etag changed."
+}

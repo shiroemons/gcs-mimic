@@ -1,0 +1,4059 @@
+{
+  "as_of": "2026-10-21",
+  "note": "Property locations from all38 JSON schemas; references are preserved in upstream/json-schemas.json rather than recursively expanded. This inventory does not cover every XML or protobuf field. Every item is unimplemented.",
+  "count": 357,
+  "fields": [
+    {
+      "id": "FIELD:AdvanceRelocateBucketOperationRequest.expireTime",
+      "schema": "AdvanceRelocateBucketOperationRequest",
+      "path": "expireTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AdvanceRelocateBucketOperationRequest.ttl",
+      "schema": "AdvanceRelocateBucketOperationRequest",
+      "path": "ttl",
+      "shape": {
+        "type": "string",
+        "format": "google-duration"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.admissionPolicy",
+      "schema": "AnywhereCache",
+      "path": "admissionPolicy",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.anywhereCacheId",
+      "schema": "AnywhereCache",
+      "path": "anywhereCacheId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.bucket",
+      "schema": "AnywhereCache",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.createTime",
+      "schema": "AnywhereCache",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.id",
+      "schema": "AnywhereCache",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.ingestOnWrite",
+      "schema": "AnywhereCache",
+      "path": "ingestOnWrite",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.kind",
+      "schema": "AnywhereCache",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#anywhereCache"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.pendingUpdate",
+      "schema": "AnywhereCache",
+      "path": "pendingUpdate",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.selfLink",
+      "schema": "AnywhereCache",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.state",
+      "schema": "AnywhereCache",
+      "path": "state",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.ttl",
+      "schema": "AnywhereCache",
+      "path": "ttl",
+      "shape": {
+        "type": "string",
+        "format": "google-duration"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.updateTime",
+      "schema": "AnywhereCache",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCache.zone",
+      "schema": "AnywhereCache",
+      "path": "zone",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCaches.items",
+      "schema": "AnywhereCaches",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCaches.kind",
+      "schema": "AnywhereCaches",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#anywhereCaches"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:AnywhereCaches.nextPageToken",
+      "schema": "AnywhereCaches",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.acl",
+      "schema": "Bucket",
+      "path": "acl",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.autoclass",
+      "schema": "Bucket",
+      "path": "autoclass",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.autoclass.enabled",
+      "schema": "Bucket",
+      "path": "autoclass.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.autoclass.terminalStorageClass",
+      "schema": "Bucket",
+      "path": "autoclass.terminalStorageClass",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.autoclass.terminalStorageClassUpdateTime",
+      "schema": "Bucket",
+      "path": "autoclass.terminalStorageClassUpdateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.autoclass.toggleTime",
+      "schema": "Bucket",
+      "path": "autoclass.toggleTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.billing",
+      "schema": "Bucket",
+      "path": "billing",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.billing.requesterPays",
+      "schema": "Bucket",
+      "path": "billing.requesterPays",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.cors",
+      "schema": "Bucket",
+      "path": "cors",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.cors[].maxAgeSeconds",
+      "schema": "Bucket",
+      "path": "cors[].maxAgeSeconds",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.cors[].method",
+      "schema": "Bucket",
+      "path": "cors[].method",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.cors[].origin",
+      "schema": "Bucket",
+      "path": "cors[].origin",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.cors[].responseHeader",
+      "schema": "Bucket",
+      "path": "cors[].responseHeader",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.customPlacementConfig",
+      "schema": "Bucket",
+      "path": "customPlacementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.customPlacementConfig.dataLocations",
+      "schema": "Bucket",
+      "path": "customPlacementConfig.dataLocations",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.defaultEventBasedHold",
+      "schema": "Bucket",
+      "path": "defaultEventBasedHold",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.defaultObjectAcl",
+      "schema": "Bucket",
+      "path": "defaultObjectAcl",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption",
+      "schema": "Bucket",
+      "path": "encryption",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerManagedEncryptionEnforcementConfig",
+      "schema": "Bucket",
+      "path": "encryption.customerManagedEncryptionEnforcementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerManagedEncryptionEnforcementConfig.effectiveTime",
+      "schema": "Bucket",
+      "path": "encryption.customerManagedEncryptionEnforcementConfig.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerManagedEncryptionEnforcementConfig.restrictionMode",
+      "schema": "Bucket",
+      "path": "encryption.customerManagedEncryptionEnforcementConfig.restrictionMode",
+      "shape": {
+        "type": "string",
+        "enum": [
+          "NotRestricted",
+          "FullyRestricted"
+        ]
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerSuppliedEncryptionEnforcementConfig",
+      "schema": "Bucket",
+      "path": "encryption.customerSuppliedEncryptionEnforcementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerSuppliedEncryptionEnforcementConfig.effectiveTime",
+      "schema": "Bucket",
+      "path": "encryption.customerSuppliedEncryptionEnforcementConfig.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.customerSuppliedEncryptionEnforcementConfig.restrictionMode",
+      "schema": "Bucket",
+      "path": "encryption.customerSuppliedEncryptionEnforcementConfig.restrictionMode",
+      "shape": {
+        "type": "string",
+        "enum": [
+          "NotRestricted",
+          "FullyRestricted"
+        ]
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.defaultKmsKeyName",
+      "schema": "Bucket",
+      "path": "encryption.defaultKmsKeyName",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.googleManagedEncryptionEnforcementConfig",
+      "schema": "Bucket",
+      "path": "encryption.googleManagedEncryptionEnforcementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.googleManagedEncryptionEnforcementConfig.effectiveTime",
+      "schema": "Bucket",
+      "path": "encryption.googleManagedEncryptionEnforcementConfig.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.encryption.googleManagedEncryptionEnforcementConfig.restrictionMode",
+      "schema": "Bucket",
+      "path": "encryption.googleManagedEncryptionEnforcementConfig.restrictionMode",
+      "shape": {
+        "type": "string",
+        "enum": [
+          "NotRestricted",
+          "FullyRestricted"
+        ]
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.etag",
+      "schema": "Bucket",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.generation",
+      "schema": "Bucket",
+      "path": "generation",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.hardDeleteTime",
+      "schema": "Bucket",
+      "path": "hardDeleteTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.hierarchicalNamespace",
+      "schema": "Bucket",
+      "path": "hierarchicalNamespace",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.hierarchicalNamespace.enabled",
+      "schema": "Bucket",
+      "path": "hierarchicalNamespace.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration",
+      "schema": "Bucket",
+      "path": "iamConfiguration",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.bucketPolicyOnly",
+      "schema": "Bucket",
+      "path": "iamConfiguration.bucketPolicyOnly",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.bucketPolicyOnly.enabled",
+      "schema": "Bucket",
+      "path": "iamConfiguration.bucketPolicyOnly.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.bucketPolicyOnly.lockedTime",
+      "schema": "Bucket",
+      "path": "iamConfiguration.bucketPolicyOnly.lockedTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.publicAccessPrevention",
+      "schema": "Bucket",
+      "path": "iamConfiguration.publicAccessPrevention",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.uniformBucketLevelAccess",
+      "schema": "Bucket",
+      "path": "iamConfiguration.uniformBucketLevelAccess",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.uniformBucketLevelAccess.enabled",
+      "schema": "Bucket",
+      "path": "iamConfiguration.uniformBucketLevelAccess.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.iamConfiguration.uniformBucketLevelAccess.lockedTime",
+      "schema": "Bucket",
+      "path": "iamConfiguration.uniformBucketLevelAccess.lockedTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.id",
+      "schema": "Bucket",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter",
+      "schema": "Bucket",
+      "path": "ipFilter",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.allowAllServiceAgentAccess",
+      "schema": "Bucket",
+      "path": "ipFilter.allowAllServiceAgentAccess",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.allowCrossOrgVpcs",
+      "schema": "Bucket",
+      "path": "ipFilter.allowCrossOrgVpcs",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.mode",
+      "schema": "Bucket",
+      "path": "ipFilter.mode",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.publicNetworkSource",
+      "schema": "Bucket",
+      "path": "ipFilter.publicNetworkSource",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.publicNetworkSource.allowedIpCidrRanges",
+      "schema": "Bucket",
+      "path": "ipFilter.publicNetworkSource.allowedIpCidrRanges",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.vpcNetworkSources",
+      "schema": "Bucket",
+      "path": "ipFilter.vpcNetworkSources",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.vpcNetworkSources[].allowedIpCidrRanges",
+      "schema": "Bucket",
+      "path": "ipFilter.vpcNetworkSources[].allowedIpCidrRanges",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.ipFilter.vpcNetworkSources[].network",
+      "schema": "Bucket",
+      "path": "ipFilter.vpcNetworkSources[].network",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.kind",
+      "schema": "Bucket",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#bucket"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.labels",
+      "schema": "Bucket",
+      "path": "labels",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle",
+      "schema": "Bucket",
+      "path": "lifecycle",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule",
+      "schema": "Bucket",
+      "path": "lifecycle.rule",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].action",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].action",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].action.storageClass",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].action.storageClass",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].action.type",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].action.type",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.age",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.age",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.createdBefore",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.createdBefore",
+      "shape": {
+        "type": "string",
+        "format": "date"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.customTimeBefore",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.customTimeBefore",
+      "shape": {
+        "type": "string",
+        "format": "date"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.daysSinceCustomTime",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.daysSinceCustomTime",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.daysSinceNoncurrentTime",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.daysSinceNoncurrentTime",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.isLive",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.isLive",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.matchesPattern",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.matchesPattern",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.matchesPrefix",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.matchesPrefix",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.matchesStorageClass",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.matchesStorageClass",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.matchesSuffix",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.matchesSuffix",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.noncurrentTimeBefore",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.noncurrentTimeBefore",
+      "shape": {
+        "type": "string",
+        "format": "date"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.numNewerVersions",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.numNewerVersions",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.sizeAboveBytes",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.sizeAboveBytes",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.lifecycle.rule[].condition.sizeBelowBytes",
+      "schema": "Bucket",
+      "path": "lifecycle.rule[].condition.sizeBelowBytes",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.location",
+      "schema": "Bucket",
+      "path": "location",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.locationType",
+      "schema": "Bucket",
+      "path": "locationType",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.logging",
+      "schema": "Bucket",
+      "path": "logging",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.logging.logBucket",
+      "schema": "Bucket",
+      "path": "logging.logBucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.logging.logObjectPrefix",
+      "schema": "Bucket",
+      "path": "logging.logObjectPrefix",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.metageneration",
+      "schema": "Bucket",
+      "path": "metageneration",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.name",
+      "schema": "Bucket",
+      "path": "name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.objectRetention",
+      "schema": "Bucket",
+      "path": "objectRetention",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.objectRetention.mode",
+      "schema": "Bucket",
+      "path": "objectRetention.mode",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.owner",
+      "schema": "Bucket",
+      "path": "owner",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.owner.entity",
+      "schema": "Bucket",
+      "path": "owner.entity",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.owner.entityId",
+      "schema": "Bucket",
+      "path": "owner.entityId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.projectNumber",
+      "schema": "Bucket",
+      "path": "projectNumber",
+      "shape": {
+        "type": "string",
+        "format": "uint64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.retentionPolicy",
+      "schema": "Bucket",
+      "path": "retentionPolicy",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.retentionPolicy.effectiveTime",
+      "schema": "Bucket",
+      "path": "retentionPolicy.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.retentionPolicy.isLocked",
+      "schema": "Bucket",
+      "path": "retentionPolicy.isLocked",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.retentionPolicy.retentionPeriod",
+      "schema": "Bucket",
+      "path": "retentionPolicy.retentionPeriod",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.rpo",
+      "schema": "Bucket",
+      "path": "rpo",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.satisfiesPZI",
+      "schema": "Bucket",
+      "path": "satisfiesPZI",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.satisfiesPZS",
+      "schema": "Bucket",
+      "path": "satisfiesPZS",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.selfLink",
+      "schema": "Bucket",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy",
+      "schema": "Bucket",
+      "path": "softDeletePolicy",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy.effectiveTime",
+      "schema": "Bucket",
+      "path": "softDeletePolicy.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy.hardDeletePause",
+      "schema": "Bucket",
+      "path": "softDeletePolicy.hardDeletePause",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy.hardDeletePause.effectiveTime",
+      "schema": "Bucket",
+      "path": "softDeletePolicy.hardDeletePause.effectiveTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy.hardDeletePause.enabled",
+      "schema": "Bucket",
+      "path": "softDeletePolicy.hardDeletePause.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeletePolicy.retentionDurationSeconds",
+      "schema": "Bucket",
+      "path": "softDeletePolicy.retentionDurationSeconds",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.softDeleteTime",
+      "schema": "Bucket",
+      "path": "softDeleteTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.storageClass",
+      "schema": "Bucket",
+      "path": "storageClass",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.timeCreated",
+      "schema": "Bucket",
+      "path": "timeCreated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.updated",
+      "schema": "Bucket",
+      "path": "updated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.versioning",
+      "schema": "Bucket",
+      "path": "versioning",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.versioning.enabled",
+      "schema": "Bucket",
+      "path": "versioning.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.website",
+      "schema": "Bucket",
+      "path": "website",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.website.mainPageSuffix",
+      "schema": "Bucket",
+      "path": "website.mainPageSuffix",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Bucket.website.notFoundPage",
+      "schema": "Bucket",
+      "path": "website.notFoundPage",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.bucket",
+      "schema": "BucketAccessControl",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.domain",
+      "schema": "BucketAccessControl",
+      "path": "domain",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.email",
+      "schema": "BucketAccessControl",
+      "path": "email",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.entity",
+      "schema": "BucketAccessControl",
+      "path": "entity",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.entityId",
+      "schema": "BucketAccessControl",
+      "path": "entityId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.etag",
+      "schema": "BucketAccessControl",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.id",
+      "schema": "BucketAccessControl",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.kind",
+      "schema": "BucketAccessControl",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#bucketAccessControl"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.projectTeam",
+      "schema": "BucketAccessControl",
+      "path": "projectTeam",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.projectTeam.projectNumber",
+      "schema": "BucketAccessControl",
+      "path": "projectTeam.projectNumber",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.projectTeam.team",
+      "schema": "BucketAccessControl",
+      "path": "projectTeam.team",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.role",
+      "schema": "BucketAccessControl",
+      "path": "role",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControl.selfLink",
+      "schema": "BucketAccessControl",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControls.items",
+      "schema": "BucketAccessControls",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketAccessControls.kind",
+      "schema": "BucketAccessControls",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#bucketAccessControls"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.bucket",
+      "schema": "BucketStorageLayout",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.customPlacementConfig",
+      "schema": "BucketStorageLayout",
+      "path": "customPlacementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.customPlacementConfig.dataLocations",
+      "schema": "BucketStorageLayout",
+      "path": "customPlacementConfig.dataLocations",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.hierarchicalNamespace",
+      "schema": "BucketStorageLayout",
+      "path": "hierarchicalNamespace",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.hierarchicalNamespace.enabled",
+      "schema": "BucketStorageLayout",
+      "path": "hierarchicalNamespace.enabled",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.kind",
+      "schema": "BucketStorageLayout",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#storageLayout"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.location",
+      "schema": "BucketStorageLayout",
+      "path": "location",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BucketStorageLayout.locationType",
+      "schema": "BucketStorageLayout",
+      "path": "locationType",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Buckets.items",
+      "schema": "Buckets",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Buckets.kind",
+      "schema": "Buckets",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#buckets"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Buckets.nextPageToken",
+      "schema": "Buckets",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Buckets.unreachable",
+      "schema": "Buckets",
+      "path": "unreachable",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.allowOverwrite",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "allowOverwrite",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.copySourceAcl",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "copySourceAcl",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.createdAfterTime",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "createdAfterTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.createdBeforeTime",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "createdBeforeTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.matchGlobs",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "matchGlobs",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.softDeletedAfterTime",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "softDeletedAfterTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:BulkRestoreObjectsRequest.softDeletedBeforeTime",
+      "schema": "BulkRestoreObjectsRequest",
+      "path": "softDeletedBeforeTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.deleteSourceObjects",
+      "schema": "ComposeRequest",
+      "path": "deleteSourceObjects",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.destination",
+      "schema": "ComposeRequest",
+      "path": "destination",
+      "shape": {
+        "$ref": "Object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.kind",
+      "schema": "ComposeRequest",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#composeRequest"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.sourceObjects",
+      "schema": "ComposeRequest",
+      "path": "sourceObjects",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.sourceObjects[].generation",
+      "schema": "ComposeRequest",
+      "path": "sourceObjects[].generation",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.sourceObjects[].name",
+      "schema": "ComposeRequest",
+      "path": "sourceObjects[].name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.sourceObjects[].objectPreconditions",
+      "schema": "ComposeRequest",
+      "path": "sourceObjects[].objectPreconditions",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ComposeRequest.sourceObjects[].objectPreconditions.ifGenerationMatch",
+      "schema": "ComposeRequest",
+      "path": "sourceObjects[].objectPreconditions.ifGenerationMatch",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Expr.expression",
+      "schema": "Expr",
+      "path": "expression",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Expr.location",
+      "schema": "Expr",
+      "path": "location",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Expr.title",
+      "schema": "Expr",
+      "path": "title",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.bucket",
+      "schema": "Folder",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.createTime",
+      "schema": "Folder",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.id",
+      "schema": "Folder",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.kind",
+      "schema": "Folder",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#folder"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.metageneration",
+      "schema": "Folder",
+      "path": "metageneration",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.name",
+      "schema": "Folder",
+      "path": "name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.pendingRenameInfo",
+      "schema": "Folder",
+      "path": "pendingRenameInfo",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.pendingRenameInfo.operationId",
+      "schema": "Folder",
+      "path": "pendingRenameInfo.operationId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.selfLink",
+      "schema": "Folder",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folder.updateTime",
+      "schema": "Folder",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folders.items",
+      "schema": "Folders",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folders.kind",
+      "schema": "Folders",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#folders"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Folders.nextPageToken",
+      "schema": "Folders",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningListOperationsResponse.kind",
+      "schema": "GoogleLongrunningListOperationsResponse",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#operations"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningListOperationsResponse.nextPageToken",
+      "schema": "GoogleLongrunningListOperationsResponse",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningListOperationsResponse.operations",
+      "schema": "GoogleLongrunningListOperationsResponse",
+      "path": "operations",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.done",
+      "schema": "GoogleLongrunningOperation",
+      "path": "done",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.error",
+      "schema": "GoogleLongrunningOperation",
+      "path": "error",
+      "shape": {
+        "$ref": "GoogleRpcStatus"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.kind",
+      "schema": "GoogleLongrunningOperation",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#operation"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.metadata",
+      "schema": "GoogleLongrunningOperation",
+      "path": "metadata",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.name",
+      "schema": "GoogleLongrunningOperation",
+      "path": "name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.response",
+      "schema": "GoogleLongrunningOperation",
+      "path": "response",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleLongrunningOperation.selfLink",
+      "schema": "GoogleLongrunningOperation",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleRpcStatus.code",
+      "schema": "GoogleRpcStatus",
+      "path": "code",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleRpcStatus.details",
+      "schema": "GoogleRpcStatus",
+      "path": "details",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:GoogleRpcStatus.message",
+      "schema": "GoogleRpcStatus",
+      "path": "message",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKey.kind",
+      "schema": "HmacKey",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#hmacKey"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKey.metadata",
+      "schema": "HmacKey",
+      "path": "metadata",
+      "shape": {
+        "$ref": "HmacKeyMetadata"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKey.secret",
+      "schema": "HmacKey",
+      "path": "secret",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.accessId",
+      "schema": "HmacKeyMetadata",
+      "path": "accessId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.etag",
+      "schema": "HmacKeyMetadata",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.id",
+      "schema": "HmacKeyMetadata",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.kind",
+      "schema": "HmacKeyMetadata",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#hmacKeyMetadata"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.projectId",
+      "schema": "HmacKeyMetadata",
+      "path": "projectId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.selfLink",
+      "schema": "HmacKeyMetadata",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.serviceAccountEmail",
+      "schema": "HmacKeyMetadata",
+      "path": "serviceAccountEmail",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.state",
+      "schema": "HmacKeyMetadata",
+      "path": "state",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.timeCreated",
+      "schema": "HmacKeyMetadata",
+      "path": "timeCreated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeyMetadata.updated",
+      "schema": "HmacKeyMetadata",
+      "path": "updated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeysMetadata.items",
+      "schema": "HmacKeysMetadata",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeysMetadata.kind",
+      "schema": "HmacKeysMetadata",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#hmacKeysMetadata"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:HmacKeysMetadata.nextPageToken",
+      "schema": "HmacKeysMetadata",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.bucket",
+      "schema": "ManagedFolder",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.createTime",
+      "schema": "ManagedFolder",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.id",
+      "schema": "ManagedFolder",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.kind",
+      "schema": "ManagedFolder",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#managedFolder"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.metageneration",
+      "schema": "ManagedFolder",
+      "path": "metageneration",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.name",
+      "schema": "ManagedFolder",
+      "path": "name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.rapidCacheConfig",
+      "schema": "ManagedFolder",
+      "path": "rapidCacheConfig",
+      "shape": {
+        "$ref": "RapidCacheConfig"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.selfLink",
+      "schema": "ManagedFolder",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolder.updateTime",
+      "schema": "ManagedFolder",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolders.items",
+      "schema": "ManagedFolders",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolders.kind",
+      "schema": "ManagedFolders",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#managedFolders"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ManagedFolders.nextPageToken",
+      "schema": "ManagedFolders",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.custom_attributes",
+      "schema": "Notification",
+      "path": "custom_attributes",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.etag",
+      "schema": "Notification",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.event_types",
+      "schema": "Notification",
+      "path": "event_types",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.id",
+      "schema": "Notification",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.kind",
+      "schema": "Notification",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#notification"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.object_name_prefix",
+      "schema": "Notification",
+      "path": "object_name_prefix",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.payload_format",
+      "schema": "Notification",
+      "path": "payload_format",
+      "shape": {
+        "type": "string",
+        "default": "JSON_API_V1"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.selfLink",
+      "schema": "Notification",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notification.topic",
+      "schema": "Notification",
+      "path": "topic",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notifications.items",
+      "schema": "Notifications",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Notifications.kind",
+      "schema": "Notifications",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#notifications"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.acl",
+      "schema": "Object",
+      "path": "acl",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.bucket",
+      "schema": "Object",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.cacheControl",
+      "schema": "Object",
+      "path": "cacheControl",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.componentCount",
+      "schema": "Object",
+      "path": "componentCount",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contentDisposition",
+      "schema": "Object",
+      "path": "contentDisposition",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contentEncoding",
+      "schema": "Object",
+      "path": "contentEncoding",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contentLanguage",
+      "schema": "Object",
+      "path": "contentLanguage",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contentType",
+      "schema": "Object",
+      "path": "contentType",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contexts",
+      "schema": "Object",
+      "path": "contexts",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.contexts.custom",
+      "schema": "Object",
+      "path": "contexts.custom",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.crc32c",
+      "schema": "Object",
+      "path": "crc32c",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.customTime",
+      "schema": "Object",
+      "path": "customTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.customerEncryption",
+      "schema": "Object",
+      "path": "customerEncryption",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.customerEncryption.encryptionAlgorithm",
+      "schema": "Object",
+      "path": "customerEncryption.encryptionAlgorithm",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.customerEncryption.keySha256",
+      "schema": "Object",
+      "path": "customerEncryption.keySha256",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.etag",
+      "schema": "Object",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.eventBasedHold",
+      "schema": "Object",
+      "path": "eventBasedHold",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.generation",
+      "schema": "Object",
+      "path": "generation",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.hardDeleteTime",
+      "schema": "Object",
+      "path": "hardDeleteTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.id",
+      "schema": "Object",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.kind",
+      "schema": "Object",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.kmsKeyName",
+      "schema": "Object",
+      "path": "kmsKeyName",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.md5Hash",
+      "schema": "Object",
+      "path": "md5Hash",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.mediaLink",
+      "schema": "Object",
+      "path": "mediaLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.metadata",
+      "schema": "Object",
+      "path": "metadata",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.metageneration",
+      "schema": "Object",
+      "path": "metageneration",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.name",
+      "schema": "Object",
+      "path": "name",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.owner",
+      "schema": "Object",
+      "path": "owner",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.owner.entity",
+      "schema": "Object",
+      "path": "owner.entity",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.owner.entityId",
+      "schema": "Object",
+      "path": "owner.entityId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.restoreToken",
+      "schema": "Object",
+      "path": "restoreToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.retention",
+      "schema": "Object",
+      "path": "retention",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.retention.mode",
+      "schema": "Object",
+      "path": "retention.mode",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.retention.retainUntilTime",
+      "schema": "Object",
+      "path": "retention.retainUntilTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.retentionExpirationTime",
+      "schema": "Object",
+      "path": "retentionExpirationTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.selfLink",
+      "schema": "Object",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.size",
+      "schema": "Object",
+      "path": "size",
+      "shape": {
+        "type": "string",
+        "format": "uint64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.softDeleteTime",
+      "schema": "Object",
+      "path": "softDeleteTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.storageClass",
+      "schema": "Object",
+      "path": "storageClass",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.temporaryHold",
+      "schema": "Object",
+      "path": "temporaryHold",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.timeCreated",
+      "schema": "Object",
+      "path": "timeCreated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.timeDeleted",
+      "schema": "Object",
+      "path": "timeDeleted",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.timeFinalized",
+      "schema": "Object",
+      "path": "timeFinalized",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.timeStorageClassUpdated",
+      "schema": "Object",
+      "path": "timeStorageClassUpdated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Object.updated",
+      "schema": "Object",
+      "path": "updated",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.bucket",
+      "schema": "ObjectAccessControl",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.domain",
+      "schema": "ObjectAccessControl",
+      "path": "domain",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.email",
+      "schema": "ObjectAccessControl",
+      "path": "email",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.entity",
+      "schema": "ObjectAccessControl",
+      "path": "entity",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.entityId",
+      "schema": "ObjectAccessControl",
+      "path": "entityId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.etag",
+      "schema": "ObjectAccessControl",
+      "path": "etag",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.generation",
+      "schema": "ObjectAccessControl",
+      "path": "generation",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.id",
+      "schema": "ObjectAccessControl",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.kind",
+      "schema": "ObjectAccessControl",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#objectAccessControl"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.object",
+      "schema": "ObjectAccessControl",
+      "path": "object",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.projectTeam",
+      "schema": "ObjectAccessControl",
+      "path": "projectTeam",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.projectTeam.projectNumber",
+      "schema": "ObjectAccessControl",
+      "path": "projectTeam.projectNumber",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.projectTeam.team",
+      "schema": "ObjectAccessControl",
+      "path": "projectTeam.team",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.role",
+      "schema": "ObjectAccessControl",
+      "path": "role",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControl.selfLink",
+      "schema": "ObjectAccessControl",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControls.items",
+      "schema": "ObjectAccessControls",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectAccessControls.kind",
+      "schema": "ObjectAccessControls",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#objectAccessControls"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectCustomContextPayload.createTime",
+      "schema": "ObjectCustomContextPayload",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectCustomContextPayload.extendedDataTypeUrl",
+      "schema": "ObjectCustomContextPayload",
+      "path": "extendedDataTypeUrl",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectCustomContextPayload.updateTime",
+      "schema": "ObjectCustomContextPayload",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectCustomContextPayload.value",
+      "schema": "ObjectCustomContextPayload",
+      "path": "value",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.createTime",
+      "schema": "ObjectFullContext",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.extendedData",
+      "schema": "ObjectFullContext",
+      "path": "extendedData",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.key",
+      "schema": "ObjectFullContext",
+      "path": "key",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.kind",
+      "schema": "ObjectFullContext",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#objectFullContext"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.type",
+      "schema": "ObjectFullContext",
+      "path": "type",
+      "shape": {
+        "type": "string",
+        "enum": [
+          "CUSTOM"
+        ]
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.updateTime",
+      "schema": "ObjectFullContext",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ObjectFullContext.value",
+      "schema": "ObjectFullContext",
+      "path": "value",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Objects.items",
+      "schema": "Objects",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Objects.kind",
+      "schema": "Objects",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#objects"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Objects.nextPageToken",
+      "schema": "Objects",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Objects.prefixes",
+      "schema": "Objects",
+      "path": "prefixes",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.bindings",
+      "schema": "Policy",
+      "path": "bindings",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.bindings[].condition",
+      "schema": "Policy",
+      "path": "bindings[].condition",
+      "shape": {
+        "$ref": "Expr"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.bindings[].members",
+      "schema": "Policy",
+      "path": "bindings[].members",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.bindings[].role",
+      "schema": "Policy",
+      "path": "bindings[].role",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.etag",
+      "schema": "Policy",
+      "path": "etag",
+      "shape": {
+        "type": "string",
+        "format": "byte"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.kind",
+      "schema": "Policy",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#policy"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.resourceId",
+      "schema": "Policy",
+      "path": "resourceId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:Policy.version",
+      "schema": "Policy",
+      "path": "version",
+      "shape": {
+        "type": "integer",
+        "format": "int32"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.admissionPolicy",
+      "schema": "RapidCache",
+      "path": "admissionPolicy",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.bucket",
+      "schema": "RapidCache",
+      "path": "bucket",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.cacheType",
+      "schema": "RapidCache",
+      "path": "cacheType",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.createTime",
+      "schema": "RapidCache",
+      "path": "createTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.id",
+      "schema": "RapidCache",
+      "path": "id",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.ingestOnWrite",
+      "schema": "RapidCache",
+      "path": "ingestOnWrite",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.kind",
+      "schema": "RapidCache",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#rapidCache"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.pendingUpdate",
+      "schema": "RapidCache",
+      "path": "pendingUpdate",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.rapidCacheId",
+      "schema": "RapidCache",
+      "path": "rapidCacheId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.selfLink",
+      "schema": "RapidCache",
+      "path": "selfLink",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.state",
+      "schema": "RapidCache",
+      "path": "state",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.ttl",
+      "schema": "RapidCache",
+      "path": "ttl",
+      "shape": {
+        "type": "string",
+        "format": "google-duration"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.updateTime",
+      "schema": "RapidCache",
+      "path": "updateTime",
+      "shape": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCache.zone",
+      "schema": "RapidCache",
+      "path": "zone",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCacheConfig.policies",
+      "schema": "RapidCacheConfig",
+      "path": "policies",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCachePolicy.ingestOnWrite",
+      "schema": "RapidCachePolicy",
+      "path": "ingestOnWrite",
+      "shape": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "unspecified"
+        ]
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCachePolicy.rapidCacheId",
+      "schema": "RapidCachePolicy",
+      "path": "rapidCacheId",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCaches.items",
+      "schema": "RapidCaches",
+      "path": "items",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCaches.kind",
+      "schema": "RapidCaches",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#rapidCaches"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RapidCaches.nextPageToken",
+      "schema": "RapidCaches",
+      "path": "nextPageToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RelocateBucketRequest.destinationCustomPlacementConfig",
+      "schema": "RelocateBucketRequest",
+      "path": "destinationCustomPlacementConfig",
+      "shape": {
+        "type": "object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RelocateBucketRequest.destinationCustomPlacementConfig.dataLocations",
+      "schema": "RelocateBucketRequest",
+      "path": "destinationCustomPlacementConfig.dataLocations",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RelocateBucketRequest.destinationKmsKeyName",
+      "schema": "RelocateBucketRequest",
+      "path": "destinationKmsKeyName",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RelocateBucketRequest.destinationLocation",
+      "schema": "RelocateBucketRequest",
+      "path": "destinationLocation",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RelocateBucketRequest.validateOnly",
+      "schema": "RelocateBucketRequest",
+      "path": "validateOnly",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.done",
+      "schema": "RewriteResponse",
+      "path": "done",
+      "shape": {
+        "type": "boolean"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.kind",
+      "schema": "RewriteResponse",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#rewriteResponse"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.objectSize",
+      "schema": "RewriteResponse",
+      "path": "objectSize",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.resource",
+      "schema": "RewriteResponse",
+      "path": "resource",
+      "shape": {
+        "$ref": "Object"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.rewriteToken",
+      "schema": "RewriteResponse",
+      "path": "rewriteToken",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:RewriteResponse.totalBytesRewritten",
+      "schema": "RewriteResponse",
+      "path": "totalBytesRewritten",
+      "shape": {
+        "type": "string",
+        "format": "int64"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ServiceAccount.email_address",
+      "schema": "ServiceAccount",
+      "path": "email_address",
+      "shape": {
+        "type": "string"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:ServiceAccount.kind",
+      "schema": "ServiceAccount",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#serviceAccount"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:TestIamPermissionsResponse.kind",
+      "schema": "TestIamPermissionsResponse",
+      "path": "kind",
+      "shape": {
+        "type": "string",
+        "default": "storage#testIamPermissionsResponse"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    },
+    {
+      "id": "FIELD:TestIamPermissionsResponse.permissions",
+      "schema": "TestIamPermissionsResponse",
+      "path": "permissions",
+      "shape": {
+        "type": "array"
+      },
+      "status": "NOT_STARTED",
+      "acceptance_cases": [],
+      "verification": []
+    }
+  ]
+}
