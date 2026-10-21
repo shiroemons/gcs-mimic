@@ -1,8 +1,15 @@
-use std::{collections::BTreeMap, fs::File, io::Read, net::SocketAddr, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::Read,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
+    pub data_dir: PathBuf,
     pub max_connections: usize,
     pub worker_threads: usize,
     pub max_blocking_threads: usize,
@@ -14,6 +21,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             listen: "127.0.0.1:4443".parse().unwrap(),
+            data_dir: PathBuf::from("data"),
             max_connections: 32,
             worker_threads: 2,
             max_blocking_threads: 2,
@@ -73,6 +81,12 @@ impl Config {
         let mut config = Self::default();
         for (key, value) in settings {
             match key.as_str() {
+                "data_dir" => {
+                    if value.is_empty() {
+                        return Err("data_dir must not be empty".into());
+                    }
+                    config.data_dir = PathBuf::from(value);
+                }
                 "listen" => {
                     config.listen = value
                         .parse()
@@ -104,4 +118,47 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
         .ok()
         .filter(|n| (min..=max).contains(n))
         .ok_or_else(|| format!("{key} must be an integer in {min}..={max}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_directory_precedence_and_validation() {
+        let file =
+            std::env::temp_dir().join(format!("gcs-mimic-data-config-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"data_dir":"file-data"}"#).unwrap();
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "env-data".into())]);
+        assert_eq!(
+            Config::load(&[], &BTreeMap::new()).unwrap().data_dir,
+            Path::new("data")
+        );
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new()).unwrap().data_dir,
+            Path::new("file-data")
+        );
+        assert_eq!(
+            Config::load(&args, &env).unwrap().data_dir,
+            Path::new("env-data")
+        );
+        let mut cli_args = args.clone();
+        cli_args.extend(["--data-dir".into(), "cli-data".into()]);
+        assert_eq!(
+            Config::load(&cli_args, &env).unwrap().data_dir,
+            Path::new("cli-data")
+        );
+        assert!(Config::load(&["--data-dir".into(), "".into()], &BTreeMap::new()).is_err());
+        assert!(
+            Config::load(
+                &[],
+                &BTreeMap::from([("GCS_MIMIC_DATA_DIR".into(), "".into())])
+            )
+            .is_err()
+        );
+        std::fs::write(&file, r#"{"data_dir":""}"#).unwrap();
+        assert!(Config::load(&args, &BTreeMap::new()).is_err());
+        std::fs::remove_file(file).unwrap();
+    }
 }
