@@ -1,0 +1,41 @@
+Local path prefixes are omitted; the output below contains no local filesystem paths.
+{
+  "name": "metadata-example"
+}
+{
+  "name": "hello.txt",
+  "metageneration": "1",
+  "contentType": "text/plain"
+}
+{
+  "metageneration": "2",
+  "contentType": "text/plain",
+  "contentLanguage": "en",
+  "cacheControl": "private, max-age=60",
+  "metadata": {
+    "remove": "old",
+    "team": "dev"
+  }
+}
+{
+  "metageneration": "3",
+  "metadata": {
+    "stage": "test",
+    "team": "dev"
+  }
+}
+{
+  "code": 412,
+  "reason": "conditionNotMet"
+}
+{
+  "metageneration": "4",
+  "contentType": "application/x-example",
+  "contentLanguage": null,
+  "cacheControl": null,
+  "metadata": {
+    "only": "replacement"
+  }
+}
+content-type: application/x-example
+Body: hello metadata

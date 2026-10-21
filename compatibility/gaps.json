@@ -238,6 +238,25 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Pinned high-level Go Storage v1.69.0 attaches X-Goog-Gcs-Idempotency-Token to object Attrs/Delete even with RetryNever. The owner explicitly selected token acceptance on object metadata/media GET and DELETE without deduplication; existing bucket behavior is unchanged. The first operation result is real, but a retry re-executes, so repeated DELETE with the same token returns 404 after the first 204. Media uploads carrying the token remain rejected 501 before body consumption to avoid claiming safe duplicate-generation retries.",
       "required_resolution": "Keep the affected method/SDK rows PARTIAL and document accepted-but-not-deduplicated tokens. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; do not strip headers or silently claim upload deduplication. See tests/object_http.rs and docs/en/evidence/object-media.md."
+    },
+    {
+      "id": "SPEC-015",
+      "title": "Legacy JSON metadata input handling and retry fidelity need independent evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-010", "JSON-OBJECTS-015", "BEHAVIOR-COMMON-006", "BEHAVIOR-OBJECT-001", "BEHAVIOR-OBJECT-002", "BEHAVIOR-OBJECT-006", "BEHAVIOR-COMMON-011"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/transcoding",
+        "https://google.aip.dev/203#output-only",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/http_client.go"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Legacy JSON references separate writable fields but do not establish how every changed read-only or unknown input is handled; Discovery lacks readOnly annotations. AIP-203 requires OUTPUT_ONLY values to be ignored, without establishing retroactive application to this legacy JSON API. Locally, identical server-managed values are accepted inside the update transaction; changed/unmodeled output fields, unknown fields, empty custom metadata keys and non-ASCII fixed header values return 501 notImplemented. SDK Update invocation tokens are accepted without replay, extending SPEC-013; an unconditional retry may increment metageneration again. Pinned Go sends individual empty custom values unchanged and an empty map as null, so empty string preservation and empty-map deletion are verified separately from JSON null key deletion. The general metadata guide describes stored response cache directives, while the protocol-specific JSON header reference requires no-cache for nonpublic objects; the more specific JSON rule is implemented, and public ACL/IAM cache behavior is unavailable. Gzip media requiring transcoding returns 501; gzip/wildcard q values or stored no-transform control unchanged-byte delivery; explicit gzip q=0 overrides wildcard and invalid/duplicate negotiation values return 400; double-compression detection is not implemented.",
+      "required_resolution": "Keep affected rows PARTIAL. Verify legacy service handling of read-only/unknown inputs and scalar empty/null edge cases with an explicitly authorized differential fixture; implement bounded token response replay, public access classification/cache behavior and streaming transcoding before claiming those semantics. Preserve explicit advanced-field rejection and the 8 KiB final custom metadata limit. See docs/en/slices/json-object-metadata.md and docs/en/evidence/object-metadata.md."
     }
   ],
   "resolved_research_items": [

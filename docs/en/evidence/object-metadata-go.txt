@@ -1,0 +1,8 @@
+Local checkout path prefixes are replaced with <checkout>; other output is unchanged.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:63958
+--- PASS: TestObjectMetadataUpdate (0.03s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.483s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

@@ -4402,26 +4402,100 @@
       "interface": "storage.objects.patch",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, object. Query parameters: generation, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, overrideUnlockedRetention, predefinedAcl, projection, userProject.",
+      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "JSON-OBJECTS-010-METADATA",
+          "description": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-010-PENDING",
+          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "JSON-OBJECTS-010-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "test_ids": [
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+      ],
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22",
       "http_method": "PATCH",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -4776,26 +4850,100 @@
       "interface": "storage.objects.update",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket, object. Query parameters: generation, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, overrideUnlockedRetention, predefinedAcl, projection, userProject.",
+      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "JSON-OBJECTS-015-METADATA",
+          "description": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-015-PENDING",
+          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "JSON-OBJECTS-015-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "test_ids": [
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+      ],
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22",
       "http_method": "PUT",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -6764,26 +6912,100 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "LOCAL_SIMULATION",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Distinguish absent, null, empty collections and replacement of mutable configuration.",
+      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-COMMON-006-METADATA",
+          "description": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-006-PENDING",
+          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-COMMON-006-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "test_ids": [
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+      ],
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-COMMON-007",
@@ -7148,11 +7370,14 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "All four object generation/metageneration conditions are checked against one selected record and atomically with mutation. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -7210,6 +7435,27 @@
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
           ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-METADATA",
+          "description": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
       "test_ids": [
@@ -7223,7 +7469,14 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
       ],
       "verification": [
         {
@@ -7253,15 +7506,48 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
       "known_deviations": [
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics.",
-        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
+        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-COMMON-012",
@@ -8237,11 +8523,14 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/metadata",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Media Content-Type persists, storageClass inherits the bucket, and calculated size/checksums/identity are exposed; no metadata container is parsed. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "Persist fixed content headers and bounded custom metadata, merge/null deletion/replacement, reflect metadata in JSON and nonpublic media headers, preserve across restart and migrate v3 defaults to v4. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8258,15 +8547,43 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-001-PENDING",
-          "description": "Implement custom metadata, disposition/language/cache/encoding semantics and metadata patch/update with permissions.",
+          "description": "Implement permissions, advanced metadata, permission-aware public cache headers, decompressive transcoding and other transports.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-METADATA",
+          "description": "Persist fixed content headers and bounded custom metadata, merge/null deletion/replacement, reflect metadata in JSON and nonpublic media headers, preserve across restart and migrate v3 defaults to v4.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
-        "round_trip_exact_hashes_opaque_names_and_restart"
+        "round_trip_exact_hashes_opaque_names_and_restart",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
       ],
       "verification": [
         {
@@ -8279,15 +8596,47 @@
             "obj_http_bad_hashes_and_unsupported_requests_never_publish",
             "round_trip_exact_hashes_opaque_names_and_restart"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
       "known_deviations": [
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
-        "Media subset only; custom metadata/encoding/encryption and metadata mutations are unsupported, ACL/IAM absent."
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
       ],
-      "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
-      "last_verified": "2026-10-21"
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-002",
@@ -8302,11 +8651,14 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Each new live generation gets metageneration 1 and a persistent schema-v3 generation identity that cannot be reused after deletion/restart/backward clock. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Metadata updates preserve generation/content identity, increment metageneration once and set updated using the injected clock; selected live-generation checks and v1/v3-to-v4 migration persist across restart. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8325,7 +8677,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-002-PUBLICATION",
-          "description": "Unreleased v2 is rejected read-only; v1 migrates atomically to v3 without an intermediate version.",
+          "description": "Unreleased v2 remains rejected read-only; existing v1 migration reaches v4 through the generation schema, and v3 metadata migration is transactional.",
           "result": "PASS",
           "test_ids": [
             "unreleased_v2_catalog_is_rejected_without_changing_data",
@@ -8334,7 +8686,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-002-PENDING",
-          "description": "Implement metadata mutation increments, version retention/history, soft delete and multi-transport semantics.",
+          "description": "Implement version retention/history, soft delete and multi-transport semantics.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -8355,6 +8707,27 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-002-METADATA",
+          "description": "Metadata updates preserve generation/content identity, increment metageneration once and set updated using the injected clock; selected live-generation checks and v1/v3-to-v4 migration persist across restart.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-002-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
       "test_ids": [
@@ -8366,7 +8739,14 @@
         "v1_migration_is_transactional_and_v3_reopens_idempotently",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
-        "rejects_future_schema_unversioned_data_and_corruption"
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
       ],
       "verification": [
         {
@@ -8385,17 +8765,50 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
       "known_deviations": [
-        "Only one live generation is retained; metadata patch/update and their metageneration transitions remain unavailable.",
         "Allocator/ETag/time formatting are local representations; no global Google generation ordering promise.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
-        "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted."
+        "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
+        "Only one live generation is retained; historical versions and soft delete remain unavailable.",
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-003",
@@ -8635,11 +9048,14 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Opaque local ETag includes generation/metageneration and is stable for repeated reads, consistent between Object JSON and media headers. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "Metadata update changes the local opaque ETag via metageneration while preserving the generation and content hashes. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8658,11 +9074,39 @@
           "description": "Implement HTTP ETag conditional semantics and independently verify production ETag representation across update/composite modes.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-006-METADATA",
+          "description": "Metadata update changes the local opaque ETag via metageneration while preserving the generation and content hashes.",
+          "result": "PASS",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-006-METADATA-BOUNDARIES",
+          "description": "Verify Content-Language 100/101, unsupported non-ASCII fixed values and empty custom keys, numeric server-managed int64 equality, gzip q/wildcard negotiation, re-upload defaults, update/delete/upload races and transactional migration rollback with original-schema v3 persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes"
+        "json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+        "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
       ],
       "verification": [
         {
@@ -8674,15 +9118,47 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-tests.txt",
+          "test_ids": [
+            "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+            "all_conditions_generation_selectors_and_conditioned_races",
+            "invalid_and_unsupported_metadata_never_mutates_objects",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
+            "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
+            "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.306.0",
+          "transport": "HTTP JSON; raw media upload, Update/Attrs/NewReader; empty string preserved, empty map deletes metadata",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestObjectMetadataUpdate GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/object-metadata-go.txt",
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
+        }
+      ],
       "known_deviations": [
         "SPEC-012: ETag encoding is a local opaque choice; If-Match/If-None-Match are rejected 501.",
-        "No metadata mutation or multipart/composite ETag behavior."
+        "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
       ],
-      "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
-      "last_verified": "2026-10-21"
+      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-007",
