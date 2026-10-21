@@ -111,7 +111,54 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     stop.send(()).unwrap();
     task.await.unwrap().unwrap();
     assert!(!state.ready.load(Ordering::Acquire));
-    assert!(TcpStream::connect(address).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_stops_accepting_on_original_listener() {
+    let dir = TestDir::new();
+    let witness = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    witness.set_nonblocking(true).unwrap();
+    let address = witness.local_addr().unwrap();
+    let listener = tokio::net::TcpListener::from_std(witness.try_clone().unwrap()).unwrap();
+    let config = Config::default();
+    let state = Arc::new(State {
+        ready: AtomicBool::new(true),
+        clock: Arc::new(FixedClock),
+        catalog: Catalog::open(&dir.0).await.unwrap(),
+        api_base_url: config.api_base_url.clone(),
+    });
+    let (stop, shutdown) = oneshot::channel();
+    let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
+        shutdown.await.map_err(std::io::Error::other)
+    }));
+    assert!(
+        request(
+            address,
+            "GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        )
+        .starts_with("HTTP/1.1 200")
+    );
+    stop.send(()).unwrap();
+    task.await.unwrap().unwrap();
+    assert!(!state.is_ready());
+    // Keep this exact socket bound so another test cannot reuse its ephemeral port.
+    let mut client = stream(address);
+    client
+        .write_all(b"GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    let witness = tokio::net::TcpListener::from_std(witness).unwrap();
+    let (pending, _) = tokio::time::timeout(Duration::from_secs(2), witness.accept())
+        .await
+        .expect("shutdown left the connection unaccepted")
+        .unwrap();
+    let mut pending = pending.into_std().unwrap();
+    pending.set_nonblocking(false).unwrap();
+    pending
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut received = [0; 1];
+    assert_eq!(pending.read(&mut received).unwrap(), 1);
+    assert_eq!(received, [b'G']);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
