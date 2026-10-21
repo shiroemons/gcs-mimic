@@ -83,7 +83,7 @@ deliberate reconstruction with a recomputed checksum is not prevented.
 
 | Case | Observable check | Executable evidence |
 | --- | --- | --- |
-| Route, resource and persistence | GET collection, empty omission, identical GET/list resources, default booleans/projection, full subset and restart | `object_list_resources_defaults_empty_and_restart` |
+| Route, resource and persistence | GET collection, empty omission, identical GET/list resources after conditional metadata PATCH (contentType, cacheControl, custom metadata and metageneration), default booleans/projection, full subset and restart | `object_list_resources_defaults_empty_and_restart` |
 | Grouping and bounds | Empty prefix, prefix equal to an object, root-relative prefixes, duplicate groups, offsets inside a group, reversed bounds, UTF-8 binary bounds, multi-character/multibyte delimiter and single-entry pages | `object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages` |
 | Failures | Exact statuses/reasons for missing bucket, invalid inputs, unsupported options, wrong methods and a supplied body | `object_list_invalid_unsupported_and_missing_bucket_errors`, `bkt_http_query_body_name_and_route_boundaries` |
 | Cursor validation | Corruption, all query dimensions, changed page size, empty token, invalid version/payload/checksum/shape/length | `object_list_tokens_bind_query_and_reject_corruption`, `object_list_tokens_reject_valid_checksums_with_invalid_payloads` |

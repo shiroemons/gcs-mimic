@@ -7320,7 +7320,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No metadata mutation/history/propagation profile; listing uses committed local pages, not a stable cross-request snapshot.",
+        "No history/propagation profile; supported metadata mutations and listing use committed local state, not a stable cross-request snapshot.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],

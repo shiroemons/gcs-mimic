@@ -8,14 +8,14 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 291 | 0 | 7 | 0 | 0 | 0 |
-| behavior | 201 | 180 | 0 | 21 | 0 | 0 | 0 |
+| api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
+| behavior | 201 | 178 | 0 | 23 | 0 | 0 | 0 |
 | project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 291 | 0 | 7 | 0 | 0 | 0 |
-| behavior | 180 | 0 | 19 | 2 | 0 | 0 |
+| api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
+| behavior | 178 | 0 | 21 | 2 | 0 | 0 |
 | project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
 
 ## api_operation
@@ -151,14 +151,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-OBJECTS-008 | objects.list | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-010 | objects.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-015 | objects.update | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
@@ -527,14 +527,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-COMMON-003 | JSON integer representation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-004 | Partial response fields selectors | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-005 | Projection full/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-COMMON-006 | PUT replacement versus PATCH merge | NOT_STARTED | P1 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-COMMON-006 | PUT replacement versus PATCH merge | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-008 | HTTP batch request format | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-009 | Strong data and listing consistency | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | Authorization propagation model | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-012 | HTTP conditional requests | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-013 | Pagination and token validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-013 | Pagination and token validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-014 | Project and billing context | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### CONTEXT
@@ -661,12 +661,12 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-OBJECT-001 | System and custom object metadata | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-OBJECT-002 | Generations and metagenerations | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-001 | System and custom object metadata | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-002 | Generations and metagenerations | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-003 | Object timestamps and lifecycle time | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | Custom time monotonicity | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-005 | Checksums | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-006 | ETag semantics | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-006 | ETag semantics | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-007 | Metadata mediaLink/selfLink | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | Simple media upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | Multipart JSON upload | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -678,7 +678,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-OBJECT-015 | Read bytes and metadata separately | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | Range reads | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-017 | Content encoding and transcoding | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-018 | Prefix and delimiter listing | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-018 | Prefix and delimiter listing | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | Listing interval and glob filters | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-020 | Listing folders as prefixes | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-021 | Version and soft-delete listing | NOT_STARTED | P4 | EXACT | NONE | 0 |

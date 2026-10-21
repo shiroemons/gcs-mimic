@@ -35,17 +35,22 @@ unverified. See the [integration evidence](evidence/object-media.md) and
 Regression tests additionally cover explicit upload EOF, commit waiting beyond body
 inactivity, committed success with deferred reclamation, both storage race outcomes, early
 rejection with eager bodies, advisory checks and OS metadata recovery. Object-free v1 catalogs
-migrate directly to v3; unreleased v2 catalogs are rejected. See the
+migrate through v3 to v4; unreleased v2 catalogs are rejected. See the
 [verification summary](evidence/object-media.md)
 for current logs and the remaining filesystem, platform and performance limits.
 
-The next slice is **list and metadata**, starting with `objects.list` prefix/delimiter/keyset
-pagination and conditional metadata patch versus replacement. This is item 4 below and can
-reuse the live-object catalog, generation conditions and existing bucket paging pattern;
-it does not depend on multipart or resumable sessions. Decompose exact field/mask/permission
-cases and verify current sources/dependencies before coding. JSON multipart follows as a
-separate P1 transfer slice needed for the pinned Go Writer and later Ruby/Rails workflows;
-resumable uploads and ACL/IAM remain separate work.
+The **list and metadata** slice is complete for its scoped local subset; method rows
+JSON-OBJECTS-008/010/015 remain PARTIAL. Prefix/delimiter/keyset paging and conditional
+PATCH/PUT share v4 metadata with GET, including after restart. Pinned Go listing/Update
+coverage exists. Remaining work includes ACL/IAM, historical/soft-deleted listing,
+glob/context filters, partial response masks, token replay, gzip transcoding and
+unverified legacy metadata input and list-shape edge cases. See the
+[listing contract](slices/json-object-list.md) and [metadata contract](slices/json-object-metadata.md).
+
+The next slice is **JSON multipart upload**: it completes the next P1 transfer subset
+needed by the pinned Go Writer and later Ruby/Rails workflows before P2 public/private
+access. This follows the P1-before-P2 dependency order in the phase table; the public/private
+item below follows that transfer slice. Resumable sessions remain separate P3 work.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.

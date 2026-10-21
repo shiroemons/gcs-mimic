@@ -76,11 +76,15 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. Schema version 3
+file-backed temporary storage and a 256-page auto-checkpoint. Schema version 4
 stores buckets, live objects, unique opaque blob references, pending blob deletions
 and a persistent generation high-water mark. It retains the bucket `(project, name)`
 index; object keys use `(bucket, name)` with indexed blob lookup. Valid v1 catalogs
-contain no objects and migrate directly to v3 in one transaction. Unreleased v2 catalogs
+contain no objects and first migrate to v3 transactionally. A separate atomic v3-to-v4
+migration adds content encoding/disposition/language, cache control and custom metadata;
+both metadata reads and bounded object lists select these columns. PATCH merges and PUT
+replaces the supported fields under atomic generation/metageneration conditions without
+changing the blob or generation. Unreleased v2 catalogs
 are rejected before journal-mode changes because deleted generation history is unavailable.
 New/empty version 0 catalogs are initialized transactionally; future versions,
 nonempty unversioned catalogs, failed quick_check or incompatible versioned DDL

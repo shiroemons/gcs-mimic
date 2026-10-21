@@ -1,12 +1,14 @@
 # Build and run gcs-mimic
 
 The current slice supports JSON bucket create/get/list/delete and object media upload,
-metadata get, whole-object download and delete, with a persistent SQLite catalog and disk blobs.
-Multipart/resumable uploads, object listing/patch, ranges, fixtures, IAM/ACL, signed URLs,
+metadata get/patch/update, prefix/delimiter/paged listing, whole-object download and delete,
+with a persistent SQLite catalog and disk blobs.
+Multipart/resumable uploads, ranges, fixtures, IAM/ACL, signed URLs,
 CORS and TLS remain unavailable.
 Requests have no authentication enforcement; use an isolated local development environment.
 The [bucket contract](slices/json-bucket-crud.md) and
-[object contract](slices/json-object-media.md) list supported fields and deviations.
+[object media](slices/json-object-media.md), [listing](slices/json-object-list.md) and
+[metadata](slices/json-object-metadata.md) contracts list supported fields and deviations.
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -148,6 +150,64 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
   --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
 ```
 
+## List objects and conditionally change metadata
+
+Create a second object so a one-entry page has a continuation token. Prefix and
+delimiter group nested names into `prefixes`; `maxResults` counts items and prefixes.
+Keep the same filters when continuing a page. Tokens observe committed live state,
+not a snapshot spanning requests.
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data 'nested data' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fnested%2Fother.txt"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F" | jq .
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F&maxResults=1" \
+  > "$work_dir/page.json"
+jq . "$work_dir/page.json"
+page_token=$(jq -er .nextPageToken "$work_dir/page.json")
+curl --disable --noproxy '*' --fail --get \
+  --data-urlencode 'prefix=notes/' --data-urlencode 'delimiter=/' \
+  --data-urlencode 'maxResults=1' --data-urlencode "pageToken=$page_token" \
+  "$endpoint/storage/v1/b/demo-bucket/o" | jq .
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt"
+metageneration=$(jq -r .metageneration "$work_dir/object.json")
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"contentType":"text/plain; charset=utf-8","cacheControl":"private, max-age=60","metadata":{"team":"local"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration" \
+  > "$work_dir/patched.json"
+jq . "$work_dir/patched.json"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/stale.json" \
+  --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' \
+  --data '{"metadata":{"stale":"rejected"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration")
+test "$status" = 412
+jq . "$work_dir/stale.json"
+metageneration=$(jq -r .metageneration "$work_dir/patched.json")
+curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
+  --data '{"contentType":"text/plain","metadata":{"only":"replacement"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F" > "$work_dir/list.json"
+jq -e --slurpfile object "$work_dir/object.json" '.items == $object' "$work_dir/list.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/metadata-download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/metadata-download.txt"
+```
+
+PATCH preserves omitted fields and merges custom keys; null removes a key or field.
+PUT replaces the supported writable fields, clearing omitted cache/language/encoding/
+disposition values and custom keys. Both increment metageneration while preserving
+generation, checksums and bytes; a stale precondition returns 412 without mutation.
+Custom metadata is bounded to 8 KiB. ACL/IAM, advanced fields, partial response masks,
+token replay and gzip transcoding remain unsupported. Stored cache directives round-trip
+in metadata; nonpublic JSON media responses use `Cache-Control: no-cache`.
+
 ## Stop, restart and deliberate reset
 
 ```sh
@@ -212,9 +272,9 @@ endpoint from the repository root:
 ```
 
 The harness pins `cloud.google.com/go/storage` v1.69.0 and `google.golang.org/api`
-v0.306.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
+v0.307.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
-bucket CRUD/paging and object Attrs/NewReader/Delete, exact bytes/hashes, generation
+bucket CRUD/paging and object listing/Update/Attrs/NewReader/Delete, exact bytes/hashes, generation
 conditions, encoded names and nonempty bucket errors. The harness uploads raw media with
 its confined HTTP client because the SDK Writer uses unsupported multipart/resumable
 uploads; it verifies that Writer fails 501 without creating an object. It creates and

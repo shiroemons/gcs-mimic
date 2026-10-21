@@ -8,14 +8,14 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 291 | 0 | 7 | 0 | 0 | 0 |
-| behavior | 201 | 180 | 0 | 21 | 0 | 0 | 0 |
+| api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
+| behavior | 201 | 178 | 0 | 23 | 0 | 0 | 0 |
 | project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 291 | 0 | 7 | 0 | 0 | 0 |
-| behavior | 180 | 0 | 19 | 2 | 0 | 0 |
+| api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
+| behavior | 178 | 0 | 21 | 2 | 0 | 0 |
 | project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
 
 ## api_operation
@@ -151,14 +151,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-OBJECTS-008 | objects.list | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-010 | objects.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-015 | objects.update | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
@@ -527,14 +527,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-COMMON-003 | JSON整数の文字列表現 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-004 | fieldsによる部分レスポンス | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-005 | projectionのfull/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-COMMON-006 | PUT置換とPATCH部分更新 | NOT_STARTED | P1 | LOCAL_SIMULATION | NONE | 0 |
+| BEHAVIOR-COMMON-006 | PUT置換とPATCH部分更新 | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-008 | HTTPバッチ形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-012 | HTTP条件付き要求 | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-014 | プロジェクト・課金コンテキスト | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### CONTEXT
@@ -661,12 +661,12 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-OBJECT-001 | 標準・カスタムオブジェクトメタデータ | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-OBJECT-002 | 世代番号とメタ世代番号 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-001 | 標準・カスタムオブジェクトメタデータ | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-002 | 世代番号とメタ世代番号 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-003 | オブジェクト時刻とライフサイクル時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | customTimeの更新制約 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-005 | チェックサム | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-006 | ETagの意味 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-OBJECT-006 | ETagの意味 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-007 | mediaLink・selfLinkの生成 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | 単純メディアアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | JSON multipartアップロード | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -678,7 +678,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-OBJECT-015 | データ取得とメタデータ取得 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | 範囲取得 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-017 | コンテンツエンコードと変換 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-018 | prefix・delimiterによる一覧 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-018 | prefix・delimiterによる一覧 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | 一覧の範囲・glob条件 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | NOT_STARTED | P4 | EXACT | NONE | 0 |
