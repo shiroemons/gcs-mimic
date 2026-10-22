@@ -28,6 +28,42 @@ impl Clock for FixedClock {
 }
 
 #[test]
+fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
+    let dir = TestDir::new();
+    let other = TestDir::new();
+    let mut address = "127.0.0.1:0".to_owned();
+    for _ in 0..2 {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", &address, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let ready: serde_json::Value = serde_json::from_str(&line).expect("ready on same port");
+        address = ready["listen"].as_str().unwrap().into();
+        assert!(
+            request(
+                address.parse().unwrap(),
+                "GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            )
+            .starts_with("HTTP/1.1 200")
+        );
+        let collision = common::server_command()
+            .args(["serve", "--listen", &address, "--data-dir"])
+            .arg(&other.0)
+            .output()
+            .unwrap();
+        assert!(!collision.status.success());
+        assert!(collision.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
+        common::stop_server(&mut child, &mut stdout);
+    }
+}
+
+#[test]
 fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
     let dir = TestDir::new();
     for _ in 0..2 {

@@ -126,6 +126,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
                 let socket = if config.listen.is_ipv4() { tokio::net::TcpSocket::new_v4()? } else { tokio::net::TcpSocket::new_v6()? };
+                // Unix TIME_WAIT must not prevent a graceful same-port restart; Windows reuse permits port hijacking.
+                #[cfg(unix)]
+                socket.set_reuseaddr(true)?;
                 socket.bind(config.listen)?;
                 let listener = socket.listen(128)?;
                 let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
