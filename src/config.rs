@@ -7,6 +7,25 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CompatProfile {
+    #[default]
+    Native,
+    LegacyEmulator,
+}
+
+impl std::str::FromStr for CompatProfile {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "native" => Ok(Self::Native),
+            "legacy-emulator" => Ok(Self::LegacyEmulator),
+            _ => Err("compat_profile must be native or legacy-emulator".into()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
@@ -23,6 +42,7 @@ pub struct Config {
     pub catalog_wait_timeout_ms: u64,
     pub shutdown_timeout_ms: u64,
     pub auth_mode: AuthMode,
+    pub compat_profile: CompatProfile,
     /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
     pub identity_file: Option<PathBuf>,
 }
@@ -44,6 +64,7 @@ impl Default for Config {
             catalog_wait_timeout_ms: 30_000,
             shutdown_timeout_ms: 5_000,
             auth_mode: AuthMode::Permissive,
+            compat_profile: CompatProfile::Native,
             identity_file: None,
         }
     }
@@ -155,6 +176,7 @@ impl Config {
                     config.shutdown_timeout_ms = bounded(&key, &value, 1, 60_000)?
                 }
                 "auth_mode" => config.auth_mode = value.parse()?,
+                "compat_profile" => config.compat_profile = value.parse()?,
                 "identity_file" => {
                     if value.is_empty() {
                         return Err("identity_file must not be empty".into());
@@ -189,6 +211,53 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compat_profile_precedence_and_validation() {
+        assert_eq!(Config::default().compat_profile, CompatProfile::Native);
+        let path = std::env::temp_dir().join(format!(
+            "gcs-mimic-compat-config-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, r#"{"compat_profile":"legacy-emulator"}"#).unwrap();
+        let args = vec!["--config".into(), path.to_str().unwrap().into()];
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .compat_profile,
+            CompatProfile::LegacyEmulator
+        );
+        let env = BTreeMap::from([("GCS_MIMIC_COMPAT_PROFILE".into(), "native".into())]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().compat_profile,
+            CompatProfile::Native
+        );
+        let args = [
+            args,
+            vec!["--compat-profile".into(), "legacy-emulator".into()],
+        ]
+        .concat();
+        assert_eq!(
+            Config::load(&args, &env).unwrap().compat_profile,
+            CompatProfile::LegacyEmulator
+        );
+        for value in ["", "NATIVE", "legacy_emulator", "permissive", "unknown"] {
+            assert!(
+                Config::load(&["--compat-profile".into(), value.into()], &BTreeMap::new())
+                    .unwrap_err()
+                    .contains("compat_profile")
+            );
+        }
+        for body in [
+            r#"{"compat_profile":false}"#,
+            r#"{"compat_profile":null}"#,
+            r#"{"compat_profile":1}"#,
+        ] {
+            std::fs::write(&path, body).unwrap();
+            assert!(Config::load(&args[..2], &BTreeMap::new()).is_err());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn transfer_timeout_precedence_and_bounds() {

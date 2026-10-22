@@ -1,5 +1,6 @@
 {
   "listen": "127.0.0.1:4443",
+  "compat_profile": "native",
   "max_connections": 32,
   "worker_threads": 2,
   "max_blocking_threads": 2,

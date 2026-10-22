@@ -35,6 +35,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
   --shutdown-timeout-ms N      5000 (1..60000)
   --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
   --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
