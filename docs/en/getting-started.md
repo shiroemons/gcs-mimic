@@ -339,14 +339,16 @@ For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 ## Strict local authentication
 
 `compose.strict.yaml` switches the same Compose project to `auth_mode=strict` and
-mounts the local fixture registry `config/identities.json` read-only. Its three
-principals hold project-level roles on `local-project`:
+mounts the local fixture registry `config/identities.json` read-only. Three
+principals hold project-level roles on `local-project`; the bucket reader has no
+project roles:
 
 | Token | Role |
 | --- | --- |
 | `local-admin-token` | `roles/storage.admin` |
 | `local-viewer-token` | `roles/storage.objectViewer` |
 | `local-creator-token` | `roles/storage.objectCreator` |
+| `local-bucket-reader-token` | None; receives a bucket-only grant below |
 
 These tokens are deliberately public emulator fixtures, not Google credentials;
 never reuse them for a real service. Pass both files to every command in this
@@ -357,7 +359,7 @@ the mode and the number of registered identities:
 ```sh
 docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
 docker compose -f compose.yaml -f compose.strict.yaml logs --no-log-prefix gcs \
-  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "strict" and .identities == 3) | {auth_mode, identities}'
+  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "strict" and .identities == 4) | {auth_mode, identities}'
 ```
 
 Anonymous requests receive 401 `required`; an unregistered bearer token receives
@@ -455,6 +457,115 @@ curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token'
 cmp "$work_dir/strict.txt" "$work_dir/strict-unchanged.txt"
 ```
 
+### Grant and revoke bucket-only access
+
+Continue with the same strict server, `endpoint`, `work_dir`, `strict-bucket`
+and private object from above. The admin reads the bucket policy and keeps its
+opaque etag. PUT replaces the whole policy, so preserve existing bindings when
+adding the reader:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-before.json"
+jq -e '.kind == "storage#policy" and .resourceId == "projects/_/buckets/strict-bucket"
+  and (.etag | length > 0)' "$work_dir/policy-before.json"
+jq '.bindings += [{"role":"roles/storage.objectViewer",
+  "members":["user:local-bucket-reader@example.invalid"]}]' \
+  "$work_dir/policy-before.json" > "$work_dir/policy-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-granted.json"
+jq -e --arg previous "$(jq -r .etag "$work_dir/policy-before.json")" \
+  '.etag != $previous' "$work_dir/policy-granted.json"
+```
+
+New buckets include the documented convenience bindings for
+`projectOwner:local-project` and `projectEditor:local-project` as
+`roles/storage.legacyBucketOwner`, and `projectViewer:local-project` as
+`roles/storage.legacyBucketReader`. The registry models predefined storage roles,
+not basic project roles, so no local principal belongs to those convenience
+groups. The admin's project grant continues to authorize policy changes.
+See Google's [default bindings](https://docs.cloud.google.com/storage/docs/access-control/iam-roles#modifiable-behavior)
+and [convenience values](https://docs.cloud.google.com/storage/docs/access-control/iam#convenience-values).
+
+The new grant lets the reader download and list this bucket's objects:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/bucket-reader.txt"
+cmp "$work_dir/strict.txt" "$work_dir/bucket-reader.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o" \
+  | jq -e 'any(.items[]; .name == "notes/private file.txt")'
+```
+
+It grants no access to other buckets, object creation or IAM policy management.
+Create a second bucket to check the boundary, then remove it as the admin:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data '{"name":"strict-other-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project" | jq '{name}'
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-other-bucket/o")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' --data-binary 'denied' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=denied.txt")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/iam")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -X PUT -H 'Authorization: Bearer local-bucket-reader-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-granted.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam")
+test "$status" = 403
+curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-other-bucket"
+```
+
+Submitting the old policy fails with 412 `conditionNotMet` and leaves the grant
+intact. Fetch the current policy, remove only the reader's binding and submit its
+current etag to revoke access:
+
+```sh
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/policy-stale.json" \
+  --write-out '%{http_code}' -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-before.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam")
+test "$status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$work_dir/policy-stale.json"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-current.json"
+jq -e 'any(.bindings[]; .role == "roles/storage.objectViewer"
+  and (.members | index("user:local-bucket-reader@example.invalid") != null))' \
+  "$work_dir/policy-current.json"
+jq '.bindings |= map(select(.role != "roles/storage.objectViewer"))' \
+  "$work_dir/policy-current.json" > "$work_dir/policy-revoke.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-revoke.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-revoked.json"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/o")
+test "$status" = 403
+```
+
+Always fetch a fresh policy before retrying a stale-etag update. Omitting `etag`
+overwrites without a concurrency check. Both profiles persist validated policy
+changes; permissive mode performs no permission checks. The JSON API
+[get](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy)
+and [set](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy)
+references describe the policy fields and required permissions.
+
+### Public URL helper and strict cleanup
+
 `gcs-mimic url public` prints the XML-style path URL of an object. It reads no
 configuration, environment, data directory or network and never changes a
 permission. Every byte except RFC 3986 unreserved characters and `/` is
@@ -509,9 +620,13 @@ docker compose logs --no-log-prefix gcs \
 curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-project" | jq .
 ```
 
-Strict mode enforces only project-level predefined `roles/storage.*` grants on the
-JSON bucket/object routes. Bucket/object IAM policies, ACLs, `allUsers` and
-`allAuthenticatedUsers`, signed URLs, HMAC and XML endpoints are unavailable.
+Strict mode combines project grants with unconditional bucket IAM bindings from
+the pinned predefined `roles/storage.*` snapshot on JSON bucket/object routes.
+User and service-account members match registry IDs exactly. Conditions,
+custom/basic roles and public/group/domain/federated/deleted principals are
+unsupported (501); malformed members or unknown roles return 400. Object IAM,
+`testIamPermissions`, ACLs, `allUsers` and `allAuthenticatedUsers`, signed URLs,
+HMAC and XML endpoints are unavailable.
 Unknown routes return 404 and `/_internal` probes stay unauthenticated. The
 [strict authentication contract](slices/strict-auth.md) lists error bodies, check
 order and the local rules recorded as SPEC-017.

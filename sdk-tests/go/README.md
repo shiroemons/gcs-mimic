@@ -109,6 +109,7 @@ tests use the local fixture registry `config/identities.json`:
 | `local-admin@example.invalid` | `local-admin-token` | `roles/storage.admin` |
 | `local-viewer@example.invalid` | `local-viewer-token` | `roles/storage.objectViewer` |
 | `local-creator@example.invalid` | `local-creator-token` | `roles/storage.objectCreator` |
+| `local-bucket-reader@example.invalid` | `local-bucket-reader-token` | None; IAM tests grant bucket-only access |
 
 These identities and tokens are deliberately public, non-secret emulator
 fixtures. They are not Google credentials, grant nothing outside the emulator and
@@ -146,6 +147,23 @@ Strict coverage, asserted as `googleapi.Error` status and first error reason:
   `forbidden` because an overwrite also needs `storage.objects.delete`; the
   original generation and bytes remain. Its metadata and media reads fail with 403.
 
+`bucket_iam_test.go` exercises the pinned Storage SDK's `BucketHandle.IAM().Policy`
+and `SetPolicy`. `TestStrictAuthBucketIAM` checks the default convenience bindings,
+grants `roles/storage.objectViewer` to the principal with no project roles, reads
+and lists that bucket's objects, and rejects access to another bucket and object
+creation with 403. Both project and bucket viewers cannot get/set policies (403).
+A stale-etag update fails with 412 `conditionNotMet` without removing the grant;
+revocation denies metadata, media and listing while preserving the object.
+`TestBucketIAMPermissive` verifies unauthenticated get/set, a fresh etag and stale
+etag rejection. These tests use the existing clients and opt-in endpoints; no
+new direct dependency or module version is needed.
+
+Run only bucket IAM coverage with both isolated profiles:
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='TestStrictAuthBucketIAM|TestBucketIAMPermissive' bash scripts/sdk-go.sh
+```
+
 `TestObjectList` additionally exercises prefix/delimiter/offset filters and one-entry
 iterator/pager traversal. `TestObjectMetadataUpdate` verifies conditional Update,
 fixed/custom metadata, empty-value and deletion behavior, and unchanged object bytes.
@@ -153,8 +171,9 @@ See the [listing](../../docs/en/slices/json-object-list.md),
 [metadata](../../docs/en/slices/json-object-metadata.md) and
 [multipart](../../docs/en/slices/json-object-multipart.md) contracts for limits.
 
-Bucket/object IAM policies, ACLs, `allUsers` grants, ranges, XML, gRPC, signing
-and resumable transfers are outside this harness's scope. A clean skip or `-run XXX` is compilation evidence only;
+Object IAM, `testIamPermissions`, conditional policies, ACLs, `allUsers` grants,
+XML, gRPC, signing and resumable transfers are outside this harness's scope.
+A clean skip or `-run XXX` is compilation evidence only;
 successful object execution is recorded in the
 [object media verification summary](../../docs/en/evidence/object-media.md) and
 [raw SDK log](../../docs/en/evidence/object-media-go.txt).

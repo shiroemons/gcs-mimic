@@ -14,6 +14,10 @@
       "id": "local-creator@example.invalid",
       "tokens": ["local-creator-token"],
       "project_roles": { "local-project": ["roles/storage.objectCreator"] }
+    },
+    {
+      "id": "local-bucket-reader@example.invalid",
+      "tokens": ["local-bucket-reader-token"]
     }
   ]
 }
