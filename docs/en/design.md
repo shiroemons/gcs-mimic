@@ -1,10 +1,12 @@
 # Google Cloud Storage emulator design
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 ## Product goal
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Object ACLs, public grants, signed URLs and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs, signed URLs and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -30,7 +32,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. The XML adapter serves path-style object GET/HEAD with shared authorization and selected immutable bytes; gRPC is unavailable. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -83,7 +85,7 @@ sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are inspe
 and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB transfer under
 the container limit. No maintenance polling exists.
 
-Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Fixture seeding, clock-backed expiration and an explicit maintenance scheduler remain future work.
+Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; clock-backed expiration and an explicit maintenance scheduler remain future work.
 
 ## Implemented bucket catalog and recovery
 
@@ -166,8 +168,8 @@ own permissions, including when those permissions come from a bucket binding.
 Defaults use the documented non-UBLA convenience bindings: project owners and
 editors receive legacy bucket owner, and project viewers receive legacy bucket
 reader. The local identity registry models no basic project roles, so convenience
-sets have no local members. Public principals, conditions, ACLs and hierarchy
-above the local project remain excluded. The [bucket IAM contract](slices/bucket-iam.md)
+sets have no local members. Public allUsers and registered-only allAuthenticatedUsers principals are supported.
+Conditions, ACLs and hierarchy above the local project remain excluded. The [bucket IAM contract](slices/bucket-iam.md)
 defines fields, errors, limits, acceptance functions and verification.
 
 ## Planned storage architecture
@@ -296,7 +298,7 @@ V4 includes the host in the signed request. Sign the actual browser-facing emula
 
 Use an explicit `permissive` profile for easy smoke tests and `strict` for permission/signature conformance. Strict mode can use local credentials and a local principal map; it must not silently contact Google to mint tokens. Passing permissive tests does not establish strict compatibility.
 
-Implemented so far: `auth_mode` selects `permissive` (default) or `strict`; strict mode loads a bounded JSON identity registry once at startup, resolves `Authorization: Bearer` tokens, rejects every other credential form with 401 `authError`, and authorizes each JSON route through effective project and scoped bucket bindings from a pinned predefined-role snapshot. Authentication precedes route syntax validation; advisory authorization precedes body reads, conditions and existence checks, and the catalog transaction repeats authorization against the current policy. Permissive mode applies the same policy validation, persistence and etag rules without permission checks. `gcs-mimic url public` is a pure URL builder. See the [strict authentication contract](slices/strict-auth.md) and [bucket IAM contract](slices/bucket-iam.md).
+Implemented so far: `auth_mode` selects `permissive` (default) or `strict`; strict mode loads a bounded JSON identity registry once at startup, resolves `Authorization: Bearer` tokens, rejects invalid or unsupported credentials with JSON 401 `authError` or XML 400 `InvalidAuthentication`, and authorizes JSON routes and path-style XML reads through effective project and scoped bucket bindings from a pinned predefined-role snapshot. Authentication precedes route syntax validation; advisory authorization precedes body reads, conditions and existence checks, and the catalog transaction repeats authorization against the current policy. Permissive mode applies the same policy validation, persistence and etag rules without permission checks. `allUsers` includes anonymous callers; `allAuthenticatedUsers` requires a registered local identity. Anonymous denials remain JSON 401 `required` or XML 401 `AuthenticationRequired`; registered permission denials are 403. `gcs-mimic url public` is a pure URL builder for the served XML endpoint and rejects reserved namespace collisions. See the [strict authentication contract](slices/strict-auth.md) and [bucket IAM contract](slices/bucket-iam.md).
 
 JSON CORS follows its documented defaults; XML CORS follows bucket configuration. A CORS response never authorizes an object read. Website index/not-found behavior is endpoint-dependent and must not be added to every object-download route. Authenticated browser download UX, DNS, TLS certificates, load balancers and CDN are distinct integration boundaries. [CORS](https://docs.cloud.google.com/storage/docs/cross-origin), [Request endpoints](https://docs.cloud.google.com/storage/docs/request-endpoints), [Website metadata](https://docs.cloud.google.com/storage/docs/xml-api/put-bucket-metadata).
 

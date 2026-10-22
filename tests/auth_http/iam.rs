@@ -1,9 +1,9 @@
 use super::*;
 use std::sync::{Arc, Barrier};
 
-const IAM: &str = "/storage/v1/b/iam-bucket/iam";
+pub(super) const IAM: &str = "/storage/v1/b/iam-bucket/iam";
 
-fn fixture() -> (TestDir, TestDir, Server) {
+pub(super) fn fixture() -> (TestDir, TestDir, Server) {
     let config = TestDir::new();
     let identities = identity_file(&config);
     let data = TestDir::new();
@@ -12,11 +12,11 @@ fn fixture() -> (TestDir, TestDir, Server) {
     (config, data, server)
 }
 
-fn set(server: &Server, auth: &str, policy: &Value) -> Reply {
+pub(super) fn set(server: &Server, auth: &str, policy: &Value) -> Reply {
     server.request("PUT", IAM, auth, policy.to_string().as_bytes())
 }
 
-fn binding(role: &str, member: &str) -> Value {
+pub(super) fn binding(role: &str, member: &str) -> Value {
     json!({"role": role, "members": [member]})
 }
 
@@ -189,7 +189,7 @@ fn iam_permissive_policy_and_cas() {
     set(
         &server,
         "",
-        &json!({"bindings":[binding("roles/storage.admin", "allUsers")]}),
+        &json!({"bindings":[binding("roles/storage.admin", "group:local@example.invalid")]}),
     )
     .error(501, "notImplemented");
     assert_eq!(server.get("", IAM).ok().json(), policy);
@@ -515,8 +515,6 @@ fn iam_rejects_unsupported_policy_semantics() {
         .error(501, "notImplemented");
     }
     for member in [
-        "allUsers",
-        "allAuthenticatedUsers",
         "group:local@example.invalid",
         "domain:example.invalid",
         "principal://iam.googleapis.com/locations/global/workforcePools/local/subject/local",

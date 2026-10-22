@@ -57,7 +57,7 @@ pub enum BucketAccess {
     Unchecked,
     /// Re-evaluate effective grants against the policy selected by the operation transaction.
     Policy {
-        identity: crate::auth::Identity,
+        identity: Option<crate::auth::Identity>,
         permission: String,
         project: Option<String>,
     },

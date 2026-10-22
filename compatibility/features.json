@@ -240,67 +240,11 @@
           "docs/en/evidence/bucket-iam-dependencies.txt",
           "docs/en/evidence/bucket-iam-guide.txt"
         ]
-      }
-    ],
-    "next_deliverables": [
-      {
-        "id": "seed-platform-verification",
-        "order": 1,
-        "title": "Close seed platform and Compose verification",
-        "depends_on": [
-          "initial-seed-import"
-        ],
-        "feature_ids": [
-          "UX-002",
-          "DESIGN-062",
-          "DESIGN-063",
-          "UX-009"
-        ],
-        "completion_conditions": [
-          "Execute UX-002 seed-utf8 on Linux and seed-compose against the read-only fixture mount; preserve existing native results.",
-          "Verify wait/readiness, stop/start, recreation, deletion of every bucket and fresh-volume reset/reseed without modifying the source fixtures.",
-          "Reconcile the shared fixture/volume rows with this evidence; do not close unrelated power-loss or maintenance conditions."
-        ],
-        "deferred_scope": "Metadata sidecars, continuous fixture synchronization, admin reset and broader platform claims."
-      },
-      {
-        "id": "bucket-iam-policies",
-        "order": 2,
-        "title": "Persist and enforce scoped bucket IAM policies",
-        "depends_on": [
-          "json-bucket-crud",
-          "local-strict-auth"
-        ],
-        "feature_ids": [
-          "JSON-BUCKETS-003",
-          "JSON-BUCKETS-011",
-          "DESIGN-014",
-          "DESIGN-016",
-          "DESIGN-027"
-        ],
-        "completion_conditions": [
-          "Define the unconditional policy/member/role subset and official get/set request, response, permission and etag cases before implementation.",
-          "Enforce policy read/write permissions, effective project-plus-bucket grants and atomic stale-etag rejection; persist across restart.",
-          "Reject recognized unsupported policy conditions or roles instead of accepting them without effect; retain existing project-role denial and cross-project race tests."
-        ],
-        "evidence": [
-          "docs/en/evidence/bucket-iam.md",
-          "docs/en/evidence/bucket-iam-checks.txt",
-          "docs/en/evidence/bucket-iam-sdk-go.txt",
-          "docs/en/evidence/bucket-iam-containers.txt",
-          "docs/en/evidence/bucket-iam-dependencies.txt",
-          "docs/en/evidence/bucket-iam-guide.txt"
-        ],
-        "deferred_scope": "Custom/basic roles, conditional policies, object/default ACLs and full inherited organization policy fidelity. The declared unconditional capability passed final verification on 2026-10-22; whole policy-method and hierarchy rows retain their pending cases and open parity gaps."
       },
       {
         "id": "public-object-reads",
-        "order": 3,
         "title": "Serve public and private XML object reads",
-        "depends_on": [
-          "bucket-iam-policies",
-          "json-single-range"
-        ],
+        "scope": "Verified path-style XML GET/HEAD for selected live objects, exact encoded names, single ranges/match conditions, public allUsers and registered-only allAuthenticatedUsers grants, revocation/restart and strict host/peer plus pinned Go default/XML and JSON journeys. DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 are IMPLEMENTED for their declared scopes; DESIGN-004 and broad XML methods remain PARTIAL. Virtual-host routing, XML write/list breadth, full ACL/UBLA/PAP and signatures remain deferred.",
         "feature_ids": [
           "DESIGN-004",
           "DESIGN-012",
@@ -310,14 +254,46 @@
           "EXT-XML-017",
           "UX-005"
         ],
-        "completion_conditions": [
-          "Serve path-style GET/HEAD for the declared live-object subset with exact encoded names, selected-generation metadata and protocol-specific errors.",
-          "Allow anonymous allUsers reads; require a registered identity for allAuthenticatedUsers; deny private reads and revoked grants.",
-          "Prove URL generation changes no permission, grants survive restart, metadata and bytes refer to one generation, and supported public-access restrictions fail closed.",
-          "Run pinned Go default/XML reads and the host/peer public-private guide; retain SPEC-017 wherever exact auth error evidence is absent."
+        "acceptance_case_refs": [
+          "DESIGN-004/DESIGN-004-PUBLIC-CALLERS",
+          "DESIGN-012/DESIGN-012-ANONYMOUS-READ",
+          "DESIGN-012/DESIGN-012-REVOKE",
+          "DESIGN-013/DESIGN-013-REGISTERED",
+          "DESIGN-047/DESIGN-047-ENCODING",
+          "EXT-XML-012/EXT-XML-012-GENERATION",
+          "EXT-XML-017/EXT-XML-017-HEAD",
+          "UX-005/UX-005-HOST-PEER",
+          "UX-005/UX-005-GO"
         ],
-        "deferred_scope": "Virtual-host routing, XML write/list breadth, full ACL/UBLA/PAP state machines and signature authentication."
+        "evidence": [
+          "docs/en/evidence/public-object-reads.md",
+          "docs/en/evidence/public-object-reads-checks.txt",
+          "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "docs/en/evidence/public-object-reads-containers.txt",
+          "docs/en/evidence/public-object-reads-dependencies.txt",
+          "docs/en/evidence/public-object-reads-guide.txt"
+        ]
       },
+      {
+        "id": "seed-platform-verification",
+        "title": "Close seed platform and Compose verification",
+        "scope": "Linux invalid-byte fixture rejection, native seed readiness and read-only Compose import, mutation/deletion persistence, recreation and fresh-volume reseeding are recorded in the existing platform evidence. UX-002 and UX-009 are IMPLEMENTED; broader fixture/volume and power-loss requirements retain their ledger status.",
+        "feature_ids": [
+          "UX-002",
+          "DESIGN-062",
+          "DESIGN-063",
+          "UX-009"
+        ],
+        "acceptance_case_refs": [
+          "UX-002/seed-utf8",
+          "UX-002/seed-compose"
+        ],
+        "evidence": [
+          "docs/en/evidence/seed-platform.md"
+        ]
+      }
+    ],
+    "next_deliverables": [
       {
         "id": "resumable-upload",
         "order": 4,
@@ -1766,7 +1742,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -1793,7 +1769,7 @@
         },
         {
           "id": "AUTHORIZATION",
-          "description": "Require effective getIamPolicy permission; reject anonymous and insufficient project/bucket callers; permissive mode bypasses permission checks.",
+          "description": "Require effective getIamPolicy permission, including grants through allUsers or registered-only allAuthenticatedUsers; deny anonymous callers without a matching grant and insufficient registered callers; permissive bypass remains separate.",
           "result": "PASS",
           "test_ids": [
             "iam::iam_requires_effective_get_and_set_permissions",
@@ -1833,7 +1809,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -1848,6 +1824,17 @@
           "description": "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "JSON-BUCKETS-003-PUBLIC-PRINCIPALS",
+          "description": "Accept public principal bindings and enforce allUsers versus registered-only allAuthenticatedUsers, exact anonymous bucket/policy permissions and transactional revocation.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "test_ids": [
@@ -1864,7 +1851,11 @@
         "iam::iam_preserves_duplicate_members_and_role_bindings",
         "TestStrictAuthBucketIAM",
         "TestBucketIAMPermissive",
-        "guide-compose-bucket-iam"
+        "guide-compose-bucket-iam",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "TestPublicReadsGrantAndRevoke"
       ],
       "verification": [
         {
@@ -1904,6 +1895,26 @@
           "test_ids": [
             "guide-compose-bucket-iam"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1922,10 +1933,25 @@
             "TestStrictAuthBucketIAM",
             "TestBucketIAMPermissive"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified."
       ],
@@ -2540,7 +2566,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -2616,7 +2642,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -2637,6 +2663,17 @@
           "description": "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "JSON-BUCKETS-011-PUBLIC-PRINCIPALS",
+          "description": "Accept public principal bindings and enforce allUsers versus registered-only allAuthenticatedUsers, exact anonymous bucket/policy permissions and transactional revocation.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "test_ids": [
@@ -2654,7 +2691,11 @@
         "iam::iam_preserves_duplicate_members_and_role_bindings",
         "TestStrictAuthBucketIAM",
         "TestBucketIAMPermissive",
-        "guide-compose-bucket-iam"
+        "guide-compose-bucket-iam",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "TestPublicReadsGrantAndRevoke"
       ],
       "verification": [
         {
@@ -2695,6 +2736,26 @@
           "test_ids": [
             "guide-compose-bucket-iam"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -2713,10 +2774,25 @@
             "TestStrictAuthBucketIAM",
             "TestBucketIAMPermissive"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran."
@@ -4800,7 +4876,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, broader bucket policies, object IAM/ACLs and allUsers reads, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
+          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, broader bucket policies, object IAM/ACLs, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4956,7 +5032,7 @@
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
         "Single untranscoded JSON byte ranges work. If-Range, transcoding, ETag conditions, fields and userProject remain unsupported; full omits ACL/owner; no historical versions. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
-        "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; broader bucket policies and object IAM policies, ACLs and allUsers public reads are not modeled and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
+        "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
@@ -6160,12 +6236,14 @@
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
-          "test_ids": ["TestObjectMetadataUpdate"]
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22",
@@ -6684,12 +6762,14 @@
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
-          "test_ids": ["TestObjectMetadataUpdate"]
+          "test_ids": [
+            "TestObjectMetadataUpdate"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22",
@@ -8691,7 +8771,7 @@
         },
         {
           "id": "BEHAVIOR-COMMON-006-PENDING",
-          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "description": "Implement broader IAM/ACL permissions, owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -8751,7 +8831,7 @@
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22"
@@ -9387,7 +9467,7 @@
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Upload tokens require generation-match and do not replay responses."
       ],
       "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
@@ -10393,7 +10473,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-001-PENDING",
-          "description": "Implement permissions, advanced metadata, permission-aware public cache headers, decompressive transcoding and other transports.",
+          "description": "Implement advanced metadata, full IAM/ACL interactions, decompressive transcoding and broader transports; scoped bucket/public grants and cache classification are verified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -10611,7 +10691,7 @@
       "known_deviations": [
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache.",
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
         "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; non-null custom metadata UTF-8 key/value bytes are capped at 8192 before media/staging and rechecked at publication."
       ],
       "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
@@ -10784,7 +10864,7 @@
         "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
         "Only one live generation is retained; historical versions and soft delete remain unavailable.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22"
@@ -11214,7 +11294,7 @@
       "known_deviations": [
         "SPEC-012: ETag encoding is a local opaque choice; If-Match/If-None-Match are rejected 501.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22"
@@ -11252,7 +11332,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-007-PENDING",
-          "description": "Verify independent production ID/ETag/link/header parity and permission-enforced XML public/signed URLs.",
+          "description": "Verify independent production ID/ETag/link/header parity and signed URLs and full XML public wire parity.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -11276,7 +11356,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-008/012: local response/condition choices and opaque ID/ETag/link spelling; complete provider header parity unverified.",
-        "Constructed JSON links grant no permission; XML public/signed URLs and ACL/IAM remain unavailable."
+        "Constructed JSON links grant no permission; Public path-style XML URLs now enforce bucket grants; signed URLs and full object ACL/IAM remain unavailable (docs/en/evidence/public-object-reads.md)."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
       "last_verified": "2026-10-21"
@@ -13949,25 +14029,164 @@
       "interface": "GET Object",
       "phase": "P2",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Task variant in the official XML method overview; detailed field/parameter contract must be pinned before implementation.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML invalid credentials/signatures return 400 InvalidAuthentication, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL.",
+      "dependencies": [
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EXT-XML-012-WHOLE",
+          "description": "Stream exact live-object bytes and empty objects with selected content/custom metadata, generation, whole-object hashes, stored-length/encoding and HTTP date headers.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "TestXMLReadsStrict",
+            "TestXMLReadsPermissive"
+          ]
+        },
+        {
+          "id": "EXT-XML-012-RANGE",
+          "description": "Closed/open/suffix/boundary ranges return correct selected bytes and full-object metadata; authorized unsatisfiable GET returns 416 InvalidRange.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation"
+          ]
+        },
+        {
+          "id": "EXT-XML-012-GENERATION",
+          "description": "Live selectors and generation/metageneration match conditions use one selected record; missing/old generations never fall back and in-flight overwrite/revocation preserves immutable bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation"
+          ]
+        },
+        {
+          "id": "EXT-XML-012-AUTHORIZATION",
+          "description": "Registered, anonymous and public callers receive protocol-specific status/errors without unauthorized existence disclosure; invalid credentials and signatures never fall back to public grants.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
+        },
+        {
+          "id": "EXT-XML-012-REJECTION",
+          "description": "Reject unsupported operations/queries/x-goog headers, unrepresentable/case-colliding metadata and malformed tokens without consuming rejected bodies or altering state; accept valid SDK telemetry without replay.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+            "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
+          ]
+        },
+        {
+          "id": "EXT-XML-012-STREAM",
+          "description": "Establish dedicated XML large/slow/cancelled transfer resource measurements and cleanup evidence. The shared bounded reader and 8 MiB overwrite/revocation wire case are verified separately; they do not establish XML-specific RSS/cgroup or cancellation parity.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "EXT-XML-012-PENDING",
+          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "xml::xml_head_matches_get_headers_and_selected_metadata",
+        "TestXMLReadsStrict",
+        "TestXMLReadsPermissive",
+        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::xml_missing_resources_follow_effective_permission_disclosure",
+        "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+        "xml::xml_unsupported_operations_fail_before_reading_a_body",
+        "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+        "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+        "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+            "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsPermissive"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsPermissive"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
+        "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
+        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
+        "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark."
+      ],
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "EXT-XML-013",
@@ -14089,25 +14308,130 @@
       "interface": "HEAD Object",
       "phase": "P2",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Task variant in the official XML method overview; detailed field/parameter contract must be pinned before implementation.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL.",
+      "dependencies": [
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EXT-XML-017-HEAD",
+          "description": "HEAD returns selected full metadata/length and no body; valid satisfiable Range adds Content-Range at 200, while the declared unsatisfiable local rule adds bytes */size at 200.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "TestXMLReadsStrict"
+          ]
+        },
+        {
+          "id": "EXT-XML-017-ERRORS",
+          "description": "Missing, denied, failed-condition, invalid and unsupported HEAD responses preserve their XML status and suppress every body; invalid raw bucket segments retain JSON-style unknown-route errors.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation"
+          ]
+        },
+        {
+          "id": "EXT-XML-017-SELECTED-STATE",
+          "description": "HEAD metadata, cache classification, generation and match conditions use the same selected live record with public versus registered-only permissions.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        },
+        {
+          "id": "EXT-XML-017-PENDING",
+          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, signed access, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "xml::xml_head_matches_get_headers_and_selected_metadata",
+        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+        "TestXMLReadsStrict",
+        "xml::xml_missing_resources_follow_effective_permission_disclosure",
+        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+        "xml::xml_unsupported_operations_fail_before_reading_a_body",
+        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
+        "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
+        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size."
+      ],
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "EXT-XML-018",
@@ -20112,7 +20436,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "auth_mode=strict resolves callers from a local bearer-token registry and enforces project-level predefined storage roles on the JSON bucket/object routes, using the iam-json permission per method and storage.objects.delete for an objects.insert overwrite (rechecked in the publication transaction). Unsupported credential schemes and credential query parameters fail with 401 authError and never grant or fall back to anonymous. Local principals simulate Google identity; bucket/object IAM policies, ACLs, allUsers/allAuthenticatedUsers, signed URLs and HMAC remain unimplemented. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -20166,7 +20490,7 @@
         },
         {
           "id": "DESIGN-002-PENDING",
-          "description": "Implement bucket/object IAM policies and conditions, ACLs/default ACLs, allUsers/allAuthenticatedUsers, uniform bucket-level access, public access prevention, V2/V4 signed URLs, HMAC and service-account signing, custom/basic roles and XML/gRPC enforcement; obtain real-service evidence for SPEC-017 error details.",
+          "description": "Implement object IAM policies/conditions, ACLs/default ACLs, full UBLA/PAP, V2/V4 signatures, HMAC, service-account signing, custom/basic roles and gRPC/broader XML enforcement; obtain real-service SPEC-017 wire evidence. Scoped unconditional bucket/public grants and XML reads are verified.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -20234,7 +20558,7 @@
         }
       ],
       "known_deviations": [
-        "Only project-level predefined storage roles are enforced; bucket/object IAM policies, IAM conditions, custom and basic roles, ACLs, allUsers/allAuthenticatedUsers, UBLA, public access prevention, signed URLs, HMAC and service-account signing are unimplemented.",
+        "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, signed URLs, HMAC, service-account signing and broader transport enforcement remain unimplemented.",
         "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
         "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
       ],
@@ -20384,18 +20708,29 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "In strict mode a request without Authorization is anonymous and receives the documented 401 required example on every supported JSON route, including missing buckets, because no anonymous grants are modeled. An arbitrary or unregistered Bearer string never becomes a principal and receives 401 authError. Probes and unknown routes are not authenticated. Exact wire parity is not claimed: SPEC-017 keeps the authError details and missing-bucket rule open, and allUsers/allAuthenticatedUsers access is the next slice. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "Strict local credentials are resolved before public grants. Anonymous callers evaluate allUsers for each granted permission; allAuthenticatedUsers requires registration. XML uses 400 InvalidAuthentication for invalid/unregistered/signature credentials, 401 AuthenticationRequired for anonymous denial and 403 AccessDenied for registered denial; JSON keeps 401 required/authError and 403 forbidden. Invalid raw bucket paths/unknown routes and probes retain their routing behavior. SPEC-017 real-service error/message/header/check-order parity and complete public-access restrictions remain pending. Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "DESIGN-004-ANONYMOUS",
-          "description": "Anonymous bucket insert/list/get/delete and object get/media/download/list/insert/multipart/patch/update/delete, including missing buckets, return 401 required with the exact documented body and no WWW-Authenticate header; anonymous route syntax errors still return 400.",
+          "description": "Without a matching public grant, anonymous supported JSON bucket/object routes retain 401 required and no WWW-Authenticate header; anonymous route syntax errors retain their own validation behavior.",
           "result": "PASS",
           "test_ids": [
             "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
@@ -20405,7 +20740,7 @@
         },
         {
           "id": "DESIGN-004-ARBITRARY-BEARER",
-          "description": "Unregistered, empty, malformed and duplicate bearer values and unsupported schemes return 401 authError and never resolve to a principal or to anonymous; registered tokens resolve their identity.",
+          "description": "Unregistered, empty, malformed and duplicate bearer values and unsupported schemes retain JSON 401 authError; XML maps invalid credentials to 400 InvalidAuthentication. Credentials never fall back to anonymous access, including public objects.",
           "result": "PASS",
           "test_ids": [
             "auth::tests::strict_caller_resolution",
@@ -20423,16 +20758,51 @@
         },
         {
           "id": "DESIGN-004-PENDING",
-          "description": "Model allUsers/allAuthenticatedUsers and public access prevention for anonymous versus authenticated callers, XML public reads, and obtain authorized real-service evidence for SPEC-017 authError details and missing-bucket status.",
+          "description": "Obtain authorized real-service SPEC-017 evidence for exact authError/XML messages and headers, missing-bucket authorization and error precedence; implement and verify full PAP/UBLA/ACL interactions on their dedicated rows.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-004-PUBLIC-CALLERS",
+          "description": "Anonymous and registered callers match their effective allUsers/allAuthenticatedUsers bindings, while invalid credentials never fall back to anonymous.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "TestPublicReadsAllAuthenticatedUsers",
+            "TestPublicReadsGrantAndRevoke"
+          ]
+        },
+        {
+          "id": "DESIGN-004-XML-ERRORS",
+          "description": "Authorized missing bucket/object and denial/invalid-credential/signature responses use their XML status/code; HEAD error bodies stay empty.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
+        },
+        {
+          "id": "DESIGN-004-ANONYMOUS-MUTATIONS",
+          "description": "Anonymous JSON mutations and bucket/policy operations require their exact effective permissions and preserve denial without a sufficient grant.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::anonymous_object_mutations_require_each_granted_permission",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions"
+          ]
         }
       ],
       "test_ids": [
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials",
         "auth::tests::strict_caller_resolution",
-        "TestStrictAuthRejectsMissingAndInvalidCredentials"
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "TestPublicReadsAllAuthenticatedUsers",
+        "TestPublicReadsGrantAndRevoke",
+        "xml::xml_missing_resources_follow_effective_permission_disclosure",
+        "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+        "xml::anonymous_object_mutations_require_each_granted_permission",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions"
       ],
       "verification": [
         {
@@ -20454,6 +20824,33 @@
           "test_ids": [
             "TestStrictAuthRejectsMissingAndInvalidCredentials"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "auth::tests::strict_caller_resolution",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+            "xml::anonymous_object_mutations_require_each_granted_permission",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "TestPublicReadsAllAuthenticatedUsers",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -20471,13 +20868,30 @@
           "test_ids": [
             "TestStrictAuthRejectsMissingAndInvalidCredentials"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "TestPublicReadsAllAuthenticatedUsers",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "known_deviations": [
-        "allUsers/allAuthenticatedUsers grants and public access prevention are not modeled, so anonymous callers always receive 401 required.",
-        "SPEC-017: the authError message and locationType/location, the absent WWW-Authenticate header and the anonymous/missing-bucket statuses are local choices pending real-service evidence."
+        "SPEC-017: local credential-registry error details, absent WWW-Authenticate and missing-resource/error-order choices need opted-in real-service evidence.",
+        "Full PAP/UBLA/ACL state machines remain unimplemented; recognized unsupported settings fail closed rather than installing unchecked restrictions."
       ],
-      "implemented_in": null,
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
       "last_verified": "2026-10-22"
     },
     {
@@ -20743,26 +21157,151 @@
       "interface": "IAM and ACL semantics",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
-        "https://docs.cloud.google.com/storage/docs/public-access-prevention"
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Anonymous object access requires an effective public grant and must still respect overriding controls.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped strict local bucket IAM allUsers predefined-role grants, including exact granted JSON mutation permissions, public/XML/JSON read classification, revocation, restart and fail-closed rejection of unsupported PAP/UBLA/ACL inputs. Full PAP/UBLA/ACL state machines remain separate rows; exact error-wire parity belongs to DESIGN-004/SPEC-017. Local cache fallback does not claim exhaustive XML method parity.",
+      "dependencies": [
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-012-ANONYMOUS-READ",
+          "description": "An allUsers binding granting storage.objects.get permits anonymous XML GET/HEAD and JSON metadata/media reads; a role without get does not classify the object as public.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "TestPublicReadsGrantAndRevoke"
+          ]
+        },
+        {
+          "id": "DESIGN-012-PERMISSIONS",
+          "description": "Anonymous JSON object writes and bucket/policy operations require their exact effective permissions; public objectViewer does not grant mutation or policy management.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::anonymous_object_mutations_require_each_granted_permission",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions"
+          ]
+        },
+        {
+          "id": "DESIGN-012-REVOKE",
+          "description": "Revocation denies subsequent XML/JSON reads, preserves independent project grants and selected immutable readers, and remains effective after restart.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+            "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+            "guide-compose-public-reads"
+          ]
+        },
+        {
+          "id": "DESIGN-012-CACHE",
+          "description": "Public defaults and stored overrides apply to XML GET/range/HEAD and JSON media; nonpublic JSON stays no-cache and nonpublic XML uses stored directives or its declared local private default.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation"
+          ]
+        },
+        {
+          "id": "DESIGN-012-RESTRICTIONS",
+          "description": "Unsupported PAP/UBLA/ACL settings fail explicitly before granting access; no unsupported restriction is accepted as a no-op.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+          ]
+        }
+      ],
+      "test_ids": [
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "TestPublicReadsGrantAndRevoke",
+        "xml::anonymous_object_mutations_require_each_granted_permission",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+        "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+        "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
+        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+        "guide-compose-public-reads",
+        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+        "xml::xml_head_matches_get_headers_and_selected_metadata",
+        "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_object_mutations_require_each_granted_permission",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+            "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-013",
@@ -20772,26 +21311,136 @@
       "interface": "IAM and ACL semantics",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
-        "https://docs.cloud.google.com/storage/docs/public-access-prevention"
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Do not conflate this principal set with allUsers or with users in one project.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped registered local principals match allAuthenticatedUsers independently of project membership, while anonymous/unregistered callers do not. Public and project grants are additive and authenticated-only grants never classify data as anonymous-public. Unsupported access restrictions fail explicitly; Google identity validation, full PAP/UBLA/ACL and error-wire parity remain separate requirements.",
+      "dependencies": [
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-013-REGISTERED",
+          "description": "allAuthenticatedUsers grants apply to registered identities without project roles; anonymous and unregistered credentials do not match, including on a public object.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        },
+        {
+          "id": "DESIGN-013-UNION",
+          "description": "Public, named and project bindings contribute their own permissions; removing one grant preserves independent grants and bucket recreation does not restore a deleted policy.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "iam::iam_recreated_bucket_has_fresh_policy"
+          ]
+        },
+        {
+          "id": "DESIGN-013-NONPUBLIC-CACHE",
+          "description": "An authenticated-only grant never makes an object anonymously public; XML and JSON retain their declared private cache behavior.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"
+          ]
+        },
+        {
+          "id": "DESIGN-013-GUIDE",
+          "description": "The strict host/peer journey replaces allUsers with allAuthenticatedUsers, verifies registered-only access, then revokes it.",
+          "result": "PASS",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        },
+        {
+          "id": "DESIGN-013-RESTRICTIONS",
+          "description": "Unsupported PAP/UBLA/ACL controls fail explicitly rather than installing unchecked public bindings.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+          ]
+        }
+      ],
+      "test_ids": [
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "TestPublicReadsAllAuthenticatedUsers",
+        "iam::iam_recreated_bucket_has_fresh_policy",
+        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+        "guide-compose-public-reads",
+        "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-014",
@@ -20815,7 +21464,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008"
@@ -20883,6 +21532,17 @@
             "TestBucketIAMPermissive",
             "guide-compose-bucket-iam"
           ]
+        },
+        {
+          "id": "DESIGN-014-PUBLIC-PRINCIPALS",
+          "description": "Accept public principal bindings and enforce allUsers versus registered-only allAuthenticatedUsers, exact anonymous bucket/policy permissions and transactional revocation.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "test_ids": [
@@ -20903,7 +21563,10 @@
         "iam::iam_permissive_policy_and_cas",
         "TestStrictAuthBucketIAM",
         "TestBucketIAMPermissive",
-        "guide-compose-bucket-iam"
+        "guide-compose-bucket-iam",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+        "TestPublicReadsGrantAndRevoke"
       ],
       "verification": [
         {
@@ -20947,6 +21610,26 @@
           "test_ids": [
             "guide-compose-bucket-iam"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -20964,6 +21647,21 @@
           "test_ids": [
             "TestStrictAuthBucketIAM",
             "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
           ]
         }
       ],
@@ -21022,7 +21720,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. Local project-plus-bucket union is verified; the original inherited/configured hierarchy scope is not narrowed. Organization/folder inheritance, actual basic-role convenience membership and broader policy evaluation remain pending.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. Local project-plus-bucket union is verified; the original inherited/configured hierarchy scope is not narrowed. Organization/folder inheritance, actual basic-role convenience membership and broader policy evaluation remain pending. The public-object-reads extension now accepts allUsers and allAuthenticatedUsers and enforces scoped XML reads: docs/en/evidence/public-object-reads.md; the original hierarchy/etag scope and status remain unchanged.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -21469,7 +22167,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. EXACT covers atomic etag concurrency in the unconditional policy scope. Mixed-alphabet/non-zero-trailing-bit cloud parity remains unverified (SPEC-IAM-WIRE); missing policy_revision-row rejection is enforced but lacks a dedicated fixture. Neither is claimed as passing cloud/startup-fixture evidence or invalidates the proven atomic-CAS, persistence and no-reuse cases.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. EXACT covers atomic etag concurrency in the unconditional policy scope. Mixed-alphabet/non-zero-trailing-bit cloud parity remains unverified (SPEC-IAM-WIRE); missing policy_revision-row rejection is enforced but lacks a dedicated fixture. Neither is claimed as passing cloud/startup-fixture evidence or invalidates the proven atomic-CAS, persistence and no-reuse cases. The public-object-reads extension now accepts allUsers and allAuthenticatedUsers and enforces scoped XML reads: docs/en/evidence/public-object-reads.md; the original hierarchy/etag scope and status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -22134,7 +22832,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "gcs-mimic url public --base-url URL --bucket NAME --object NAME prints one <base>/<bucket>/<encoded object> line for the XML-style path endpoint. The base URL follows api_base_url validation with trailing slashes trimmed; bucket/object names use the existing validators. Every byte except RFC 3986 unreserved characters and / is percent-encoded with uppercase hex; if any segment is . or .., / is also encoded as %2F. The helper is pure: no config, environment, data directory or network access and no permission change. The URL is not served yet (unknown route 404) until allUsers grants and XML GET exist. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "notes": "gcs-mimic url public --base-url URL --bucket NAME --object NAME prints one <base>/<bucket>/<encoded object> line for the XML-style path endpoint. The base URL follows api_base_url validation with trailing slashes trimmed; bucket/object names use the existing validators. Every byte except RFC 3986 unreserved characters and / is percent-encoded with uppercase hex; if any segment is . or .., / is also encoded as %2F. The helper is pure: no config, environment, data directory or network access and no permission change. URLs are now served by path-style XML GET/HEAD and remain private without a matching effective grant. Reserved namespace bucket/object collisions are rejected explicitly. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -22173,27 +22871,40 @@
         },
         {
           "id": "DESIGN-046-PURE",
-          "description": "The helper ignores GCS_MIMIC_ configuration files, environment and data directories and creates no state; in the strict Compose guide the URL of a private object is built inside the container, matches the expected encoding, is not served (404) and leaves the object private.",
+          "description": "The helper ignores GCS_MIMIC_ config/environment/data directories and creates no state; the strict host/peer guide builds encoded URLs, observes private denial, grants and revokes reads independently.",
           "result": "PASS",
           "test_ids": [
             "ignores_config_file_environment_and_data_directory",
             "guide-compose-strict-auth"
+          ]
+        },
+        {
+          "id": "DESIGN-046-SERVED-URL",
+          "description": "Noncolliding encoded helper URLs serve the exact selected object; colliding API namespace addresses fail explicitly without stdout or permission mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+            "xml::xml_bucket_paths_reserve_only_api_namespaces",
+            "guide-compose-public-reads"
           ]
         }
       ],
       "test_ids": [
         "url::tests::encodes_reserved_and_non_ascii_bytes",
         "url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment",
+        "prints_one_encoded_url_for_options_in_any_order",
         "url::tests::normalizes_base_urls",
         "url::tests::rejects_invalid_base_urls",
         "url::tests::rejects_invalid_bucket_names",
         "url::tests::rejects_invalid_object_names",
-        "prints_one_encoded_url_for_options_in_any_order",
+        "rejects_invalid_inputs_without_stdout",
         "prints_usage_for_help",
         "rejects_missing_duplicate_unknown_and_unpaired_options",
-        "rejects_invalid_inputs_without_stdout",
         "ignores_config_file_environment_and_data_directory",
-        "guide-compose-strict-auth"
+        "guide-compose-strict-auth",
+        "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+        "xml::xml_bucket_paths_reserve_only_api_namespaces",
+        "guide-compose-public-reads"
       ],
       "verification": [
         {
@@ -22223,6 +22934,37 @@
           "test_ids": [
             "guide-compose-strict-auth"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "url::tests::encodes_reserved_and_non_ascii_bytes",
+            "url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment",
+            "prints_one_encoded_url_for_options_in_any_order",
+            "url::tests::normalizes_base_urls",
+            "url::tests::rejects_invalid_base_urls",
+            "url::tests::rejects_invalid_bucket_names",
+            "url::tests::rejects_invalid_object_names",
+            "rejects_invalid_inputs_without_stdout",
+            "prints_usage_for_help",
+            "rejects_missing_duplicate_unknown_and_unpaired_options",
+            "ignores_config_file_environment_and_data_directory",
+            "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+            "xml::xml_bucket_paths_reserve_only_api_namespaces"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-strict-auth",
+            "guide-compose-public-reads"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -22238,25 +22980,127 @@
       "interface": "XML endpoint",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/request-endpoints"
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Route /bucket/object with exact key encoding and permission checks.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Path-style GET/HEAD preserves exact object-name decoding in the declared shared-listener profile. Reserved namespaces are /storage/v1, /upload/storage/v1, /download/storage/v1, /batch/storage/v1 and /_internal with slash-delimited descendants; URL helper collisions fail explicitly. Other objects in storage/upload/download/batch buckets are reachable. Invalid raw bucket segments retain JSON-style 404 unknown-route errors. Provider namespace and invalid-path error parity remain tracked on broad XML rows in SPEC-XML-PREFIX/PATH-ERROR; virtual-host routing is separate.",
+      "dependencies": [
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-047-ENCODING",
+          "description": "Path-style object names decode once and preserve raw/encoded slashes, percent, Unicode, plus, spaces, dot/empty segments and escaped question/hash bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+            "TestXMLReadsEncodedNames"
+          ]
+        },
+        {
+          "id": "DESIGN-047-NAMESPACES",
+          "description": "The declared shared-listener profile reserves only slash-delimited Google API and internal namespaces; other objects in storage/upload/download/batch buckets are served and colliding helper addresses are rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_bucket_paths_reserve_only_api_namespaces"
+          ]
+        },
+        {
+          "id": "DESIGN-047-PERMISSIONS",
+          "description": "Helper URLs retrieve the exact object, grant no access themselves and do not use Host or advertised endpoints as permission.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+            "guide-compose-public-reads"
+          ]
+        },
+        {
+          "id": "DESIGN-047-PRIVATE",
+          "description": "Strict private and public reads use the same selected path and shared authorization; malformed bucket segments retain the documented unknown-route boundary.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        }
+      ],
+      "test_ids": [
+        "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+        "TestXMLReadsEncodedNames",
+        "xml::xml_bucket_paths_reserve_only_api_namespaces",
+        "guide-compose-public-reads",
+        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization",
+            "xml::xml_bucket_paths_reserve_only_api_namespaces",
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsEncodedNames"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsEncodedNames"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-048",
@@ -23291,9 +24135,9 @@
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Object schema validation, referenced-blob recovery and exclusive ownership finish before bind/readiness; cancelled uploads retain directory ownership until cleanup. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Object schema validation, referenced-blob recovery and exclusive ownership finish before bind/readiness; cancelled uploads retain directory ownership until cleanup. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Final source verifies same-port restart and exclusivity: Linux/Android SO_REUSEADDR; other Unix uses a 250 ms bind retry bounded to 65 seconds with one bind_wait event and live-listener detection; Windows behavior is unchanged. See docs/en/evidence/public-object-reads.md. Wildcard loopback probes may miss a specific non-loopback listener and wait to the 65-second EADDRINUSE deadline without hijacking traffic. SIGINT/SIGTERM cancel bind_wait promptly and release catalog ownership.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -23398,7 +24242,7 @@
         },
         {
           "id": "DESIGN-067-PENDING",
-          "description": "Gate readiness on future fixture import and verify all fsync/deletion instruction windows/power loss.",
+          "description": "Verify all fsync/deletion instruction windows and power loss; initial seed readiness is verified in UX-002.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23421,6 +24265,15 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "id": "DESIGN-067-SAME-PORT",
+          "description": "A graceful process restart rebinds the same address while a second live server is denied promptly; Unix wildcard/specific listeners cannot hijack each other's traffic. On the verified macOS path, SIGINT/SIGTERM during bind_wait exit without readiness and release the catalog.",
+          "result": "PASS",
+          "test_ids": [
+            "process_restarts_on_same_port_without_allowing_a_second_live_listener",
+            "live_wildcard_and_specific_listeners_are_exclusive"
+          ]
         }
       ],
       "test_ids": [
@@ -23428,8 +24281,8 @@
         "healthcheck_exit_status_tracks_readiness",
         "healthcheck_rejects_truncated_malformed_and_oversized_responses",
         "connection_limit_deadline_and_shutdown_release_idle_clients",
-        "healthcheck_deadline_includes_slow_streaming_responses",
         "container-foundation-smoke",
+        "healthcheck_deadline_includes_slow_streaming_responses",
         "bkt_http_failed_recovery_never_reports_ready",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
         "rejects_future_schema_unversioned_data_and_corruption",
@@ -23448,7 +24301,9 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters"
+        "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
+        "process_restarts_on_same_port_without_allowing_a_second_live_listener",
+        "live_wildcard_and_specific_listeners_are_exclusive"
       ],
       "verification": [
         {
@@ -23499,16 +24354,26 @@
           "test_ids": [
             "guide-native-object-media"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "process_restarts_on_same_port_without_allowing_a_second_live_listener",
+            "live_wildcard_and_specific_listeners_are_exclusive"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No fixture seeding or auth profiles; selected SIGKILL points are verified, not every instruction window or power loss.",
+        "Initial seed import and strict/permissive profiles are implemented; selected SIGKILL points are verified, not every instruction window or power loss.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-068",
@@ -24543,7 +25408,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass the full native JSON SDK suite, including NewRangeReader: docs/en/evidence/seed-range-sdk.txt. Earlier Compose, multipart and strict local-token evidence retains its original SDK versions in sdk_evidence. Broader resumable, signing and protocol work remains pending.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass the full native JSON SDK suite, including NewRangeReader: docs/en/evidence/seed-range-sdk.txt. Earlier Compose, multipart and strict local-token evidence retains its original SDK versions in sdk_evidence. Broader resumable, signing and protocol work remains pending. Final public-read evidence adds default/XML GET/HEAD, explicit JSON reads, strict public/registered-only grants and revocation: docs/en/evidence/public-object-reads.md. Transport requests are asserted; optional metadata/header breadth is covered by wire tests, not inferred from byte success.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -24598,11 +25463,13 @@
           "id": "GO-RANGE",
           "description": "Pinned official Go JSON NewRangeReader handles closed/open/suffix/clamped, at/past-end and generation-conditioned reads with Storage v1.70.0.",
           "result": "PASS",
-          "test_ids": ["TestObjectRangeReader"]
+          "test_ids": [
+            "TestObjectRangeReader"
+          ]
         },
         {
           "id": "DESIGN-082-PENDING",
-          "description": "Implement resumable SDK Writer, signing, bucket/object IAM and ACL permissions, XML/gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
+          "description": "Implement and verify resumable SDK Writer, signing, broader IAM/ACL, XML beyond the scoped GET/HEAD inputs, gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24622,26 +25489,51 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "id": "DESIGN-082-PUBLIC-XML",
+          "description": "Pinned Go default/XML and explicit JSON reads verify exact transport, content/generation/metageneration/cache attributes, ranges, conditions, encoded names, public grants, registration and revocation.",
+          "result": "PASS",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
         }
       ],
       "test_ids": [
         "TestBucketLifecycle",
         "go-compose-bucket-lifecycle",
-        "TestObjectRangeReader",
         "TestObjectMediaLifecycle",
         "guide-compose-go-object-suite",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "TestObjectMultipartWriter",
         "TestStrictAuthAdminLifecycle",
         "TestStrictAuthRejectsMissingAndInvalidCredentials",
         "TestStrictAuthObjectViewer",
         "TestStrictAuthObjectCreator",
-        "guide-compose-go-strict-suite"
+        "guide-compose-go-strict-suite",
+        "TestObjectRangeReader",
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "TestObjectMultipartWriter",
+        "TestXMLReadsStrict",
+        "TestXMLReadsEncodedNames",
+        "TestXMLReadsPermissive",
+        "TestPublicReadsGrantAndRevoke",
+        "TestPublicReadsAllAuthenticatedUsers"
       ],
       "verification": [
-        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-sdk.txt", "test_ids": ["TestObjectRangeReader"]},
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-range-sdk.txt",
+          "test_ids": [
+            "TestObjectRangeReader"
+          ]
+        },
         {
           "command": "bash scripts/sdk-go.sh",
           "result": "PASS",
@@ -24721,10 +25613,37 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
         }
       ],
       "sdk_evidence": [
-        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.307.0", "transport": "HTTP JSON; storage.WithJSONReads; NewRangeReader", "result": "PASS", "verified_at": "2026-10-22", "command": "just check-sdk", "artifact": "docs/en/evidence/seed-range-sdk.txt", "test_ids": ["TestObjectRangeReader"]},
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; storage.WithJSONReads; NewRangeReader",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/seed-range-sdk.txt",
+          "test_ids": [
+            "TestObjectRangeReader"
+          ]
+        },
         {
           "language": "Go",
           "toolchain": "1.27.3",
@@ -24804,11 +25723,30 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
         }
       ],
       "known_deviations": [
         "ChunkSize=0 Writer multipart is supported for the scoped metadata/checksum/condition subset. Resumable Writer and unrestricted large-upload/retry workflows remain unsupported; raw-media coverage retains confined HTTP.",
-        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; upload tokens require generation-match and return 412 after committed conditioned retry. Signing, XML/gRPC and strict authorization remain unavailable.",
+        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; upload tokens require generation-match and return 412 after committed conditioned retry. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
@@ -25882,23 +26820,135 @@
       "interface": "Emulator user journey",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
-      "source_urls": [],
-      "source_checked_at": "2026-10-21",
+      "actual_fidelity": "PROJECT",
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
+      ],
+      "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. In strict mode anonymous reads fail for private data; URL construction changes no policy; a public grant enables access and revocation removes it.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Delivered private/public journey for the documented strict local HTTP scope: host and peer URLs, private denial, bucket allUsers and registered-only allAuthenticatedUsers grants, exact bytes/HEAD metadata, restart and revocation, plus pinned Go default/XML and explicit JSON reads. URL construction does not mutate policy. ACL/UBLA/PAP state machines, signatures, virtual-host routing and Ruby/Rails remain separately scheduled.",
+      "dependencies": [
+        "DESIGN-012",
+        "DESIGN-013",
+        "DESIGN-047",
+        "DESIGN-046"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "UX-005-HOST-PEER",
+          "description": "The source-built strict Compose guide uploads private bytes, constructs host/peer URLs without granting access, verifies public GET/HEAD, registered-only access, revocation and persistence after restart.",
+          "result": "PASS",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        },
+        {
+          "id": "UX-005-GO",
+          "description": "Pinned official Go default/XML and explicit JSON clients verify read transport, exact bytes, ranges, conditions, generations, attributes and public/registered-only grant and revocation outcomes.",
+          "result": "PASS",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        },
+        {
+          "id": "UX-005-FAIL-CLOSED",
+          "description": "Unsupported public-access restrictions and XML operations return explicit errors without mutation or body consumption; permissive reads are not treated as strict authorization evidence.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
+          ]
+        }
+      ],
+      "test_ids": [
+        "guide-compose-public-reads",
+        "TestXMLReadsStrict",
+        "TestXMLReadsEncodedNames",
+        "TestXMLReadsPermissive",
+        "TestPublicReadsGrantAndRevoke",
+        "TestPublicReadsAllAuthenticatedUsers",
+        "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+        "xml::xml_unsupported_operations_fail_before_reading_a_body",
+        "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-public-reads"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP XML default reads and JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/public-object-reads-sdk-go.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "UX-006",
@@ -25964,9 +27014,9 @@
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. UX-002 adds a native durable seed marker that prevents replay after restart or all-bucket deletion; its seeded Compose case now passes on Linux ARM64/native and AMD64/emulated; docs/en/evidence/seed-platform.md. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
+      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. UX-002 adds a native durable seed marker that prevents replay after restart or all-bucket deletion; its seeded Compose case now passes on Linux ARM64/native and AMD64/emulated; docs/en/evidence/seed-platform.md. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md. Current public-read evidence verifies persisted public grants, selected immutable bytes and revocation through native and strict Compose restarts: docs/en/evidence/public-object-reads.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -26010,7 +27060,7 @@
         },
         {
           "id": "UX-008-PENDING",
-          "description": "Persist/enforce bucket/object permissions and verify all fsync windows/power loss. Native seed marker persistence is covered by UX-002; seeded Compose verification remains pending there.",
+          "description": "Persist and enforce full object permissions/ACLs and verify every fsync window and power loss; native and seeded Compose marker persistence is covered by UX-002.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -26020,6 +27070,15 @@
           "result": "PASS",
           "test_ids": [
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+          ]
+        },
+        {
+          "id": "UX-008-PUBLIC-GRANTS",
+          "description": "Public policy/grants survive restart; revocation persists without seed replay; host/peer strict Compose reads still enforce the current grant.",
+          "result": "PASS",
+          "test_ids": [
+            "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+            "guide-compose-public-reads"
           ]
         }
       ],
@@ -26033,7 +27092,9 @@
         "producer_closure_without_eof_never_publishes_partial_bytes",
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+        "guide-compose-public-reads"
       ],
       "verification": [
         {
@@ -26068,6 +27129,24 @@
           "artifact": "docs/en/evidence/object-media-guide.txt",
           "test_ids": [
             "guide-object-restart-persistence"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-checks.txt",
+          "test_ids": [
+            "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/public-object-reads-guide.txt",
+          "test_ids": [
+            "guide-compose-public-reads"
           ]
         }
       ],
@@ -26429,7 +27508,7 @@
         },
         {
           "id": "UX-012-PENDING",
-          "description": "Verify later signed/public URL, auth, CORS, fixtures and Ruby journeys when implemented.",
+          "description": "Verify signed URL, full IAM/ACL, CORS, broader fixture metadata and Ruby journeys when implemented; scoped local auth/public reads and native/Compose seed journeys are recorded.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -26516,7 +27595,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Current guide uses local source/cached image layers; native amd64, remote CI, signed/public URLs, CORS, fixtures and Ruby remain unverified or unavailable.",
+        "Current guide uses local source/cached image layers. Native AMD64, remote CI, signed URLs, CORS and Ruby remain unverified or unavailable; scoped public/private and initial fixture journeys are verified in docs/en/evidence/public-object-reads.md.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],

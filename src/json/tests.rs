@@ -88,6 +88,12 @@ fn bkt_route_003_wrong_method_has_allow_header() {
         ("/storage/v1/b/abc", "GET, DELETE"),
     ] {
         for method in [Method::PUT, Method::PATCH, Method::HEAD, Method::OPTIONS] {
+            if path.ends_with("/abc") && matches!(method, Method::PUT | Method::PATCH) {
+                let error = request(method, path).unwrap_err();
+                assert_eq!(error.status, StatusCode::NOT_IMPLEMENTED);
+                assert_eq!(error.reason, "notImplemented");
+                continue;
+            }
             let error = request(method, path).unwrap_err();
             assert_eq!(error.status, StatusCode::METHOD_NOT_ALLOWED);
             assert_eq!(error.reason, "methodNotAllowed");

@@ -253,7 +253,7 @@ fn timestamp_error() -> JsonError {
     )
 }
 
-pub(super) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
+pub(crate) fn timestamp(time: SystemTime) -> Result<String, JsonError> {
     let millis = epoch_millis(time);
     if !(-62_167_219_200_000..=253_402_300_799_999).contains(&millis) {
         return Err(timestamp_error());

@@ -8,7 +8,7 @@ use gcs_mimic::{
 use std::{
     collections::BTreeMap,
     io::{self, Read, Write},
-    net::{TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     process::ExitCode,
     sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
@@ -125,9 +125,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         return Err(error);
                     }
                 };
-                let socket = if config.listen.is_ipv4() { tokio::net::TcpSocket::new_v4()? } else { tokio::net::TcpSocket::new_v6()? };
-                socket.bind(config.listen)?;
-                let listener = socket.listen(128)?;
+                tokio::pin!(shutdown);
+                let listener = tokio::select! {
+                    biased;
+                    result = &mut shutdown => {
+                        catalog.close().await.map_err(io::Error::other)?;
+                        result?;
+                        println!("{{\"event\":\"stopped\"}}");
+                        return Ok(());
+                    }
+                    listener = bind_listener(config.listen) => listener?,
+                };
                 let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
                 let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
                 if let Some(count) = state.auth.identity_count() {
@@ -142,6 +150,75 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         _ => Err(format!("invalid command; {HELP}").into()),
+    }
+}
+
+async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+    let socket = if address.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    // Linux socket(7) excludes live listeners; BSD address reuse can steal wildcard traffic.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    socket.set_reuseaddr(true)?;
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+    if let Err(error) = socket.bind(address) {
+        bind_after_time_wait(&socket, address, error).await?;
+    }
+    #[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
+    socket.bind(address)?;
+    socket.listen(128)
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+async fn bind_after_time_wait(
+    socket: &tokio::net::TcpSocket,
+    address: SocketAddr,
+    original: io::Error,
+) -> io::Result<()> {
+    if original.kind() != io::ErrorKind::AddrInUse {
+        return Err(original);
+    }
+    // Wait out TIME_WAIT without weakening exclusive binding or waiting indefinitely.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(65);
+    let mut probe = address;
+    if address.ip().is_unspecified() {
+        probe.set_ip(if address.is_ipv4() {
+            std::net::Ipv4Addr::LOCALHOST.into()
+        } else {
+            std::net::Ipv6Addr::LOCALHOST.into()
+        });
+    }
+    let mut logged = false;
+    loop {
+        let connected = tokio::time::timeout_at(
+            deadline.min(tokio::time::Instant::now() + Duration::from_millis(250)),
+            tokio::net::TcpStream::connect(probe),
+        )
+        .await;
+        if matches!(connected, Ok(Ok(_))) || tokio::time::Instant::now() >= deadline {
+            return Err(original);
+        }
+        if !logged {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"bind_wait","listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"})
+            );
+            logged = true;
+        }
+        tokio::time::sleep_until(
+            deadline.min(tokio::time::Instant::now() + Duration::from_millis(250)),
+        )
+        .await;
+        if tokio::time::Instant::now() >= deadline {
+            return Err(original);
+        }
+        match socket.bind(address) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse => {}
+            Err(error) => return Err(error),
+        }
     }
 }
 

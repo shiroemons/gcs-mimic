@@ -1,12 +1,16 @@
 # Build and run gcs-mimic
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 The current slice supports JSON bucket create/get/list/delete, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
-Initial seed directory import runs before readiness. Resumable uploads, If-Range,
-transcoding, object IAM, testIamPermissions, conditional policies, ACLs, public grants,
-XML endpoints, signed URLs, CORS and TLS remain unavailable.
+Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
+bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
+Resumable uploads, If-Range, transcoding, object IAM, testIamPermissions,
+conditional policies, ACLs, virtual-host routing, XML writes/listing, signed URLs,
+UBLA/PAP settings, CORS and TLS remain unavailable.
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens
 against project and bucket grants of predefined storage roles.
@@ -15,7 +19,8 @@ The [bucket contract](slices/json-bucket-crud.md) and
 [metadata](slices/json-object-metadata.md),
 [multipart](slices/json-object-multipart.md) and
 [strict authentication](slices/strict-auth.md) and
-[bucket IAM](slices/bucket-iam.md) contracts list supported fields and deviations.
+[bucket IAM](slices/bucket-iam.md) and
+[public object reads](slices/public-object-reads.md) contracts list supported fields and deviations.
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -61,7 +66,11 @@ Inside a container, localhost refers to that container; `0.0.0.0` is a listener
 address. `selfLink` always uses the one configured origin. Set a peer-reachable
 origin instead if peers must follow those links. Host and forwarded headers are
 never used to construct links. The `gcs-mimic url public` helper builds public
-object URLs, but the server does not serve them yet (see the strict section below).
+object URLs served by the path-style XML endpoint (see the strict section below).
+Use the published host port for a host browser, and the service name for a peer
+container consuming the URL itself. URL construction does not grant access;
+browser cross-origin fetch still needs CORS, which is unavailable. Resumable
+`Location` handling does not apply until resumable uploads are implemented.
 
 ## Create, inspect, list and delete buckets
 
@@ -336,6 +345,10 @@ and conditioned overwrite, followed by Attrs/NewReader. Nonzero chunking beyond
 one chunk exercises resumable rejection (501 without publication). It creates and
 cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK support
 are not claimed. Ruby/Rails remains unverified.
+Default Go SDK XML reads now work for the path-style GET subset, including
+selected generations, single ranges and generation/metageneration match headers;
+JSON reads remain available through `storage.WithJSONReads()`. The strict tests
+below cover anonymous public reads, registered-only grants and revocation.
 For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 
 ## Strict local authentication
@@ -578,26 +591,171 @@ changes; permissive mode performs no permission checks. The JSON API
 and [set](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy)
 references describe the policy fields and required permissions.
 
-### Public URL helper and strict cleanup
+### Public and private object reads
 
 `gcs-mimic url public` prints the XML-style path URL of an object. It reads no
 configuration, environment, data directory or network and never changes a
 permission. Every byte except RFC 3986 unreserved characters and `/` is
 percent-encoded; if a segment is `.` or `..`, every `/` is encoded as `%2F`.
-The XML endpoint and public grants are not implemented yet, so the server
-returns 404 for this URL and the object stays private:
+The private object uploaded above has no stored Cache-Control. Construct host
+and peer URLs, then prove that anonymous reads are still denied before any grant:
 
 ```sh
 public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/private file.txt')
+peer_public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url http://gcs:4443 --bucket strict-bucket --object 'notes/private file.txt')
 printf '%s\n' "$public_url"
 test "$public_url" = "$endpoint/strict-bucket/notes/private%20file.txt"
+test "$peer_public_url" = 'http://gcs:4443/strict-bucket/notes/private%20file.txt'
 dot_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/../private file.txt')
 test "$dot_url" = "$endpoint/strict-bucket/notes%2F..%2Fprivate%20file.txt"
-status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$public_url")
-test "$status" = 404
 ```
+
+```sh
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/private.xml" \
+  --write-out '%{http_code}' "$public_url")
+test "$status" = 401
+grep -q '<Code>AuthenticationRequired</Code>' "$work_dir/private.xml"
+```
+
+```sh
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url")
+test "$status" = 401
+```
+
+Fetch a fresh policy and preserve its bindings and etag when granting anonymous
+reads. `roles/storage.objectViewer` also allows object listing through the JSON
+API; it grants access to every object in this bucket:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-before.json"
+jq '.bindings += [{"role":"roles/storage.objectViewer","members":["allUsers"]}]' \
+  "$work_dir/public-before.json" > "$work_dir/public-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/public-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-granted.json"
+strict_generation=$(jq -er .generation "$work_dir/strict-object.json")
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/public-get.headers" --output "$work_dir/public.txt" \
+  --write-out '%{http_code}' "$public_url?generation=$strict_generation")
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/public.txt"
+tr -d '\r' < "$work_dir/public-get.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-get.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+status=$(curl --disable --noproxy '*' --silent --show-error --head \
+  --output "$work_dir/public-head.headers" --write-out '%{http_code}' \
+  "$public_url?generation=$strict_generation")
+test "$status" = 200
+tr -d '\r' < "$work_dir/public-head.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-head.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+```
+
+The peer consumes its in-network URL, checking the same bytes, status and headers:
+
+```sh
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --fail --dump-header /dev/stderr \
+  "$peer_public_url?generation=$strict_generation" \
+  > "$work_dir/public-peer.txt" 2> "$work_dir/public-peer-get.headers"
+cmp "$work_dir/strict.txt" "$work_dir/public-peer.txt"
+grep -q '^HTTP/1.1 200' "$work_dir/public-peer-get.headers"
+tr -d '\r' < "$work_dir/public-peer-get.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-peer-get.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --head --output /dev/null \
+  --dump-header /dev/stderr --write-out '%{http_code}' \
+  "$peer_public_url?generation=$strict_generation" 2> "$work_dir/public-peer-head.headers")
+test "$status" = 200
+tr -d '\r' < "$work_dir/public-peer-head.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-peer-head.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+```
+
+Stop/start preserves the grant as well as the object; verify it before revoking:
+
+```sh
+docker compose -f compose.yaml -f compose.strict.yaml stop
+docker compose -f compose.yaml -f compose.strict.yaml start --wait
+```
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-restarted.json"
+cmp "$work_dir/public-granted.json" "$work_dir/public-restarted.json"
+status=$(curl --disable --noproxy '*' --silent --show-error --output "$work_dir/public-restarted.txt" \
+  --write-out '%{http_code}' "$public_url")
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/public-restarted.txt"
+```
+
+`allAuthenticatedUsers` matches any registered local identity, even one without
+project or bucket roles; it does not allow anonymous access. Replace only the
+public member, using the current etag. The bucket-reader token has no remaining
+grant from the previous walkthrough:
+
+```sh
+jq '(.bindings[].members[] | select(. == "allUsers")) = "allAuthenticatedUsers"' \
+  "$work_dir/public-restarted.json" > "$work_dir/authenticated-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/authenticated-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/authenticated-granted.json"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-anonymous.xml" \
+  --write-out '%{http_code}' "$public_url")
+test "$status" = 401
+grep -q '<Code>AuthenticationRequired</Code>' "$work_dir/authenticated-anonymous.xml"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  -H 'Authorization: Bearer local-bucket-reader-token' --output "$work_dir/authenticated.txt" \
+  --write-out '%{http_code}' "$public_url")
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/authenticated.txt"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-invalid.xml" \
+  -H 'Authorization: Bearer unregistered-token' --write-out '%{http_code}' "$public_url")
+test "$status" = 400
+grep -q '<Code>InvalidAuthentication</Code>' "$work_dir/authenticated-invalid.xml"
+```
+
+Fetch the current policy and remove the authenticated-only member to restore the
+original private state. New anonymous requests fail with 401; the registered
+bucket reader now receives 403:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-current.json"
+jq '.bindings |= (map(.members -= ["allAuthenticatedUsers"])
+  | map(select(.members | length > 0)))' \
+  "$work_dir/public-current.json" > "$work_dir/public-revoke.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/public-revoke.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-revoked.json"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$public_url")
+test "$status" = 401
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/public-revoked.xml" \
+  -H 'Authorization: Bearer local-bucket-reader-token' --write-out '%{http_code}' "$public_url")
+test "$status" = 403
+grep -q '<Code>AccessDenied</Code>' "$work_dir/public-revoked.xml"
+```
+
+```sh
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url")
+test "$status" = 401
+```
+
+Absent a stored Cache-Control value, public reads use `public, max-age=3600`;
+private XML reads use `private, max-age=0`, and nonpublic JSON media uses `no-cache`.
+Stored Cache-Control takes precedence on XML and publicly readable JSON media.
+Revocation affects new requests; it cannot recall bytes already downloaded or
+cached, and an already-open read may finish. XML GET supports one stored-byte
+range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
+Unsupported XML inputs/operations return 501. Strict signing attempts return
+400 `InvalidAuthentication`; permissive signature query parameters remain
+unsupported queries (501). ACLs,
+UBLA/PAP settings and virtual-host routing remain outside this subset.
+
+### Strict SDK tests and cleanup
 
 The strict Go SDK tests use the same fixture tokens through an explicit endpoint
 and a static token source, without Application Default Credentials or the
@@ -605,7 +763,7 @@ metadata server:
 
 ```sh
 (cd sdk-tests/go && GCS_MIMIC_STRICT_ENDPOINT="$endpoint" GOTOOLCHAIN=auto \
-  go test -count=1 -v -run '^TestStrictAuth' ./...)
+  go test -count=1 -v -run '^(TestStrictAuth|TestXMLReadsStrict|TestXMLReadsEncodedNames|TestPublicReads)' ./...)
 ```
 
 Stop/start with both files keeps strict mode and the data. Clean up as the admin,
@@ -639,12 +797,14 @@ curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-projec
 ```
 
 Strict mode combines project grants with unconditional bucket IAM bindings from
-the pinned predefined `roles/storage.*` snapshot on JSON bucket/object routes.
+the pinned predefined `roles/storage.*` snapshot on JSON bucket/object and XML read routes.
 User and service-account members match registry IDs exactly. Conditions,
-custom/basic roles and public/group/domain/federated/deleted principals are
+custom/basic roles and group/domain/federated/deleted principals are
 unsupported (501); malformed members or unknown roles return 400. Object IAM,
-`testIamPermissions`, ACLs, `allUsers` and `allAuthenticatedUsers`, signed URLs,
-HMAC and XML endpoints are unavailable.
+`testIamPermissions`, ACLs, signed URLs, HMAC, XML writes/listing and UBLA/PAP
+settings are unavailable. `allUsers` includes anonymous and registered callers;
+`allAuthenticatedUsers` requires a registered identity. An invalid token never
+falls back to anonymous access, even for a public object.
 Unknown routes return 404 and `/_internal` probes stay unauthenticated. The
 [strict authentication contract](slices/strict-auth.md) lists error bodies, check
 order and the local rules recorded as SPEC-017.
@@ -684,6 +844,12 @@ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 
 curl --disable --noproxy '*' --fail \
   "$native_endpoint/storage/v1/b/native-bucket/o/hello.txt?alt=media" > "$native_dir/download.txt"
 printf 'native data' | cmp - "$native_dir/download.txt"
+native_public_url=$(./target/release/gcs-mimic url public --base-url "$native_endpoint" \
+  --bucket native-bucket --object hello.txt)
+status=$(curl --disable --noproxy '*' --silent --show-error --output "$native_dir/xml.txt" \
+  --write-out '%{http_code}' "$native_public_url")
+test "$status" = 200
+printf 'native data' | cmp - "$native_dir/xml.txt"
 kill -TERM "$native_pid"
 wait "$native_pid"
 trap - EXIT
@@ -694,6 +860,18 @@ rm -r "$native_dir"
 Compose-only `GCS_MIMIC_IMAGE` and `GCS_MIMIC_PORT` must be unset before native startup:
 the binary rejects unknown `GCS_MIMIC_` settings. The temporary native catalog above is
 removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
+The native example uses permissive mode, so XML reads bypass authorization.
+On macOS and other Unix systems outside Linux/Android, restarting on the same
+port may wait for TIME_WAIT to drain (about 30 seconds on the verified macOS
+host, at most 65 seconds). A `bind_wait` event explains the bounded wait;
+an existing live listener still causes startup to fail. Linux/Android enables
+address reuse while preserving live-listener exclusivity. Windows is unchanged.
+For a wildcard listen address, the loopback probe may miss a live listener on
+a specific non-loopback IP; startup then waits up to 65 seconds before failing
+with address-in-use rather than taking over that listener's traffic.
+SIGINT/SIGTERM cancel the bind wait and release the catalog promptly.
+For private objects, start with `--auth-mode strict --identity-file config/identities.json`
+and follow the public/private policy journey above using the native URL helper.
 The resulting binary needs no Rust, Python, curl or Go installation. CLI overrides
 `GCS_MIMIC_` environment, JSON config and defaults; `--config` overrides
 `GCS_MIMIC_CONFIG`. Config files are capped at 64 KiB; invalid settings fail before
@@ -846,8 +1024,9 @@ add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
-The full guide, including seeded Compose and the strict bucket IAM journey,
-passed on 2026-10-22; see the [final integration evidence](evidence/bucket-iam.md).
+The full guide, including seeded Compose and strict bucket IAM/public/private
+journeys, passed on 2026-10-22; see the
+[final public-read integration evidence](evidence/public-object-reads.md).
 
 ## Verification and troubleshooting
 
@@ -869,14 +1048,19 @@ For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
 port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
-In strict mode, 401 `required` means no `Authorization` header was sent, 401
+In strict JSON responses, 401 `required` means an anonymous request lacks a
+matching grant, 401
 `authError` means the credential is unregistered or unsupported (including
 `access_token` or signature query parameters), and 403 `forbidden` means the
-principal lacks the permission through the effective project or bucket grants. Check the ready event's
+principal lacks the permission through the effective project or bucket grants.
+XML uses 400 `InvalidAuthentication` for invalid or unsupported credentials,
+401 `AuthenticationRequired` for an anonymous denial and 403 `AccessDenied`
+for an authenticated permission denial. Check the ready event's
 `auth_mode`: running `docker compose up` without `compose.strict.yaml` recreates the
 service in permissive mode.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
 fsync crash window remain unverified. See the [integration evidence](evidence/object-media.md),
 [multipart integration evidence](evidence/multipart.md),
-[strict authentication evidence](evidence/strict-auth.md) and the
+[strict authentication evidence](evidence/strict-auth.md),
+[public-read integration evidence](evidence/public-object-reads.md) and the
 [ledger](../../compatibility/features.json) for exact verification scope.

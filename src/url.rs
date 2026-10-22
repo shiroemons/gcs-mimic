@@ -26,7 +26,11 @@ pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<S
     let base = normalize_base_url(base_url)?;
     validate_bucket_name(bucket).map_err(|e| format!("bucket: {}", e.message))?;
     validate_object_name(object).map_err(|e| format!("object: {}", e.message))?;
-    Ok(format!("{base}/{bucket}/{}", encode_object_name(object)))
+    let path = format!("/{bucket}/{}", encode_object_name(object));
+    if crate::xml::reserved_path(&path) {
+        return Err("object URL collides with a reserved API namespace".into());
+    }
+    Ok(format!("{base}{path}"))
 }
 
 /// Percent-encode every UTF-8 byte except RFC 3986 unreserved characters and `/`. Clients and

@@ -11,12 +11,12 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
-    process::{Command, Stdio},
+    process::{Child, ChildStdout, Command, Output, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::oneshot;
 
@@ -24,6 +24,154 @@ struct FixedClock;
 impl Clock for FixedClock {
     fn now(&self) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(42)
+    }
+}
+
+fn process_ready(child: &mut Child) -> (BufReader<ChildStdout>, serde_json::Value) {
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let _ = send.send((stdout, line));
+    });
+    let (stdout, line) = receive
+        .recv_timeout(Duration::from_secs(75))
+        .unwrap_or_else(|error| {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("server did not become ready before the restart deadline: {error}");
+        });
+    let ready = serde_json::from_str(&line).expect("ready on same port");
+    (stdout, ready)
+}
+
+fn conflicting_process(address: &str, dir: &TestDir) -> Output {
+    let mut child = common::server_command()
+        .args(["serve", "--listen", address, "--data-dir"])
+        .arg(&dir.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!("conflicting server did not fail fast: {output:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child.wait_with_output().unwrap()
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir) {
+    for signal in ["-TERM", "-INT"] {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", address, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            stderr.read_line(&mut line).unwrap();
+            let _ = send.send(line);
+        });
+        let line = match receive.recv_timeout(Duration::from_secs(3)) {
+            Ok(line) => line,
+            Err(error) => {
+                child.kill().unwrap();
+                let output = child.wait_with_output().unwrap();
+                panic!("server did not enter bind_wait: {error}; {output:?}");
+            }
+        };
+        assert!(
+            Command::new("kill")
+                .args([signal, &child.id().to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                let output = child.wait_with_output().unwrap();
+                panic!("server ignored {signal} during bind_wait: {output:?}");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        let event: serde_json::Value = serde_json::from_str(&line).expect("bind_wait event");
+        assert_eq!(event["event"], "bind_wait");
+        assert_eq!(output.status.code(), Some(0), "{signal}: {output:?}");
+        assert_eq!(output.stdout, b"{\"event\":\"stopped\"}\n", "{signal}");
+    }
+}
+
+#[test]
+fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
+    let dir = TestDir::new();
+    let other = TestDir::new();
+    let mut address = "127.0.0.1:0".to_owned();
+    for restart in 0..2 {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", &address, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (mut stdout, ready) = process_ready(&mut child);
+        assert_eq!(ready["event"], "ready");
+        address = ready["listen"].as_str().unwrap().into();
+        assert!(
+            request(
+                address.parse().unwrap(),
+                "GET /_internal/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            )
+            .starts_with("HTTP/1.1 200")
+        );
+        let collision = conflicting_process(&address, &other);
+        assert!(!collision.status.success());
+        assert!(collision.stdout.is_empty());
+        #[cfg(unix)]
+        assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
+        common::stop_server(&mut child, &mut stdout);
+        // Reuse the first server's TIME_WAIT so signal coverage adds no expiry wait.
+        #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+        if restart == 0 {
+            assert_bind_wait_signals_exit_without_readiness(&address, &dir);
+        }
+        #[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
+        let _ = restart;
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn live_wildcard_and_specific_listeners_are_exclusive() {
+    for (first, second) in [("0.0.0.0:0", "127.0.0.1"), ("127.0.0.1:0", "0.0.0.0")] {
+        let dir = TestDir::new();
+        let other = TestDir::new();
+        let mut child = common::server_command()
+            .args(["serve", "--listen", first, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (mut stdout, ready) = process_ready(&mut child);
+        let address: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+        let collision = conflicting_process(&format!("{second}:{}", address.port()), &other);
+        common::stop_server(&mut child, &mut stdout);
+        assert!(!collision.status.success());
+        assert!(collision.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
     }
 }
 
@@ -112,7 +260,7 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     assert!(upload.contains("allow: POST\r\n"));
     for path in [
         "/resumable/upload/storage/v1/b/b/o",
-        "/bucket/object",
+        "/INVALID/object",
         "/google.storage.v2.Storage/ReadObject",
         "/_internal/reset",
         "/",

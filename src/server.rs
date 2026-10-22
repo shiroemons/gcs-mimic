@@ -6,6 +6,7 @@ use crate::{
     json::{self, BucketRequest, JsonError, ObjectRequest},
     object::{ObjectError, UploadChunk},
     storage::Catalog,
+    xml,
 };
 use http_body_util::{BodyExt, Channel, Full, combinators::UnsyncBoxBody};
 use hyper::{
@@ -169,7 +170,7 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
-    // Strict authentication covers only Google JSON API routes and runs before route
+    // Strict authentication covers Google JSON and XML API routes and runs before route
     // validation, body reads and catalog access. Probes and unknown routes never authenticate.
     let authenticate = || {
         state
@@ -195,12 +196,11 @@ async fn respond(
             deadline: transfer.then_some(deadline),
         });
         let result = match parsed {
-            Ok((operation, caller)) => {
-                object_response(
-                    request, operation, caller, state, config, activity, deadline,
-                )
-                .await
-            }
+            Ok((operation, caller)) => object_response(
+                request, operation, caller, state, config, activity, deadline,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
         if !media || result.is_err() {
@@ -214,7 +214,9 @@ async fn respond(
     }
     if let Some(parsed) = json::route(request.method(), request.uri()) {
         let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => bucket_response(request, operation, caller, state).await,
+            Ok((operation, caller)) => bucket_response(request, operation, caller, state)
+                .await
+                .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
         let mut response = result.unwrap_or_else(JsonError::into_response);
@@ -223,7 +225,39 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return boxed(response);
     }
+    if let Some(parsed) = xml::route(request.method(), request.uri()) {
+        let head = request.method() == Method::HEAD;
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match authenticate() {
+            Ok(caller) => match parsed {
+                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error.into()),
+        };
+        if head || result.is_err() {
+            activity.send_replace(ObjectActivity::default());
+        }
+        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     boxed(probe_or_unknown(&request, state))
+}
+
+fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
+    if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
+        auth::AuthFailure::LoginRequired.into()
+    } else {
+        error
+    }
 }
 
 /// Resolve the owning project of `bucket` and authorize `permission` against it.
@@ -231,8 +265,7 @@ async fn respond(
 /// The returned access must be passed to the catalog operation, which re-validates it against
 /// the owner it observes in its own transaction: the bucket can be deleted and recreated under
 /// another project after this lookup. Permissive mode returns `Unchecked` without catalog
-/// access. Anonymous callers are rejected before the bucket lookup because no anonymous
-/// grants are modeled.
+/// access. Anonymous callers have no project grants and are evaluated against bucket policy.
 async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
@@ -242,7 +275,10 @@ async fn authorize_bucket(
     let Some(caller) = caller else {
         return Ok(BucketAccess::Unchecked);
     };
-    let identity = caller.principal()?;
+    let identity = match caller {
+        Caller::Anonymous => None,
+        Caller::Principal(identity) => Some(identity),
+    };
     Ok(state
         .catalog
         .bucket_access(bucket, identity, permission)
@@ -534,6 +570,23 @@ async fn object_response(
                     )
                     .await?;
                 let mut headers = json::object_media_headers(&record)?;
+                if reader.publicly_readable {
+                    headers.insert(
+                        "cache-control",
+                        record
+                            .cache_control
+                            .as_deref()
+                            .unwrap_or("public, max-age=3600")
+                            .parse()
+                            .map_err(|_| {
+                                JsonError::new(
+                                    StatusCode::SERVICE_UNAVAILABLE,
+                                    "backendError",
+                                    "Invalid stored Cache-Control",
+                                )
+                            })?,
+                    );
+                }
                 json::validate_object_media_encoding(request.headers(), &record)?;
                 let range = match json::object_media_range(request.headers(), record.size) {
                     Ok(range) => range,
@@ -564,26 +617,7 @@ async fn object_response(
                             .unwrap(),
                     );
                 }
-                let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
-                let activity = activity.clone();
-                tokio::spawn(async move {
-                    loop {
-                        match reader.next_chunk().await {
-                            Ok(Some(bytes)) => {
-                                if sender.send_data(bytes).await.is_err() {
-                                    break;
-                                }
-                                activity.send_modify(|progress| progress.awaiting_catalog = false);
-                            }
-                            Ok(None) => break,
-                            Err(error) => {
-                                sender.abort(error);
-                                break;
-                            }
-                        }
-                    }
-                });
-                let mut response = Response::new(body.boxed_unsync());
+                let mut response = Response::new(object_body(reader, activity));
                 if range.is_some() {
                     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
                 }
@@ -623,6 +657,106 @@ async fn object_response(
             .body(Full::new(Bytes::from(value.to_string())))
             .unwrap(),
     ))
+}
+
+fn object_body(
+    mut reader: crate::storage::ObjectReader,
+    activity: &watch::Sender<ObjectActivity>,
+) -> ResponseBody {
+    let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
+    let activity = activity.clone();
+    tokio::spawn(async move {
+        loop {
+            match reader.next_chunk().await {
+                Ok(Some(bytes)) => {
+                    if sender.send_data(bytes).await.is_err() {
+                        break;
+                    }
+                    activity.send_modify(|progress| progress.awaiting_catalog = false);
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    sender.abort(error);
+                    break;
+                }
+            }
+        }
+    });
+    body.boxed_unsync()
+}
+
+async fn xml_response(
+    request: Request<Incoming>,
+    mut operation: xml::ReadRequest,
+    caller: Option<Caller<'_>>,
+    state: &State,
+    activity: &watch::Sender<ObjectActivity>,
+) -> Result<Response<ResponseBody>, xml::Error> {
+    let access = authorize_bucket(state, caller, auth::OBJECTS_GET, &operation.bucket)
+        .await
+        .map_err(|error| anonymous_error(error, caller))?;
+    xml::headers(request.headers(), &mut operation)?;
+    let (record, mut reader) = state
+        .catalog
+        .open_object_authorized(
+            &operation.bucket,
+            &operation.name,
+            operation.generation,
+            operation.conditions,
+            &access,
+        )
+        .await
+        .map_err(|error| anonymous_error(error.into(), caller))?;
+    let mut headers = xml::media_headers(&record, reader.publicly_readable)?;
+    json::validate_object_media_encoding(request.headers(), &record)?;
+    let head = request.method() == Method::HEAD;
+    let range = match json::object_media_range(request.headers(), record.size) {
+        Ok(range) => range,
+        Err(_) if head => {
+            // HEAD's Range only adds Content-Range; status and representation length stay unchanged.
+            headers.insert(
+                "content-range",
+                format!("bytes */{}", record.size).parse().unwrap(),
+            );
+            None
+        }
+        Err(error) => {
+            let mut response = boxed(xml::Error::from(error).response(head));
+            response.headers_mut().insert(
+                "content-range",
+                format!("bytes */{}", record.size).parse().unwrap(),
+            );
+            return Ok(response);
+        }
+    };
+    if let Some((offset, length)) = range {
+        if !head {
+            reader.set_range(offset, length).await.map_err(|_| {
+                xml::Error::from(JsonError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Cannot seek object data",
+                ))
+            })?;
+            headers.insert("content-length", length.into());
+        }
+        headers.insert(
+            "content-range",
+            format!("bytes {}-{}/{}", offset, offset + length - 1, record.size)
+                .parse()
+                .unwrap(),
+        );
+    }
+    let mut response = if head {
+        boxed(empty_response(StatusCode::OK))
+    } else {
+        Response::new(object_body(reader, activity))
+    };
+    if range.is_some() && !head {
+        *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+    }
+    *response.headers_mut() = headers;
+    Ok(response)
 }
 
 async fn stream_upload(

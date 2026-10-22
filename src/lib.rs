@@ -8,3 +8,4 @@ pub mod seed;
 pub mod server;
 pub mod storage;
 pub mod url;
+pub mod xml;

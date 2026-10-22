@@ -12,6 +12,14 @@ This is a target, not a current compatibility claim. Migration importers,
 equivalent renamed settings, a Go compatibility package and the compatibility
 profile described here are not implemented.
 
+Native gcs-mimic now serves the [path-style XML object GET/HEAD subset](slices/public-object-reads.md),
+including public `allUsers` and registered-only `allAuthenticatedUsers` bucket
+grants in strict mode. Its URL helper only constructs an encoded address;
+the policy determines access. This does not yet replace fake-gcs-server's
+virtual-host routing, broader XML reads/writes/listing, permissive signed URLs
+or full public-host configuration. ACL and UBLA/PAP state machines remain
+unavailable; do not infer migration parity from a successful public download.
+
 The first reference is the fake-gcs-server release in the README comparison.
 Record its complete surface before implementation and add later releases as
 explicit baselines. Do not present one release's passing tests as proof about
