@@ -1,6 +1,8 @@
 # Getting started: proposed end-to-end contract
 
-**Status: future end-to-end design specification.** The implemented HTTP foundation, persistent JSON bucket CRUD, object media/multipart subset and strict local authentication with project and bucket IAM grants have a separate [runnable guide](getting-started.md). The implemented identity registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), not the TOML sketched in section 8; signing keys, public grants and signed URLs described there remain planned. This document retains later acceptance targets, including TOML configuration, fixtures, broader object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+**Status: future end-to-end design specification.** The implemented HTTP foundation, persistent JSON bucket CRUD, object media/multipart subset, strict local authentication with project and bucket IAM grants, and path-style public/private XML reads have a separate [runnable guide](getting-started.md). The implemented identity registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), not the TOML sketched in section 8; signing keys and signed URLs described there remain planned. This document retains later acceptance targets, including TOML configuration, fixtures, broader object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
@@ -20,9 +22,27 @@ setup, using the same endpoint, temporary directory and fixture tokens. It must:
 - Exercise `BucketHandle.IAM().Policy` / `SetPolicy` with pinned Go SDK tests,
   including project-viewer denial and a permissive-mode round trip.
 
-This scope excludes `testIamPermissions`, object IAM, public access, ACLs,
-conditions, custom/basic roles and signed URLs. The public and signing sequences
-in section 8 remain future acceptance targets.
+The bucket-only scope excludes `testIamPermissions`, object IAM, ACLs,
+conditions, custom/basic roles and signed URLs. The public/private read journey
+must continue with the same strict bucket and object, and:
+
+- Construct host and peer URLs without granting access; anonymous reads fail
+  with 401 before the policy changes.
+- Preserve bindings and use the policy etag to grant `allUsers` the
+  `roles/storage.objectViewer` role; host and peer GET return exact bytes and
+  HEAD returns 200, the selected generation and `public, max-age=3600`.
+- Stop/start with strict configuration and verify the persisted policy and
+  anonymous read before revocation.
+- Replace the public member with `allAuthenticatedUsers`; the registered
+  bucket reader succeeds, anonymous and unregistered-token reads fail.
+- Revoke the grant with a fresh etag, verify anonymous host/peer denial and
+  registered-reader denial, and retain cleanup for subsequent guide sections.
+- Explain published host ports, Compose service names, browser reachability,
+  cache persistence after revocation and the deferred CORS/signing/UBLA/PAP scope.
+- Cover pinned Go default/XML reads as well as explicit JSON reads.
+
+The broader public and signing sequences in section 8 remain future acceptance
+targets beyond the [implemented read subset](slices/public-object-reads.md).
 
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart metadata/media upload, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Resumable and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
