@@ -81,15 +81,23 @@ success stub does not complete a workflow.
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | Declared path-style XML GET/HEAD, allUsers versus registered-only grants and final Rust/SDK/container/guide checks passed on 2026-10-22 | Delivered: DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 IMPLEMENTED; DESIGN-004 and broad XML methods PARTIAL; [final verification](evidence/public-object-reads.md) |
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
-| 5 | V4 RSA signed download | Final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
-| 6 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
-| 7 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
-| 8 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
-| 9 | Browser CORS | JSON/XML distinction and real-browser positive/negative/preflight checks | Browser upload/download works under the declared origins |
-| 10 | Ruby/Rails workflows | Pinned Ruby operations and actual Active Storage public/private delivery plus direct uploads | Tested application integration |
-| 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
+| 5 | Bucket metadata PATCH | Label merge/removal and supported default storage class; atomic metageneration conditions, strict permission and persistence | Change basic bucket settings without recreating the bucket |
+| 6 | Bucket metadata PUT | Reconciled replacement/default semantics over the same fields; preserve objects, identity and IAM | Replace basic bucket settings with verified PUT semantics |
+| 7 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
+| 8 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
+| 9 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
+| 10 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
+| 11 | Basic JSON verification | All preceding basic scopes; HTTP coverage, pinned Go/Ruby, failure/concurrency/restart and final native/container journeys; comparison evidence | Evidence-backed basic bucket/object APIs before signed URLs |
+| 12 | V4 RSA signed download | Basic JSON verification gate, final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
+| 13 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
+| 14 | Browser CORS | JSON/XML distinction and real-browser positive/negative/preflight checks | Browser upload/download works under the declared origins |
+| 15 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
+| 16 | Release verification | Basic JSON gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation capability is **V4 RSA signed download** (order 5).
+The next implementation capability is **bucket metadata PATCH** (order 5),
+followed by bucket metadata PUT. Signed download now depends explicitly on the
+basic JSON verification gate; reordering the table alone is insufficient.
+These are execution priorities, with no calendar delivery dates assigned.
 The resumable deliverable is closed by [final evidence](evidence/resumable-upload.md),
 including five native process-kill boundaries and their 20 repeated runs;
 broader provider edge parity, other platforms and power loss remain unverified.
@@ -103,15 +111,65 @@ with persistent bucket grants; its final integrated verification is recorded in
 [the public-read evidence](evidence/public-object-reads.md). This does not complete
 the broader XML, authentication or access-control feature rows.
 
+### Basic JSON API milestone before signed URLs
+
+The milestone's fixed operation set is:
+
+| Surface | Included methods | Supported basic scope |
+| --- | --- | --- |
+| Buckets | `insert`, `get`, `list`, `delete`, `patch`, `update` | Live buckets; modeled identity/metadata, project/prefix paging, labels and supported default storage class; atomic metageneration checks and strict local grants |
+| Objects | `insert`, `get`, `list`, `delete`, `patch`, `update`, `copy`, `rewrite`, `compose` | Live objects; media/multipart/JSON-resumable upload, content/custom metadata, whole/single-range reads, prefix/delimiter/offset paging, checksums, source/destination conditions and bounded transfers |
+
+The basic-contract deliverable adds response `fields` selection over supported
+resources, then read ETag validators, as separate small slices. Copy, rewrite and
+compose each have separate completion conditions, including failure preservation
+and source/destination races. Rewrite must exercise continuation; an immediate
+copy stub is insufficient. PATCH and PUT require distinct merge/replacement
+tests, including omitted/null/default and immutable-field handling reconciled
+against current sources before implementation.
+
+If-Range is excluded from this milestone. The Google JSON contract remains
+unestablished in `SPEC-RANGE-VALIDATORS` in the
+[gap ledger](../../compatibility/gaps.json); retain the current explicit 501
+rejection until authoritative sources establish it. Contract research and any
+resulting implementation are separate later work and do not block basic JSON
+completion, copy/rewrite/compose or signed URLs. The broad `objects.get` row
+retains its pending cases and `PARTIAL` status.
+
+Close the milestone only after linked HTTP evidence covers all six bucket and
+nine object methods and pinned Go/Ruby workflows exercise the applicable calls.
+Verify denied access, invalid input, stale conditions, checksum rejection,
+paging, concurrent mutations and restart persistence. Use isolated local
+endpoints; signed URLs and browser uploads are not prerequisites for basic SDK
+coverage. Run final-source native/container journeys and relevant regressions;
+unchanged evidence requires an explicit source/input comparison.
+
+Excluded work remains visible on the broad feature rows: historical versions,
+soft delete/restore, retention/lifecycle, glob/context filters, transcoding,
+token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP,
+billing/encryption infrastructure and undocumented provider edge parity.
+`objects.move`, bucket relocation/storage layout and the IAM/test-permission
+methods retain their separate P2-P7 work. Signed URLs, browser CORS and full
+Rails direct uploads follow this milestone.
+
+This gate does not require whole-method `IMPLEMENTED` status and does not shrink
+existing acceptance cases. It requires every case in the declared basic scope
+to pass, with remaining broader cases explicitly pending. README comparison
+checkmarks apply to the same named workflow for every product; whole-method
+completion and fidelity remain solely in the feature ledger. Existing scoped
+checkmarks may be corrected from existing evidence, without waiting for this
+new milestone or claiming it has passed.
+
 ### Small steps inside the larger workflows
 
 | Deliverable | Step order | Completion evidence |
 | --- | --- | --- |
 | Public reads | Policy get/set and enforcement; then grants and XML GET/HEAD | Wire permission/etag tests, restart, encoded paths and Go default/XML reads |
 | Resumable upload | Initiation/status; then chunk/retry/finalization; then expiry/cancellation/recovery | Interrupted and duplicate chunks, atomic visibility, checksum rejection and pinned Go Writer |
+| Basic JSON | Bucket PATCH; bucket PUT; basic-contract gaps; copy; rewrite; compose; integrated Go/Ruby and HTTP gate | Explicit six-bucket/nine-object scope, field/condition/error cases and final-source evidence before signing |
 | Signed access | Signed GET first; XML PUT and signed PUT next | Valid, expired, tampered, wrong-host and insufficient-permission requests |
-| Copy/compose | Finish copy; then implement compose | Source/destination races, failed-overwrite preservation and bounded streaming |
-| Ruby/Rails | Add applicable Ruby cases as capabilities land; finish with the complete Rails/browser journey | Version-pinned SDK and real application/browser execution |
+| Copy/rewrite/compose | Finish copy; then rewrite continuation; then compose | Source/destination races, token retry/restart, failed-overwrite preservation and bounded streaming |
+| Ruby/Rails | Verify basic Ruby SDK calls before signing; finish later with the complete Rails/browser journey | Version-pinned SDK and real application/browser execution |
 
 Resumable sessions are bearer capabilities with their own retry/status model.
 They do not require signed URLs to exist. Generation conditions, accepted
@@ -156,8 +214,15 @@ flowchart TD
   E --> I[Bucket IAM]
   E --> R[Resumable uploads]
   I --> P[Public reads]
+  E --> M[Bucket PATCH then PUT]
+  M --> J[Basic JSON contract]
+  R --> J
+  J --> Q[Basic JSON verification]
   P --> U[Signed GET then PUT]
-  I --> C[Copy then compose]
+  Q --> U
+  I --> C[Copy then rewrite then compose]
+  J --> C
+  C --> Q
   U --> W[CORS and Ruby/Rails workflows]
   P --> W
   R --> W
@@ -220,7 +285,7 @@ queue above takes precedence over their historical numeric ordering.
 | Group | Remaining coverage |
 | --- | --- |
 | P0 Foundation | TLS, maintenance extensions, platform/CI and distribution evidence |
-| P1 Core data path | Broader bucket updates, fields, HTTP conditions, transcoding and resource measurements |
+| P1 Core data path | Basic bucket updates, supported fields and HTTP conditions are scheduled before signing; advanced fields, transcoding and broader resource guarantees remain later |
 | P2 Access and URLs | Remaining ACL/default ACL, UBLA/PAP, conditional policies, HMAC/V2 and endpoint breadth |
 | P3 Transfer and HTTP breadth | Rewrite continuations, HTTP batch, remaining XML/multipart and extended SDKs |
 | P4 Protection and lifecycle | Versioning, soft delete/restore, holds, retention, lifecycle and Autoclass |
@@ -233,10 +298,11 @@ queue above takes precedence over their historical numeric ordering.
 The first developer release retains the P1 core plus essential P2 public/private
 and URL target: documented JSON workflows, the supported range/seed subsets,
 strict local identity, effective scoped bucket IAM and public XML reads.
-Include applicable Go and Ruby evidence; any unverified client remains an
-explicit limitation. The scoped JSON resumable workflow now has separate
-evidence; signed URLs remain a later capability. State the supported upload
-profiles and their resource, recovery and protocol limits in the release.
+The basic JSON milestone above, including Go and Ruby evidence, is a release
+verification prerequisite. Signed URLs and Rails/browser workflows remain later
+capabilities with their own gates. The scoped JSON resumable workflow has
+separate evidence. State supported profiles and resource, recovery and protocol
+limits in the release; unverified clients remain explicit limitations.
 
 Do not wait for lifecycle, gRPC, analytics or every row in P0/P1/P2 to complete.
 Do require the release's declared feature/profile/platform tests, dependency

@@ -48,7 +48,7 @@
   "delivery_plan": {
     "updated_at": "2026-10-22",
     "semantics": "Planning metadata only. Feature statuses, fidelities, acceptance results and verification records below remain authoritative and unchanged. Existing scope references describe executed subsets, not new IMPLEMENTED claims.",
-    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
+    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Complete the basic JSON bucket/object deliverables and their verification gate before signed URLs. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
     "progress_rule": "Report completed, evidence-backed deliverables against a frozen selected delivery scope, separately from API/behavior/project counts. Do not assign PARTIAL a fractional weight, double-count overlapping feature references, or infer gate completion from this plan.",
     "common_completion_gate": [
       "Freeze the supported protocol, profile, fields, limits and explicit exclusions before implementation; reconcile the affected official sources and gaps.",
@@ -366,10 +366,167 @@
     ],
     "next_deliverables": [
       {
-        "id": "v4-signed-download",
+        "id": "bucket-metadata-patch",
         "order": 5,
+        "title": "Patch basic bucket metadata",
+        "depends_on": [
+          "json-bucket-crud",
+          "bucket-iam-policies"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-008"
+        ],
+        "completion_conditions": [
+          "Freeze a current-source PATCH contract for labels and the supported default storageClass values, including omitted/null fields, label removal, immutable/output-only fields and recognized unsupported settings.",
+          "Apply merge/removal semantics with atomic metageneration conditions, strict storage.buckets.update permission, consistent metageneration/updated changes and no mutation on validation or authorization failure.",
+          "Pass wire and pinned SDK label-update cases, stale-condition and concurrent-update cases, GET/list consistency and restart persistence; record field-level evidence before changing status."
+        ],
+        "deferred_scope": "CORS configuration, ACL/UBLA/PAP, versioning, lifecycle, retention, soft delete, relocation and actual storage placement remain separate scopes; default-class metadata does not simulate physical placement."
+      },
+      {
+        "id": "bucket-metadata-update",
+        "order": 6,
+        "title": "Replace basic bucket metadata",
+        "depends_on": [
+          "bucket-metadata-patch"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-013"
+        ],
+        "completion_conditions": [
+          "Reconcile PUT replacement, omitted/null/default and immutable/output-only field semantics for the same labels/default-storage-class scope as PATCH; do not infer PUT from PATCH behavior.",
+          "Reuse shared bucket mutation and authorization logic while preserving stored objects, bucket identity, IAM and excluded configuration; invalid requests and stale metageneration conditions leave state unchanged.",
+          "Pass wire replacement-versus-merge, clear/default, strict denial, concurrent update, GET/list and restart cases; execute applicable pinned SDK calls or document why wire coverage is required."
+        ],
+        "deferred_scope": "The same advanced bucket settings as PATCH; this gate does not complete all buckets.update resource fields."
+      },
+      {
+        "id": "basic-json-contract",
+        "order": 7,
+        "title": "Close the basic bucket and object contract gaps",
+        "depends_on": [
+          "bucket-metadata-update",
+          "json-list-and-metadata",
+          "json-multipart-upload",
+          "resumable-upload",
+          "json-single-range"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-001",
+          "JSON-BUCKETS-002",
+          "JSON-BUCKETS-005",
+          "JSON-BUCKETS-006",
+          "JSON-BUCKETS-008",
+          "JSON-BUCKETS-013",
+          "JSON-OBJECTS-004",
+          "JSON-OBJECTS-005",
+          "JSON-OBJECTS-007",
+          "JSON-OBJECTS-008",
+          "JSON-OBJECTS-010",
+          "JSON-OBJECTS-015"
+        ],
+        "completion_conditions": [
+          "Freeze one basic local profile: live-bucket CRUD and labels/default-class updates; live-object media/multipart/JSON-resumable upload, metadata GET/PATCH/PUT, whole/single-range download, prefix/delimiter/offset listing with maxResults/pageToken and delete.",
+          "Implement fields selection over supported bucket/object/list response fields, then read ETag validators as separate small slices; verify malformed inputs, empty/zero-byte cases and condition precedence rather than accepting and ignoring recognized semantics.",
+          "Verify all supported generation/metageneration conditions atomically for mutations, content/custom metadata merge versus replacement, MD5/CRC32C calculation and supplied-checksum rejection, query-bound paging, strict local project/bucket permissions and failed-overwrite preservation.",
+          "Map remaining field/header/error gaps to explicit pending cases or named deferred scope. Preserve every broad feature's existing cases and deviations; unknown Google behavior is not proven by a local test or a successful SDK call."
+        ],
+        "deferred_scope": "If-Range contract research and any resulting implementation remain separate later work under SPEC-RANGE-VALIDATORS; retain explicit 501 rejection until authoritative sources establish the Google contract. This work does not block the basic JSON milestone, copy/rewrite/compose or signed URLs. Historical versions, soft delete/restore, glob/context filters, transcoding, token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP, retention/lifecycle, billing/encryption infrastructure, XML writes, gRPC and undocumented provider wire-edge parity also remain deferred. These exclusions remain visible on the broad feature rows."
+      },
+      {
+        "id": "object-copy",
+        "order": 8,
+        "title": "Copy one immutable object",
+        "depends_on": [
+          "basic-json-contract",
+          "json-object-media",
+          "bucket-iam-policies"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-003",
+          "BEHAVIOR-OBJECT-023"
+        ],
+        "completion_conditions": [
+          "Freeze supported metadata inheritance/replacement and source/destination permission cases; pin source generation before copying.",
+          "Stream within fixed buffers and atomically enforce source/destination conditions at the defined commit boundaries.",
+          "Verify concurrent source replacement, destination overwrite, failure cleanup, checksum/metadata results and restart persistence."
+        ],
+        "deferred_scope": "Continuation-token rewrite, historical-version storage and encryption infrastructure."
+      },
+      {
+        "id": "object-rewrite",
+        "order": 9,
+        "title": "Rewrite objects with bounded continuation",
+        "depends_on": [
+          "object-copy"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-012"
+        ],
+        "completion_conditions": [
+          "Freeze the supported live-generation rewrite fields, source/destination metadata rules, permissions, preconditions and token lifecycle from current official sources; share copy semantics without pretending every rewrite completes immediately.",
+          "Implement bounded progress and opaque continuation tokens bound to the request and selected source generation; report bytes/total/done consistently, limit retained state and publish one complete destination atomically.",
+          "Pass one-call and multi-call wire/SDK flows, invalid/mismatched/retried tokens, source replacement, destination races, failed overwrite, interruption/restart and resource-bound cases; document expiry and recovery behavior."
+        ],
+        "deferred_scope": "Historical versions, encryption/KMS infrastructure and physical region or storage-class migration guarantees; no copy-and-delete substitute for atomic objects.move."
+      },
+      {
+        "id": "object-compose",
+        "order": 10,
+        "title": "Compose immutable objects",
+        "depends_on": [
+          "object-copy",
+          "object-rewrite"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-002",
+          "BEHAVIOR-OBJECT-025",
+          "BEHAVIOR-OBJECT-026",
+          "BEHAVIOR-OBJECT-027"
+        ],
+        "completion_conditions": [
+          "Reconcile the current compose schema, source-count/class rules, generation conditions and deleteSourceObjects semantics before freezing the supported subset.",
+          "Stream source objects in order with fixed buffers; atomically publish only the complete destination and apply any supported source deletion effects.",
+          "Verify source/destination permissions, metadata/component/checksum behavior, missing sources, failed conditions, concurrency and restart.",
+          "Reject recognized unsupported source-deletion or advanced settings explicitly; never silently ignore them."
+        ],
+        "deferred_scope": "Cross-bucket composition and undeclared retention/version interactions; rewrite has a separate prerequisite gate before signed URLs."
+      },
+      {
+        "id": "basic-json-verification",
+        "order": 11,
+        "title": "Verify the basic JSON API milestone before signed URLs",
+        "depends_on": [
+          "basic-json-contract",
+          "object-copy",
+          "object-rewrite",
+          "object-compose"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-008",
+          "JSON-BUCKETS-013",
+          "JSON-OBJECTS-002",
+          "JSON-OBJECTS-003",
+          "JSON-OBJECTS-012",
+          "DESIGN-082",
+          "DESIGN-083",
+          "UX-003",
+          "UX-004"
+        ],
+        "completion_conditions": [
+          "Every preceding basic-JSON deliverable passes its frozen scope with linked wire evidence; do not use whole-row PARTIAL as either automatic failure or automatic completion of this milestone.",
+          "Execute pinned Go and Ruby basic bucket/object create/read/list/update/delete plus applicable copy/rewrite/compose workflows with explicit local endpoints and fixture credentials; test the six bucket methods and nine object methods in this milestone over HTTP even when a high-level SDK exposes no corresponding call.",
+          "Run final-source regressions and the native/container guide journey, including denied and stale-condition requests, pagination, checksums, concurrent mutation, bounded transfers and restart persistence; reuse unchanged evidence only with a recorded source/input comparison.",
+          "Reconcile each README comparison row against the same named scope for every product and linked evidence. A scoped checkmark means the named workflow works, never full Google method compatibility; leave pending broad cases, status and fidelity unchanged until their own evidence passes."
+        ],
+        "deferred_scope": "Signed URLs, browser CORS, Rails direct-upload journeys and full-method/legacy-emulator parity are separate later gates. The milestone has no independent implementation-status field and does not require every P1/P2 row to be IMPLEMENTED."
+      },
+      {
+        "id": "v4-signed-download",
+        "order": 12,
         "title": "Validate V4 RSA signed downloads",
         "depends_on": [
+          "basic-json-verification",
           "public-object-reads"
         ],
         "feature_ids": [
@@ -395,7 +552,7 @@
       },
       {
         "id": "v4-signed-upload",
-        "order": 6,
+        "order": 13,
         "title": "Validate V4 RSA signed uploads",
         "depends_on": [
           "v4-signed-download"
@@ -417,48 +574,8 @@
         "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth."
       },
       {
-        "id": "object-copy",
-        "order": 7,
-        "title": "Copy one immutable object",
-        "depends_on": [
-          "json-object-media",
-          "bucket-iam-policies"
-        ],
-        "feature_ids": [
-          "JSON-OBJECTS-003",
-          "BEHAVIOR-OBJECT-023"
-        ],
-        "completion_conditions": [
-          "Freeze supported metadata inheritance/replacement and source/destination permission cases; pin source generation before copying.",
-          "Stream within fixed buffers and atomically enforce source/destination conditions at the defined commit boundaries.",
-          "Verify concurrent source replacement, destination overwrite, failure cleanup, checksum/metadata results and restart persistence."
-        ],
-        "deferred_scope": "Continuation-token rewrite, historical-version storage and encryption infrastructure."
-      },
-      {
-        "id": "object-compose",
-        "order": 8,
-        "title": "Compose immutable objects",
-        "depends_on": [
-          "object-copy"
-        ],
-        "feature_ids": [
-          "JSON-OBJECTS-002",
-          "BEHAVIOR-OBJECT-025",
-          "BEHAVIOR-OBJECT-026",
-          "BEHAVIOR-OBJECT-027"
-        ],
-        "completion_conditions": [
-          "Reconcile the current compose schema, source-count/class rules, generation conditions and deleteSourceObjects semantics before freezing the supported subset.",
-          "Stream source objects in order with fixed buffers; atomically publish only the complete destination and apply any supported source deletion effects.",
-          "Verify source/destination permissions, metadata/component/checksum behavior, missing sources, failed conditions, concurrency and restart.",
-          "Reject recognized unsupported source-deletion or advanced settings explicitly; never silently ignore them."
-        ],
-        "deferred_scope": "General rewrite sessions, cross-bucket composition and undeclared retention/version interactions."
-      },
-      {
         "id": "browser-cors",
-        "order": 9,
+        "order": 14,
         "title": "Complete a scoped browser CORS workflow",
         "depends_on": [
           "public-object-reads",
@@ -480,9 +597,10 @@
       },
       {
         "id": "ruby-rails-workflows",
-        "order": 10,
+        "order": 15,
         "title": "Verify Ruby and Rails user workflows",
         "depends_on": [
+          "basic-json-verification",
           "resumable-upload",
           "v4-signed-upload",
           "browser-cors"
@@ -504,9 +622,10 @@
       },
       {
         "id": "release-verification",
-        "order": 11,
+        "order": 16,
         "title": "Verify separately authorized native and image distribution",
         "depends_on": [
+          "basic-json-verification",
           "public-object-reads"
         ],
         "feature_ids": [

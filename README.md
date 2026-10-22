@@ -57,10 +57,20 @@ DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 are IMPLEMENTED. DESIGN-004 and
 EXT-XML-012/017 remain PARTIAL for their explicit remaining cases; see the
 [final public-read evidence](docs/en/evidence/public-object-reads.md).
 
-Next, implement V4 RSA signed download (delivery order 5).
-Continue with signed PUT, copy then compose, browser CORS and Ruby/Rails journeys. Add applicable
-Ruby checks as each capability lands. Distribution verification has separate
-release gates and publication authorization.
+Next, implement bucket metadata PATCH, then PUT for labels and the supported
+default storage class. Close the basic CRUD/list/metadata/download contract
+gaps, then implement copy, bounded continuation rewrite and compose. Verify
+the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
+and native/container journeys before starting signed URLs.
+
+Signed GET is now delivery order 12 and explicitly depends on the basic JSON
+verification gate. Signed PUT, browser CORS and full Rails journeys follow.
+The [basic API milestone](docs/en/roadmap.md#basic-json-api-milestone-before-signed-urls)
+defines the six bucket and nine object methods, completion conditions and
+exclusions. Historical versions, retention/lifecycle, advanced IAM/ACL and full
+Google method compatibility are separate work. These priorities have no
+calendar delivery dates. Distribution verification has separate release gates
+and publication authorization.
 
 [The delivery roadmap](docs/en/roadmap.md) and the ledger's `delivery_plan` define
 the ordered capabilities, prerequisites and completion conditions. P0-P7 remain
@@ -74,42 +84,103 @@ Snapshot reviewed on **2026-10-22**: gcs-mimic's unreleased `0.1.0`
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 Planned features are not counted.
 
-**Legend:** ✅ implementation available for the named operation;
-🚧 partial implementation or an explicit limitation; ❌ unavailable.
-Cells describe the reviewed scope, not complete Google API compatibility.
-gcs-mimic's status follows the project's feature ledger.
+**Legend:** ✅ the named workflow is available in the stated scope;
+🚧 part of that scope is missing or unverified; ❌ unavailable.
+The row's scope applies to every product. Extra capabilities in a cell do not
+expand that scope, and a checkmark does not mean full Google API compatibility.
+In particular, a scoped workflow can be available while its broader API method
+remains `PARTIAL` in the [feature ledger](compatibility/features.json).
+These workflow summaries derive from the ledger's cases and evidence; they
+are not a second whole-method implementation-status system.
 The other products were reviewed through their documentation, source and tests;
 their tests were not run as part of this comparison.
 
 ### 🧩 JSON API operations
 
-| Operation | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
+The four PATCH/PUT rows use the shared
+[metadata update criteria](#metadata-update-comparison-criteria) below.
+
+| Operation and comparison scope | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
-| Bucket create (`buckets.insert`) | 🚧 Validated metadata subset | ✅ Implemented | ✅ Implemented |
-| Bucket metadata GET (`buckets.get`) | 🚧 Modeled fields; no ACL/owner | ✅ Implemented | ✅ Implemented |
-| Bucket list (`buckets.list`) | 🚧 Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no paging |
-| Bucket delete (`buckets.delete`) | 🚧 Empty buckets; metageneration checks | ✅ Implemented | ✅ Implemented |
-| Bucket metadata PATCH (`buckets.patch`) | ❌ | 🚧 Versioning/default event-based hold fields | 🚧 Writable metadata subset |
-| Bucket metadata PUT (`buckets.update`) | ❌ | ❌ | ❌ |
-| Raw media upload | 🚧 Single-request media subset | ✅ | ✅ |
-| JSON multipart upload | 🚧 Bounded metadata/media; optional checksum part | ✅ | ✅ |
-| Resumable upload | 🚧 JSON sessions/chunks/status/cancel, seven-day expiry, restart recovery and configured client-reachable Location; no XML/signed initiation or token replay | ✅ Sessions and chunk uploads | 🚧 Chunk uploads and status queries |
-| Object metadata GET (`objects.get`) | 🚧 Current live generation only | ✅ | ✅ |
-| Whole-object media download | 🚧 Whole object; direct HTTP 200 | ✅ | ✅ |
-| Byte-range download | 🚧 Single closed/open/suffix range; no If-Range or transcoding | ✅ | 🚧 Single range; explicit start required |
-| Object listing (`objects.list`) | 🚧 Prefix/delimiter/offsets; no glob, versions or soft-deleted | ✅ Prefix/delimiter/offsets | 🚧 Prefix/delimiter/glob filters |
-| Object list pagination | 🚧 `maxResults` / query-bound `pageToken`; bounded keyset seeks | ✅ `maxResults` / `pageToken` | ❌ |
-| Object metadata PATCH (`objects.patch`) | 🚧 Content/custom metadata merge; atomic conditions; no ACL | 🚧 Metadata/content/ACL subset | 🚧 Writable metadata subset |
-| Object metadata PUT (`objects.update`) | 🚧 Content/custom metadata replacement; atomic conditions; no ACL | 🚧 Metadata/content/ACL subset | ❌ |
-| Object delete (`objects.delete`) | 🚧 Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
+| Create a live bucket by name (`buckets.insert`) | ✅ Validated name; modeled metadata also supported | ✅ Create by name | ✅ Create by name |
+| Read basic live-bucket metadata (`buckets.get`; excludes ACL/owner) | ✅ Modeled fields | ✅ Basic resource | ✅ Basic resource |
+| List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
+| Delete an empty live bucket (`buckets.delete`) | ✅ Metageneration checks also supported | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
+| Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ❌ Not implemented | ❌ These fields are not updated; other PATCH fields exist | 🚧 Assigns fields; no label-key merge/null removal |
+| Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ❌ Not implemented | ❌ | ❌ |
+| Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
+| Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
+| JSON resumable initiation, chunks, status and finalization | ✅ Also scoped cancellation, seven-day expiry and restart recovery | ✅ Sessions and chunk uploads | ✅ Initiation, chunks, status and finalization |
+| Read basic live-object metadata (`objects.get`; excludes ACL/owner) | ✅ Current live generation | ✅ | ✅ |
+| Whole live-object media download (stored bytes) | ✅ Whole object; direct HTTP 200 | ✅ | ✅ |
+| Single byte-range download (closed/open/suffix; excludes If-Range/transcoding) | ✅ Stored-byte ranges | ✅ | 🚧 Single range; explicit start required |
+| List live objects with prefix/delimiter/start/end offsets (`objects.list`) | ✅ Prefix/delimiter/offsets | ✅ Prefix/delimiter/offsets | 🚧 Prefix/delimiter/glob filters; no start/end offsets |
+| Live-object list pagination (`maxResults` / `pageToken`) | ✅ Query-bound tokens; bounded keyset seeks | ✅ `maxResults` / `pageToken` | ❌ |
+| Object content/custom metadata PATCH (merge/null clearing; `objects.patch`) | ✅ All scoped fields; merge and null clearing | 🚧 Merges metadata; no null clearing | 🚧 Replaces metadata map; null fields ignored |
+| Object content/custom metadata PUT (replacement/omission reset; `objects.update`) | ✅ All scoped fields; omitted fields reset | 🚧 No `contentEncoding` input; omitted fixed fields retained | ❌ |
+| Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
 | Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
 | Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
 | Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
 | Retained object version history | ❌ One live generation | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
 | Generation/metageneration preconditions | 🚧 Atomic object upload/delete/metadata checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
-| MD5 and CRC32C calculation | 🚧 Media/multipart/resumable metadata and download headers | ✅ | ✅ |
+| MD5 and CRC32C calculation for uploaded object bytes | ✅ Media/multipart/resumable metadata and download headers | ✅ | ✅ |
 | Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; multipart metadata/final JSON; resumable metadata/final whole-object `X-Goog-Hash`; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
+
+#### Metadata update comparison criteria
+
+The same field set and update semantics apply to every product in these four
+rows. Bucket fields are `labels` and the supported default `storageClass`
+metadata; physical placement is outside this comparison. Object fields are
+`contentType`, `contentEncoding`, `contentDisposition`, `contentLanguage`,
+`cacheControl` and custom `metadata` on the live object. ACL/owner, holds,
+retention, lifecycle and other advanced fields are outside these rows.
+
+| Row | Requirements for ✅ within this field set |
+| --- | --- |
+| Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; verify empty/null input handling against the pinned source contract. |
+| Bucket PUT | Replace the supported field set, including labels; verify omitted/null/default behavior independently of PATCH against the pinned source contract. |
+| Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
+| Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |
+
+A checkmark requires the whole listed field set and semantics, with the
+returned resource consistent with a subsequent GET. Updates must preserve
+unrelated bucket settings and objects, or the object's bytes, generation,
+checksums and creation time. For bucket updates, freeze the source-confirmed
+clear/default rules before implementation, then record passing cases for all
+of them. Accepting a field without applying it is insufficient. Permissions,
+preconditions and broader durability guarantees retain their separate scopes.
+
+gcs-mimic's object PATCH/PUT checkmarks use the executed
+[metadata verification](docs/en/evidence/object-metadata.md) and
+[integrated listing/metadata verification](docs/en/evidence/object-list-metadata.md),
+including merge/removal, replacement/defaults, unchanged object bytes and GET
+consistency. The broader method rows remain `PARTIAL`. Bucket PATCH/PUT remain
+unavailable; their checkmarks require implementation and passing evidence for
+the criteria above.
+
+The scoped checkmarks above use existing evidence, not new execution claims:
+[bucket CRUD](docs/en/evidence/bucket-crud.md),
+[object media](docs/en/evidence/object-media.md),
+[listing and metadata](docs/en/evidence/object-list-metadata.md),
+[multipart](docs/en/evidence/multipart.md),
+[range](docs/en/evidence/object-range.md) and
+[final integrated regressions](docs/en/evidence/resumable-upload.md).
+Advanced fields, IAM/ACL, response replay, history, transcoding and provider
+wire-edge gaps remain recorded in the ledger. Bucket PATCH/PUT, copy, rewrite
+and compose remain unavailable until implemented and verified; the new roadmap
+does not turn them into completed features.
+
+The pinned comparison source review covers
+[fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),
+[object handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go),
+[shared metadata mutation](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/internal/backend/object.go),
+[filesystem updates](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/internal/backend/fs.go),
+[memory updates](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/internal/backend/memory.go),
+[gcp-storage-emulator bucket handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py)
+and [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py).
+Their implementations were inspected; their test suites were not executed.
 
 ### 🔐 Protocols and access
 
