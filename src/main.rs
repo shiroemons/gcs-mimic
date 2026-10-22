@@ -23,6 +23,8 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --listen IP:PORT             127.0.0.1:4443
   --data-dir PATH              data (exclusive persistent catalog)
+  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-project ID            local-project (owning project for seeded buckets)
   --api-base-url URL           http://127.0.0.1:4443 (fixed advertised endpoint)
   --max-connections N          32 (1..1024)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
@@ -116,6 +118,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let clock = Arc::new(SystemClock);
                 let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(io::Error::other)?;
+                let seed = match gcs_mimic::seed::import(&catalog, &config, clock.as_ref()).await {
+                    Ok(seed) => seed,
+                    Err(error) => {
+                        catalog.close().await.map_err(io::Error::other)?;
+                        return Err(error);
+                    }
+                };
                 let socket = if config.listen.is_ipv4() { tokio::net::TcpSocket::new_v4()? } else { tokio::net::TcpSocket::new_v6()? };
                 socket.bind(config.listen)?;
                 let listener = socket.listen(128)?;
@@ -124,6 +133,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(count) = state.auth.identity_count() {
                     ready["identities"] = count.into();
                 }
+                ready["seed"] = seed;
                 println!("{ready}");
                 server::serve(listener, config, state, shutdown).await?;
                 println!("{{\"event\":\"stopped\"}}");

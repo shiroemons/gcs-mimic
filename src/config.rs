@@ -11,6 +11,8 @@ use std::{
 pub struct Config {
     pub listen: SocketAddr,
     pub data_dir: PathBuf,
+    pub seed_dir: Option<PathBuf>,
+    pub seed_project: String,
     pub api_base_url: String,
     pub max_connections: usize,
     pub max_object_bytes: u64,
@@ -30,6 +32,8 @@ impl Default for Config {
         Self {
             listen: "127.0.0.1:4443".parse().unwrap(),
             data_dir: PathBuf::from("data"),
+            seed_dir: None,
+            seed_project: "local-project".into(),
             api_base_url: "http://127.0.0.1:4443".into(),
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
@@ -111,6 +115,17 @@ impl Config {
                         return Err("data_dir must not be empty".into());
                     }
                     config.data_dir = PathBuf::from(value);
+                }
+                "seed_dir" => {
+                    if value.is_empty() {
+                        return Err("seed_dir must not be empty".into());
+                    }
+                    config.seed_dir = Some(PathBuf::from(value));
+                }
+                "seed_project" => {
+                    crate::json::validate_project(&value)
+                        .map_err(|error| format!("seed_project: {}", error.message))?;
+                    config.seed_project = value;
                 }
                 "listen" => {
                     config.listen = value
