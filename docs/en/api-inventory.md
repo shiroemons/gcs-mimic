@@ -1,6 +1,8 @@
 # Public API inventory
 
-Research cutoff: **2026-10-21**. Core JSON Discovery revision **20261013**. All listed operation rows are `NOT_STARTED`.
+Research cutoff: **2026-10-21**. Core JSON Discovery revision **20261013**.
+This inventory describes the upstream surface; implementation status is owned
+by `compatibility/features.json`.
 
 ## Counting rules
 
@@ -32,6 +34,15 @@ Storage Control has 39 direct RPCs in the current Google-owned proto and generat
 Open specification questions are retained in `compatibility/gaps.json`. Full-context v1/v2 routes are distinct advertised API versions, not a source contradiction; each remains pending implementation and verification.
 
 ## Core JSON API v1
+
+Bucket IAM get/set use the [scoped bucket policy contract](slices/bucket-iam.md),
+checked against the same live Discovery revision on 2026-10-22. The supported
+subset includes persistent unconditional predefined storage roles, local user
+and service-account members, convenience values, effective project/bucket grants
+and atomic etag updates. `testIamPermissions`, public principals, conditions,
+custom/basic roles and ACLs remain outside that scope. Get/set require
+`storage.buckets.getIamPolicy` / `storage.buckets.setIamPolicy`; bucket-level
+grants never authorize project-scoped bucket insert/list.
 
 | Feature ID | Method / interface | Route or detail |
 | --- | --- | --- |

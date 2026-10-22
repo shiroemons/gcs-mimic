@@ -2,11 +2,13 @@
 //!
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
-//! the pinned predefined-role snapshot in [`roles`]. Only project-level role grants are modeled;
-//! bucket/object IAM policies, ACLs, `allUsers`/`allAuthenticatedUsers` and signed URLs are not.
+//! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
+//! ACLs, public principals and signed URLs are not modeled.
 //! Nothing here contacts Google or the metadata server.
 
-mod roles;
+mod policy;
+pub(crate) mod roles;
+pub use policy::{Binding, Policy};
 
 use crate::bucket::BucketAccess;
 use hyper::{HeaderMap, header::AUTHORIZATION};
@@ -24,6 +26,8 @@ pub const BUCKETS_CREATE: &str = "storage.buckets.create";
 pub const BUCKETS_DELETE: &str = "storage.buckets.delete";
 pub const BUCKETS_GET: &str = "storage.buckets.get";
 pub const BUCKETS_LIST: &str = "storage.buckets.list";
+pub const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
+pub const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
 pub const OBJECTS_CREATE: &str = "storage.objects.create";
 pub const OBJECTS_DELETE: &str = "storage.objects.delete";
 pub const OBJECTS_GET: &str = "storage.objects.get";
@@ -103,7 +107,7 @@ impl fmt::Display for AuthFailure {
 impl std::error::Error for AuthFailure {}
 
 /// A registered local principal with its project-scoped permissions expanded at load time.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     id: String,
     permissions: BTreeMap<String, BTreeSet<&'static str>>,

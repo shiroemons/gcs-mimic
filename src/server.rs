@@ -242,9 +242,11 @@ async fn authorize_bucket(
     let Some(caller) = caller else {
         return Ok(BucketAccess::Unchecked);
     };
-    caller.principal()?;
-    let project = state.catalog.get_bucket(bucket).await?.map(|b| b.project);
-    Ok(caller.bucket_access(permission, project)?)
+    let identity = caller.principal()?;
+    Ok(state
+        .catalog
+        .bucket_access(bucket, identity, permission)
+        .await?)
 }
 
 /// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
@@ -698,19 +700,37 @@ async fn bucket_response(
         BucketRequest::Delete { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_DELETE, bucket).await?
         }
+        BucketRequest::GetIam { bucket } => {
+            authorize_bucket(state, caller, auth::BUCKETS_GET_IAM, bucket).await?
+        }
+        BucketRequest::SetIam { bucket } => {
+            authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
+        }
     };
-    if !matches!(operation, BucketRequest::Insert(_))
-        && (request.headers().contains_key("transfer-encoding")
-            || request
-                .headers()
-                .get("content-length")
-                .is_some_and(|v| v != "0"))
+    if !matches!(
+        operation,
+        BucketRequest::Insert(_) | BucketRequest::SetIam { .. }
+    ) && (request.headers().contains_key("transfer-encoding")
+        || request
+            .headers()
+            .get("content-length")
+            .is_some_and(|v| v != "0"))
     {
         return Err(JsonError::invalid_argument(
             "This method requires an empty body",
         ));
     }
     let value = match operation {
+        BucketRequest::GetIam { bucket } => {
+            let policy = state.catalog.get_policy(&bucket, &access).await?;
+            json::policy_resource(&policy, &bucket)
+        }
+        BucketRequest::SetIam { bucket } => {
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let policy = json::parse_policy(&bytes)?;
+            let policy = state.catalog.set_policy(&bucket, policy, &access).await?;
+            json::policy_resource(&policy, &bucket)
+        }
         BucketRequest::Insert(params) => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let record = json::parse_insert(&bytes, &params.project, state.clock.now())?;
