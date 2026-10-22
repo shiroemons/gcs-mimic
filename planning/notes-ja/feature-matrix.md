@@ -9,14 +9,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 201 | 177 | 0 | 24 | 0 | 0 | 0 |
-| project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
+| behavior | 201 | 174 | 0 | 26 | 1 | 0 | 0 |
+| project_requirement | 92 | 46 | 0 | 27 | 19 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 177 | 0 | 22 | 2 | 0 | 0 |
-| project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
+| behavior | 174 | 1 | 24 | 2 | 0 | 0 |
+| project_requirement | 46 | 0 | 0 | 0 | 0 | 46 |
 
 ## api_operation
 
@@ -148,7 +148,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
@@ -467,11 +467,11 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | 認証・認可を検証する厳密モード | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
 | DESIGN-005 | サービスアカウント署名者の対応付け | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuthトークン発行との境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
-| DESIGN-008 | Storage定義済みロールの権限展開 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-008 | Storage定義済みロールの権限展開 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-010 | 未知の主体・失効した認証情報の拒否 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 
 ### BUCKET
@@ -782,8 +782,8 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-001 | 認証を省略する開発モードの明示 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-003 | ローカル主体とテストトークンの登録 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-001 | 認証を省略する開発モードの明示 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-003 | ローカル主体とテストトークンの登録 | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-006 | ユーザー・グループ所属のローカル定義 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-009 | カスタムロールのローカル設定 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-011 | プロジェクトをまたぐ主体・所有関係の再現 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 4 |
+| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 5 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -940,7 +940,7 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-046 | 権限を変えない公開URLの組み立て | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-046 | 権限を変えない公開URLの組み立て | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | クライアントから到達できる再開用Location | NOT_STARTED | P2 | PROJECT | NONE | 0 |

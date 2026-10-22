@@ -9,14 +9,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 201 | 177 | 0 | 24 | 0 | 0 | 0 |
-| project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
+| behavior | 201 | 174 | 0 | 26 | 1 | 0 | 0 |
+| project_requirement | 92 | 46 | 0 | 27 | 19 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 177 | 0 | 22 | 2 | 0 | 0 |
-| project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
+| behavior | 174 | 1 | 24 | 2 | 0 | 0 |
+| project_requirement | 46 | 0 | 0 | 0 | 0 | 46 |
 
 ## api_operation
 
@@ -148,7 +148,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
@@ -467,11 +467,11 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | Explicit strict authentication profile | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-004 | Anonymous versus authenticated callers | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-002 | Explicit strict authentication profile | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| DESIGN-004 | Anonymous versus authenticated callers | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
 | DESIGN-005 | Service-account signing identity mapping | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuth token issuance boundary | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
-| DESIGN-008 | Predefined storage roles permission expansion | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-008 | Predefined storage roles permission expansion | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-010 | Unknown principal and revoked credential rejection | NOT_STARTED | P2 | EXACT | NONE | 0 |
 
 ### BUCKET
@@ -782,8 +782,8 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-001 | Explicit permissive authentication profile | NOT_STARTED | P0 | PROJECT | NONE | 0 |
-| DESIGN-003 | Local principal and test-token registry | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-001 | Explicit permissive authentication profile | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-003 | Local principal and test-token registry | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-006 | Local user and group membership fixtures | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-009 | Custom roles through local configuration | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-011 | Cross-project identity and ownership fixtures | NOT_STARTED | P2 | PROJECT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 5 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -940,7 +940,7 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-046 | Public URL construction without permission mutation | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-046 | Public URL construction without permission mutation | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-055 | Listen versus advertised API/public addresses | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | Proxy-aware advertised URLs with explicit trust | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | Resumable Location reachable by clients | NOT_STARTED | P2 | PROJECT | NONE | 0 |

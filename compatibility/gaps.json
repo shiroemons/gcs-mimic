@@ -274,6 +274,34 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The official upload guide defines metadata then media; data validation additionally shows a third CRC32C JSON part. References do not settle conflicting contentType precedence, exact malformed-container error reasons or emulator MIME caps. Locally, nonempty metadata contentType wins over media Content-Type then application/octet-stream; null/empty falls back. JSON parts cap at 65536 bytes, preamble/epilogue at 4096, part header blocks at 8192 including line/blank CRLF, and delimiter suffix lines at 8192 excluding CRLF. Preamble excludes the first delimiter CRLF. Known Content-Length above media cap plus 256 KiB fails early. Framing/type/header/truncation and body transport errors/trailers return 400 invalidParameter; malformed JSON returns parseError; checksum mismatch and unknown third-part keys return invalid. MD5 in the third part, an empty checksum object and equal duplicate declarations are accepted; conflicting declarations return invalidParameter. Folded/duplicate part headers, non-binary Content-Transfer-Encoding (including 7bit/8bit), and a headers-only part without the additional CRLF expected by the parser are rejected. Outer boundary and type=application/json are supported; alternate-root semantics return 501. These local rules have wire tests, not authorized real-service differential evidence or CPU/RSS measurements.",
       "required_resolution": "Keep multipart and affected method/behavior rows PARTIAL while deviations remain. Obtain an explicitly authorized direct-service fixture for MIME boundaries/caps, empty-part CRLF, transfer encodings, contentType conflicts/null/empty values, third-part MD5/unknown/conflicting fields and exact malformed/transport error reasons. Preserve bounded streaming, early metadata validation and failed-overwrite resource snapshots. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
+    },
+    {
+      "id": "SPEC-017",
+      "title": "Strict authentication error wire details and missing-bucket authorization need real-service evidence",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-002",
+        "DESIGN-004",
+        "JSON-BUCKETS-001",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-005",
+        "JSON-BUCKETS-006",
+        "JSON-OBJECTS-004",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-008",
+        "JSON-OBJECTS-010",
+        "JSON-OBJECTS-015"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The status-code reference (last updated 2026-10-21) documents the 401 required example with locationType header and location Authorization, the authError reason and the 403 forbidden example. It does not document the authError message or location fields, the longer principal/permission 403 message often returned by the service, or whether WWW-Authenticate is sent. Locally, invalid or unsupported credentials return 401 authError with message Invalid Credentials, locationType header and location Authorization; permission failures return the short documented Forbidden example; no WWW-Authenticate header is sent. The missing-bucket rule is local: an authenticated caller receives 404 only when it holds the required permission in at least one project, otherwise 403; anonymous callers always receive 401 required because no allUsers grants are modeled. projection=full requires no extra permission because ACL/owner fields are not rendered. Authentication precedes route syntax validation, so an invalid token wins over a 400 while an anonymous malformed request still returns 400. For an objects.insert that would overwrite a live object, generation/metageneration preconditions are evaluated before the storage.objects.delete overwrite check, so a caller lacking that permission can distinguish a matching from a mismatching generation through 403 versus 412; the real-service order is unverified. Strict operations recheck the authorized bucket project inside their catalog transaction (a bucket recreated in another project returns 403 without mutation).",
+      "required_resolution": "Keep DESIGN-002, DESIGN-004 and the affected JSON method rows PARTIAL. Obtain explicitly authorized real-service differential evidence for authError message/location fields, 403 message text, WWW-Authenticate presence, missing-bucket status for callers with and without permissions, anonymous access to missing buckets, projection=full permission requirements, the relative order of credential and syntax errors, and the order of overwrite preconditions (412) versus the overwrite permission check (403). Preserve the documented required/forbidden examples and fail-closed credential handling. See docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md."
     }
   ],
   "resolved_research_items": [
@@ -296,6 +324,10 @@
     {
       "title": "ViewObjectFullContext v1 and v2 REST routes",
       "resolution": "The dedicated JSON reference and live Discovery agree on the v1 route. Control proto separately advertises the v2 route. Both and the native RPC are tracked independently; this is not a source contradiction."
+    },
+    {
+      "title": "Strict identity registry format",
+      "resolution": "The future onboarding specification sketched a TOML identity file. The implemented registry is a bounded JSON file (config/identities.json, at most 64 KiB) because the runtime configuration is already flat JSON; no TOML parser was added. This is an emulator-local format with no Google contract. See docs/en/slices/strict-auth.md."
     }
   ]
 }
