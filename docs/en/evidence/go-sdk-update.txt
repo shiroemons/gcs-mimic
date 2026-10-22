@@ -1,0 +1,155 @@
+Local path prefixes in retained command output are redacted as <checkout>.
+
+Go Storage SDK update verification — 2026-10-22
+Checked at: 2026-10-22T05:37:19Z
+Host: darwin/arm64; Go 1.27.3; Rust 1.99.1.
+Scope: pinned official Go HTTP JSON suite; no emulator source or test changes.
+
+Official release provenance
+---------------------------
+Sources checked on 2026-10-22:
+https://proxy.golang.org/cloud.google.com/go/storage/@latest
+https://proxy.golang.org/cloud.google.com/go/storage/@v/list
+https://proxy.golang.org/cloud.google.com/go/storage/@v/v1.70.0.mod
+https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/CHANGES.md
+https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/storage.go
+https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/http_client.go
+https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/reader.go
+https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/iam.go
+
+The official @latest response was:
+{"Version":"v1.70.0","Time":"2026-10-22T04:53:21Z","Origin":{"VCS":"git","URL":"https://github.com/googleapis/google-cloud-go","Subdir":"storage","Hash":"9a2913189e552da51b0fd60aa635027426f04d71","Ref":"refs/tags/storage/v1.70.0"}}
+
+The numeric stable maximum in @v/list was v1.70.0. Its go.mod retracts
+[v1.25.0, v1.27.0], which excludes v1.70.0. It requires Go 1.26.0.
+The Google-maintained module retains Apache-2.0; its compressed module is
+1,044,029 bytes (previously 1,006,903). No new dependency was introduced.
+
+Release notes announce tracing attributes, gRPC Writer timeout/retry handling,
+gRPC range-read corrections, DirectPath over Interconnect and regenerated API
+sources. They announce no breaking change for STORAGE_EMULATOR_HOST, JSON reads,
+HTTP Writer or IAM. Source review confirms emulator endpoint construction and
+WithoutAuthentication, explicit WithJSONReads, HTTP Writer upload selection and
+the bucket IAM adapter remain available. No harness migration was required.
+The strict client continues clearing STORAGE_EMULATOR_HOST and supplying its
+explicit endpoint/static bearer transport; bucket/object IAM policies remain
+outside this suite. gRPC changes are outside the supported emulator transport.
+
+Dependency update
+-----------------
+Commands in sdk-tests/go, with GOTOOLCHAIN=go1.27.3:
+$ go version
+go version go1.27.3 darwin/arm64
+$ go get cloud.google.com/go/storage@v1.70.0
+go: upgraded cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a => v0.24.1
+go: upgraded cloud.google.com/go/storage v1.69.0 => v1.70.0
+Exit: 0. Download progress omitted.
+$ go mod tidy
+Exit: 0; no output after download progress.
+Only Storage and the transitive auth module changed versions. API v0.307.0,
+oauth2 v0.37.0, the language baseline and toolchain pins are unchanged.
+Temporary Go module/build caches were selected through GOMODCACHE/GOCACHE.
+The rustup proxy directory was first in PATH for the commands below.
+
+Freshness check
+---------------
+$ just check-dependencies
+Exit: 0. Build progress omitted; every checked input reports CURRENT.
+checked_at_unix_seconds=1792647470
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+md-5: CURRENT current=0.11.0 latest=0.11.0
+rusqlite: CURRENT current=0.40.2 latest=0.40.2
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+docker library/rust:1.99.1-slim-trixie: CURRENT current=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec latest=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec
+docker library/rust:slim-trixie: CURRENT current=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec latest=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf latest=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+docker curlimages/curl:8.23.0: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker curlimages/curl:latest: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9 latest=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+Go language baseline: CURRENT current=1.27.0 latest=1.27.0
+Go toolchain: CURRENT current=1.27.3 latest=1.27.3
+cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
+golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
+google.golang.org/api: CURRENT current=v0.307.0 latest=v0.307.0
+
+Pinned full Go SDK suite (one execution)
+---------------------------------------
+$ just check-sdk
+Exit: 0. go vet ./... passed; go test -count=1 -v ./... used isolated native
+permissive and strict servers. No tests skipped or failed. Build progress,
+RUN lines and nested subtest PASS lines omitted below.
+--- PASS: TestEmulatorEndpoint (0.00s)
+--- PASS: TestBucketLifecycle (0.04s)
+--- PASS: TestObjectList (0.50s)
+--- PASS: TestObjectMetadataUpdate (0.04s)
+--- PASS: TestObjectMultipartWriter (0.14s)
+--- PASS: TestObjectMediaLifecycle (0.16s)
+--- PASS: TestStrictAuthAdminLifecycle (0.04s)
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.03s)
+--- PASS: TestStrictAuthObjectViewer (0.04s)
+--- PASS: TestStrictAuthObjectCreator (0.05s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	1.530s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+
+Rust and shared checks
+----------------------
+$ just check
+Exit: 0. Formatting, clippy with -D warnings, all 223 Rust tests, compatibility
+validation and shell checks passed. Selected actual output:
+PASS: shared checks run in order and stop at every failing Cargo command
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.42s
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.76s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+PASS: container publication validates inputs, API failures, immutable retries, attestations and alias selection without network access
+Usage: bash scripts/smoke-containers.sh [--image IMAGE] [linux/amd64|linux/arm64 ...]
+Unsupported platform: linux/unknown
+The unsupported-platform message is the expected smoke-script argument
+validation check; no container was built or run.
+
+Ledger proposal for integration
+-------------------------------
+DESIGN-082 remains PARTIAL. Add this passing native HTTP JSON SDK verification
+for Storage v1.70.0, API v0.307.0 and Go 1.27.3, linking this evidence and the ten
+top-level Go tests printed above. Existing acceptance results need no status
+change; resumable transfers, signing, bucket/object IAM and XML/gRPC are still
+outside the supported subset. Historical evidence keeps its original pins.
+No new compatibility gap is proposed by this dependency-only update.
+
+Limitations
+-----------
+No containers, Compose workflow, remote CI or real-cloud differential tests were
+run for this update. Integration owns final container checks and shared feature
+ledger/README/slice-contract pin reconciliation. Tests were not weakened.
