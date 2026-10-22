@@ -340,6 +340,7 @@ put_bucket() {
 create put-create compare-put '{"defaultEventBasedHold":true}'
 request put-upload POST '/upload/storage/v1/b/compare-put/o?uploadType=media&name=kept.txt' 'PUT preserved payload' text/plain
 state put-before compare-put
+request put-object-before GET /storage/v1/b/compare-put/o/kept.txt
 put_bucket put-all-fields '{"labels":{"keep":"one","remove":"two"},"storageClass":"NEARLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}'
 put_bucket put-label-replace '{"labels":{"only":"replacement"}}'
 put_bucket put-label-empty '{"labels":{}}'
@@ -347,6 +348,7 @@ put_bucket put-label-null '{"labels":null}'
 put_bucket put-settings-enable '{"versioning":{"enabled":true},"defaultEventBasedHold":true}'
 put_bucket put-settings-omitted '{}'
 put_bucket put-settings-disable '{"versioning":{"enabled":false},"defaultEventBasedHold":false}'
+request put-object-after-disable GET /storage/v1/b/compare-put/o/kept.txt
 put_bucket put-versioning-empty '{"versioning":{}}'
 put_bucket put-settings-null '{"versioning":null,"defaultEventBasedHold":null}'
 put_bucket put-class-null '{"storageClass":null}'
@@ -388,7 +390,7 @@ jq -es '
       and all($puts[] | select(.case != "put-missing");
         (.request.path | split("?")[0] | split("/")[-1]) as $name
         | ($rows[.case + "-get-state"].body | fromjson) as $after
-        | ($rows[if $name == "compare-put" then "put-before-get-state" else "put-conditions-create" end].body | fromjson) as $before
+        | ($rows[if $name == "compare-put" then "put-before-get-state" else "put-conditions-create-get-state" end].body | fromjson) as $before
         | $after == $before
           and ($rows[.case + "-list-state"].body | fromjson | .items | map(select(.name == $name))) == [$after])
       and $rows["put-missing-get-state"].status == 404
@@ -405,19 +407,26 @@ if [[ $reference_only == 0 ]]; then
       (map({key:.case,value:.}) | from_entries) as $rows
       | [.[] | select(.request.method == "PUT")] as $puts
       | ($puts | length == 32) and all($puts[];
-          .status == (if .case == "put-malformed" or .case == "put-class-null" or .case == "put-projection-invalid"
-              or .case == "put-generation" or (.case == "put-settings-null" and .target == "mimic-native") then 400
-            elif .case == "put-missing" then 404
+          (if .case == "put-malformed" then [400,"parseError"]
+            elif .case == "put-class-null" or (.case == "put-settings-null" and .target == "mimic-native") then [400,"invalidArgument"]
+            elif .case == "put-projection-invalid" or .case == "put-generation" then [400,"invalidParameter"]
+            elif .case == "put-missing" then [404,"notFound"]
             elif (.case | startswith("put-unsupported-")) or .case == "put-nonempty-acl" or .case == "put-default-acl"
-              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then 501
-            elif .case == "put-match-stale" or .case == "put-notmatch-failure" then 412
-            else 200 end))
+              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then [501,"notImplemented"]
+            elif .case == "put-match-stale" or .case == "put-notmatch-failure" then [412,"conditionNotMet"]
+            else [200,null] end) as $expected
+          | .status == $expected[0]
+            and (if .status == 200 then true
+              else (.body | fromjson | .error.errors[0].reason) == $expected[1] end))
+        and resource($rows; "put-create-get-state") == resource($rows; "put-before-get-state")
+        and resource($rows; "put-object-before").eventBasedHold == true
+        and resource($rows; "put-object-before") == resource($rows; "put-object-after-disable")
         and (resource($rows; "put-all-fields").labels == {keep:"one",remove:"two"})
         and (resource($rows; "put-label-replace").labels == {only:"replacement"})
         and (resource($rows; "put-notmatch-failure-get-state").labels == {condition:"notmatch"})
         and (reduce $puts[] as $put (
           {ok:true, previous:{"compare-put":resource($rows; "put-before-get-state"),
-            "compare-put-conditions":resource($rows; "put-conditions-create")}};
+            "compare-put-conditions":resource($rows; "put-conditions-create-get-state")}};
           ($put.request.path | split("?")[0] | split("/")[-1]) as $name
           | resource($rows; $put.case + "-get-state") as $after
           | .previous[$name] as $before
