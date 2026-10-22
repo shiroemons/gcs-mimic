@@ -1038,10 +1038,14 @@ For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
 port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
-In strict mode, 401 `required` means no `Authorization` header was sent, 401
+In strict JSON responses, 401 `required` means an anonymous request lacks a
+matching grant, 401
 `authError` means the credential is unregistered or unsupported (including
 `access_token` or signature query parameters), and 403 `forbidden` means the
-principal lacks the permission through the effective project or bucket grants. Check the ready event's
+principal lacks the permission through the effective project or bucket grants.
+XML uses 400 `InvalidAuthentication` for invalid or unsupported credentials,
+401 `AuthenticationRequired` for an anonymous denial and 403 `AccessDenied`
+for an authenticated permission denial. Check the ready event's
 `auth_mode`: running `docker compose up` without `compose.strict.yaml` recreates the
 service in permissive mode.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
