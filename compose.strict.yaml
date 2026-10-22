@@ -1,0 +1,15 @@
+# Strict authentication override for compose.yaml:
+#   docker compose -f compose.yaml -f compose.strict.yaml up
+# config/identities.json holds local emulator fixtures only. Its tokens are
+# deliberately public test values, not Google credentials, and must never be
+# reused for a real service. Security settings stay defined in compose.yaml.
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_AUTH_MODE: strict
+      GCS_MIMIC_IDENTITY_FILE: /etc/gcs-mimic/identities.json
+    volumes:
+      - type: bind
+        source: ./config/identities.json
+        target: /etc/gcs-mimic/identities.json
+        read_only: true
