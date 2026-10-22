@@ -2,7 +2,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media upload, metadata get, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
+The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
 
 ## Implementation status
 
@@ -15,13 +15,13 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
-| JSON object APIs | 🚧 Partial | Media upload, metadata/whole-media get and delete; MD5/CRC32C, generation conditions and nonempty bucket protection. Multipart/resumable, ranges, listing and metadata mutation are unavailable. |
+| JSON object APIs | 🚧 Partial | Media upload, metadata/whole-media get and delete, prefix/delimiter/offset listing with keyset paging, and metadata patch/update; MD5/CRC32C, atomic generation/metageneration conditions and nonempty bucket protection. Multipart/resumable, ranges, glob/version listing and ACL/hold/retention metadata are unavailable. |
 | XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
 | Persistence | 🚧 Partial | Transactional bucket/object catalog, opaque blobs, exclusive directory lock and restart/crash recovery. Individual fsync crash windows, power loss and fixtures remain unverified or unavailable. |
 | Authentication, IAM and ACLs | ❌ Unavailable | Neither permissive nor strict storage authentication is implemented. |
 | Public and signed URLs | ❌ Unavailable | No URL helpers, signing or signature verification. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.306.0 verified for JSON bucket CRUD/paging and object Attrs/NewReader/Delete after raw media upload. SDK Writer is rejected; Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.307.0 verified for JSON bucket CRUD/paging and, after raw media upload, object Attrs/NewReader/Delete, Objects listing iterators and conditional Update. SDK Writer is rejected; Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -54,17 +54,17 @@ their tests were not run as part of this comparison.
 | Object metadata GET (`objects.get`) | 🚧 Current live generation only | ✅ | ✅ |
 | Whole-object media download | 🚧 Whole object; direct HTTP 200 | ✅ | ✅ |
 | Byte-range download | ❌ | ✅ | 🚧 Single range; explicit start required |
-| Object listing (`objects.list`) | ❌ | ✅ Prefix/delimiter/offsets | 🚧 Prefix/delimiter/glob filters |
-| Object list pagination | ❌ | ✅ `maxResults` / `pageToken` | ❌ |
-| Object metadata PATCH (`objects.patch`) | ❌ | 🚧 Metadata/content/ACL subset | 🚧 Writable metadata subset |
-| Object metadata PUT (`objects.update`) | ❌ | 🚧 Metadata/content/ACL subset | ❌ |
+| Object listing (`objects.list`) | 🚧 Prefix/delimiter/offsets; no glob, versions or soft-deleted | ✅ Prefix/delimiter/offsets | 🚧 Prefix/delimiter/glob filters |
+| Object list pagination | 🚧 `maxResults` / query-bound `pageToken`; bounded keyset seeks | ✅ `maxResults` / `pageToken` | ❌ |
+| Object metadata PATCH (`objects.patch`) | 🚧 Content/custom metadata merge; atomic conditions; no ACL | 🚧 Metadata/content/ACL subset | 🚧 Writable metadata subset |
+| Object metadata PUT (`objects.update`) | 🚧 Content/custom metadata replacement; atomic conditions; no ACL | 🚧 Metadata/content/ACL subset | ❌ |
 | Object delete (`objects.delete`) | 🚧 Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
 | Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
 | Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
 | Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
 | Retained object version history | ❌ One live generation | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
-| Generation/metageneration preconditions | 🚧 Atomic object checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
+| Generation/metageneration preconditions | 🚧 Atomic object upload/delete/metadata checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
 | MD5 and CRC32C calculation | 🚧 Media upload metadata/headers | ✅ | ✅ |
 | Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
 
@@ -162,9 +162,9 @@ Configuration precedence is command-line options, `GCS_MIMIC_` environment varia
 
 ## Current limitations
 
-Object APIs support only the [media subset](docs/en/slices/json-object-media.md): no multipart/resumable uploads, ranges, version history, listing, metadata patch or ACL/IAM. Go SDK Writer is unsupported. Ordinary media GET returns a direct 200; accepted GET/DELETE retry tokens are not deduplicated (SPEC-008..013 record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
+Object APIs support only the documented [media](docs/en/slices/json-object-media.md), [listing](docs/en/slices/json-object-list.md) and [metadata](docs/en/slices/json-object-metadata.md) subsets: no multipart/resumable uploads, ranges, version history or ACL/IAM. Listing rejects nonempty `matchGlob`/`filter`, `versions=true`, soft-deleted and folder-prefix options with 501. Metadata patch/update covers content headers and custom metadata; unknown fields, changed read-only fields and holds/retention/ACL settings return 501, and JSON media always returns `Cache-Control: no-cache` because public access is not implemented. Go SDK Writer is unsupported. Ordinary media GET returns a direct 200; accepted GET/DELETE/update retry tokens are not deduplicated (SPEC-008..013, SPEC-015 and the listing gaps record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
 
-[Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs migrate directly to v3.
+[Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and v3 catalogs migrate to v4, which adds stored object metadata.
 
 Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
 
