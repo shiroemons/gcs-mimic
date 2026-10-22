@@ -43,6 +43,50 @@ Checked on 2026-10-22; each page displayed "Last updated 2026-10-21 UTC".
 | [IAM permissions for JSON methods](https://docs.cloud.google.com/storage/docs/access-control/iam-json) | Permission per supported route and the overwrite `storage.objects.delete` requirement |
 | [IAM roles for Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/iam-roles) | Pinned 20-role `storage.*` permission snapshot in `src/auth/roles.rs` |
 
+## Public object read source pins
+
+Checked on **2026-10-22** for the
+[public object read contract](slices/public-object-reads.md). The SHA-256 values
+identify complete HTML or raw source bytes fetched that day, not normalized
+extracts or a claim that moving documentation URLs are immutable. Storage pages
+displayed a last-update date of 2026-10-21. The original research cutoff above
+does not override these later slice-specific checks.
+
+| Source | SHA-256 |
+| --- | --- |
+| [XML GET Object](https://docs.cloud.google.com/storage/docs/xml-api/get-object-download) | `1a26e94f3a6a2a9c300d81dfca13c0ca0bdc1c671e7e35f5edf9fe36eff7ff43` |
+| [XML HEAD Object](https://docs.cloud.google.com/storage/docs/xml-api/head-object) | `d4a2788c37fb4d6e4f703976d32c0a965c7c61418c9d4c96bf8c82dcf610155b` |
+| [XML headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers) | `3d254725a572ad08b58bbbc38f32202fc820b361dfb48d9b8b09274bd35f5bdb` |
+| [XML status codes](https://docs.cloud.google.com/storage/docs/xml-api/reference-status) | `9b786af795be3d89bbc70b11e8e812a204fa5d160e50b9df23b91e795d91801e` |
+| [Request endpoints](https://docs.cloud.google.com/storage/docs/request-endpoints) | `217a385a30c18be4925d082dfd4bd3f35eec62d50afd0f4428ac2588b6c0eaf3` |
+| [Storage IAM](https://docs.cloud.google.com/storage/docs/access-control/iam) | `4592ab72666799b4788325f200c35c97afcb43a8e930981c5e0579e286667684` |
+| [IAM principals](https://docs.cloud.google.com/iam/docs/principals-overview) | `cb2d4042a70f600de7a018c72f6a0a1dcc7eff29ba4fab69415ffa748b7206c5` |
+| [Make data public](https://docs.cloud.google.com/storage/docs/access-control/making-data-public) | `863f3184e544e2555d82f9b8369ef513ac9b9bab46030fbaaed227ba6271c39a` |
+| [Public access prevention](https://docs.cloud.google.com/storage/docs/public-access-prevention) | `97eb5fded3996c5bc47d3ef6cf7e831851945b2cd7168db8c441f16312c18372` |
+| [Object metadata](https://docs.cloud.google.com/storage/docs/metadata) | `0227a9749462c0c29366d0feab53c73867bbe3cd194c980b49bf60c8fa28aa8c` |
+| [JSON headers](https://docs.cloud.google.com/storage/docs/json_api/v1/parameters) | `992c1e95ee04da0709ff187ea743a01801a9bda4a92c6959d4df18e602c67b60` |
+| [Go storage/v1.70.0 http_client.go](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go) | `a74c0157e327096d641d4a8ca8b544ec6b2e4f8c9e64c463f5d8155e1cec50d0` |
+| [Go storage/v1.70.0 reader.go](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/reader.go) | `e0d84a656d4a43610169a9700f12d7aea5ede4b274ca84a5a3e4d06c77a4bfe8` |
+| [fake-gcs-server v1.56.1 server.go](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/server.go) | `abe448cd575fbc5687a2527031c3b72fc1ff4b109b12333d1b1d031ab533c005` |
+| [fake-gcs-server v1.56.1 object.go](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) | `cfd884eb03aa429f6b681bef8ca1923c600b24beb850c0620121c0c23110a56b` |
+
+The Go entries identify SDK behavior at the pinned tag. The fake-gcs-server
+entries are comparison-only source reviews; neither implementation overrides
+Google documentation. No real-cloud differential tests were run.
+
+Independent dependency checks on the same date used the official
+[Rust stable channel](https://static.rust-lang.org/dist/channel-rust-stable.toml),
+[crates.io sparse registry](https://index.crates.io/config.json),
+[Go releases](https://go.dev/dl/?mode=json),
+[Storage module](https://proxy.golang.org/cloud.google.com/go/storage/@latest),
+[OAuth2 module](https://proxy.golang.org/golang.org/x/oauth2/@latest),
+[API module](https://proxy.golang.org/google.golang.org/api/@latest),
+[Rust image registry](https://registry-1.docker.io/v2/library/rust/manifests/slim-trixie)
+and [Distroless registry](https://gcr.io/v2/distroless/cc-debian13/manifests/nonroot).
+All checked stable versions/digests matched the pins; the
+[slice-start command output](evidence/public-reads-dependencies.txt) records the
+complete detector result, including Actions and auxiliary container inputs.
+
 ## Important scope boundaries
 
 Cache acceleration, geographic redundancy, production durability, Google identity issuance, KMS execution, billing, BigQuery query execution, managed ML enrichment and external network services cannot be certified by a local emulator test. Track their local state/wire simulations separately from external services.
