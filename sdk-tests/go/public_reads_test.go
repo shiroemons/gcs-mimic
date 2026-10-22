@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -82,7 +85,7 @@ func requireReadBytes(t *testing.T, reader *storage.Reader, want []byte, attrs *
 	}
 }
 
-func requireReadDenied(t *testing.T, ctx context.Context, object *storage.ObjectHandle, code int) {
+func requireReadDenied(t *testing.T, ctx context.Context, object *storage.ObjectHandle, code int) error {
 	t.Helper()
 	reader, err := object.NewReader(ctx)
 	if reader != nil {
@@ -91,6 +94,7 @@ func requireReadDenied(t *testing.T, ctx context.Context, object *storage.Object
 		}
 	}
 	requireObjectStatus(t, err, code)
+	return err
 }
 
 func TestXMLReadsStrict(t *testing.T) {
@@ -215,7 +219,22 @@ func TestPublicReadsAllAuthenticatedUsers(t *testing.T) {
 						}
 						requireReadBytes(t, reader, payload, attrs, cacheControl)
 					} else {
-						requireReadDenied(t, ctx, object, tc.code)
+						code := tc.code
+						if tc.name == "unregistered" && !jsonReads {
+							code = http.StatusBadRequest
+						}
+						err := requireReadDenied(t, ctx, object, code)
+						if tc.name == "unregistered" {
+							if jsonReads {
+								requireStrictError(t, err, code, "authError")
+							} else {
+								var apiError *googleapi.Error
+								var body struct{ Code string }
+								if !errors.As(err, &apiError) || xml.Unmarshal([]byte(apiError.Body), &body) != nil || body.Code != "InvalidAuthentication" {
+									t.Fatalf("want XML InvalidAuthentication, got %v", err)
+								}
+							}
+						}
 					}
 					log.last(t, bucket.BucketName(), attrs.Name, http.MethodGet, jsonReads)
 				})
