@@ -121,17 +121,307 @@ fn raw(address: &str, request: &str) -> Reply {
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
 #[test]
+fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let mut server = profile_server(&dir, profile);
+        let original = server.insert("put-bucket", "00042").json();
+        let path = "/storage/v1/b/put-bucket";
+        let object = "/storage/v1/b/put-bucket/o/item";
+        let upload = "/upload/storage/v1/b/put-bucket/o?uploadType=media&name=item";
+        let metadata = server.request("POST", upload, "original bytes").json();
+        let policy = server
+            .request(
+                "PUT",
+                &format!("{path}/iam"),
+                r#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
+            )
+            .json();
+        let populated = server.request("PUT", path, r#"{"labels":{"keep":"yes","replace":"old"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
+        assert_eq!(populated.status, 200, "{}", populated.body);
+        let merged = server
+            .request("PATCH", path, r#"{"labels":{"replace":"new"}}"#)
+            .json();
+        assert_eq!(merged["labels"], json!({"keep":"yes","replace":"new"}));
+        assert_eq!(merged["storageClass"], "ARCHIVE");
+        assert_settings(&merged, profile, true, true);
+        let replaced = server.request("PUT", path, r#"{"labels":{"replace":"only"}}"#);
+        assert_eq!(replaced.status, 200, "{}", replaced.body);
+        let value = replaced.json();
+        assert_eq!(value["labels"], json!({"replace":"only"}));
+        assert_eq!(value["storageClass"], "STANDARD");
+        assert_settings(&value, profile, false, false);
+        assert_eq!(value["metageneration"], "4");
+        assert_ne!(value["etag"], merged["etag"]);
+        for field in [
+            "name",
+            "id",
+            "kind",
+            "projectNumber",
+            "location",
+            "locationType",
+            "timeCreated",
+            "selfLink",
+        ] {
+            assert_eq!(value[field], original[field], "{profile}: {field}");
+        }
+        assert_eq!(server.request("GET", object, "").json(), metadata);
+        assert_eq!(
+            server
+                .request("GET", &format!("{object}?alt=media"), "")
+                .body,
+            "original bytes"
+        );
+        assert_eq!(
+            server.request("GET", &format!("{path}/iam"), "").json(),
+            policy
+        );
+        assert_eq!(server.request("GET", path, "").json(), value);
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b?project=00042", "")
+                .json()["items"][0],
+            value
+        );
+        assert_eq!(
+            server
+                .request(
+                    "POST",
+                    "/upload/storage/v1/b/put-bucket/o?uploadType=media&name=new",
+                    "new"
+                )
+                .json()["storageClass"],
+            "STANDARD"
+        );
+        server.stop();
+        let server = profile_server(&dir, profile);
+        assert_eq!(server.request("GET", path, "").json(), value);
+        assert_eq!(server.request("GET", object, "").json(), metadata);
+        assert_eq!(
+            server.request("GET", &format!("{path}/iam"), "").json(),
+            policy
+        );
+    }
+}
+
+#[test]
+fn bucket_put_empty_null_and_invalid_inputs() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("put-empty", "project");
+        let path = "/storage/v1/b/put-empty";
+        for body in [
+            "{}",
+            r#"{"labels":{}}"#,
+            r#"{"labels":null}"#,
+            r#"{"versioning":{}}"#,
+        ] {
+            let before = server.request("PUT", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
+            let reply = server.request("PUT", path, body);
+            assert_eq!(reply.status, 200, "{}", reply.body);
+            let value = reply.json();
+            assert!(value.get("labels").is_none());
+            assert_eq!(value["storageClass"], "STANDARD");
+            assert_settings(&value, profile, false, false);
+            assert_eq!(
+                value["metageneration"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<i64>()
+                    .unwrap(),
+                before["metageneration"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<i64>()
+                    .unwrap()
+                    + 1
+            );
+        }
+        let before = server.request("GET", path, "").json();
+        for body in [
+            "",
+            "{",
+            "{}{}",
+            "[]",
+            "null",
+            r#"{"labels":[]}"#,
+            r#"{"labels":""}"#,
+            r#"{"labels":{"key":1}}"#,
+            r#"{"labels":{"key":null}}"#,
+            r#"{"storageClass":null}"#,
+            r#"{"storageClass":""}"#,
+            r#"{"versioning":true}"#,
+            r#"{"defaultEventBasedHold":"true"}"#,
+        ] {
+            let reply = server.request("PUT", path, body);
+            assert_eq!(reply.status, 400, "{profile}: {body}: {}", reply.body);
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
+        let oversized = format!("{{\"padding\":\"{}\"}}", "x".repeat(65536));
+        server
+            .request("PUT", path, &oversized)
+            .error(413, "uploadTooLarge");
+        assert_eq!(server.request("GET", path, "").json(), before);
+        let no_effect = server.request("PUT", path, "{}").json();
+        assert_eq!(
+            no_effect["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap(),
+            before["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap()
+                + 1
+        );
+        assert_ne!(no_effect["etag"], before["etag"]);
+    }
+}
+
+#[test]
+fn bucket_put_null_settings_follow_profile_defaults() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("put-null-settings", "project");
+        let path = "/storage/v1/b/put-null-settings";
+        for body in [
+            r#"{"versioning":null}"#,
+            r#"{"versioning":{"enabled":null}}"#,
+            r#"{"defaultEventBasedHold":null}"#,
+        ] {
+            let before = server.request("PUT", path, r#"{"labels":{"keep":"yes"},"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
+            let reply = server.request("PUT", path, body);
+            if profile == "native" {
+                reply.error(400, "invalidArgument");
+                assert_eq!(server.request("GET", path, "").json(), before);
+            } else {
+                assert_eq!(reply.status, 200, "{}", reply.body);
+                assert_settings(&reply.json(), profile, false, false);
+                assert!(reply.json().get("labels").is_none());
+                assert_eq!(reply.json()["storageClass"], "STANDARD");
+            }
+        }
+    }
+}
+
+#[test]
+fn bucket_put_label_boundaries_and_classes() {
+    for profile in PROFILES {
+        let invalid = if profile == "native" {
+            "invalidArgument"
+        } else {
+            "invalid"
+        };
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("put-limits", "project");
+        let path = "/storage/v1/b/put-limits";
+        let labels: serde_json::Map<_, _> =
+            (0..64).map(|i| (format!("key{i}"), json!(""))).collect();
+        assert_eq!(
+            server
+                .request("PUT", path, &json!({"labels":labels}).to_string())
+                .status,
+            200
+        );
+        let before = server.request("GET", path, "").json();
+        let too_many: serde_json::Map<_, _> =
+            (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
+        server
+            .request(
+                "PUT",
+                path,
+                &json!({"labels":too_many,"storageClass":"ARCHIVE"}).to_string(),
+            )
+            .error(400, invalid);
+        assert_eq!(server.request("GET", path, "").json(), before);
+        assert_eq!(
+            server
+                .request("PUT", path, r#"{"labels":{"extra":"v"}}"#)
+                .json()["labels"],
+            json!({"extra":"v"})
+        );
+        for (key, value) in [
+            ("".into(), json!("v")),
+            ("Bad".into(), json!("v")),
+            ("1bad".into(), json!("v")),
+            ("a b".into(), json!("v")),
+            ("a".repeat(64), json!("v")),
+            ("bad".into(), json!("Upper")),
+            ("bad".into(), json!("v".repeat(64))),
+            ("bad".into(), Value::Null),
+        ] {
+            let before = server.request("GET", path, "").json();
+            server
+                .request("PUT", path, &json!({"labels":{key:value}}).to_string())
+                .error(400, invalid);
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
+        assert_eq!(
+            server
+                .request(
+                    "PUT",
+                    path,
+                    &json!({"labels":{"é".repeat(63):"あ".repeat(63)}}).to_string()
+                )
+                .status,
+            200
+        );
+        for class in [
+            "STANDARD",
+            "NEARLINE",
+            "COLDLINE",
+            "ARCHIVE",
+            "MULTI_REGIONAL",
+            "DURABLE_REDUCED_AVAILABILITY",
+        ] {
+            let reply = server.request("PUT", path, &json!({"storageClass":class}).to_string());
+            assert_eq!(reply.status, 200, "{}", reply.body);
+            assert_eq!(reply.json()["storageClass"], class);
+        }
+        let before = server.request("GET", path, "").json();
+        for class in ["REGIONAL", "RAPID"] {
+            server
+                .request(
+                    "PUT",
+                    path,
+                    &json!({"storageClass":class,"labels":null}).to_string(),
+                )
+                .error(501, "notImplemented");
+        }
+        server
+            .request("PUT", path, r#"{"storageClass":"TYPO"}"#)
+            .error(400, invalid);
+        assert_eq!(server.request("GET", path, "").json(), before);
+    }
+}
+
+#[test]
 fn bucket_patch_full_resource_round_trip_preserves_unchanged_fields() {
+    bucket_metadata_round_trip("PATCH");
+}
+
+#[test]
+fn bucket_put_full_resource_round_trip_preserves_unchanged_fields() {
+    bucket_metadata_round_trip("PUT");
+}
+
+fn bucket_metadata_round_trip(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
         assert_eq!(server.insert("patch-round-trip", "project").status, 200);
         let path = "/storage/v1/b/patch-round-trip";
+        assert_eq!(server.request(method, path, r#"{"storageClass":"ARCHIVE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#).status, 200);
         for label in ["first", "second"] {
             let before = server.request("GET", path, "").json();
             let mut body = before.clone();
             body["labels"] = json!({"roundtrip":label});
-            let reply = server.request("PATCH", path, &body.to_string());
+            let reply = server.request(method, path, &body.to_string());
             assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
             let after = reply.json();
             assert_eq!(after["labels"], body["labels"]);
@@ -156,6 +446,15 @@ fn bucket_patch_full_resource_round_trip_preserves_unchanged_fields() {
 
 #[test]
 fn bucket_patch_location_comparison_is_case_insensitive() {
+    bucket_metadata_location("PATCH");
+}
+
+#[test]
+fn bucket_put_location_comparison_is_case_insensitive() {
+    bucket_metadata_location("PUT");
+}
+
+fn bucket_metadata_location(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -167,18 +466,18 @@ fn bucket_patch_location_comparison_is_case_insensitive() {
             ["us-central1", "Us-Central1", "US-CENTRAL1"]
         } {
             let before = server.request("GET", path, "").json();
-            let reply = server.request("PATCH", path, &json!({"location":location}).to_string());
+            let reply = server.request(method, path, &json!({"location":location}).to_string());
             assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
             assert_eq!(reply.json()["location"], before["location"]);
         }
         let before = server.request("GET", path, "").json();
         server
-            .request("PATCH", path, r#"{"location":"EU","labels":{"lost":"no"}}"#)
+            .request(method, path, r#"{"location":"EU","labels":{"lost":"no"}}"#)
             .error(501, "notImplemented");
         assert_eq!(server.request("GET", path, "").json(), before);
         if profile == "legacy-emulator" {
             server
-                .request("PATCH", path, r#"{"location":"US","labels":{"lost":"no"}}"#)
+                .request(method, path, r#"{"location":"US","labels":{"lost":"no"}}"#)
                 .error(501, "notImplemented");
             assert_eq!(server.request("GET", path, "").json(), before);
         }
@@ -214,6 +513,15 @@ fn bucket_get_rejects_patch_only_acl_query_parameters() {
 
 #[test]
 fn bucket_patch_rejects_get_only_generation_query_parameter() {
+    bucket_metadata_generation_query("PATCH");
+}
+
+#[test]
+fn bucket_put_rejects_get_only_generation_query_parameter() {
+    bucket_metadata_generation_query("PUT");
+}
+
+fn bucket_metadata_generation_query(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -224,7 +532,7 @@ fn bucket_patch_rejects_get_only_generation_query_parameter() {
             .request("GET", &query_path, "")
             .error(501, "notImplemented");
         server
-            .request("PATCH", &query_path, r#"{"labels":{"lost":"no"}}"#)
+            .request(method, &query_path, r#"{"labels":{"lost":"no"}}"#)
             .error(400, "invalidParameter");
         assert_eq!(server.request("GET", path, "").json(), before);
     }
@@ -301,18 +609,27 @@ fn bucket_patch_accepts_only_empty_lifecycle_rules() {
 
 #[test]
 fn bucket_patch_missing_bucket_validates_body_before_lookup() {
+    bucket_metadata_missing_bucket("PATCH");
+}
+
+#[test]
+fn bucket_put_missing_bucket_validates_body_before_lookup() {
+    bucket_metadata_missing_bucket("PUT");
+}
+
+fn bucket_metadata_missing_bucket(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
         let path = "/storage/v1/b/missing-bucket";
         for body in ["", "{", "[]", r#"{"storageClass":null}"#] {
             assert_eq!(
-                server.request("PATCH", path, body).status,
+                server.request(method, path, body).status,
                 400,
                 "{profile}: {body}"
             );
         }
-        server.request("PATCH", path, "{}").error(404, "notFound");
+        server.request(method, path, "{}").error(404, "notFound");
         assert!(
             server
                 .request("GET", "/storage/v1/b?project=project", "")
@@ -563,6 +880,53 @@ fn bucket_patch_label_boundaries_and_classes() {
 
 #[test]
 fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
+    bucket_metadata_unsupported_inputs("PATCH");
+}
+
+#[test]
+fn bucket_put_unsupported_and_output_inputs_preserve_state() {
+    bucket_metadata_unsupported_inputs("PUT");
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("put-lifecycle", "project");
+        let path = "/storage/v1/b/put-lifecycle";
+        let populated = server.request("PUT", path, r#"{"labels":{"before":"yes"},"versioning":{"enabled":true},"defaultEventBasedHold":true}"#).json();
+        let policy = server.request("GET", &format!("{path}/iam"), "").json();
+        let reply = server.request(
+            "PUT",
+            path,
+            r#"{"acl":[],"lifecycle":{"rule":[]},"labels":{"after":"yes"}}"#,
+        );
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let after = reply.json();
+        assert_eq!(after["labels"], json!({"after":"yes"}));
+        assert_settings(&after, profile, false, false);
+        assert_ne!(after["etag"], populated["etag"]);
+        assert_eq!(
+            server.request("GET", &format!("{path}/iam"), "").json(),
+            policy
+        );
+        for body in [
+            json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
+            json!({"defaultObjectAcl":[]}),
+            json!({"lifecycle":{"rule":[],"extra":null}}),
+            json!({"lifecycle":{"rule":null}}),
+            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}),
+        ] {
+            server
+                .request("PUT", path, &body.to_string())
+                .error(501, "notImplemented");
+            assert_eq!(server.request("GET", path, "").json(), after);
+            assert_eq!(
+                server.request("GET", &format!("{path}/iam"), "").json(),
+                policy
+            );
+        }
+    }
+}
+
+fn bucket_metadata_unsupported_inputs(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -590,9 +954,12 @@ fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
             "website",
         ] {
             for value in [Value::Null, json!({}), json!([]), json!(false)] {
+                if method == "PUT" && field == "acl" && value == json!([]) {
+                    continue;
+                }
                 server
                     .request(
-                        "PATCH",
+                        method,
                         path,
                         &json!({field:value,"labels":{"lost":"no"}}).to_string(),
                     )
@@ -601,7 +968,7 @@ fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
             }
         }
         server
-            .request("PATCH", path, r#"{"location":"EU"}"#)
+            .request(method, path, r#"{"location":"EU"}"#)
             .error(501, "notImplemented");
         assert_eq!(server.request("GET", path, "").json(), before);
         let fields = [
@@ -626,7 +993,7 @@ fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
             .map(|field| (field.into(), json!("different")))
             .collect();
         body.insert("labels".into(), json!({"works":"yes"}));
-        let reply = server.request("PATCH", path, &Value::Object(body).to_string());
+        let reply = server.request(method, path, &Value::Object(body).to_string());
         assert_eq!(reply.status, 200, "{}", reply.body);
         assert_eq!(reply.json()["name"], before["name"]);
         assert_eq!(reply.json()["projectNumber"], before["projectNumber"]);
@@ -638,6 +1005,15 @@ fn bucket_patch_unsupported_and_output_inputs_preserve_state() {
 
 #[test]
 fn bucket_patch_conditions_and_query_contract() {
+    bucket_metadata_conditions("PATCH");
+}
+
+#[test]
+fn bucket_put_conditions_and_query_contract() {
+    bucket_metadata_conditions("PUT");
+}
+
+fn bucket_metadata_conditions(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -651,7 +1027,7 @@ fn bucket_patch_conditions_and_query_contract() {
             "ifMetagenerationMatch=9223372036854775807",
         ] {
             server
-                .request("PATCH", &format!("{path}?{query}"), "{}")
+                .request(method, &format!("{path}?{query}"), "{}")
                 .error(412, "conditionNotMet");
             assert_eq!(server.request("GET", path, "").json(), original);
         }
@@ -666,7 +1042,7 @@ fn bucket_patch_conditions_and_query_contract() {
             "unknown=value",
         ] {
             server
-                .request("PATCH", &format!("{path}?{query}"), "{}")
+                .request(method, &format!("{path}?{query}"), "{}")
                 .error(400, "invalidParameter");
         }
         for query in [
@@ -678,7 +1054,7 @@ fn bucket_patch_conditions_and_query_contract() {
         ] {
             server
                 .request(
-                    "PATCH",
+                    method,
                     &format!("{path}?{query}"),
                     r#"{"labels":{"bad":"no"}}"#,
                 )
@@ -687,13 +1063,13 @@ fn bucket_patch_conditions_and_query_contract() {
         assert_eq!(server.request("GET", path, "").json(), original);
         server
             .request(
-                "PATCH",
+                method,
                 "/storage/v1/b/missing-bucket?ifMetagenerationMatch=0",
                 "{}",
             )
             .error(404, "notFound");
         let first = server.request(
-            "PATCH",
+            method,
             &format!("{path}?ifMetagenerationMatch=1&ifMetagenerationNotMatch=0&projection=full"),
             "{}",
         );
@@ -703,7 +1079,7 @@ fn bucket_patch_conditions_and_query_contract() {
         assert_eq!(
             server
                 .request(
-                    "PATCH",
+                    method,
                     &format!("{path}?projection=noAcl&ifMetagenerationNotMatch=1"),
                     "{}"
                 )
@@ -715,6 +1091,15 @@ fn bucket_patch_conditions_and_query_contract() {
 
 #[test]
 fn bucket_patch_conditioned_race_has_one_winner() {
+    bucket_metadata_race("PATCH");
+}
+
+#[test]
+fn bucket_put_conditioned_race_has_one_winner() {
+    bucket_metadata_race("PUT");
+}
+
+fn bucket_metadata_race(method: &'static str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -726,7 +1111,7 @@ fn bucket_patch_conditioned_race_has_one_winner() {
             std::thread::spawn(move || {
                 let body = json!({"labels":{"winner":format!("value{i}")}}).to_string();
                 barrier.wait();
-                raw(&address, &format!("PATCH /storage/v1/b/patch-race?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: local.invalid\r\nContent-Length: {}\r\n\r\n{body}", body.len()))
+                raw(&address, &format!("{method} /storage/v1/b/patch-race?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: local.invalid\r\nContent-Length: {}\r\n\r\n{body}", body.len()))
             })
         }).collect();
         let mut winner = None;
@@ -749,6 +1134,15 @@ fn bucket_patch_conditioned_race_has_one_winner() {
 
 #[test]
 fn bucket_patch_strict_permissions_and_policy_preservation() {
+    bucket_metadata_permissions("PATCH");
+}
+
+#[test]
+fn bucket_put_strict_permissions_and_policy_preservation() {
+    bucket_metadata_permissions("PUT");
+}
+
+fn bucket_metadata_permissions(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let registry = dir.0.join("identities.json");
@@ -785,18 +1179,18 @@ fn bucket_patch_strict_permissions_and_policy_preservation() {
                 r#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
             ] {
                 server
-                    .authorized(token, "PATCH", path, body)
+                    .authorized(token, method, path, body)
                     .error(403, "forbidden");
             }
         }
-        server.request("PATCH", path, "{}").error(401, "required");
+        server.request(method, path, "{}").error(401, "required");
         server
-            .authorized("invalid", "PATCH", path, "{")
+            .authorized("invalid", method, path, "{")
             .error(401, "authError");
         server
             .authorized(
                 "invalid",
-                "PATCH",
+                method,
                 &format!("{path}?ifMetagenerationMatch=bad"),
                 "{}",
             )
@@ -804,26 +1198,26 @@ fn bucket_patch_strict_permissions_and_policy_preservation() {
         server
             .authorized(
                 "viewer",
-                "PATCH",
+                method,
                 &format!("{path}?ifMetagenerationMatch=bad"),
                 "{}",
             )
             .error(400, "invalidParameter");
         server
-            .authorized("viewer", "PATCH", "/storage/v1/b/missing-bucket", "{}")
+            .authorized("viewer", method, "/storage/v1/b/missing-bucket", "{}")
             .error(403, "forbidden");
         server
-            .authorized("admin", "PATCH", "/storage/v1/b/missing-bucket", "{}")
+            .authorized("admin", method, "/storage/v1/b/missing-bucket", "{}")
             .error(404, "notFound");
         server
-            .request("PATCH", "/storage/v1/b/missing-bucket", "{}")
+            .request(method, "/storage/v1/b/missing-bucket", "{}")
             .error(401, "required");
         assert_eq!(server.authorized("admin", "GET", path, "").json(), before);
         let policy_path = format!("{path}/iam");
         let policy = server.authorized("admin", "PUT", &policy_path, r#"{"bindings":[{"role":"roles/storage.admin","members":["user:granted@example.test"]}]}"#).json();
         let reply = server.authorized(
             "granted",
-            "PATCH",
+            method,
             &format!("{path}?projection=full"),
             r#"{"labels":{"access":"granted"}}"#,
         );
@@ -838,7 +1232,7 @@ fn bucket_patch_strict_permissions_and_policy_preservation() {
         );
         server.authorized("admin", "PUT", &policy_path, r#"{"bindings":[]}"#);
         server
-            .authorized("granted", "PATCH", path, "{}")
+            .authorized("granted", method, path, "{}")
             .error(403, "forbidden");
         assert_eq!(
             server.authorized("admin", "GET", path, "").json(),
@@ -849,6 +1243,15 @@ fn bucket_patch_strict_permissions_and_policy_preservation() {
 
 #[test]
 fn bucket_patch_settings_control_future_object_effects() {
+    bucket_metadata_settings("PATCH");
+}
+
+#[test]
+fn bucket_put_settings_control_future_object_effects() {
+    bucket_metadata_settings("PUT");
+}
+
+fn bucket_metadata_settings(method: &str) {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
@@ -860,7 +1263,7 @@ fn bucket_patch_settings_control_future_object_effects() {
         assert_eq!(
             server
                 .request(
-                    "PATCH",
+                    method,
                     path,
                     r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true}"#
                 )
@@ -885,7 +1288,15 @@ fn bucket_patch_settings_control_future_object_effects() {
         );
         assert_eq!(
             server
-                .request("PATCH", path, r#"{"defaultEventBasedHold":false}"#)
+                .request(
+                    method,
+                    path,
+                    if method == "PUT" {
+                        r#"{"versioning":{"enabled":true}}"#
+                    } else {
+                        r#"{"defaultEventBasedHold":false}"#
+                    }
+                )
                 .status,
             200
         );
@@ -905,7 +1316,15 @@ fn bucket_patch_settings_control_future_object_effects() {
         assert!(third.get("eventBasedHold").is_none());
         assert_eq!(
             server
-                .request("PATCH", path, r#"{"versioning":{"enabled":false}}"#)
+                .request(
+                    method,
+                    path,
+                    if method == "PUT" {
+                        "{}"
+                    } else {
+                        r#"{"versioning":{"enabled":false}}"#
+                    }
+                )
                 .status,
             200
         );
@@ -948,11 +1367,20 @@ fn bucket_patch_settings_control_future_object_effects() {
 
 #[test]
 fn bucket_patch_legacy_rendering_and_restart() {
+    bucket_metadata_legacy_restart("PATCH");
+}
+
+#[test]
+fn bucket_put_legacy_rendering_and_restart() {
+    bucket_metadata_legacy_restart("PUT");
+}
+
+fn bucket_metadata_legacy_restart(method: &str) {
     let dir = TestDir::new();
     let mut server = profile_server(&dir, "legacy-emulator");
     let original = server.insert("ab", "project").json();
     let path = "/storage/v1/b/ab";
-    let reply = server.request("PATCH", path, r#"{"labels":{"team":"storage"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
+    let reply = server.request(method, path, r#"{"labels":{"team":"storage"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}"#);
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert!(reply.headers.contains("content-type: application/json\r\n"));
     assert!(reply.body.ends_with('\n'));
@@ -976,7 +1404,7 @@ fn bucket_patch_legacy_rendering_and_restart() {
     server.stop();
     let server = profile_server(&dir, "native");
     server
-        .request("PATCH", path, "{}")
+        .request(method, path, "{}")
         .error(400, "invalidParameter");
     let listed = server
         .request("GET", "/storage/v1/b?project=project", "")
@@ -2274,7 +2702,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     }
     for (path, allow) in [
         ("/storage/v1/b", "GET, POST"),
-        ("/storage/v1/b/abc", "GET, DELETE, PATCH"),
+        ("/storage/v1/b/abc", "GET, DELETE, PATCH, PUT"),
     ] {
         let reply = server.request("OPTIONS", path, "");
         reply.error(405, "methodNotAllowed");

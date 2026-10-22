@@ -55,6 +55,167 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
 }
 
 #[tokio::test]
+async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
+    struct FixedClock;
+    impl gcs_mimic::clock::Clock for FixedClock {
+        fn now(&self) -> std::time::SystemTime {
+            UNIX_EPOCH + Duration::from_micros(123_456_789)
+        }
+    }
+    let dir = TestDir::new();
+    let catalog = Catalog::open_with_clock(&dir.0, Arc::new(FixedClock))
+        .await
+        .unwrap();
+    let mut original = bucket("put-clock", "project");
+    original.storage_class = "ARCHIVE".into();
+    original.versioning_enabled = true;
+    original.default_event_based_hold = true;
+    let original = catalog.insert_bucket(original).await.unwrap();
+    let update = BucketMetadataUpdate {
+        labels: Some(Some(BTreeMap::from([("new".into(), Some("value".into()))]))),
+        storage_class: Some("NEARLINE".into()),
+        ..Default::default()
+    };
+    let record = catalog
+        .replace_bucket(
+            "put-clock",
+            update.clone(),
+            Some(3),
+            Some(2),
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        record.labels,
+        BTreeMap::from([("new".into(), "value".into())])
+    );
+    assert_eq!(record.storage_class, "NEARLINE");
+    assert!(!record.versioning_enabled);
+    assert!(!record.default_event_based_hold);
+    assert_eq!(record.updated, UNIX_EPOCH + Duration::from_millis(123_456));
+    assert_eq!(record.time_created, original.time_created);
+    assert_eq!(record.project, original.project);
+    assert_eq!(record.location, original.location);
+    assert_eq!(record.metageneration, 4);
+    let labels = (0..64)
+        .map(|i| (format!("key{i}"), Some("v".into())))
+        .collect();
+    let full = catalog
+        .replace_bucket(
+            "put-clock",
+            BucketMetadataUpdate {
+                labels: Some(Some(labels)),
+                ..update.clone()
+            },
+            None,
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    assert_eq!(full.labels.len(), 64);
+    let invalid = [
+        BucketMetadataUpdate {
+            labels: Some(Some(
+                (0..65)
+                    .map(|i| (format!("key{i}"), Some("v".into())))
+                    .collect(),
+            )),
+            ..update.clone()
+        },
+        BucketMetadataUpdate {
+            storage_class: Some("UNKNOWN".into()),
+            ..update.clone()
+        },
+        BucketMetadataUpdate {
+            labels: Some(Some(BTreeMap::from([("Bad".into(), Some("v".into()))]))),
+            ..update.clone()
+        },
+        BucketMetadataUpdate {
+            labels: Some(Some(BTreeMap::from([("key".into(), None)]))),
+            ..update.clone()
+        },
+    ];
+    for invalid in invalid {
+        assert_eq!(
+            catalog
+                .replace_bucket(
+                    "put-clock",
+                    invalid.clone(),
+                    Some(3),
+                    None,
+                    &BucketAccess::Unchecked
+                )
+                .await,
+            Err(CatalogError::PreconditionFailed)
+        );
+        assert!(matches!(
+            catalog
+                .replace_bucket("put-clock", invalid, None, None, &BucketAccess::Unchecked)
+                .await,
+            Err(CatalogError::InvalidMetadata(_))
+        ));
+        assert_eq!(
+            catalog.get_bucket("put-clock").await.unwrap(),
+            Some(full.clone())
+        );
+    }
+    assert!(matches!(
+        catalog
+            .replace_bucket(
+                "put-clock",
+                BucketMetadataUpdate {
+                    storage_class: Some("RAPID".into()),
+                    ..Default::default()
+                },
+                None,
+                None,
+                &BucketAccess::Unchecked
+            )
+            .await,
+        Err(CatalogError::UnsupportedMetadata(_))
+    ));
+    assert_eq!(
+        catalog.get_bucket("put-clock").await.unwrap(),
+        Some(full.clone())
+    );
+    let next = catalog
+        .replace_bucket(
+            "put-clock",
+            Default::default(),
+            Some(5),
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    assert!(next.labels.is_empty());
+    assert_eq!(next.storage_class, "STANDARD");
+    assert_eq!(next.updated, record.updated);
+    assert_eq!(next.metageneration, 6);
+    let mut exhausted = bucket("put-exhausted", "project");
+    exhausted.metageneration = i64::MAX;
+    let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
+    assert!(matches!(
+        catalog
+            .replace_bucket(
+                "put-exhausted",
+                update,
+                None,
+                None,
+                &BucketAccess::Unchecked
+            )
+            .await,
+        Err(CatalogError::Unavailable(_))
+    ));
+    assert_eq!(
+        catalog.get_bucket("put-exhausted").await.unwrap(),
+        Some(exhausted)
+    );
+}
+
+#[tokio::test]
 async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     struct FixedClock;
     impl gcs_mimic::clock::Clock for FixedClock {

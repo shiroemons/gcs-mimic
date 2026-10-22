@@ -24,7 +24,8 @@ pub mod resumable_cancel;
 pub use body::read_body;
 pub use buckets::{
     bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
-    parse_bucket_patch, parse_insert, parse_insert_with_profile, validate_bucket_name,
+    parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
+    validate_bucket_name,
 };
 pub(crate) use buckets::{timestamp, validate_bucket_name_for_profile};
 pub use error::JsonError;
