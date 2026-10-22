@@ -866,6 +866,10 @@ port may wait for TIME_WAIT to drain (about 30 seconds on the verified macOS
 host, at most 65 seconds). A `bind_wait` event explains the bounded wait;
 an existing live listener still causes startup to fail. Linux/Android enables
 address reuse while preserving live-listener exclusivity. Windows is unchanged.
+For a wildcard listen address, the loopback probe may miss a live listener on
+a specific non-loopback IP; startup then waits up to 65 seconds before failing
+with address-in-use rather than taking over that listener's traffic.
+SIGINT/SIGTERM cancel the bind wait and release the catalog promptly.
 For private objects, start with `--auth-mode strict --identity-file config/identities.json`
 and follow the public/private policy journey above using the native URL helper.
 The resulting binary needs no Rust, Python, curl or Go installation. CLI overrides

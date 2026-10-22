@@ -233,6 +233,10 @@ TIME_WAIT drains, emit one stderr `bind_wait` event, and fail promptly when a
 connect probe detects a live listener. This does not permit concurrent listeners
 or change persisted grants. Windows binding behavior is unchanged and is not
 established by Unix checks.
+For a wildcard address the probe checks loopback; an existing listener on a
+specific non-loopback address may remain undetected, delaying the bind failure
+until the 65-second deadline. The original address-in-use error is retained.
+Shutdown signals also cancel this wait promptly and release catalog ownership.
 
 Permissive mode preserves the existing authentication bypass, including ignored
 credential inputs, while keeping input validation and stored IAM policies.
