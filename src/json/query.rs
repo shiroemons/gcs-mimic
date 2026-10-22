@@ -46,6 +46,10 @@ pub enum BucketRequest {
         bucket: String,
         params: GetParams,
     },
+    Patch {
+        bucket: String,
+        params: GetParams,
+    },
     List(ListParams),
     Delete {
         bucket: String,
@@ -135,9 +139,10 @@ pub fn route_with_profile(
     };
     let allowed = matches!(
         (bucket.is_some(), method),
-        (false, &Method::GET | &Method::POST) | (true, &Method::GET | &Method::DELETE)
+        (false, &Method::GET | &Method::POST)
+            | (true, &Method::GET | &Method::DELETE | &Method::PATCH)
     );
-    if bucket.is_some() && matches!(*method, Method::PATCH | Method::PUT) {
+    if bucket.is_some() && *method == Method::PUT {
         return Some(Err(JsonError::unsupported(
             "bucket metadata updates, including iamConfiguration",
         )));
@@ -149,7 +154,7 @@ pub fn route_with_profile(
             "HTTP method is not supported for this bucket endpoint",
         );
         error.allow = Some(if bucket.is_some() {
-            "GET, DELETE"
+            "GET, DELETE, PATCH"
         } else {
             "GET, POST"
         });
@@ -240,18 +245,25 @@ fn parse(
                 start_after,
             }))
         }
-        (&Method::GET, Some(bucket)) => {
-            unsupported(&query, &["generation"])?;
-            false_only(&mut query, "softDeleted")?;
+        (&Method::GET | &Method::PATCH, Some(bucket)) => {
+            unsupported(
+                &query,
+                &["generation", "predefinedAcl", "predefinedDefaultObjectAcl"],
+            )?;
+            if *method == Method::GET {
+                false_only(&mut query, "softDeleted")?;
+            }
             let conditions = conditions(&mut query)?;
             let projection = projection(&mut query)?;
             finish(query)?;
-            Ok(BucketRequest::Get {
-                bucket,
-                params: GetParams {
-                    conditions,
-                    projection,
-                },
+            let params = GetParams {
+                conditions,
+                projection,
+            };
+            Ok(if *method == Method::PATCH {
+                BucketRequest::Patch { bucket, params }
+            } else {
+                BucketRequest::Get { bucket, params }
             })
         }
         (&Method::DELETE, Some(bucket)) => {

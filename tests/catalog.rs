@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod common;
 use gcs_mimic::{
-    bucket::{BucketRecord, CatalogError},
+    bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
     storage::Catalog,
 };
 use rusqlite::Connection;
@@ -10,7 +10,10 @@ use std::{
     fs,
     path::PathBuf,
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -49,6 +52,119 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         time_created: UNIX_EPOCH + Duration::from_micros(42_123_456),
         updated: UNIX_EPOCH + Duration::from_micros(43_987_654),
     }
+}
+
+#[tokio::test]
+async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
+    struct FixedClock;
+    impl gcs_mimic::clock::Clock for FixedClock {
+        fn now(&self) -> std::time::SystemTime {
+            UNIX_EPOCH + Duration::from_micros(123_456_789)
+        }
+    }
+    let dir = TestDir::new();
+    let catalog = Catalog::open_with_clock(&dir.0, Arc::new(FixedClock))
+        .await
+        .unwrap();
+    let original = catalog
+        .insert_bucket(bucket("patch-clock", "project"))
+        .await
+        .unwrap();
+    let update = BucketMetadataUpdate {
+        labels: Some(Some(BTreeMap::from([("new".into(), Some("value".into()))]))),
+        storage_class: Some("ARCHIVE".into()),
+        versioning_enabled: Some(true),
+        default_event_based_hold: Some(true),
+        ..Default::default()
+    };
+    let record = catalog
+        .patch_bucket(
+            "patch-clock",
+            update.clone(),
+            Some(3),
+            Some(2),
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    assert_eq!(record.updated, UNIX_EPOCH + Duration::from_millis(123_456));
+    assert_eq!(record.time_created, original.time_created);
+    assert_eq!(record.metageneration, 4);
+    let next = catalog
+        .patch_bucket(
+            "patch-clock",
+            Default::default(),
+            Some(4),
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    assert_eq!(next.updated, record.updated);
+    assert_eq!(next.metageneration, 5);
+    let too_many = BucketMetadataUpdate {
+        labels: Some(Some(
+            (0..64)
+                .map(|i| (format!("key{i}"), Some("v".into())))
+                .collect(),
+        )),
+        ..update.clone()
+    };
+    assert!(matches!(
+        catalog
+            .patch_bucket(
+                "patch-clock",
+                too_many.clone(),
+                None,
+                None,
+                &BucketAccess::Unchecked
+            )
+            .await,
+        Err(CatalogError::InvalidMetadata(_))
+    ));
+    assert_eq!(
+        catalog
+            .patch_bucket(
+                "patch-clock",
+                too_many,
+                Some(3),
+                None,
+                &BucketAccess::Unchecked
+            )
+            .await,
+        Err(CatalogError::PreconditionFailed)
+    );
+    for update in [
+        BucketMetadataUpdate {
+            storage_class: Some("UNKNOWN".into()),
+            ..update.clone()
+        },
+        BucketMetadataUpdate {
+            labels: Some(Some(BTreeMap::from([("Bad".into(), None)]))),
+            ..update.clone()
+        },
+    ] {
+        assert!(matches!(
+            catalog
+                .patch_bucket("patch-clock", update, None, None, &BucketAccess::Unchecked)
+                .await,
+            Err(CatalogError::InvalidMetadata(_))
+        ));
+    }
+    assert_eq!(catalog.get_bucket("patch-clock").await.unwrap(), Some(next));
+    let mut exhausted = bucket("exhausted", "project");
+    exhausted.metageneration = i64::MAX;
+    let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
+    assert!(matches!(
+        catalog
+            .patch_bucket("exhausted", update, None, None, &BucketAccess::Unchecked)
+            .await,
+        Err(CatalogError::Unavailable(_))
+    ));
+    assert_eq!(
+        catalog.get_bucket("exhausted").await.unwrap(),
+        Some(exhausted)
+    );
 }
 
 #[tokio::test]

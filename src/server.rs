@@ -917,6 +917,9 @@ async fn bucket_response(
         BucketRequest::Get { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?
         }
+        BucketRequest::Patch { bucket, .. } => {
+            authorize_bucket(state, caller, auth::BUCKETS_UPDATE, bucket).await?
+        }
         BucketRequest::Delete { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_DELETE, bucket).await?
         }
@@ -929,7 +932,7 @@ async fn bucket_response(
     };
     if !matches!(
         operation,
-        BucketRequest::Insert(_) | BucketRequest::SetIam { .. }
+        BucketRequest::Insert(_) | BucketRequest::SetIam { .. } | BucketRequest::Patch { .. }
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -941,6 +944,27 @@ async fn bucket_response(
         ));
     }
     let value = match operation {
+        BucketRequest::Patch { bucket, params } => {
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let update = json::parse_bucket_patch(&bytes)?;
+            let record = state
+                .catalog
+                .patch_bucket(
+                    &bucket,
+                    update,
+                    params.conditions.if_metageneration_match,
+                    params.conditions.if_metageneration_not_match,
+                    &access,
+                )
+                .await
+                .map_err(|error| bucket_catalog_error(error, profile, None))?;
+            json::bucket_resource_with_profile(
+                &record,
+                &state.api_base_url,
+                params.projection,
+                profile,
+            )?
+        }
         BucketRequest::GetIam { bucket } => {
             let policy = state.catalog.get_policy(&bucket, &access).await?;
             json::policy_resource(&policy, &bucket)
