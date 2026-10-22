@@ -414,6 +414,7 @@ fn obj_multipart_http_media_json_and_custom_metadata_caps() {
         .error(413, "uploadTooLarge");
     server.get("over").error(404, "notFound");
     for length in [65536, 65537] {
+        let original = server.get("json").body;
         let mut metadata = b"{}".to_vec();
         metadata.resize(length, b' ');
         let reply = server.upload("name=json", &wire(&metadata, None, b"", None));
@@ -421,9 +422,11 @@ fn obj_multipart_http_media_json_and_custom_metadata_caps() {
             reply.json();
         } else {
             reply.error(413, "uploadTooLarge");
+            assert_eq!(server.get("json").body, original);
         }
     }
     for length in [8191, 8192] {
+        let original = server.get("custom").body;
         let metadata = json!({"metadata":{"k":"v".repeat(length)}});
         let reply = server.upload(
             "name=custom",
@@ -433,6 +436,7 @@ fn obj_multipart_http_media_json_and_custom_metadata_caps() {
             reply.json();
         } else {
             reply.error(400, "invalidArgument");
+            assert_eq!(server.get("custom").body, original);
         }
     }
     no_leaks(&dir, 4);
@@ -511,7 +515,7 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
                 &wire(b"{}", None, b"hello", Some(value.to_string().as_bytes())),
             )
             .json();
-        server
+        let original = server
             .upload(
                 "name=hash",
                 &wire(
@@ -534,12 +538,14 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
                 &wire(b"{}", None, b"hello", Some(value.to_string().as_bytes())),
             )
             .error(400, "invalid");
+        assert_eq!(server.get("hash").json(), original);
         server
             .upload(
                 "name=hash",
                 &wire(value.to_string().as_bytes(), None, b"hello", None),
             )
             .error(400, "invalid");
+        assert_eq!(server.get("hash").json(), original);
         server
             .upload(
                 "name=hash",
@@ -551,6 +557,7 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
                 ),
             )
             .error(400, "invalidParameter");
+        assert_eq!(server.get("hash").json(), original);
         for bad in ["not base64", "AA==", "", "AAAAAAAAAAAAAAAAAAAAAB=="] {
             let value = json!({key:bad});
             server
@@ -559,6 +566,7 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
                     &wire(value.to_string().as_bytes(), None, b"hello", None),
                 )
                 .error(400, "invalidParameter");
+            assert_eq!(server.get("hash").json(), original);
         }
     }
     for (hash, status, reason) in [
@@ -566,6 +574,7 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
         ("md5=AAAAAAAAAAAAAAAAAAAAAA==", 400, "invalidParameter"),
         ("crc32c=AAAAAA==", 400, "invalidParameter"),
     ] {
+        let original = server.get("hash").json();
         let body = wire(good.to_string().as_bytes(), None, b"hello", None);
         let reply = server.request(
             "POST",
@@ -579,6 +588,7 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
             reply.json();
         } else {
             reply.error(status, reason);
+            assert_eq!(server.get("hash").json(), original);
         }
     }
     assert_eq!(server.get("hash?alt=media").body, b"hello");
@@ -608,6 +618,32 @@ fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
                 ),
             )
             .error(400, "parseError");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+        no_leaks(&dir, 1);
+    }
+}
+
+#[test]
+fn obj_multipart_http_truncated_checksum_part_preserves_existing_generation() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let original = server
+        .upload(
+            "name=existing",
+            &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
+        )
+        .json();
+    let body = wire(br#"{"metadata":{"key":"new"}}"#, None, b"new", Some(b"{}"));
+    let close = b"\r\n--boundary--\r\n";
+    assert!(body.ends_with(close));
+    for ending in [b"".as_slice(), b"\r\n--boundary\r\n"] {
+        let mut truncated = body[..body.len() - close.len()].to_vec();
+        truncated.extend_from_slice(ending);
+        server
+            .upload("name=existing", &truncated)
+            .error(400, "invalidParameter");
         assert_eq!(server.get("existing").json(), original);
         assert_eq!(server.get("existing?alt=media").body, b"old");
         no_leaks(&dir, 1);
@@ -677,6 +713,7 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
         .upload("name=bad", wrong_type.as_bytes())
         .error(400, "invalidParameter");
     for length in [65536, 65537] {
+        let original = server.get("final").body;
         let mut value = b"{}".to_vec();
         value.resize(length, b' ');
         let reply = server.upload("name=final", &wire(b"{}", None, b"hello", Some(&value)));
@@ -684,9 +721,11 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
             reply.json();
         } else {
             reply.error(413, "uploadTooLarge");
+            assert_eq!(server.get("final").body, original);
         }
     }
     for length in [4096, 4097] {
+        let original = server.get("preamble").body;
         let mut body = vec![b'p'; length];
         body.extend_from_slice(b"\r\n");
         body.extend_from_slice(&valid);
@@ -695,7 +734,9 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
             reply.json();
         } else {
             reply.error(400, "invalidParameter");
+            assert_eq!(server.get("preamble").body, original);
         }
+        let original = server.get("epilogue").body;
         let mut body = valid.clone();
         body.extend(std::iter::repeat_n(b'e', length));
         let reply = server.upload("name=epilogue", &body);
@@ -703,6 +744,7 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
             reply.json();
         } else {
             reply.error(400, "invalidParameter");
+            assert_eq!(server.get("epilogue").body, original);
         }
     }
     no_leaks(&dir, 3);
@@ -869,7 +911,7 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=existing HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n",prefix.len()).unwrap();
         stream.write_all(prefix).unwrap(); stream.write_all(b"\r\n").unwrap(); stream
     }).collect();
-    let ready = Instant::now() + Duration::from_secs(1);
+    let ready = Instant::now() + Duration::from_secs(3);
     while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 8 {
         assert!(Instant::now() < ready, "all uploads must enter staging");
         thread::sleep(Duration::from_millis(5));
