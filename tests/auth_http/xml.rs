@@ -384,6 +384,7 @@ fn xml_ranges_generation_and_preconditions_use_one_live_generation() {
     assert_eq!(reply.headers["content-range"], "bytes */11");
     let head = server.request("HEAD", OBJECT, "Range: bytes=11-\r\n", b"");
     assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
     assert_eq!(head.headers["content-range"], "bytes */11");
     assert_eq!(head.headers["content-length"], "11");
     assert_eq!(
@@ -511,7 +512,6 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
             "InvalidArgument",
         );
     }
-    assert_eq!(server.get("", "/INVALID/object").status, 404);
     // Reserved JSON namespaces retain their original error format and route precedence.
     assert_eq!(
         server
@@ -528,6 +528,22 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
         b"hello world"
     );
     assert_eq!(server.get("", "/storage/v1/invalid").status, 404);
+}
+
+#[test]
+fn xml_invalid_bucket_paths_keep_json_unknown_route_errors() {
+    let (_config, _data, server) = fixture();
+    for path in [
+        "/INVALID/object",
+        "/ab/object",
+        "/goog-bucket/object",
+        "/1.2.3.4/object",
+    ] {
+        let reply = server.get("", path);
+        assert_eq!(reply.status, 404, "{path}");
+        assert_eq!(reply.headers["content-type"], "application/json");
+        assert_eq!(reply.json(), json!({"error":"route not implemented"}));
+    }
 }
 
 #[test]
