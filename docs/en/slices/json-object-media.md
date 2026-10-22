@@ -22,7 +22,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
-| 9 | Unsupported ETag, Range/If-Range, encryption and custom metadata fail 501. Upload tokens fail 501 before body consumption. GET/DELETE accept tokens without deduplication as an explicit local SDK rule; retries re-execute (SPEC-013). |
+| 9 | Unsupported ETag, Range/If-Range, encryption and custom metadata headers fail 501. Media/multipart upload tokens require ifGenerationMatch, including zero; without it they fail 501 before body input. No response replay exists; committed conditioned retries return 412. GET/DELETE accept tokens without deduplication; retries re-execute (SPEC-013). |
 
 ### Official-source rationale
 
@@ -168,7 +168,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Range`, `If-Range` on media get | Reject 501; never return an unannounced full body or claim 206 support |
 | `If-Match`, `If-None-Match` | Reject 501 until ETag condition semantics exist; query generation conditions remain separate |
 | `Content-Encoding`, custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored compression, key or metadata request |
-| `X-Goog-Gcs-Idempotency-Token` | Upload returns 501 before reading. Metadata/media GET and DELETE accept the header without deduplication: each retry executes again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
+| `X-Goog-Gcs-Idempotency-Token` | Media/multipart uploads require ifGenerationMatch (including zero), otherwise 501 before body input; committed conditioned retries return 412. One nonempty header is required; empty/duplicate values return 400 invalidParameter. No replay exists. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
 
 Benign transport/client identification headers are not rejected simply for being unknown.
 Authorization handling follows the existing local unauthenticated implementation and must

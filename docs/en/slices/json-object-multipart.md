@@ -7,6 +7,10 @@ acceptance additions to JSON-OBJECTS-007, BEHAVIOR-OBJECT-001,
 BEHAVIOR-OBJECT-005 and BEHAVIOR-COMMON-011. This contract decomposes the
 supported subset; `compatibility/features.json` remains the status authority.
 `objects.insert` remains PARTIAL because resumable uploads are separate P3 work.
+Multipart also remains PARTIAL with LOCAL_SIMULATION fidelity: the scoped local
+cases pass, while SPEC-013/SPEC-016, ACL/IAM permissions and direct-service edge
+evidence remain incomplete. The policy requires no deviations and matching target
+fidelity before IMPLEMENTED can be claimed.
 
 ## Acceptance cases
 
@@ -37,8 +41,21 @@ supported subset; `compatibility/features.json` remains the status authority.
 | Resumable upload | Explicit 501; no session or object published |
 | Pinned Go SDK | ChunkSize=0 Writer metadata/checksum round trip, DoesNotExist, conditioned overwrite, Attrs and NewReader |
 
-Integration placeholder: replace this sentence with exact local error reason strings
-and executed test names from the implementation report before final evidence publication.
+The [integration evidence](../evidence/multipart.md) records final commands and
+results.
+Exact wire and parser test names are listed below.
+
+| Coverage | Test names |
+| --- | --- |
+| Boundary syntax | `json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters` |
+| Chunking and bounded carry | `json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split`, `json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry`, `obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary` |
+| Framing and exact caps | `json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames`, `json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata`, `json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation`, `obj_multipart_http_rejects_malformed_framing_and_bounds_final_json` |
+| Metadata and restart | `obj_multipart_http_round_trip_metadata_hashes_and_restart`, `obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation`, `obj_multipart_http_query_name_overrides_only_valid_metadata_names` |
+| Content type and custom limits | `obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part`, `obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging`, `obj_multipart_http_media_json_and_custom_metadata_caps` |
+| Checksums and failed overwrite | `obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication`, `obj_multipart_http_malformed_checksum_json_preserves_existing_generation`, `obj_multipart_http_truncated_checksum_part_preserves_existing_generation` |
+| Preconditions and tokens | `json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value`, `obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body`, `obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation`, `obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite`, `obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body` |
+| Concurrency and deadlines | `obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks`, `obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots` |
+| Official Go Writer | `TestObjectMultipartWriter`; `TestObjectMediaLifecycle` retains the resumable rejection |
 
 ## Supported subset
 
@@ -62,17 +79,24 @@ and custom keys/values reuse the [metadata slice](json-object-metadata.md) valid
 Unicode custom metadata and empty values survive; control characters or wrong types
 fail 400; empty custom keys and non-ASCII fixed header values fail 501 locally.
 Content-Language retains the 100-character limit. The custom map is capped at
-8192 UTF-8 key/value bytes; the JSON part has the existing 64 KiB cap.
+8192 UTF-8 key/value bytes for non-null entries; null entries are absent from the
+new map. Excess is rejected after bounded metadata parsing, before media input
+or staging, with a second check at publication. The JSON part has the 64 KiB cap.
 Uploads create a fresh metadata set rather than merging with a previous generation.
 
 The [insert reference](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert)
 and Discovery agree that query `name` overrides metadata `name`, and the path
 bucket overrides metadata `bucket`. A string metadata bucket is accepted and
 ignored; a non-string returns 400. Without a query name, metadata must provide
-the name. Existing once-only URL decoding and object-name validation still apply.
+the name. Metadata `name` must always be a string or null, even when query `name`
+overrides it; invalid types return 400 `invalidArgument`. Null or missing name
+without a query name returns 400 `required`. Existing once-only URL decoding and
+object-name validation still apply. `kind` is accepted only as `storage#object`;
+other server-managed inputs conservatively return 501.
 
 Stored content type uses metadata `contentType` first, then the media part's
-`Content-Type`, then `application/octet-stream`. Google's resource reference
+`Content-Type`, then `application/octet-stream`. Null or empty metadata contentType
+is absent and uses this fallback. Google's resource reference
 defines the last value as the serving default, but does not establish this whole
 upload precedence or acceptance of a missing media-part header. These are local
 choices pending direct service evidence. The outer multipart Content-Type is
@@ -84,9 +108,12 @@ hashes of the exact media bytes. Checksum mismatch returns 400, as documented by
 the data-validation guide. Hash syntax and exact error reasons remain local rules
 under SPEC-010. The optional third part is `application/json`, bounded to 64 KiB,
 and may contain only these two checksum fields. An empty object is accepted.
-Conflicting metadata/third-part declarations and other third-part keys return
+Conflicting metadata/header/third-part declarations and other third-part keys return
 400 locally; identical declarations are allowed. Publication waits for validation
-of the entire multipart container, including this part and the final delimiter.
+of the entire multipart container, including this part, final delimiter, bounded
+epilogue and transport EOF. The official third-part example shows CRC32C;
+accepting MD5 there, an empty object, equal declarations, conflict rejection and
+unknown-key rejection are local choices under SPEC-016.
 
 All four `ifGenerationMatch`, `ifGenerationNotMatch`, `ifMetagenerationMatch` and
 `ifMetagenerationNotMatch` conditions reuse the media upload parser and atomic
@@ -95,6 +122,15 @@ Unconditional upload replaces the live object. Successful new bytes receive a
 distinct generation and metageneration 1; failed requests leave the prior record
 untouched. Concurrent create-if-absent uploads must have one winner. Generation
 history and read-style 304 behavior are not added to mutation responses.
+
+Media and multipart uploads accept one nonempty `X-Goog-Gcs-Idempotency-Token`
+only with `ifGenerationMatch`, including zero. Without generation-match the
+request returns 501 before body input; empty or duplicate token headers return
+400 `invalidParameter`. There is no response replay or token deduplication.
+Retrying an already committed request with the same generation condition returns
+412 instead of publishing another generation. This local rule remains SPEC-013.
+Shared empty/duplicate token validation also reaches objects.list and PATCH;
+dedicated malformed-token HTTP tests for those two routes are not present.
 
 Return the complete modeled Object JSON with fixed/custom metadata, computed
 checksums, decimal-string size/generation/metageneration, timestamps and existing
@@ -109,13 +145,19 @@ there is no new schema or independent multipart storage backend.
 The existing object cap applies to media bytes, not JSON or MIME overhead.
 Unknown-length and chunked bodies remain bounded streams. Metadata, part headers,
 preamble, epilogue and retained boundary fragments have fixed limits independent
-of object size. Preamble/epilogue caps and their rejection behavior are local
-resource choices to be confirmed against the implementation before final evidence.
-RFC 2046 permits ignored preamble/epilogue; it does not prescribe emulator caps.
+of object size. Each JSON part accepts exactly 65536 bytes. Preamble and epilogue
+each accept 4096 bytes; the preamble excludes the CRLF belonging to the first
+delimiter. Each part's 8192-byte header-block cap includes every line's CRLF and
+the terminating blank line. Delimiter suffix lines accept at most 8192 bytes
+before CRLF, including the closing `--` when present; CRLF split across frames
+at the exact cap is accepted. Known Content-Length above the media cap plus a
+conservative 256 KiB framing allowance returns 413 before upload admission.
+These are local resource limits under SPEC-016; RFC 2046 does not prescribe them.
 
 Reuse immediate upload admission and the media deadlines. Bucket existence is
-checked before metadata parsing; the selected-name condition advisory check runs
-after bounded metadata and before media consumption. Publication rechecks bucket
+checked before metadata parsing. A query-name condition check also precedes body
+input; a metadata-only name receives its advisory check after bounded metadata
+and before media consumption. Publication rechecks bucket
 and conditions atomically. This staged advisory order is a local extension of
 SPEC-008, needed because the final name may exist only in the first part.
 Body inactivity, the absolute object-request ceiling and bounded catalog waits
@@ -124,19 +166,39 @@ can leave the eventual mutation outcome unknown; re-read or retry with condition
 No transaction spans media transfer. Functional bounded-stream tests do not
 establish RSS/cgroup/CPU benchmarks or power-loss durability.
 
-Malformed framing/JSON, invalid field types, invalid checksums and checksum
-mismatch return 400; oversized JSON/media returns 413. Existing missing-bucket
+The local error map is:
+
+| HTTP / reason | Cases |
+| --- | --- |
+| 400 `invalidParameter` | Invalid MIME/type/boundary/headers, malformed framing or truncation, non-object checksum JSON, checksum syntax/conflicts, empty/duplicate token |
+| 400 `parseError` | Malformed metadata or third-part checksum JSON |
+| 400 `invalidArgument` | Metadata field/name/bucket types, invalid fixed/custom metadata, custom UTF-8 key/value sum above 8192 bytes |
+| 400 `invalid` | Actual MD5/CRC32C mismatch or unknown third-part checksum keys |
+| 400 `required` | No query name and missing/null metadata name |
+| 413 `uploadTooLarge` | Media cap, either JSON-part cap or conservative known-length cap exceeded |
+| 501 `notImplemented` | Unsupported metadata/output/query/header semantics or upload token without generation-match |
+
+Existing missing-bucket
 404, mutation precondition 412, excess-admission/catalog-unavailable 503 and
 unsupported-semantic 501 boundaries remain. Failure before validated publication
 must not expose partial bytes or metadata. Error reason strings are local until
-independently verified; the integration placeholder above records the final map.
+independently verified; SPEC-016 retains the multipart container questions.
+
+Transport errors and trailers encountered inside a multipart body map to 400
+`invalidParameter`, unlike the media path's `badRequest` body-abort error. A
+headers-only body part lacking the additional CRLF expected by this parser is
+rejected. Folded/duplicate part headers and Content-Transfer-Encoding other than
+`binary` (including `7bit` and `8bit`) return 400 `invalidParameter`. Delimiter
+spaces/tabs are supported. These restrictions are local compatibility limits,
+not independently verified Google errors. No CPU/RSS performance claim is made.
 
 Recognized advanced metadata (ACL/IAM, holds, retention, contexts, customTime,
 storage class and encryption), other server-managed fields and unknown metadata
 fields return 501. The path-bucket override is the explicitly supported exception.
 This does not assert Google's unknown/output-only input handling; SPEC-015 remains
 open. Unsupported query/header semantics retain the existing explicit rejections.
-SDK invocation tokens have no replay guarantee. Resumable sessions remain 501.
+SDK invocation tokens follow the generation-match rule above. Resumable sessions
+remain 501.
 XML multipart uploads, nested/alternate-root MIME composition, strict credentials,
 IAM permission checks, decompressive transcoding and historical generations are
 outside this slice. Google requires object-create permission and additionally
@@ -145,7 +207,9 @@ object-delete permission for overwrites; local success establishes neither.
 RFC 2387 defines generic related-root parameters, including `type` and `start`.
 The Google upload example and pinned SDK emit boundary-only related containers
 with metadata first. That application format is the compatibility target; no
-general MIME document renderer or alternate-root selection is claimed.
+general MIME document renderer or alternate-root selection is claimed. Outer
+parameters accept `boundary` and `type=application/json`; other semantics return
+501. Metadata/checksum JSON part headers may specify UTF-8 charset.
 
 ## Sources and SDK provenance
 
