@@ -109,6 +109,117 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
 }
 
 #[test]
+fn anonymous_object_mutations_require_each_granted_permission() {
+    let (_config, _data, server) = fixture();
+    server
+        .upload("", "iam-bucket", "new", b"new")
+        .login_required();
+    server
+        .multipart("", "iam-bucket", "multipart", b"new")
+        .login_required();
+    for method in ["PATCH", "PUT", "DELETE"] {
+        server
+            .request(
+                method,
+                JSON_OBJECT,
+                "",
+                if method == "DELETE" { b"" } else { b"{}" },
+            )
+            .login_required();
+    }
+    server
+        .get("", "/storage/v1/b/iam-bucket/o")
+        .login_required();
+
+    grant(&server, "allUsers", "roles/storage.objectCreator");
+    server.upload("", "iam-bucket", "new", b"new").ok();
+    server.multipart("", "iam-bucket", "multipart", b"new").ok();
+    let before = server.get(ADMIN, JSON_OBJECT).ok().json();
+    server
+        .upload("", "iam-bucket", "object", b"overwrite")
+        .login_required();
+    server
+        .multipart("", "iam-bucket", "object", b"overwrite")
+        .login_required();
+    for method in ["PATCH", "PUT", "DELETE"] {
+        server
+            .request(
+                method,
+                JSON_OBJECT,
+                "",
+                if method == "DELETE" { b"" } else { b"{}" },
+            )
+            .login_required();
+    }
+    assert_eq!(server.get(ADMIN, JSON_OBJECT).ok().json(), before);
+    assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");
+
+    grant(&server, "allUsers", "roles/storage.objectAdmin");
+    server.upload("", "iam-bucket", "object", b"media").ok();
+    server
+        .multipart("", "iam-bucket", "object", b"multipart")
+        .ok();
+    server
+        .request(
+            "PATCH",
+            JSON_OBJECT,
+            "",
+            br#"{"metadata":{"key":"patched"}}"#,
+        )
+        .ok();
+    assert_eq!(
+        server.get("", JSON_OBJECT).ok().json()["metadata"]["key"],
+        "patched"
+    );
+    server
+        .request(
+            "PUT",
+            JSON_OBJECT,
+            "",
+            br#"{"metadata":{"key":"replaced"}}"#,
+        )
+        .ok();
+    assert_eq!(
+        server.get("", JSON_OBJECT).ok().json()["metadata"],
+        json!({"key":"replaced"})
+    );
+    assert_eq!(
+        server.get("", "/storage/v1/b/iam-bucket/o").ok().json()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    server.request("DELETE", JSON_OBJECT, "", b"").ok();
+    server.get("", JSON_OBJECT).error(404, "notFound");
+}
+
+#[test]
+fn anonymous_bucket_and_policy_operations_require_granted_permissions() {
+    let (_config, _data, server) = iam::fixture();
+    let bucket = "/storage/v1/b/iam-bucket";
+    for role in [None, Some("roles/storage.objectCreator")] {
+        if let Some(role) = role {
+            grant(&server, "allUsers", role);
+        }
+        server.get("", bucket).login_required();
+        server.get("", iam::IAM).login_required();
+        iam::set(&server, "", &json!({"bindings":[]})).login_required();
+        server.request("DELETE", bucket, "", b"").login_required();
+    }
+    grant(&server, "allUsers", "roles/storage.admin");
+    server.get("", bucket).ok();
+    let policy = server.get("", iam::IAM).ok().json();
+    iam::set(&server, "", &policy).ok();
+    iam::set(&server, "", &json!({"bindings":[]})).ok();
+    iam::set(&server, "", &policy).login_required();
+    server.get("", iam::IAM).login_required();
+    grant(&server, "allUsers", "roles/storage.admin");
+    server.request("DELETE", bucket, "", b"").ok();
+    server.get(ADMIN, bucket).error(404, "notFound");
+}
+
+#[test]
 fn public_grants_survive_restart_and_revocation_preserves_etag_checks() {
     let (config, data, mut server) = fixture();
     let identities = identity_file(&config);

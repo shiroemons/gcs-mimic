@@ -52,8 +52,9 @@ remain in the named evidence files.
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
-| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Public reads, signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
-| Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, public grants, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
+| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
+| Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
+| Public object reads | Delivered in committed code: path-style XML GET/HEAD, live-generation selection, single ranges, match conditions, public/registered-only grants and revocation | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines and signatures; final integration evidence pending | [Public-read verification](evidence/public-object-reads.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
 
@@ -77,7 +78,7 @@ success stub does not complete a workflow.
 | ---: | --- | --- | --- |
 | 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED |
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
-| 3 | Public object reads | XML path GET/HEAD; allUsers versus authenticated-only grants; denial, revocation and restart | Public URLs return bytes; private URLs stay protected |
+| 3 | Public object reads | Committed path-style XML GET/HEAD and allUsers versus registered-only grants; final Rust/SDK/container/guide evidence pending | Delivered: public URLs return bytes and private URLs enforce access; [final verification](evidence/public-object-reads.md) pending |
 | 4 | Resumable upload | Initiation, chunks, status/retry, finalization, cancellation/expiry and pinned Go Writer | Normal chunked SDK uploads work |
 | 5 | V4 RSA signed download | Final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
 | 6 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
@@ -87,11 +88,16 @@ success stub does not complete a workflow.
 | 10 | Ruby/Rails workflows | Pinned Ruby operations and actual Active Storage public/private delivery plus direct uploads | Tested application integration |
 | 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation capability is **public object reads**. The scoped bucket
-IAM deliverable is closed by the [final integration evidence](evidence/bucket-iam.md),
+The next implementation capability is **resumable upload** (order 4).
+The scoped bucket IAM deliverable is closed by the
+[final integration evidence](evidence/bucket-iam.md),
 while the whole policy-method and hierarchy rows retain their explicit missing
 cases. The preceding seed gate is closed by the
-[Linux and Compose evidence](evidence/seed-platform.md). XML remains unavailable.
+[Linux and Compose evidence](evidence/seed-platform.md). The committed
+[public-read subset](slices/public-object-reads.md) serves path-style XML GET/HEAD
+with persistent bucket grants; its final integrated verification belongs in
+[the public-read evidence](evidence/public-object-reads.md). This does not complete
+the broader XML, authentication or access-control feature rows.
 
 ### Small steps inside the larger workflows
 
