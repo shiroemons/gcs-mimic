@@ -6,7 +6,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs and signed URLs remain unimplemented. The resumable session contract below awaits execution evidence; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs and signed URLs remain unimplemented. The JSON resumable engine below has wire, SDK, restart, guide and native resource [evidence](evidence/resumable-upload.md), with explicit remaining boundaries. No comparative performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -32,7 +32,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. The XML adapter serves path-style object GET/HEAD with shared authorization and selected immutable bytes; gRPC is unavailable. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart/resumable upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. The XML adapter serves path-style object GET/HEAD with shared authorization and selected immutable bytes; gRPC is unavailable. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -83,9 +83,10 @@ Bucket/probe/unknown routes retain their total connection deadline.
 Shutdown has its independent drain deadline. Compose additionally
 sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are inspected settings
 and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB transfer under
-the container limit. No maintenance polling exists.
+the container limit. Resumable expiry uses one next-deadline scheduler, with no
+timer when idle; failed cleanup has a bounded retry delay.
 
-Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; clock-backed expiration and an explicit maintenance scheduler remain future work.
+Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
 
 ## Implemented bucket catalog and recovery
 
@@ -98,7 +99,7 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. Schema version 6
+file-backed temporary storage and a 256-page auto-checkpoint. Schema version 7
 stores buckets, live objects, unique opaque blob references, pending blob deletions,
 seed initialization, bucket IAM policies and persistent object/policy revision
 high-water marks. It retains the bucket `(project, name)`
@@ -109,7 +110,9 @@ both metadata reads and bounded object lists select these columns. PATCH merges 
 replaces the supported fields under atomic generation/metageneration conditions without
 changing the blob or generation. The v4-to-v5 migration records seed initialization;
 v5-to-v6 atomically adds one bounded default IAM policy per existing bucket and a
-persistent policy revision allocator. Unreleased v2 catalogs
+persistent policy revision allocator. The v6-to-v7 migration adds indexed
+resumable sessions, durable offsets, fixed deadlines and completion snapshots.
+Unreleased v2 catalogs
 are rejected before journal-mode changes because deleted generation history is unavailable.
 New/empty version 0 catalogs are initialized transactionally; future versions,
 nonempty unversioned catalogs, failed quick_check or incompatible versioned DDL
@@ -235,8 +238,8 @@ after overwrite/delete on the tested Unix platforms. The Windows distribution
 profile uses file flushes and same-volume write-through publication, without a
 Unix directory-fsync equivalent or a power-loss namespace guarantee; see the
 [native platform contract](binary-distribution.md#persistence-and-shutdown).
-Resumable sessions and Windows
-unlink behavior are outside the verified scope.
+Windows unlink behavior remains outside the verified native resumable scope;
+the resumable evidence records its tested host and recovery boundaries.
 
 Single-request recovery holds the exclusive directory lock before bind/readiness. It removes abandoned staging,
 replays deletion entries and validates live references in pages of 128. Directory
@@ -249,8 +252,8 @@ deletion-journal insertion, unlink and journal-removal windows have not each bee
 barrier-killed; host power loss is untested. See the
 [integration evidence](evidence/object-media.md). This is a local recovery
 protocol, not an atomic SQLite/filesystem transaction or a production durability claim.
-Persistent resumable sessions require reference-aware staging recovery instead of
-that blanket purge, as specified in the session contract below.
+Persistent resumable sessions now use reference-aware staging recovery before
+orphan scans, as specified in the session contract below.
 
 The [regression evidence](evidence/object-media.md)
 covers explicit body-completion markers, commit waiting beyond inactivity, both storage
@@ -281,10 +284,10 @@ Inject a deterministic clock from the beginning. Lifecycle evaluation, retention
 
 ## Resumable session engine contract
 
-This section describes the [frozen JSON resumable contract](slices/resumable-upload.md),
-not verified implementation or release availability. Its acceptance cases and
-pinned official sources define the boundary; execution evidence and feature
-status remain in the ledger. XML uploads, signed initiation, gRPC, browser CORS
+This section describes the implemented [JSON resumable contract](slices/resumable-upload.md).
+Its acceptance cases and pinned official sources define the boundary;
+[final evidence](evidence/resumable-upload.md) records executed checks and limits,
+and feature status remains in the ledger. XML uploads, signed initiation, gRPC, browser CORS
 and invocation-token response replay are outside this slice.
 
 The JSON adapter must parse initiation metadata and ranges, render the session
@@ -327,7 +330,7 @@ deadlines and blob references; exclude session fields from ordinary object lists
 Validate schema and session invariants before readiness, rejecting future or
 corrupt schemas read-only. No body transfer may hold a SQL transaction.
 
-The planned admission cap is 128 retained sessions, including active, completed
+The admission cap is 128 retained sessions, including active, completed
 and invalid terminal records until their deadline. Count/insert must be atomic;
 a full table returns immediate 503 `backendError` without files or object changes.
 Reuse eight body-transfer slots, releasing them between session requests,

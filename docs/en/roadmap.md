@@ -55,6 +55,7 @@ remain in the named evidence files.
 | Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
 | Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
 | Public object reads | Verified path-style XML GET/HEAD, live-generation selection, single ranges, match conditions, public/registered-only grants, revocation/restart and pinned Go/host/peer journeys | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines, signatures and complete XML/authentication wire parity | [Final public-read verification](evidence/public-object-reads.md) |
+| JSON resumable upload | Sessions, bounded chunks/status/retry, atomic finalization, cancellation, fixed seven-day expiry, selected process-kill/restart recovery, client-reachable configured Location and normal pinned Go Writer; measured native large/slow/concurrent buffering | XML/signed initiation, token response replay, provider edge parity, power-loss durability and Linux/cgroup memory guarantees | [Final resumable verification](evidence/resumable-upload.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
 
@@ -79,7 +80,7 @@ success stub does not complete a workflow.
 | 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED |
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | Declared path-style XML GET/HEAD, allUsers versus registered-only grants and final Rust/SDK/container/guide checks passed on 2026-10-22 | Delivered: DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 IMPLEMENTED; DESIGN-004 and broad XML methods PARTIAL; [final verification](evidence/public-object-reads.md) |
-| 4 | Resumable upload | Initiation, chunks, status/retry, finalization, cancellation/expiry and pinned Go Writer | Normal chunked SDK uploads work |
+| 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
 | 5 | V4 RSA signed download | Final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
 | 6 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
 | 7 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
@@ -88,7 +89,10 @@ success stub does not complete a workflow.
 | 10 | Ruby/Rails workflows | Pinned Ruby operations and actual Active Storage public/private delivery plus direct uploads | Tested application integration |
 | 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation capability is **resumable upload** (order 4).
+The next implementation capability is **V4 RSA signed download** (order 5).
+The resumable deliverable is closed by [final evidence](evidence/resumable-upload.md),
+including five native process-kill boundaries and their 20 repeated runs;
+broader provider edge parity, other platforms and power loss remain unverified.
 The scoped bucket IAM deliverable is closed by the
 [final integration evidence](evidence/bucket-iam.md),
 while the whole policy-method and hierarchy rows retain their explicit missing
@@ -230,8 +234,9 @@ The first developer release retains the P1 core plus essential P2 public/private
 and URL target: documented JSON workflows, the supported range/seed subsets,
 strict local identity, effective scoped bucket IAM and public XML reads.
 Include applicable Go and Ruby evidence; any unverified client remains an
-explicit limitation. Signed URLs and resumable uploads can follow as separate
-capabilities; the release must state its single-request upload limitations.
+explicit limitation. The scoped JSON resumable workflow now has separate
+evidence; signed URLs remain a later capability. State the supported upload
+profiles and their resource, recovery and protocol limits in the release.
 
 Do not wait for lifecycle, gRPC, analytics or every row in P0/P1/P2 to complete.
 Do require the release's declared feature/profile/platform tests, dependency
