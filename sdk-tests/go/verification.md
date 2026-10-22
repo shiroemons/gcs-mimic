@@ -10,21 +10,22 @@ client constructs HTTP PUT, whereas high-level `BucketHandle.Update` constructs
 PATCH. The tests contrast replacement with merge, verify modeled omission
 defaults, successful and failed match/not-match conditions, response/Attrs
 consistency, revisions, existing object bytes/generation, strict viewer denial,
-admin success and IAM policy etag preservation.
+admin label replacement and IAM policy etag/bindings preservation. Failed
+conditions must report `conditionNotMet`, not only HTTP 412. Cleanup deletes
+every object generation so an interrupted journey with versioning enabled
+does not leave noncurrent objects behind.
 
 Pins remain Go 1.27.3, Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0.
 The raw API client was already required; `go.mod` and `go.sum` are unchanged.
-`go vet ./...` and `go test -run '^$' ./...` passed before server integration.
-The existing guarded transport, explicit emulator origin, static local tokens
-and redirect rejection apply to every raw client request; no ADC or Google
-metadata-server discovery is used.
+Guarded transports, explicit emulator origins, static local tokens and redirect
+rejection apply to every raw client request; no ADC or Google metadata-server
+discovery is used. The strict raw service does not change emulator environment
+variables or construct an unused high-level client.
 
-Against application source `ab7f410`,
-`GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`
-passed vet and both top-level tests with zero failures or skips (package time
-0.517s). The runner starts isolated native permissive and strict servers and
-cleans up both. No change to `scripts/sdk-go.sh` was needed: its existing
-test-name selector includes the new tests automatically.
+The targeted runner is
+`GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`.
+It starts isolated native permissive and strict servers and cleans up both.
+Its existing test-name selector includes these tests automatically.
 
 The comparison source is fake-gcs-server v1.56.1, commit
 `896ece51e49eed0946089f3089f6343855c0d106`, archive SHA-256
@@ -35,24 +36,22 @@ The [bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49e
 parses only versioning/default hold and is not reached by PUT.
 
 `GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh`
-exited 0 on checkout `4bb930cbfe75d4a2c189088fc39ab269cbf712b4` with
-application/test source `ab7f410`. Both reference backends and both local
-profiles ran 292 requests each (1,168 raw records total), including 32 PUTs
-per target. All four PATCH/PUT assertion groups passed. The reference-only
-invocation with `GCS_MIMIC_REFERENCE_ONLY=1` also exited 0, with 584 records.
-The script verifies the source archive digest before building the pinned
-reference and uses the committed Rust 1.99.1 and Go 1.27.3 toolchains.
+exercises both reference backends and both local profiles, including 32 PUTs
+per target. The script verifies the source archive digest before building the
+pinned reference and uses the committed Rust and Go toolchains.
 
 The local assertions check whole-map replacement; omitted/null/empty labels;
 STANDARD/false omission defaults; native null-boolean 400 versus legacy reset;
-null class 400; unsupported settings/ACL/billing 501; malformed body and invalid
+null class 400; unsupported settings/ACL/billing query 501; malformed body and invalid
 projection/generation 400; missing bucket 404; condition failure 412 without
 mutation; one revision increment per success; and PUT/GET/list agreement with
-unchanged identity, placement, object list and bytes. Both local profiles pass
-these assertions. The reference has no successful PUT and therefore provides
-no omitted-field or null-scalar replacement contract.
+unchanged identity, placement, object list and bytes. Error cases check the
+first error reason as well as the status. Creation and post-upload GET resources
+must match in both local profiles; the uploaded object's metadata and event hold
+must survive disabling the default hold. Condition cases start from GET
+resources rather than POST responses.
 
-Observed reference differences in both backends:
+The committed reference assertions require:
 
 - All 32 PUT cases return HTTP 404 with the same JSON envelope: code 404,
   message `Not Found`, domain `global`, reason `notFound`. This includes an
@@ -62,20 +61,22 @@ Observed reference differences in both backends:
 - Every PUT preserves the post-upload GET/list bucket resource and object bytes.
   The reference retains fixed metageneration `1` and etag `RVRhZw==`; local
   successful replacements increment metageneration and change the etag.
-- The fixture upload itself resets the filesystem backend bucket default hold
-  from true to false and replaces its creation/updated timestamps. Memory
-  preserves those fields. An explicit post-upload baseline isolates this
-  preexisting backend behavior from PUT; local profiles preserve bucket metadata
-  during object upload.
+- An explicit post-upload GET baseline isolates upload behavior from PUT,
+  including any backend-specific metadata changes during fixture creation.
+
+The reference has no successful PUT and therefore provides no omitted-field or
+null-scalar replacement contract. This section describes committed coverage,
+not execution on an uncommitted tree. Final SDK and comparison results, exact
+tested source revisions and complete output are recorded by the final
+integration evidence in `docs/en/evidence/bucket-metadata-put*.md`.
 
 This comparison is not a Google-service differential test. Google omitted/null
 defaults remain limited to the separately frozen local contract. No container
 build, getting-started run, upstream test suite or real Google bucket is used
 by these checks.
-Markdownlint, `bash -n`, `git diff --check` and the changed-file local-path scan
-passed. MD013 remains disabled by the existing document directive for long
-commands and source links. The complete Go suite, container builds and
-getting-started journeys remain separate final integration checks.
+MD013 remains disabled by the existing document directive for long commands and
+source links. The complete Go suite, container builds and getting-started
+journeys are separate final integration checks.
 
 ## Bucket metadata PATCH contract tests: 2026-10-23
 

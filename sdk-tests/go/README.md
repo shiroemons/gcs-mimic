@@ -125,7 +125,7 @@ to STANDARD/false. Both metageneration conditions have success and 412 cases;
 failed requests preserve metadata. PUT responses agree with high-level Attrs,
 advance one metageneration, change the etag and preserve identity and existing
 object generations/bytes. `TestStrictAuthBucketMetadataReplace` verifies viewer
-403, admin success and unchanged IAM policy etag and object bytes. Both clients
+403, admin label replacement and unchanged IAM policy etag/bindings and object bytes. Both clients
 reuse the origin-guarded HTTP harness and explicit emulator endpoints; strict
 tokens come only from the checked-in local fixture registry.
 
@@ -137,11 +137,12 @@ GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataR
 
 The raw comparison script additionally covers both compatibility profiles and
 both pinned reference backends, including null/empty fields, unsupported inputs,
-GET/list consistency and unchanged object bytes. The pinned reference has no
+GET/list consistency, error reasons and unchanged object bytes/holds. The pinned reference has no
 bucket PUT route: every PUT in this corpus returns JSON 404 without changing the
 bucket, unlike its PATCH handler. This is a reference difference, not evidence
-of Google service behavior. Exact pins and execution results are recorded in
-[verification](verification.md).
+of Google service behavior. [Verification](verification.md) describes the pins
+and committed coverage; final SDK and comparison execution results are recorded
+in `docs/en/evidence/bucket-metadata-put*.md`.
 
 ## Resumable Writer journeys
 

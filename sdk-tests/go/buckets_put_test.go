@@ -3,15 +3,19 @@ package gcsmimic_test
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/storage"
 	"golang.org/x/oauth2"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	raw "google.golang.org/api/storage/v1"
 )
@@ -34,6 +38,20 @@ func TestBucketMetadataReplace(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		objects := bucket.Objects(cleanupCtx, &storage.Query{Versions: true})
+		for {
+			attrs, err := objects.Next()
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			if err != nil {
+				t.Errorf("cleanup listing: %v", err)
+				return
+			}
+			if err := bucket.Object(attrs.Name).Generation(attrs.Generation).Delete(cleanupCtx); err != nil {
+				t.Errorf("cleanup generation: %v", err)
+			}
+		}
 		if err := bucket.Delete(cleanupCtx); err != nil {
 			t.Errorf("cleanup bucket: %v", err)
 		}
@@ -43,13 +61,6 @@ func TestBucketMetadataReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := bucket.Object(object.Name).Delete(cleanupCtx); err != nil {
-			t.Errorf("cleanup object: %v", err)
-		}
-	})
 	original, err := bucket.Attrs(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -89,10 +100,10 @@ func TestBucketMetadataReplace(t *testing.T) {
 	}
 	_, err = api.Buckets.Update(bucket.BucketName(), &raw.Bucket{}).
 		IfMetagenerationMatch(merged.MetaGeneration).Context(ctx).Do()
-	requireObjectStatus(t, err, http.StatusPreconditionFailed)
+	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 	_, err = api.Buckets.Update(bucket.BucketName(), &raw.Bucket{}).
 		IfMetagenerationNotMatch(second.Metageneration).Context(ctx).Do()
-	requireObjectStatus(t, err, http.StatusPreconditionFailed)
+	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 	unchanged, err := bucket.Attrs(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +120,7 @@ func TestBucketMetadataReplace(t *testing.T) {
 	}
 	lastAttrs := requireBucketReplacement(t, ctx, bucket, secondAttrs, last)
 	if len(lastAttrs.Labels) != 0 || lastAttrs.StorageClass != "STANDARD" || lastAttrs.VersioningEnabled || lastAttrs.DefaultEventBasedHold {
-		t.Fatalf("empty PUT must restore modeled defaults: %+v", lastAttrs)
+		t.Fatalf("empty PUT must clear labels and retain modeled defaults: %+v", lastAttrs)
 	}
 	requireStrictObjectUnchanged(t, ctx, bucket, object, payload)
 }
@@ -136,7 +147,9 @@ func requireBucketReplacement(t *testing.T, ctx context.Context, bucket *storage
 
 func TestStrictAuthBucketMetadataReplace(t *testing.T) {
 	ctx, bucket, object, payload := strictFixture(t, "bucket-replace")
-	before, err := bucket.Attrs(ctx)
+	seed := storage.BucketAttrsToUpdate{}
+	seed.SetLabel("remove", "old")
+	before, err := bucket.Update(ctx, seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,16 +157,7 @@ func TestStrictAuthBucketMetadataReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reuse the origin-guarded HTTP harness; explicit static tokens never trigger ADC discovery.
-	t.Setenv("GCS_MIMIC_ENDPOINT", os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"))
-	_, _, httpClient, endpoint := newEmulatorClient(t)
-	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: strictViewerToken, TokenType: "Bearer"})
-	httpClient.Transport = &oauth2.Transport{Source: source, Base: httpClient.Transport}
-	api, err := raw.NewService(ctx, option.WithHTTPClient(httpClient), option.WithoutAuthentication(),
-		option.WithEndpoint(endpoint.String()+"/storage/v1/"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	api := newStrictBucketService(t, ctx, strictViewerToken)
 	body := &raw.Bucket{Labels: map[string]string{"owner": "admin"}, StorageClass: "COLDLINE"}
 	_, err = api.Buckets.Update(bucket.BucketName(), body).Context(ctx).Do()
 	requireStrictError(t, err, http.StatusForbidden, "forbidden")
@@ -165,8 +169,7 @@ func TestStrictAuthBucketMetadataReplace(t *testing.T) {
 		!after.Updated.Equal(before.Updated) || !maps.Equal(after.Labels, before.Labels) || after.StorageClass != before.StorageClass {
 		t.Fatalf("denied PUT changed metadata: before=%+v after=%+v", before, after)
 	}
-	source = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: strictAdminToken, TokenType: "Bearer"})
-	httpClient.Transport.(*oauth2.Transport).Source = source
+	api = newStrictBucketService(t, ctx, strictAdminToken)
 	updated, err := api.Buckets.Update(bucket.BucketName(), body).IfMetagenerationMatch(before.MetaGeneration).Context(ctx).Do()
 	if err != nil {
 		t.Fatalf("admin PUT: %v", err)
@@ -182,5 +185,46 @@ func TestStrictAuthBucketMetadataReplace(t *testing.T) {
 	if string(afterPolicy.InternalProto.Etag) != string(policy.InternalProto.Etag) {
 		t.Fatal("PUT changed IAM policy etag")
 	}
+	if !reflect.DeepEqual(afterPolicy.InternalProto.Bindings, policy.InternalProto.Bindings) {
+		t.Fatal("PUT changed IAM policy bindings")
+	}
 	requireStrictObjectUnchanged(t, ctx, bucket, object, payload)
+}
+
+func newStrictBucketService(t *testing.T, ctx context.Context, token string) *raw.Service {
+	t.Helper()
+	endpoint, err := emulatorEndpoint(os.Getenv("GCS_MIMIC_STRICT_ENDPOINT"), os.Getenv("GCS_MIMIC_ALLOWED_HOSTS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{
+		Proxy: nil, MaxConnsPerHost: 2, MaxIdleConns: 2,
+		IdleConnTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			// Match the shared harness so hosts-file changes cannot redirect localhost off-machine.
+			if host == "localhost" {
+				address = net.JoinHostPort("127.0.0.1", port)
+			}
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, address)
+		},
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	httpClient := &http.Client{
+		Transport: &oauth2.Transport{
+			Source: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token, TokenType: "Bearer"}),
+			Base:   emulatorTransport{endpoint: endpoint, base: transport},
+		},
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	api, err := raw.NewService(ctx, option.WithHTTPClient(httpClient), option.WithoutAuthentication(),
+		option.WithEndpoint(endpoint.String()+"/storage/v1/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return api
 }
