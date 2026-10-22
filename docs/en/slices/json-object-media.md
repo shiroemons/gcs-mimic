@@ -80,7 +80,8 @@ Discovery fields and reproduction commands are retained in
 relative to `servicePath=storage/v1/`; that generic method path is not the media upload URL.
 `mediaUpload.protocols.simple.path` is `/upload/storage/v1/b/{bucket}/o`;
 `mediaUpload.protocols.resumable.path` is `/resumable/upload/storage/v1/b/{bucket}/o`.
-Both protocols advertise `multipart=true`; this does not make multipart implemented locally.
+Both advertise `multipart=true`; local single-request support is defined by the
+[multipart contract](json-object-multipart.md), not by Discovery presence alone.
 Get/delete use `b/{bucket}/o/{object}`. Download flags are described in contract decision 3.
 
 Existing SPEC-001/002/003/004/006/007 were reviewed; they do not authorize extra object
@@ -95,7 +96,9 @@ The application must stream bodies and checksums through bounded buffers to opaq
 object names never become filesystem paths. An upload is visible only after complete body,
 checksum validation, durable blob publication and an atomic catalog commit.
 
-Multipart, resumable sessions, version retention, soft delete, ranges, transcoding, custom
+The later [multipart](json-object-multipart.md), [listing](json-object-list.md) and
+[metadata](json-object-metadata.md) contracts extend this original media scope.
+Resumable sessions, version retention, soft delete, ranges, transcoding, custom
 metadata, ACL/IAM, authentication enforcement, encryption, retention/holds, notifications,
 copy/compose/rewrite, listing and metadata patch/update remain outside this slice. Known
 unsupported requests return 501 `notImplemented`, a local deviation rather than a Google
@@ -131,7 +134,7 @@ structure; callers encode embedded name slashes as `%2F`.
 
 | Methods | Parameter | Decision |
 | --- | --- | --- |
-| insert | `uploadType` | Required; `media` supported; `multipart`/`resumable` rejected 501; other values 400 |
+| insert | `uploadType` | Required; `media` supported here; `multipart` follows its separate contract; `resumable` rejected 501; other values 400 |
 | insert | `name` | Required and nonempty because media has no metadata container |
 | insert/get/delete | `ifGenerationMatch`, `ifGenerationNotMatch`, `ifMetagenerationMatch`, `ifMetagenerationNotMatch` | Signed int64 strings parsed without overflow; atomic comparisons; zero generation-match is create-if-absent |
 | get/delete | `generation` | Optional exact live-generation selector; omitted selects live; absent selected generation 404, no historical fallback |

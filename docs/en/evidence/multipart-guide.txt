@@ -1,0 +1,780 @@
+Local path prefixes were redacted; all other output is unchanged.
+
++ export COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-31421
++ COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-31421
++ export GCS_MIMIC_IMAGE=gcs-mimic:object-demo-31421
++ GCS_MIMIC_IMAGE=gcs-mimic:object-demo-31421
++ docker build -t gcs-mimic:object-demo-31421 .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.82kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 248B done
+#6 DONE 0.0s
+
+#7 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#7 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf done
+#7 DONE 0.0s
+
+#8 [build 1/9] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3 done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 1.59kB done
+#9 DONE 0.0s
+
+#10 [build 6/9] COPY src ./src
+#10 CACHED
+
+#11 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#11 CACHED
+
+#12 [build 2/9] WORKDIR /build
+#12 CACHED
+
+#13 [build 9/9] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#13 CACHED
+
+#14 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#14 CACHED
+
+#15 [build 3/9] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#15 CACHED
+
+#16 [build 7/9] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 CACHED
+
+#17 [build 4/9] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#17 CACHED
+
+#18 [build 8/9] COPY distribution/notices ./distribution/notices
+#18 CACHED
+
+#19 [build 5/9] COPY xtask/src ./xtask/src
+#19 CACHED
+
+#20 [runtime 2/5] WORKDIR /app
+#20 CACHED
+
+#21 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#21 CACHED
+
+#22 exporting to image
+#22 exporting layers done
+#22 exporting manifest sha256:27c08a08a299ca3caf5a2a58eae008dfc23df2d91c9b6581b4c38ec07fe2493c done
+#22 exporting config sha256:486218188c2acc0268cdb9db6c5414fe2e085c9989542e4f3bdfb809c300a147 done
+#22 exporting attestation manifest sha256:aed82fb9ad21177bff1be3184d79e0d8a3c90c993949efe3f038b66e0f1de7cb done
+#22 exporting manifest list sha256:c6743e0292be87b2d31803507ee307532a631b6d65cd741a593bb442c01e301b done
+#22 naming to docker.io/library/gcs-mimic:object-demo-31421 done
+#22 unpacking to docker.io/library/gcs-mimic:object-demo-31421 done
+#22 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/scisphsb3ljyg6fj9tnvsbdiq
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ docker compose config --quiet
++ docker compose up -d --wait
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55189
++ endpoint=http://127.0.0.1:55189
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/_internal/health
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  34389      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792634991}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  32423      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792634991}+ export GCS_MIMIC_PORT=55189
++ GCS_MIMIC_PORT=55189
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55189
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55189
++ docker compose up -d --wait
+ Container gcs-mimic-object-demo-31421-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-31421-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55189/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64  84882  14001 --:--:-- --:--:-- --:--:--  110k
+{"etag":"\"b-1792634994304-1792634994304-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.304Z","updated":"2026-10-22T02:09:54.304Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   292k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792634994304-1792634994304-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.304Z","updated":"2026-10-22T02:09:54.304Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0   329k      0 --:--:-- --:--:-- --:--:--  415k
+{"items":[{"etag":"\"b-1792634994304-1792634994304-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.304Z","updated":"2026-10-22T02:09:54.304Z"}],"kind":"storage#buckets"}+ peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
++ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    384 100    362 100     22 155.5k   9678                              0100    384 100    362 100     22 154.5k   9615                              0100    384 100    362 100     22 153.6k   9561                              0
+{"etag":"\"b-1792634994432-1792634994432-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.432Z","updated":"2026-10-22T02:09:54.432Z"}+ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    362 100    362   0      0 500.7k      0                              0100    362 100    362   0      0 488.2k      0                              0100    362 100    362   0      0 483.6k      0                              0
+{"etag":"\"b-1792634994432-1792634994432-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.432Z","updated":"2026-10-22T02:09:54.432Z"}+ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b?project=local-project&prefix=peer-'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    399 100    399   0      0 153.4k      0                              0100    399 100    399   0      0 152.6k      0                              0100    399 100    399   0      0 152.2k      0                              0
+{"items":[{"etag":"\"b-1792634994432-1792634994432-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.432Z","updated":"2026-10-22T02:09:54.432Z"}],"kind":"storage#buckets"}+ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+++ mktemp -d
++ work_dir=<temp>/tmp.op3cLjtKDc
++ printf 'Hello from gcs-mimic.\n'
++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temp>/tmp.op3cLjtKDc/upload.txt 'http://127.0.0.1:55189/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   765  100   743  100    22   159k   4835 --:--:-- --:--:-- --:--:--  186k
++ jq . <temp>/tmp.op3cLjtKDc/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-1\"",
+  "generation": "1792634995124147",
+  "id": "demo-bucket/notes/hello.txt/1792634995124147",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T02:09:55.124Z",
+  "timeFinalized": "2026-10-22T02:09:55.124Z",
+  "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+  "updated": "2026-10-22T02:09:55.124Z"
+}
+++ jq -r .generation <temp>/tmp.op3cLjtKDc/object.json
++ generation=1792634995124147
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   743  100   743    0     0   582k      0 --:--:-- --:--:-- --:--:--  725k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-1\"",
+  "generation": "1792634995124147",
+  "id": "demo-bucket/notes/hello.txt/1792634995124147",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T02:09:55.124Z",
+  "timeFinalized": "2026-10-22T02:09:55.124Z",
+  "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+  "updated": "2026-10-22T02:09:55.124Z"
+}
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792634995124147' --output <temp>/tmp.op3cLjtKDc/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  16000      0 --:--:-- --:--:-- --:--:-- 22000
++ cmp <temp>/tmp.op3cLjtKDc/upload.txt <temp>/tmp.op3cLjtKDc/download.txt
+++ curl --disable --noproxy '*' --silent --output <temp>/tmp.op3cLjtKDc/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temp>/tmp.op3cLjtKDc/upload.txt 'http://127.0.0.1:55189/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
++ status=412
++ test 412 = 412
++ jq . <temp>/tmp.op3cLjtKDc/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
+++ curl --disable --noproxy '*' --silent --output <temp>/tmp.op3cLjtKDc/not-modified --write-out '%{http_code}' 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792634995124147'
++ status=304
++ test 304 = 304
++ test '!' -s <temp>/tmp.op3cLjtKDc/not-modified
+++ curl --disable --noproxy '*' --silent --output <temp>/tmp.op3cLjtKDc/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:55189/storage/v1/b/demo-bucket
++ status=409
++ test 409 = 409
++ jq . <temp>/tmp.op3cLjtKDc/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
++ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'peer data' 'http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=peer%2Fhello.txt'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    747 100    738 100      9  90920   1108                              0100    747 100    738 100      9  89791   1095                              0100    747 100    738 100      9  89704   1093                              0
+{"bucket":"demo-bucket","contentType":"text/plain","crc32c":"bXKHqg==","etag":"\"o-Q3LJnuufn1o/BuroHlr6RA==-1792634995297321-1\"","generation":"1792634995297321","id":"demo-bucket/peer/hello.txt/1792634995297321","kind":"storage#object","md5Hash":"Q3LJnuufn1o/BuroHlr6RA==","mediaLink":"http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/peer%2Fhello.txt?generation=1792634995297321&alt=media","metageneration":"1","name":"peer/hello.txt","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/peer%2Fhello.txt","size":"9","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:55.297Z","timeFinalized":"2026-10-22T02:09:55.297Z","timeStorageClassUpdated":"2026-10-22T02:09:55.297Z","updated":"2026-10-22T02:09:55.297Z"}+ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    738 100    738   0      0 509.6k      0                              0100    738 100    738   0      0 500.4k      0                              0100    738 100    738   0      0 498.0k      0                              0
+{"bucket":"demo-bucket","contentType":"text/plain","crc32c":"bXKHqg==","etag":"\"o-Q3LJnuufn1o/BuroHlr6RA==-1792634995297321-1\"","generation":"1792634995297321","id":"demo-bucket/peer/hello.txt/1792634995297321","kind":"storage#object","md5Hash":"Q3LJnuufn1o/BuroHlr6RA==","mediaLink":"http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/peer%2Fhello.txt?generation=1792634995297321&alt=media","metageneration":"1","name":"peer/hello.txt","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/peer%2Fhello.txt","size":"9","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:55.297Z","timeFinalized":"2026-10-22T02:09:55.297Z","timeStorageClassUpdated":"2026-10-22T02:09:55.297Z","updated":"2026-10-22T02:09:55.297Z"}+ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100     22 100     22   0      0  20657      0                              0100     22 100     22   0      0  20522      0                              0100     22 100     22   0      0  20408      0                              0
++ cmp <temp>/tmp.op3cLjtKDc/upload.txt <temp>/tmp.op3cLjtKDc/peer-download.txt
++ docker run --rm --read-only --network gcs-mimic-object-demo-31421_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
++ printf 'Hello multipart.\n'
++ printf '%s\r\n' --guide-boundary 'Content-Type: application/json; charset=UTF-8' '' '{"name":"multipart/hello.txt","contentType":"text/plain; charset=utf-8","metadata":{"team":"local","source":"multipart"}}' --guide-boundary 'Content-Type: application/octet-stream' ''
++ tee -a <temp>/tmp.op3cLjtKDc/upload.multipart
++ printf '\r\n--guide-boundary--\r\n'
++ curl --disable --noproxy '*' --fail -H 'Content-Type: multipart/related; boundary=guide-boundary' --data-binary @<temp>/tmp.op3cLjtKDc/upload.multipart 'http://127.0.0.1:55189/upload/storage/v1/b/demo-bucket/o?uploadType=multipart&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  1112  100   823  100   289   178k  64350 --:--:-- --:--:-- --:--:--  271k
++ jq -e '.name == "multipart/hello.txt" and .contentType == "text/plain; charset=utf-8" and .metadata == {"team":"local","source":"multipart"}' <temp>/tmp.op3cLjtKDc/multipart.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   823  100   823    0     0   720k      0 --:--:-- --:--:-- --:--:--  803k
++ cmp <temp>/tmp.op3cLjtKDc/multipart.json <temp>/tmp.op3cLjtKDc/multipart-get.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt?alt=media' --output <temp>/tmp.op3cLjtKDc/multipart-download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    17  100    17    0     0  13888      0 --:--:-- --:--:-- --:--:-- 17000
++ cmp <temp>/tmp.op3cLjtKDc/multipart-media.txt <temp>/tmp.op3cLjtKDc/multipart-download.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data 'nested data' 'http://127.0.0.1:55189/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fnested%2Fother.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   786  100   775  100    11   214k   3122 --:--:-- --:--:-- --:--:--  255k
+{"bucket":"demo-bucket","contentType":"text/plain","crc32c":"08TQZg==","etag":"\"o-umUewqsNf0WURHb/cB1mcQ==-1792634996006603-1\"","generation":"1792634996006603","id":"demo-bucket/notes/nested/other.txt/1792634996006603","kind":"storage#object","md5Hash":"umUewqsNf0WURHb/cB1mcQ==","mediaLink":"http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt?generation=1792634996006603&alt=media","metageneration":"1","name":"notes/nested/other.txt","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:56.006Z","timeFinalized":"2026-10-22T02:09:56.006Z","timeStorageClassUpdated":"2026-10-22T02:09:56.006Z","updated":"2026-10-22T02:09:56.006Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F'
++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   809  100   809    0     0   823k      0 --:--:-- --:--:-- --:--:--  790k
+{
+  "items": [
+    {
+      "bucket": "demo-bucket",
+      "contentType": "text/plain",
+      "crc32c": "tV02Vw==",
+      "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-1\"",
+      "generation": "1792634995124147",
+      "id": "demo-bucket/notes/hello.txt/1792634995124147",
+      "kind": "storage#object",
+      "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+      "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+      "metageneration": "1",
+      "name": "notes/hello.txt",
+      "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+      "size": "22",
+      "storageClass": "STANDARD",
+      "timeCreated": "2026-10-22T02:09:55.124Z",
+      "timeFinalized": "2026-10-22T02:09:55.124Z",
+      "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+      "updated": "2026-10-22T02:09:55.124Z"
+    }
+  ],
+  "kind": "storage#objects",
+  "prefixes": [
+    "notes/nested/"
+  ]
+}
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   914  100   914    0     0   944k      0 --:--:-- --:--:-- --:--:--  892k
++ jq . <temp>/tmp.op3cLjtKDc/page.json
+{
+  "items": [
+    {
+      "bucket": "demo-bucket",
+      "contentType": "text/plain",
+      "crc32c": "tV02Vw==",
+      "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-1\"",
+      "generation": "1792634995124147",
+      "id": "demo-bucket/notes/hello.txt/1792634995124147",
+      "kind": "storage#object",
+      "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+      "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+      "metageneration": "1",
+      "name": "notes/hello.txt",
+      "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+      "size": "22",
+      "storageClass": "STANDARD",
+      "timeCreated": "2026-10-22T02:09:55.124Z",
+      "timeFinalized": "2026-10-22T02:09:55.124Z",
+      "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+      "updated": "2026-10-22T02:09:55.124Z"
+    }
+  ],
+  "kind": "storage#objects",
+  "nextPageToken": "5b226f31222c2263613332353065343638376535353761222c226e6f7465732f68656c6c6f2e747874222c66616c73655d.197a087b3fc859cd"
+}
+++ jq -er .nextPageToken <temp>/tmp.op3cLjtKDc/page.json
++ page_token=5b226f31222c2263613332353065343638376535353761222c226e6f7465732f68656c6c6f2e747874222c66616c73655d.197a087b3fc859cd
++ curl --disable --noproxy '*' --fail --get --data-urlencode prefix=notes/ --data-urlencode delimiter=/ --data-urlencode maxResults=1 --data-urlencode pageToken=5b226f31222c2263613332353065343638376535353761222c226e6f7465732f68656c6c6f2e747874222c66616c73655d.197a087b3fc859cd http://127.0.0.1:55189/storage/v1/b/demo-bucket/o
++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    55  100    55    0     0  47660      0 --:--:-- --:--:-- --:--:-- 55000
+{
+  "kind": "storage#objects",
+  "prefixes": [
+    "notes/nested/"
+  ]
+}
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ jq -r .metageneration <temp>/tmp.op3cLjtKDc/object.json
++ metageneration=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"contentType":"text/plain; charset=utf-8","cacheControl":"private, max-age=60","metadata":{"team":"local"}}' 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   931  100   823  100   108   508k  68354 --:--:-- --:--:-- --:--:--  909k
++ jq . <temp>/tmp.op3cLjtKDc/patched.json
+{
+  "bucket": "demo-bucket",
+  "cacheControl": "private, max-age=60",
+  "contentType": "text/plain; charset=utf-8",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-2\"",
+  "generation": "1792634995124147",
+  "id": "demo-bucket/notes/hello.txt/1792634995124147",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+  "metadata": {
+    "team": "local"
+  },
+  "metageneration": "2",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T02:09:55.124Z",
+  "timeFinalized": "2026-10-22T02:09:55.124Z",
+  "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+  "updated": "2026-10-22T02:09:56.061Z"
+}
+++ curl --disable --noproxy '*' --silent --output <temp>/tmp.op3cLjtKDc/stale.json --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"metadata":{"stale":"rejected"}}' 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=1'
++ status=412
++ test 412 = 412
++ jq . <temp>/tmp.op3cLjtKDc/stale.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
+++ jq -r .metageneration <temp>/tmp.op3cLjtKDc/patched.json
++ metageneration=2
++ curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' --data '{"contentType":"text/plain","metadata":{"only":"replacement"}}' 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=2'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   839  100   777  100    62   388k  31746 --:--:-- --:--:-- --:--:--  819k
++ jq . <temp>/tmp.op3cLjtKDc/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792634995124147-3\"",
+  "generation": "1792634995124147",
+  "id": "demo-bucket/notes/hello.txt/1792634995124147",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55189/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792634995124147&alt=media",
+  "metadata": {
+    "only": "replacement"
+  },
+  "metageneration": "3",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T02:09:55.124Z",
+  "timeFinalized": "2026-10-22T02:09:55.124Z",
+  "timeStorageClassUpdated": "2026-10-22T02:09:55.124Z",
+  "updated": "2026-10-22T02:09:56.090Z"
+}
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o?prefix=notes%2F'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   814  100   814    0     0   712k      0 --:--:-- --:--:-- --:--:--  794k
++ jq -e --slurpfile object <temp>/tmp.op3cLjtKDc/object.json '.items == $object' <temp>/tmp.op3cLjtKDc/list.json
+true
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792634995124147' --output <temp>/tmp.op3cLjtKDc/metadata-download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  17944      0 --:--:-- --:--:-- --:--:-- 22000
++ cmp <temp>/tmp.op3cLjtKDc/upload.txt <temp>/tmp.op3cLjtKDc/metadata-download.txt
++ docker compose stop
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
++ docker compose start --wait
+ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   241k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792634994304-1792634994304-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.304Z","updated":"2026-10-22T02:09:54.304Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792634995124147' --output <temp>/tmp.op3cLjtKDc/restarted.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  12048      0 --:--:-- --:--:-- --:--:-- 22000
++ cmp <temp>/tmp.op3cLjtKDc/upload.txt <temp>/tmp.op3cLjtKDc/restarted.txt
++ docker compose down
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+ Network gcs-mimic-object-demo-31421_default Removing 
+ Network gcs-mimic-object-demo-31421_default Removed 
++ docker compose up -d --wait
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   218k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792634994304-1792634994304-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:09:54.304Z","updated":"2026-10-22T02:09:54.304Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   777  100   777    0     0   441k      0 --:--:-- --:--:-- --:--:--  758k
++ cmp <temp>/tmp.op3cLjtKDc/object.json <temp>/tmp.op3cLjtKDc/restarted.json
++ curl --disable --noproxy '*' --fail -X DELETE 'http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationMatch=1792634995124147'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55189/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ status=404
++ test 404 = 404
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55189/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55189/storage/v1/b/demo-bucket
++ status=404
++ test 404 = 404
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"reset-bucket"}' 'http://127.0.0.1:55189/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   365  100    23   154k  10000 --:--:-- --:--:-- --:--:--  189k
+{"etag":"\"b-1792635001079-1792635001079-1\"","id":"reset-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"reset-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55189/storage/v1/b/reset-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:10:01.079Z","updated":"2026-10-22T02:10:01.079Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'reset data' 'http://127.0.0.1:55189/upload/storage/v1/b/reset-bucket/o?uploadType=media&name=reset.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   729  100   719  100    10   135k   1932 --:--:-- --:--:-- --:--:--  142k
+{"bucket":"reset-bucket","contentType":"text/plain","crc32c":"CadGGQ==","etag":"\"o-SHoZ+0yIhNSxOH4PcKndIg==-1792635001091391-1\"","generation":"1792635001091391","id":"reset-bucket/reset.txt/1792635001091391","kind":"storage#object","md5Hash":"SHoZ+0yIhNSxOH4PcKndIg==","mediaLink":"http://127.0.0.1:55189/download/storage/v1/b/reset-bucket/o/reset.txt?generation=1792635001091391&alt=media","metageneration":"1","name":"reset.txt","selfLink":"http://127.0.0.1:55189/storage/v1/b/reset-bucket/o/reset.txt","size":"10","storageClass":"STANDARD","timeCreated":"2026-10-22T02:10:01.091Z","timeFinalized":"2026-10-22T02:10:01.091Z","timeStorageClassUpdated":"2026-10-22T02:10:01.091Z","updated":"2026-10-22T02:10:01.091Z"}+ docker compose down --volumes
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+ Volume gcs-mimic-object-demo-31421_gcs-data Removing 
+ Network gcs-mimic-object-demo-31421_default Removing 
+ Volume gcs-mimic-object-demo-31421_gcs-data Removed 
+ Network gcs-mimic-object-demo-31421_default Removed 
++ docker compose up -d --wait
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+ Network gcs-mimic-object-demo-31421_default Creating 
+ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Network gcs-mimic-object-demo-31421_default Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:55189/storage/v1/b/reset-bucket
++ status=404
++ test 404 = 404
+++ curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' 'http://127.0.0.1:55189/storage/v1/b/reset-bucket/o/reset.txt?alt=media'
++ status=404
++ test 404 = 404
++ cd sdk-tests/go
++ GCS_MIMIC_ENDPOINT=http://127.0.0.1:55189
++ GOTOOLCHAIN=auto
++ go test -count=1 -v ./...
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:144: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55189
+--- PASS: TestBucketLifecycle (0.03s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55189
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.09s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.01s)
+    --- PASS: TestObjectList/Prefix (0.00s)
+    --- PASS: TestObjectList/Delimiter (0.00s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.01s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.00s)
+    --- PASS: TestObjectList/Offsets (0.00s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.00s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55189
+--- PASS: TestObjectMetadataUpdate (0.02s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55189
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.05s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.01s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.02s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.01s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.00s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.00s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:62: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:55189
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+=== RUN   TestObjectMediaLifecycle/unsupported_SDK_resumable_writer
+--- PASS: TestObjectMediaLifecycle (0.09s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/unsupported_SDK_resumable_writer (0.00s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.646s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
++ docker compose down --volumes
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+ Volume gcs-mimic-object-demo-31421_gcs-data Removing 
+ Network gcs-mimic-object-demo-31421_default Removing 
+ Volume gcs-mimic-object-demo-31421_gcs-data Removed 
+ Network gcs-mimic-object-demo-31421_default Removed 
++ docker image rm gcs-mimic:object-demo-31421
+Untagged: gcs-mimic:object-demo-31421
+Deleted: sha256:c6743e0292be87b2d31803507ee307532a631b6d65cd741a593bb442c01e301b
++ rm -r <temp>/tmp.op3cLjtKDc
++ unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
++ cargo +1.99.1 build --release --locked --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling typenum v1.20.1
+   Compiling pin-project-lite v0.2.17
+   Compiling semver v1.0.28
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling httparse v1.10.1
+   Compiling cc v1.9.0
+   Compiling rustc_version v0.4.1
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling futures-core v0.3.34
+   Compiling smallvec v1.16.3
+   Compiling serde_json v1.0.154
+   Compiling crc32c v0.6.8
+   Compiling getrandom v0.4.3
+   Compiling http v1.5.0
+   Compiling hybrid-array v0.4.15
+   Compiling cfg-if v1.0.5
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling http-body v1.1.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling digest v0.11.3
+   Compiling syn v3.0.9
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling md-5 v0.11.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 16.31s
+++ mktemp -d
++ native_dir=<temp>/tmp.GxGPzgajjG
++ native_pid=33984
++ trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.GxGPzgajjG/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.GxGPzgajjG/server.log
++ kill -0 33984
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.GxGPzgajjG/server.log
++ kill -0 33984
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.GxGPzgajjG/server.log
++ kill -0 33984
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.GxGPzgajjG/server.log
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temp>/tmp.GxGPzgajjG/server.log
++ native_endpoint=http://127.0.0.1:55051
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:55051/_internal/ready
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"native-bucket"}' 'http://127.0.0.1:55051/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   391  100   367  100    24   301k  20202 --:--:-- --:--:-- --:--:--  381k
+{"etag":"\"b-1792635023969-1792635023969-1\"","id":"native-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"native-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T02:10:23.969Z","updated":"2026-10-22T02:10:23.969Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' 'http://127.0.0.1:55051/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   721  100    11  49054    748 --:--:-- --:--:-- --:--:-- 52285
+{"bucket":"native-bucket","contentType":"text/plain","crc32c":"Ust9OA==","etag":"\"o-ZCrJUVRWexgU5S840H/rJQ==-1792635023991164-1\"","generation":"1792635023991164","id":"native-bucket/hello.txt/1792635023991164","kind":"storage#object","md5Hash":"ZCrJUVRWexgU5S840H/rJQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/native-bucket/o/hello.txt?generation=1792635023991164&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket/o/hello.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-22T02:10:23.991Z","timeFinalized":"2026-10-22T02:10:23.991Z","timeStorageClassUpdated":"2026-10-22T02:10:23.991Z","updated":"2026-10-22T02:10:23.991Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55051/storage/v1/b/native-bucket/o/hello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0  19748      0 --:--:-- --:--:-- --:--:-- 11000
++ printf 'native data'
++ cmp - <temp>/tmp.GxGPzgajjG/download.txt
++ kill -TERM 33984
++ wait 33984
++ trap - EXIT
++ jq . <temp>/tmp.GxGPzgajjG/server.log
+{
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:55051",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
++ rm -r <temp>/tmp.GxGPzgajjG

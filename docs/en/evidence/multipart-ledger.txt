@@ -1,0 +1,446 @@
+Local path prefixes were redacted; all other output is unchanged.
+
+Compatibility validate, render and check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility validate`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility render`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+
+Markdown lint (MD013 disabled; MD024 siblings_only)
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: README.md docs/en/design.md docs/en/development.md docs/en/getting-started-spec.md docs/en/getting-started.md docs/en/roadmap.md docs/en/slices/json-object-media.md docs/en/slices/json-object-multipart.md sdk-tests/go/README.md sdk-tests/go/verification.md docs/en/feature-matrix.md planning/notes-ja/feature-matrix.md docs/en/evidence/multipart.md
+Linting: 13 files
+Summary: 0 issues in 0 files
+
+Whitespace diff check
+
+Local-path checks (tracked files and new multipart logs)
+No local path matches.
+All ledger and documentation checks passed.
+
+
+Unrestricted staged whitespace check: exit 2; original Compose trailing spaces retained.
+docs/en/evidence/multipart-checks.txt:665: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:666: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:667: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:668: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:669: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:670: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:671: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:672: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:673: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:674: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:675: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:676: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:677: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:678: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:679: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-run-d4a6f950b1fc Creating 
+docs/en/evidence/multipart-checks.txt:680: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-run-d4a6f950b1fc Created 
+docs/en/evidence/multipart-checks.txt:681: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:682: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:683: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:684: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:685: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:686: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:687: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:688: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:689: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:690: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:691: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:692: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removed 
+docs/en/evidence/multipart-checks.txt:693: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:694: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:695: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:696: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:697: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:698: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:699: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:700: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:701: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:702: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:703: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:704: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:705: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:706: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:707: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:708: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Removing 
+docs/en/evidence/multipart-checks.txt:709: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Removed 
+docs/en/evidence/multipart-checks.txt:710: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removed 
+docs/en/evidence/multipart-checks.txt:711: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:712: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:713: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:714: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:715: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:716: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:717: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:718: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:719: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:720: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:721: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:722: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:723: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:724: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:725: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:726: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:727: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:728: trailing whitespace.
++ Container gcs-mimic-bucket-amd64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:729: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Removing 
+docs/en/evidence/multipart-checks.txt:730: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:731: trailing whitespace.
++ Volume gcs-mimic-bucket-amd64-16297_gcs-data Removed 
+docs/en/evidence/multipart-checks.txt:732: trailing whitespace.
++ Network gcs-mimic-bucket-amd64-16297_default Removed 
+docs/en/evidence/multipart-checks.txt:957: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:958: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:959: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:960: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:961: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:962: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:963: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:964: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:965: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:966: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:967: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:968: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:969: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:970: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:971: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-run-31311791b391 Creating 
+docs/en/evidence/multipart-checks.txt:972: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-run-31311791b391 Created 
+docs/en/evidence/multipart-checks.txt:973: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:974: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:975: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:976: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:977: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:978: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:979: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:980: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:981: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:982: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:983: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:984: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removed 
+docs/en/evidence/multipart-checks.txt:985: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:986: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:987: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:988: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:989: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:990: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:991: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:992: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:993: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:994: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:995: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:996: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:997: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:998: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:999: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:1000: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Removing 
+docs/en/evidence/multipart-checks.txt:1001: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Removed 
+docs/en/evidence/multipart-checks.txt:1002: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removed 
+docs/en/evidence/multipart-checks.txt:1003: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:1004: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Creating 
+docs/en/evidence/multipart-checks.txt:1005: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:1006: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Creating 
+docs/en/evidence/multipart-checks.txt:1007: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:1008: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Created 
+docs/en/evidence/multipart-checks.txt:1009: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:1010: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Created 
+docs/en/evidence/multipart-checks.txt:1011: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Creating 
+docs/en/evidence/multipart-checks.txt:1012: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Created 
+docs/en/evidence/multipart-checks.txt:1013: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Starting 
+docs/en/evidence/multipart-checks.txt:1014: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Started 
+docs/en/evidence/multipart-checks.txt:1015: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Waiting 
+docs/en/evidence/multipart-checks.txt:1016: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Healthy 
+docs/en/evidence/multipart-checks.txt:1017: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopping 
+docs/en/evidence/multipart-checks.txt:1018: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Stopped 
+docs/en/evidence/multipart-checks.txt:1019: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removing 
+docs/en/evidence/multipart-checks.txt:1020: trailing whitespace.
++ Container gcs-mimic-bucket-arm64-16297-gcs-1 Removed 
+docs/en/evidence/multipart-checks.txt:1021: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Removing 
+docs/en/evidence/multipart-checks.txt:1022: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removing 
+docs/en/evidence/multipart-checks.txt:1023: trailing whitespace.
++ Volume gcs-mimic-bucket-arm64-16297_gcs-data Removed 
+docs/en/evidence/multipart-checks.txt:1024: trailing whitespace.
++ Network gcs-mimic-bucket-arm64-16297_default Removed 
+docs/en/evidence/multipart-guide.txt:94: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:95: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+docs/en/evidence/multipart-guide.txt:96: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+docs/en/evidence/multipart-guide.txt:97: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:98: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+docs/en/evidence/multipart-guide.txt:99: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+docs/en/evidence/multipart-guide.txt:100: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:101: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:102: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+docs/en/evidence/multipart-guide.txt:103: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+docs/en/evidence/multipart-guide.txt:104: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+docs/en/evidence/multipart-guide.txt:105: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+docs/en/evidence/multipart-guide.txt:106: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+docs/en/evidence/multipart-guide.txt:107: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+docs/en/evidence/multipart-guide.txt:125: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Recreate 
+docs/en/evidence/multipart-guide.txt:126: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Recreated 
+docs/en/evidence/multipart-guide.txt:127: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+docs/en/evidence/multipart-guide.txt:128: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+docs/en/evidence/multipart-guide.txt:129: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+docs/en/evidence/multipart-guide.txt:130: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+docs/en/evidence/multipart-guide.txt:474: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+docs/en/evidence/multipart-guide.txt:475: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+docs/en/evidence/multipart-guide.txt:477: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+docs/en/evidence/multipart-guide.txt:478: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+docs/en/evidence/multipart-guide.txt:479: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+docs/en/evidence/multipart-guide.txt:480: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+docs/en/evidence/multipart-guide.txt:491: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+docs/en/evidence/multipart-guide.txt:492: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+docs/en/evidence/multipart-guide.txt:493: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+docs/en/evidence/multipart-guide.txt:494: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+docs/en/evidence/multipart-guide.txt:495: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removing 
+docs/en/evidence/multipart-guide.txt:496: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removed 
+docs/en/evidence/multipart-guide.txt:498: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:499: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:500: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:501: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:502: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+docs/en/evidence/multipart-guide.txt:503: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+docs/en/evidence/multipart-guide.txt:504: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+docs/en/evidence/multipart-guide.txt:505: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+docs/en/evidence/multipart-guide.txt:506: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+docs/en/evidence/multipart-guide.txt:507: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+docs/en/evidence/multipart-guide.txt:540: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+docs/en/evidence/multipart-guide.txt:541: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+docs/en/evidence/multipart-guide.txt:542: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+docs/en/evidence/multipart-guide.txt:543: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+docs/en/evidence/multipart-guide.txt:544: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Removing 
+docs/en/evidence/multipart-guide.txt:545: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removing 
+docs/en/evidence/multipart-guide.txt:546: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Removed 
+docs/en/evidence/multipart-guide.txt:547: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removed 
+docs/en/evidence/multipart-guide.txt:549: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:550: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+docs/en/evidence/multipart-guide.txt:551: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Creating 
+docs/en/evidence/multipart-guide.txt:552: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Creating 
+docs/en/evidence/multipart-guide.txt:553: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+docs/en/evidence/multipart-guide.txt:554: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Created 
+docs/en/evidence/multipart-guide.txt:555: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:556: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Created 
+docs/en/evidence/multipart-guide.txt:557: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Creating 
+docs/en/evidence/multipart-guide.txt:558: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Created 
+docs/en/evidence/multipart-guide.txt:559: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Starting 
+docs/en/evidence/multipart-guide.txt:560: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Started 
+docs/en/evidence/multipart-guide.txt:561: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Waiting 
+docs/en/evidence/multipart-guide.txt:562: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Healthy 
+docs/en/evidence/multipart-guide.txt:656: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopping 
+docs/en/evidence/multipart-guide.txt:657: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Stopped 
+docs/en/evidence/multipart-guide.txt:658: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removing 
+docs/en/evidence/multipart-guide.txt:659: trailing whitespace.
++ Container gcs-mimic-object-demo-31421-gcs-1 Removed 
+docs/en/evidence/multipart-guide.txt:660: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Removing 
+docs/en/evidence/multipart-guide.txt:661: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removing 
+docs/en/evidence/multipart-guide.txt:662: trailing whitespace.
++ Volume gcs-mimic-object-demo-31421_gcs-data Removed 
+docs/en/evidence/multipart-guide.txt:663: trailing whitespace.
++ Network gcs-mimic-object-demo-31421_default Removed 
+
+Staged whitespace check excluding raw multipart evidence TXT files: PASS, exit 0.
+
