@@ -1,0 +1,370 @@
+Local path prefixes in raw output are replaced with <checkout> or <temp>; other output is unchanged.
+Resumable upload slice-end dependency verification, 2026-10-22 (UTC).
+
+Compared with docs/en/evidence/resumable-upload-dependencies.txt, the Rust
+builder index changed during this slice. The compiler, all eleven direct crates,
+Go/toolchain/module inputs, Actions, runtime/peer images and other Docker inputs
+remained current. No application/SDK dependency or lockfile migration was needed.
+
+Initial command: just check-dependencies
+Result: update detected; recipe exit 1 (just exit 1). Rust image fixed tag
+1.99.1-slim-trixie and floating stable selector slim-trixie moved from
+sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec
+to sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6.
+The coordinator explicitly authorized adopting the new index. Dockerfile and
+the current Docker entry in compatibility/dependency-status.json were updated;
+historical evidence was preserved. This log records detection, migration and
+reverification rather than claiming the original check passed.
+
+Registry inspection command:
+  docker buildx imagetools inspect rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 --raw
+Selected platform manifests are unchanged from slice start:
+  linux/amd64 sha256:d7d8fd94f01c80a355b86fe8691abc26be051daa44fa021a8b5ece5c8cbcb469
+  linux/arm64/v8 sha256:73b81f338853a11a828adeb6fc31ba5d53e3cbc435fb6ae71752473242f6f88b
+
+Build command (native ARM64 Docker daemon):
+  docker build --platform linux/arm64 --progress plain -t gcs-mimic:resumable-freshness .
+Docker client/server 29.8.1; buildx v0.37.1
+(0b265a9f62db554fa9aba6dd19e1bd5704bc7d8a).
+Builder-stage cargo fetch, release compilation and license generation run in
+this build; final runtime image export is included. Full output follows below.
+Both-architecture container smoke is delegated to final integration verification.
+
+Independent official checks, in addition to the detector:
+- curl --disable -fsSL --max-time 30 https://static.rust-lang.org/dist/channel-rust-stable.toml
+  Stable manifest date 2026-10-15; Rust 1.99.1 (58cf8f9c3 2026-10-13).
+  Fetched SHA-256 fb152be80975c194aa5fc684b2aec3a6e14e2b855efe2faa4e5f8ae6e590f463.
+- For every direct crate below, curl --disable -fsSL --max-time 30 fetches
+  https://index.crates.io/<registry-path>. jq parses every record, excludes
+  yanked and nonnumeric MAJOR.MINOR.PATCH releases and selects the numeric
+  maximum without limiting Cargo ranges or major versions:
+  jq -rs 'map(select(.yanked==false and (.vers|test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))) | max_by(.vers|split(".")|map(tonumber))'
+  Paths: by/te/bytes, cr/c3/crc32c, ge/tr/getrandom, ht/tp/http-body-util,
+  hy/pe/hyper, hy/pe/hyper-util, md/-5/md-5, ru/sq/rusqlite,
+  se/rd/serde_json, to/ki/tokio, wi/nd/windows-sys.
+- curl --disable -fsSL --max-time 30 https://proxy.golang.org/cloud.google.com/go/storage/@latest
+  v1.70.0, time 2026-10-22T04:53:21Z,
+  git 9a2913189e552da51b0fd60aa635027426f04d71.
+- curl --disable -fsSL --max-time 30 https://proxy.golang.org/google.golang.org/api/@latest
+  v0.307.0, time 2026-10-21T17:12:40Z,
+  git fbb4c3c103847f35323cf2261403643400b22062.
+- The online detector independently checks official Go download metadata,
+  all direct module stable versions/retractions and successive major paths,
+  plus Docker index/platform digests, floating tags and Debian stable codename.
+  Registry inspection is not container execution.
+
+Compiler/lockfile provenance (unchanged except Dockerfile):
+rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin, LLVM 23.1.1.
+cargo 1.99.1 (5f94df478 2026-08-27); edition 2024.
+a53256841d1e1f57d8a994237e1f0d903fb1bcb387989ac8b13da58084cb967d  Cargo.lock
+d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33  rust-toolchain.toml
+73deafcee1698dbac69218c6754bf5b9ee04bf58fae9119a788f9de597b83eed  Cargo.toml
+7775b882b34abc68a8e4f3e26fba22bfc6986e4330fa7ae323c09c36d915d87f  Dockerfile
+8fd0f4e9aebab325b6941543187e46c025ed9a50f1fab200ace7a0371f2a90e3  sdk-tests/go/go.mod
+e25a221b7d40e4ca4f5ad90c73084b6df714cd4878697cd702fe85a946fd8bb3  sdk-tests/go/go.sum
+
+The installed host Go command reports go1.24.5 darwin/arm64; this is not the
+pinned SDK toolchain or evidence of running SDK tests. The detector confirms
+the repository's Go 1.27.3 toolchain and 1.27.0 language baseline are current.
+No Go suite, full guide, remote CI or cloud differential request was run here.
+
+Initial online detector output:
+env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling xtask v0.1.0 (<checkout>/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.21s
+     Running `target/debug/xtask dependencies check`
+checked_at_unix_seconds=1792669390
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+md-5: CURRENT current=0.11.0 latest=0.11.0
+rusqlite: CURRENT current=0.40.2 latest=0.40.2
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+docker library/rust:1.99.1-slim-trixie: UPDATE_AVAILABLE current=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+docker library/rust:slim-trixie: UPDATE_AVAILABLE current=sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf latest=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+docker curlimages/curl:8.23.0: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker curlimages/curl:latest: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9 latest=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+Go language baseline: CURRENT current=1.27.0 latest=1.27.0
+Go toolchain: CURRENT current=1.27.3 latest=1.27.3
+cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
+golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
+google.golang.org/api: CURRENT current=v0.307.0 latest=v0.307.0
+error: recipe `check-dependencies` failed on line 12 with exit code 1
+
+Final command: just check-dependencies
+Result: PASS, exit 0; 31 CURRENT checks after the Rust builder index migration.
+env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask dependencies check`
+checked_at_unix_seconds=1792669652
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+md-5: CURRENT current=0.11.0 latest=0.11.0
+rusqlite: CURRENT current=0.40.2 latest=0.40.2
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+docker library/rust:1.99.1-slim-trixie: CURRENT current=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+docker library/rust:slim-trixie: CURRENT current=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf latest=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+docker curlimages/curl:8.23.0: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker curlimages/curl:latest: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9 latest=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+Go language baseline: CURRENT current=1.27.0 latest=1.27.0
+Go toolchain: CURRENT current=1.27.3 latest=1.27.3
+cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
+golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
+google.golang.org/api: CURRENT current=v0.307.0 latest=v0.307.0
+
+Independent official sparse-index result:
+bytes latest=1.12.1 yanked=false
+crc32c latest=0.6.8 yanked=false
+getrandom latest=0.4.3 yanked=false
+http-body-util latest=0.1.5 yanked=false
+hyper latest=1.12.0 yanked=false
+hyper-util latest=0.1.21 yanked=false
+md-5 latest=0.11.0 yanked=false
+rusqlite latest=0.40.2 yanked=false
+serde_json latest=1.0.154 yanked=false
+tokio latest=1.54.1 yanked=false
+windows-sys latest=0.61.2 yanked=false
+
+ARM64 Docker build result: PASS, exit 0.
+Raw complete build output:
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.82kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 0.9s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 248B done
+#6 DONE 0.0s
+
+#7 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#7 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.0s done
+#7 DONE 0.0s
+
+#8 [build 1/9] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.0s done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 625.54kB 0.0s done
+#9 DONE 0.0s
+
+#10 [build 3/9] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#10 CACHED
+
+#11 [build 4/9] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#11 CACHED
+
+#12 [build 2/9] WORKDIR /build
+#12 CACHED
+
+#13 [build 5/9] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build 6/9] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build 7/9] COPY LICENSE-MIT LICENSE-APACHE ./
+#15 DONE 0.0s
+
+#16 [build 8/9] COPY distribution/notices ./distribution/notices
+#16 DONE 0.0s
+
+#17 [build 9/9] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#17 0.190 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#17 0.573 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#17 0.587 info: downloading 2 components
+#17 1.319     Updating crates.io index
+#17 1.858  Downloading crates ...
+#17 2.027   Downloaded quote v1.0.47
+#17 2.054   Downloaded errno v0.3.14
+#17 2.078   Downloaded block-buffer v0.12.1
+#17 2.080   Downloaded itoa v1.0.18
+#17 2.084   Downloaded rustc_version v0.4.1
+#17 2.085   Downloaded cfg-if v1.0.5
+#17 2.087   Downloaded crc32c v0.6.8
+#17 2.089   Downloaded crypto-common v0.2.2
+#17 2.090   Downloaded futures-core v0.3.34
+#17 2.091   Downloaded httpdate v1.0.3
+#17 2.092   Downloaded http-body v1.1.0
+#17 2.109   Downloaded atomic-waker v1.1.2
+#17 2.110   Downloaded windows-link v0.2.1
+#17 2.110   Downloaded signal-hook-registry v1.4.8
+#17 2.111   Downloaded pin-project-lite v0.2.17
+#17 2.115   Downloaded zmij v1.0.23
+#17 2.116   Downloaded fallible-streaming-iterator v0.1.9
+#17 2.117   Downloaded fallible-iterator v0.3.0
+#17 2.118   Downloaded http-body-util v0.1.5
+#17 2.119   Downloaded shlex v2.0.1
+#17 2.135   Downloaded pkg-config v0.3.34
+#17 2.138   Downloaded tokio-macros v2.7.2
+#17 2.139   Downloaded md-5 v0.11.0
+#17 2.140   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#17 2.141   Downloaded digest v0.11.3
+#17 2.142   Downloaded unicode-ident v1.0.27
+#17 2.144   Downloaded semver v1.0.28
+#17 2.146   Downloaded smallvec v1.16.3
+#17 2.147   Downloaded find-msvc-tools v0.1.15
+#17 2.149   Downloaded hybrid-array v0.4.15
+#17 2.151   Downloaded proc-macro2 v1.0.107
+#17 2.152   Downloaded serde_derive v1.0.229
+#17 2.154   Downloaded httparse v1.10.1
+#17 2.158   Downloaded bitflags v2.13.2
+#17 2.161   Downloaded bytes v1.12.1
+#17 2.164   Downloaded getrandom v0.4.3
+#17 2.167   Downloaded serde_core v1.0.229
+#17 2.169   Downloaded r-efi v6.0.0
+#17 2.172   Downloaded socket2 v0.6.5
+#17 2.173   Downloaded serde v1.0.229
+#17 2.176   Downloaded typenum v1.20.1
+#17 2.178   Downloaded mio v1.2.4
+#17 2.182   Downloaded memchr v2.8.3
+#17 2.186   Downloaded http v1.5.0
+#17 2.188   Downloaded hyper-util v0.1.21
+#17 2.193   Downloaded serde_json v1.0.154
+#17 2.198   Downloaded cc v1.9.0
+#17 2.200   Downloaded rusqlite v0.40.2
+#17 2.204   Downloaded hyper v1.12.0
+#17 2.208   Downloaded vcpkg v0.2.15
+#17 2.237   Downloaded syn v3.0.9
+#17 2.286   Downloaded libc v0.2.191
+#17 2.321   Downloaded tokio v1.54.1
+#17 2.350   Downloaded windows-sys v0.61.2
+#17 2.397   Downloaded libsqlite3-sys v0.38.2
+#17 2.513    Compiling libc v0.2.191
+#17 2.513    Compiling proc-macro2 v1.0.107
+#17 2.732    Compiling unicode-ident v1.0.27
+#17 2.761    Compiling quote v1.0.47
+#17 3.096    Compiling itoa v1.0.18
+#17 3.131    Compiling bytes v1.12.1
+#17 3.165    Compiling syn v3.0.9
+#17 3.439    Compiling errno v0.3.14
+#17 3.479    Compiling typenum v1.20.1
+#17 3.770    Compiling shlex v2.0.1
+#17 3.814    Compiling find-msvc-tools v0.1.15
+#17 3.872    Compiling cc v1.9.0
+#17 4.336    Compiling tokio-macros v2.7.2
+#17 4.429    Compiling hybrid-array v0.4.15
+#17 4.601    Compiling signal-hook-registry v1.4.8
+#17 4.618    Compiling http v1.5.0
+#17 4.749    Compiling socket2 v0.6.5
+#17 5.036    Compiling mio v1.2.4
+#17 5.238    Compiling semver v1.0.28
+#17 5.296    Compiling httparse v1.10.1
+#17 5.321    Compiling pkg-config v0.3.34
+#17 5.385    Compiling pin-project-lite v0.2.17
+#17 5.403    Compiling vcpkg v0.2.15
+#17 5.462    Compiling tokio v1.54.1
+#17 5.589    Compiling libsqlite3-sys v0.38.2
+#17 5.732    Compiling rustc_version v0.4.1
+#17 5.808    Compiling http-body v1.1.0
+#17 5.841    Compiling serde_core v1.0.229
+#17 5.920    Compiling futures-core v0.3.34
+#17 5.952    Compiling zmij v1.0.23
+#17 6.023    Compiling smallvec v1.16.3
+#17 6.103    Compiling crc32c v0.6.8
+#17 9.628    Compiling block-buffer v0.12.1
+#17 9.670    Compiling crypto-common v0.2.2
+#17 10.03    Compiling serde_json v1.0.154
+#17 10.09    Compiling httpdate v1.0.3
+#17 10.20    Compiling atomic-waker v1.1.2
+#17 10.22    Compiling getrandom v0.4.3
+#17 10.29    Compiling cfg-if v1.0.5
+#17 10.30    Compiling hyper v1.12.0
+#17 11.46    Compiling digest v0.11.3
+#17 12.33    Compiling fallible-streaming-iterator v0.1.9
+#17 12.37    Compiling fallible-iterator v0.3.0
+#17 12.47    Compiling memchr v2.8.3
+#17 12.74    Compiling bitflags v2.13.2
+#17 13.81    Compiling md-5 v0.11.0
+#17 13.88    Compiling hyper-util v0.1.21
+#17 13.98    Compiling http-body-util v0.1.5
+#17 31.51    Compiling rusqlite v0.40.2
+#17 31.79    Compiling gcs-mimic v0.1.0 (/build)
+#17 40.96     Finished `release` profile [optimized] target(s) in 38.48s
+#17 41.00    Compiling serde_core v1.0.229
+#17 41.00    Compiling zmij v1.0.23
+#17 41.00    Compiling serde_json v1.0.154
+#17 41.00    Compiling memchr v2.8.3
+#17 41.00    Compiling itoa v1.0.18
+#17 42.07    Compiling xtask v0.1.0 (/build/xtask)
+#17 42.94     Finished `release` profile [optimized] target(s) in 1.95s
+#17 42.94      Running `target/release/xtask release notices /distribution-licenses`
+#17 DONE 43.2s
+
+#18 [runtime 2/5] WORKDIR /app
+#18 CACHED
+
+#19 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#19 CACHED
+
+#20 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#20 DONE 0.1s
+
+#21 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#21 DONE 0.0s
+
+#22 exporting to image
+#22 exporting layers
+#22 exporting layers 0.3s done
+#22 exporting manifest sha256:c52a51adca73289415556f4f37940935e84d77909bceb002db7c3b637c1c843d 0.0s done
+#22 exporting config sha256:92f07c40253b66e943a93618959ff1349b4d39f6dfaf7333a87f8c66098b060a 0.1s done
+#22 exporting attestation manifest sha256:10bcec7c33f867f0309858add60112c3c41d57d7c49f5e84e17aad29b4fe770c
+#22 exporting attestation manifest sha256:10bcec7c33f867f0309858add60112c3c41d57d7c49f5e84e17aad29b4fe770c 0.0s done
+#22 exporting manifest list sha256:fd5a54dfccc4e3ca185033a3d91e4cab78bcf90de277c6942a028c5241811ed8 0.0s done
+#22 naming to docker.io/library/gcs-mimic:resumable-freshness done
+#22 unpacking to docker.io/library/gcs-mimic:resumable-freshness 0.1s done
+#22 DONE 0.6s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/1waro6e6lani6qe9te1rd6v51

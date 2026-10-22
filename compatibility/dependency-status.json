@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-22T08:23:47Z",
-  "scope": "Final bucket IAM verification: eleven direct Rust crates, Rust/Go toolchains, pinned SDK graph, container inputs, BuildKit/SBOM generator and release Actions. All 31 freshness inputs remain CURRENT; no dependency or lockfile changed.",
+  "checked_at_utc": "2026-10-22T11:47:32Z",
+  "scope": "Resumable upload slice-end verification: eleven direct Rust crates, Rust/Go toolchains, pinned SDK graph, container inputs, BuildKit/SBOM generator and release Actions. Adopted the refreshed Rust builder index; all 31 inputs are CURRENT and application/SDK lockfiles are unchanged.",
   "freshness_check": {
     "command": "just check-dependencies",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/bucket-iam-dependencies.txt",
-    "follow_up": "All inputs report CURRENT with no exceptions. Final source-built container smoke checks passed on Linux ARM64/native and AMD64/emulated, and the full source-built Compose guide passed; see docs/en/evidence/bucket-iam.md. Remote CI, native AMD64 and release-platform execution remain pending."
+    "artifact": "docs/en/evidence/resumable-upload-freshness.txt",
+    "follow_up": "All inputs report CURRENT with no exceptions after the Rust builder index refresh. Both selected platform manifests are unchanged; the source-built native ARM64 image passes its builder-stage compilation and runtime export. Both-architecture smoke and full guide execution remain separate final integration checks; remote CI, native AMD64 and release-platform execution remain pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -132,10 +132,10 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec",
-        "latest_verified_digest": "sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec",
+        "digest": "sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6",
+        "latest_verified_digest": "sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6",
         "verification_status": "ADOPTED",
-        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. Dockerfile pins this index; final Linux ARM64/native and AMD64/emulated container execution passed, as recorded in docs/en/evidence/bucket-iam.md.",
+        "update_scope": "Slice-end registry inspection found a new index for both 1.99.1-slim-trixie and slim-trixie. The linux/amd64 and linux/arm64 platform digests are unchanged. See docs/en/evidence/resumable-upload-freshness.txt for the native ARM64 image build and final freshness result; both-platform smoke checks are separate evidence.",
         "platforms": {
           "linux/amd64": "sha256:d7d8fd94f01c80a355b86fe8691abc26be051daa44fa021a8b5ece5c8cbcb469",
           "linux/arm64": "sha256:73b81f338853a11a828adeb6fc31ba5d53e3cbc435fb6ae71752473242f6f88b"
