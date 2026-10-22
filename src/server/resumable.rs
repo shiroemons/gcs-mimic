@@ -1,4 +1,6 @@
-use super::{ObjectActivity, ResponseBody, boxed, empty_response};
+use super::{
+    ObjectActivity, ResponseBody, await_upload_catalog, boxed, empty_response, stream_upload,
+};
 use crate::{
     bucket::BucketAccess,
     config::Config,
@@ -6,14 +8,14 @@ use crate::{
         self, JsonError, ObjectInsertParams,
         resumable::{self, Range},
     },
-    object::ObjectError,
+    object::{ObjectError, UploadChunk},
     server::State,
-    storage::SessionState,
+    storage::{ResumableChunk, SessionState},
 };
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Request, Response, StatusCode, body::Incoming};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 #[allow(
     clippy::too_many_arguments,
@@ -32,16 +34,32 @@ pub(super) async fn initiate(
     let (mime, expected, total) = resumable::headers(request.headers(), params, max)?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
+    let json_type = metadata_type.as_ref().is_some_and(|v| {
+        v.split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .eq_ignore_ascii_case("application/json")
+    });
+    let has_body = request
+        .headers()
+        .get("content-length")
+        .is_some_and(|v| v != "0")
+        || request.headers().contains_key("transfer-encoding");
+    if has_body && !json_type {
+        return Err(JsonError::invalid_parameter(
+            "Metadata requires application/json",
+        ));
+    }
+    let base = crate::url::normalize_base_url(&state.api_base_url)
+        .map_err(JsonError::invalid_parameter)?;
+    let location_prefix =
+        format!("{base}/upload/storage/v1/b/{bucket}/o?uploadType=resumable&upload_id=");
+    location_prefix
+        .parse::<hyper::header::HeaderValue>()
+        .map_err(|_| JsonError::invalid_parameter("Invalid session endpoint"))?;
     let bytes = json::read_body(request.into_body(), 64 * 1024).await?;
-    if !bytes.is_empty()
-        && !metadata_type.is_some_and(|v| {
-            v.split(';')
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .eq_ignore_ascii_case("application/json")
-        })
-    {
+    if !bytes.is_empty() && !json_type {
         return Err(JsonError::invalid_parameter(
             "Metadata requires application/json",
         ));
@@ -53,10 +71,7 @@ pub(super) async fn initiate(
         .catalog
         .create_resumable_session(bucket, &name, options, total)
         .await?;
-    let location = format!(
-        "{}/upload/storage/v1/b/{}/o?uploadType=resumable&upload_id={}",
-        state.api_base_url, bucket, session.id
-    );
+    let location = format!("{location_prefix}{}", session.id);
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
         "location",
@@ -117,54 +132,165 @@ pub(super) async fn session_response(
     bucket: &str,
     id: &str,
     state: &State,
-    _config: &Config,
-    _activity: &watch::Sender<ObjectActivity>,
-    _deadline: tokio::time::Instant,
+    config: &Config,
+    activity: &watch::Sender<ObjectActivity>,
+    deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     if request.method() == hyper::Method::DELETE {
         return Err(JsonError::unsupported_object("Session cancellation"));
     }
     let range = resumable::range(request.headers())?;
-    let Some(Range::Status(total)) = range else {
-        return Err(JsonError::unsupported_object("Session data writes"));
+    let headers = request.headers().clone();
+    let length = resumable::single(&headers, "content-length")?
+        .map(resumable::unsigned)
+        .transpose()?;
+    if length.is_some_and(|n| n > config.max_object_bytes) {
+        return Err(ObjectError::TooLarge.into());
+    }
+    let mut lease = state.catalog.lock_resumable_session(id, bucket).await?;
+    let session = &lease.session;
+    let (start, length, total, status) = match range {
+        Some(Range::Status(total)) => {
+            if length != Some(0) || headers.contains_key("transfer-encoding") {
+                return Err(JsonError::invalid_parameter(
+                    "Status requires an empty body",
+                ));
+            }
+            (session.offset, 0, total, true)
+        }
+        Some(Range::Data { start, end, total }) => (start, end - start + 1, total, false),
+        None => {
+            if session.offset != 0 && session.state != SessionState::Complete {
+                return Err(JsonError::invalid_parameter(
+                    "Content-Range required after the first chunk",
+                ));
+            }
+            let length = length.ok_or_else(|| {
+                JsonError::invalid_parameter("Content-Length required without Content-Range")
+            })?;
+            (0, length, Some(length), false)
+        }
     };
-    if resumable::single(request.headers(), "content-length")? != Some("0")
-        || request.headers().contains_key("transfer-encoding")
+    if start > session.offset {
+        return Err(JsonError::invalid_parameter("Upload offset leaves a gap"));
+    }
+    let end = start
+        .checked_add(length)
+        .ok_or_else(|| JsonError::invalid_parameter("Upload offset overflow"))?;
+    if end > config.max_object_bytes || total.is_some_and(|n| n > config.max_object_bytes) {
+        return Err(ObjectError::TooLarge.into());
+    }
+    if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset)
+        || session.total.is_some_and(|n| end > n)
     {
+        return Err(JsonError::invalid_parameter("Inconsistent upload total"));
+    }
+    let total = total.or(session.total);
+    let finalize = if status {
+        matches!(range,Some(Range::Status(Some(n))) if n==session.offset)
+    } else {
+        total == Some(end)
+    };
+    if !status && !finalize && !length.is_multiple_of(256 * 1024) {
         return Err(JsonError::invalid_parameter(
-            "Status requires an empty body",
+            "Nonfinal chunk must be a multiple of 256 KiB",
         ));
     }
-    let headers = request.headers().clone();
-    json::read_body(request.into_body(), 0).await?;
-    let lease = state.catalog.lock_resumable_session(id, bucket).await?;
-    let session = &lease.session;
-    if total.is_some_and(|n| session.total.is_some_and(|t| n != t) || n < session.offset) {
-        return Err(JsonError::invalid_parameter("Inconsistent upload total"));
+    // Validate the override before any bytes can be acknowledged.
+    resumable::single(&headers, "x-guploader-no-308")?;
+    let options = match resumable::final_options(&headers, session.options.clone()) {
+        Ok(options) => options,
+        Err(error) => {
+            if finalize {
+                state.catalog.invalidate_resumable_session(&lease).await?;
+            }
+            return Err(error);
+        }
+    };
+    if !finalize
+        && (headers.contains_key("x-goog-hash")
+            || headers
+                .keys()
+                .any(|k| k.as_str().starts_with("x-goog-meta-")))
+    {
+        return Err(JsonError::invalid_parameter(
+            "Final metadata requires a final request",
+        ));
     }
     if session.state == SessionState::Complete {
         return Ok(completed(
             session.completion.clone().expect("validated completion"),
         ));
     }
-    let file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .open(lease.staging_path())
-        .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
-    if file
-        .metadata()
-        .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?
-        .len()
-        < session.offset
-    {
-        return Err(
-            ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
-        );
+    if status && !finalize {
+        json::read_body(request.into_body(), 0).await?;
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(lease.staging_path())
+            .await
+            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+        if file
+            .metadata()
+            .await
+            .map_err(|e| ObjectError::Unavailable(e.to_string()))?
+            .len()
+            < session.offset
+        {
+            return Err(
+                ObjectError::Unavailable("Acknowledged upload prefix is missing".into()).into(),
+            );
+        }
+        file.set_len(session.offset)
+            .await
+            .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+        let offset = session.offset;
+        if total != session.total {
+            state
+                .catalog
+                .checkpoint_resumable_session(&mut lease, offset, total)
+                .await?;
+        }
+        return incomplete(offset, &headers);
     }
-    file.set_len(session.offset)
-        .await
-        .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
-    incomplete(session.offset, &headers)
+    let permit = state.catalog.admit_object_upload()?;
+    let offset = session.offset.max(end);
+    let chunk = ResumableChunk {
+        start,
+        length,
+        total,
+        finalize,
+        options,
+    };
+    let (sender, body) = mpsc::channel(2);
+    let base = state.api_base_url.clone();
+    let projection = if lease.session.options.projection_full {
+        json::Projection::Full
+    } else {
+        json::Projection::NoAcl
+    };
+    let upload = state
+        .catalog
+        .write_resumable_session(lease, chunk, body, permit, move |record| {
+            json::object_resource(record, &base, projection)
+                .map_err(|e| ObjectError::Unavailable(e.to_string()))
+        });
+    let upload = async { upload.await.map_err(JsonError::from) };
+    tokio::pin!(upload);
+    let timeout = std::time::Duration::from_millis(config.catalog_wait_timeout_ms);
+    let result = tokio::select! {
+        result=&mut upload=>result?,
+        result=stream_upload(request.into_body(),&sender,config.max_object_bytes,activity)=>{
+            if let Err(error)=result {
+                let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
+                drop(sender);
+                match await_upload_catalog(upload,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.reason=="badRequest"=>{},Err(storage)=>return Err(storage)}
+                return Err(error.into());
+            }
+            await_upload_catalog(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},timeout,deadline,activity).await?
+        }
+    };
+    match result {
+        Some(value) => Ok(completed(value)),
+        None => incomplete(offset, &headers),
+    }
 }

@@ -96,7 +96,13 @@ pub(crate) fn headers(
         mime.parse()
             .map_err(|_| JsonError::invalid_parameter("Invalid upload content type"))?,
     );
-    let (mime, hashes) = parse_object_upload_headers(&clean, params.conditions)?;
+    let (mime, hashes) = parse_object_upload_headers(
+        &clean,
+        crate::object::ObjectConditions {
+            if_generation_match: Some(0),
+            ..params.conditions
+        },
+    )?;
     Ok((mime, hashes, total))
 }
 
@@ -136,6 +142,16 @@ pub(crate) fn options(
     let bytes = value.to_string().into_bytes();
     let (name, mut metadata, expected) = multipart_metadata(&bytes, name, expected)?;
     if let Some(encoding) = encoding {
+        if metadata
+            .content_encoding
+            .as_ref()
+            .and_then(|v| v.as_ref())
+            .is_some_and(|v| v != &encoding)
+        {
+            return Err(JsonError::invalid_parameter(
+                "Conflicting contentEncoding declarations",
+            ));
+        }
         metadata.content_encoding = super::parse_object_metadata(
             serde_json::json!({"contentEncoding":encoding})
                 .to_string()
@@ -212,6 +228,96 @@ fn validate_duplicate_fields(bytes: &[u8]) -> Result<(), JsonError> {
         i += 1;
     }
     Ok(())
+}
+
+pub(crate) fn final_options(
+    headers: &HeaderMap,
+    mut options: ResumableOptions,
+) -> Result<ResumableOptions, JsonError> {
+    let mut clean = headers.clone();
+    clean.remove("content-range");
+    clean.remove("x-goog-hash");
+    let mut custom = serde_json::Map::new();
+    for key in headers.keys() {
+        let name = key.as_str();
+        if name.starts_with("x-goog-upload-") {
+            return Err(JsonError::unsupported_object(name));
+        }
+        if let Some(key) = name.strip_prefix("x-goog-meta-") {
+            let value = single(headers, name)?
+                .ok_or_else(|| JsonError::invalid_parameter("Invalid final metadata"))?;
+            custom.insert(key.into(), value.into());
+            clean.remove(name);
+        }
+    }
+    parse_object_upload_headers(
+        &clean,
+        crate::object::ObjectConditions {
+            if_generation_match: Some(0),
+            ..Default::default()
+        },
+    )?;
+    for value in headers.get_all("x-goog-hash") {
+        let value = value
+            .to_str()
+            .map_err(|_| JsonError::invalid_parameter("Invalid x-goog-hash"))?;
+        for entry in value.split(',') {
+            let (algorithm, value) = entry
+                .trim()
+                .split_once('=')
+                .ok_or_else(|| JsonError::invalid_parameter("Invalid x-goog-hash"))?;
+            match algorithm {
+                "md5" => {
+                    let md5 = super::objects::decode_hash(value)?;
+                    if options.expected.md5.is_some_and(|v| v != md5) {
+                        return Err(JsonError::invalid_parameter("Conflicting MD5 declarations"));
+                    }
+                    options.expected.md5 = Some(md5);
+                }
+                "crc32c" => {
+                    let crc = u32::from_be_bytes(super::objects::decode_hash(value)?);
+                    if options.expected.crc32c.is_some_and(|v| v != crc) {
+                        return Err(JsonError::invalid_parameter(
+                            "Conflicting CRC32C declarations",
+                        ));
+                    }
+                    options.expected.crc32c = Some(crc);
+                }
+                _ => return Err(JsonError::unsupported_object("x-goog-hash algorithm")),
+            }
+        }
+    }
+    if !custom.is_empty() {
+        let update = super::parse_object_metadata(
+            serde_json::json!({"metadata":custom})
+                .to_string()
+                .as_bytes(),
+            false,
+        )?
+        .update;
+        let incoming = update.metadata.flatten().unwrap_or_default();
+        let stored = options
+            .metadata
+            .metadata
+            .get_or_insert_with(|| Some(Default::default()))
+            .get_or_insert_with(Default::default);
+        stored.extend(incoming);
+    }
+    if options
+        .metadata
+        .metadata
+        .as_ref()
+        .and_then(|m| m.as_ref())
+        .is_some_and(|m| {
+            m.iter()
+                .map(|(k, v)| k.len() + v.as_ref().map_or(0, String::len))
+                .sum::<usize>()
+                > 8192
+        })
+    {
+        return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
+    }
+    Ok(options)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

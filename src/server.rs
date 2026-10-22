@@ -838,12 +838,12 @@ async fn stream_upload(
     Ok(())
 }
 
-async fn await_upload_catalog<T>(
-    operation: impl Future<Output = Result<T, ObjectError>>,
+async fn await_upload_catalog<T, E: From<ObjectError>>(
+    operation: impl Future<Output = Result<T, E>>,
     timeout: Duration,
     request_deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
-) -> Result<T, ObjectError> {
+) -> Result<T, E> {
     activity.send_modify(|progress| progress.awaiting_catalog = true);
     // A completed body may commit after this wait expires; only an observed commit is success.
     let result = tokio::time::timeout_at(
@@ -852,9 +852,7 @@ async fn await_upload_catalog<T>(
     )
     .await
     .unwrap_or_else(|_| {
-        Err(ObjectError::Unavailable(
-            "upload catalog wait timed out".into(),
-        ))
+        Err(ObjectError::Unavailable("upload catalog wait timed out".into()).into())
     });
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     result

@@ -14,9 +14,12 @@ use tokio::sync::Semaphore;
 
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
+#[path = "resumable_transfer.rs"]
+mod resumable_transfer;
 pub use resumable::{
     ResumableError, ResumableOptions, ResumableSession, SessionLease, SessionState,
 };
+pub(crate) use resumable_transfer::ResumableChunk;
 
 #[path = "objects.rs"]
 mod objects;
@@ -316,7 +319,9 @@ impl Catalog {
     }
 
     pub fn is_healthy(&self) -> bool {
-        !self.0.resources.is_poisoned() && !self.0.admission.is_closed()
+        !self.0.resources.is_poisoned()
+            && !self.0.session_writers.is_poisoned()
+            && !self.0.admission.is_closed()
     }
 
     pub(crate) async fn seed_complete(&self) -> Result<bool, CatalogError> {
