@@ -94,6 +94,10 @@ metageneration. An opaque base64 etag changes on every successful set, including
 identical sets. An omitted or empty-string etag overwrites, following the
 ProtoJSON bytes default. Malformed base64 returns 400 `invalid`; standard and
 URL-safe encodings, with or without padding, compare as the same bytes.
+The local decoder also accepts mixed standard/URL-safe alphabets, but rejects
+non-zero trailing bits with 400 `invalid`. Cloud parity for these malformed
+inputs is unverified; acceptance of mixed alphabets is not a cloud compatibility
+claim.
 A supplied different valid etag returns 412 without changing policy or etag.
 Comparison and update are one immediate
 catalog transaction. A catalog-wide persistent counter prevents etag reuse
@@ -163,6 +167,11 @@ revocation test retains a previously authorized access, revokes its binding,
 then proves each catalog operation and a prepared upload reject it. The HTTP
 race permits a read selected before revocation to finish, and checks every
 post-revocation request is denied.
+
+Startup enforces that `policy_revision` contains its singleton allocator row.
+There is no dedicated fixture for a missing allocator row; the startup tests
+cover a stale allocator, missing bucket policies and orphan policies instead.
+This is an explicit coverage limit, not a passing missing-row test.
 
 ## Verification
 

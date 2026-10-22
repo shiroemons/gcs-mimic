@@ -1,6 +1,31 @@
 # Go SDK harness verification
 
+## Final bucket IAM verification: 2026-10-22
+
+On merged source `7fadac2d5c15fd2534f915d90295f5d314486cb1`, `just check-sdk`
+passed Go vet, all 13 top-level tests and 38 subtests with 0 failures or skips.
+Pins: Go 1.27.3, Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0;
+`go.mod` and `go.sum` remained unchanged. Both `TestStrictAuthBucketIAM` and
+`TestBucketIAMPermissive` passed against isolated native endpoints.
+
+The literal full getting-started guide also passed against its source-built
+ARM64 Compose image. Its permissive endpoint command passes 8 top-level tests
+and intentionally skips the 5 strict-only tests; the later
+`go test -count=1 -v -run '^TestStrictAuth' ./...` against strict Compose passes
+all 5 strict tests with no skips. The ready event reports 4 identities, and the
+guide checks IAM grant/revoke and stale-etag preservation, public URL 404,
+permission boundaries and unchanged policy etag after stop/start.
+
+Durable outputs: [complete native Go run](../../docs/en/evidence/bucket-iam-sdk-go.txt)
+and [full guide](../../docs/en/evidence/bucket-iam-guide.txt).
+[Final integration evidence](../../docs/en/evidence/bucket-iam.md) records the
+260 passing Rust tests, both Linux architectures, dependency freshness, source
+and image digests, ledger decisions and remaining cloud-parity limits.
+No real Google Cloud or metadata-server requests were made.
+
 ## Bucket IAM integration: 2026-10-22
+
+The following records the earlier native integration before final verification.
 
 The pinned Go 1.27.3 / Storage v1.70.0 / API v0.307.0 suite ran against isolated
 permissive and strict native servers with the bucket IAM implementation merged.
