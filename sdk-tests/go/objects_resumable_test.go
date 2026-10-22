@@ -75,23 +75,27 @@ func requireResumableObject(t *testing.T, ctx context.Context, object *storage.O
 	readObject(t, ctx, object, payload, attrs.Generation)
 }
 
+// RSM-SDK-GO-001 and RSM-SDK-GO-002 keep real resumable and small multipart paths visible.
 func TestObjectResumableWriter(t *testing.T) {
-	ctx, client, _, _ := newEmulatorClient(t)
-	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
+	ctx, _, httpClient, _ := newEmulatorClient(t)
 	for _, tc := range []struct {
 		name      string
 		chunkSize int
 		size      int
 		stream    bool
 	}{
-		{"default chunk size", -1, 2*resumableChunkSize + 37, false},
+		{"default chunk size resumable", -1, (16 << 20) + 37, false},
+		{"default chunk size small multipart", -1, 2*resumableChunkSize + 37, false},
 		{"multiple 256 KiB chunks", resumableChunkSize, 2*resumableChunkSize + 37, false},
 		{"empty final chunk", resumableChunkSize, 2 * resumableChunkSize, false},
+		{"empty object", resumableChunkSize, 0, false},
 		{"unknown length stream", resumableChunkSize, 2*resumableChunkSize + 37, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
+			client, log := recordedResumableClient(t, ctx, httpClient, false)
+			bucket := resumableBucket(t, ctx, client, "sdk-resumable")
 			object := resumableObject(t, bucket, "dir/日本語 +%?.bin")
 			payload := bytes.Repeat([]byte("\x00\xffstream\r\n"), tc.size/10+1)[:tc.size]
 			writer := object.If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
@@ -120,10 +124,30 @@ func TestObjectResumableWriter(t *testing.T) {
 				t.Fatal(err)
 			}
 			requireResumableObject(t, ctx, object, writer, payload)
+			log.mu.Lock()
+			defer log.mu.Unlock()
+			wantChunks := 3
+			if tc.chunkSize < 0 {
+				wantChunks = 2
+				if tc.size < 16<<20 {
+					wantChunks = 0
+				}
+			} else if tc.size == 0 {
+				wantChunks = 0
+			}
+			if len(log.requests) != wantChunks {
+				t.Fatalf("chunk requests=%d; want %d", len(log.requests), wantChunks)
+			}
+			for _, request := range log.requests {
+				if request.Method != http.MethodPost || request.URL.String() != log.location {
+					t.Fatalf("chunk did not POST to returned Location: method=%s, same location=%v", request.Method, request.URL.String() == log.location)
+				}
+			}
 		})
 	}
 }
 
+// RSM-SDK-GO-002 also rejects invalid supplied hashes without replacing live data.
 func TestObjectResumableChecksumFailurePreservesObject(t *testing.T) {
 	ctx, client, _, _ := newEmulatorClient(t)
 	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
@@ -137,7 +161,7 @@ func TestObjectResumableChecksumFailurePreservesObject(t *testing.T) {
 				condition := storage.Conditions{DoesNotExist: true}
 				original := []byte("previous generation survives a bad checksum")
 				if existing {
-					attrs, err := strictUpload(ctx, object.If(condition), original)
+					attrs, err := uploadDefaultObject(ctx, object.If(condition), original)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -189,6 +213,17 @@ func writeResumablePrefix(t *testing.T, ctx context.Context, writer *storage.Wri
 	}
 }
 
+func uploadDefaultObject(ctx context.Context, object *storage.ObjectHandle, payload []byte) (*storage.ObjectAttrs, error) {
+	writer := object.NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	_, writeErr := writer.Write(payload)
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return writer.Attrs(), writeErr
+}
+
+// RSM-SDK-GO-005 rechecks initiation conditions after a concurrent publication.
 func TestObjectResumableConditionsAtFinalization(t *testing.T) {
 	ctx, client, _, _ := newEmulatorClient(t)
 	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
@@ -197,7 +232,7 @@ func TestObjectResumableConditionsAtFinalization(t *testing.T) {
 			object := resumableObject(t, bucket, fmt.Sprintf("condition-%v", existing))
 			condition := storage.Conditions{DoesNotExist: true}
 			if existing {
-				attrs, err := strictUpload(ctx, object.If(condition), []byte("original"))
+				attrs, err := uploadDefaultObject(ctx, object.If(condition), []byte("original"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -213,7 +248,7 @@ func TestObjectResumableConditionsAtFinalization(t *testing.T) {
 				requireObjectMissing(t, ctx, object)
 			}
 			winner := []byte("concurrent winner")
-			attrs, err := strictUpload(ctx, object.If(condition), winner)
+			attrs, err := uploadDefaultObject(ctx, object.If(condition), winner)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -238,8 +273,50 @@ func TestObjectResumableConditionsAtFinalization(t *testing.T) {
 	}
 }
 
-func TestObjectResumableContextCancellationDoesNotPublish(t *testing.T) {
+// RSM-SDK-GO-005 isolates metadata changes from generation changes at publication.
+func TestObjectResumableMetagenerationAtFinalization(t *testing.T) {
 	ctx, client, _, _ := newEmulatorClient(t)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
+	object := resumableObject(t, bucket, "metageneration")
+	original := []byte("unchanged bytes during metadata update")
+	attrs, err := uploadDefaultObject(ctx, object.If(storage.Conditions{DoesNotExist: true}), original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := object.If(storage.Conditions{GenerationMatch: attrs.Generation, MetagenerationMatch: attrs.Metageneration}).NewWriter(ctx)
+	writeResumablePrefix(t, ctx, writer)
+	updated, err := object.Update(ctx, storage.ObjectAttrsToUpdate{Metadata: map[string]string{"winner": "metadata update"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Generation != attrs.Generation || updated.Metageneration <= attrs.Metageneration {
+		t.Fatalf("metadata update: generation=%d, metageneration=%d", updated.Generation, updated.Metageneration)
+	}
+	requireObjectStatus(t, writer.Close(), http.StatusPreconditionFailed)
+	readObject(t, ctx, object, original, attrs.Generation)
+	current, err := object.Attrs(ctx)
+	if err != nil || current.Metageneration != updated.Metageneration || !maps.Equal(current.Metadata, updated.Metadata) {
+		t.Fatalf("failed upload changed metadata: attrs=%+v, err=%v", current, err)
+	}
+	payload := bytes.Repeat([]byte("matched metadata\x00\xff"), 40000)
+	matched := object.If(storage.Conditions{GenerationMatch: current.Generation, MetagenerationMatch: current.Metageneration}).NewWriter(ctx)
+	matched.ChunkSize = resumableChunkSize
+	matched.ContentType = "application/x-metageneration-resumable"
+	if _, err := matched.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := matched.Close(); err != nil {
+		t.Fatal(err)
+	}
+	requireResumableObject(t, ctx, object, matched, payload)
+}
+
+// RSM-SDK-GO-004 distinguishes local cancellation from explicit session cancellation.
+func TestObjectResumableContextCancellationDoesNotPublish(t *testing.T) {
+	ctx, _, httpClient, _ := newEmulatorClient(t)
+	client, log := recordedResumableClient(t, ctx, httpClient, false)
 	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
 	object := resumableObject(t, bucket, "cancelled")
 	uploadCtx, cancel := context.WithCancel(ctx)
@@ -252,18 +329,61 @@ func TestObjectResumableContextCancellationDoesNotPublish(t *testing.T) {
 		t.Fatalf("cancelled upload: want context.Canceled, got %v", err)
 	}
 	requireObjectMissing(t, ctx, object)
+	log.mu.Lock()
+	location, deletes := log.location, log.deletes
+	log.mu.Unlock()
+	if location == "" || deletes != 0 {
+		t.Fatalf("cancelled Writer: session present=%v, DELETE count=%d", location != "", deletes)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, location, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Range", "bytes */*")
+	response, err := httpClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeErr := response.Body.Close()
+	if closeErr != nil || response.StatusCode != 308 || response.Header.Get("Range") != "bytes=0-262143" {
+		t.Fatalf("retained session: status=%d, Range=%q, close=%v", response.StatusCode, response.Header.Get("Range"), closeErr)
+	}
+	request, err = http.NewRequestWithContext(ctx, http.MethodDelete, location, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err = httpClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closeErr := response.Body.Close(); closeErr != nil || response.StatusCode != 499 {
+		t.Fatalf("explicit session cancellation: status=%d, close=%v", response.StatusCode, closeErr)
+	}
+	requireObjectMissing(t, ctx, object)
 }
 
 type interruptedChunkTransport struct {
-	base     http.RoundTripper
-	mu       sync.Mutex
-	requests []*http.Request
-	dropped  bool
+	base         http.RoundTripper
+	mu           sync.Mutex
+	requests     []*http.Request
+	dropped      bool
+	dropResponse bool
+	location     string
+	deletes      int
 }
 
 func (l *interruptedChunkTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Header.Get("Content-Range") == "" {
-		return l.base.RoundTrip(r)
+		response, err := l.base.RoundTrip(r)
+		l.mu.Lock()
+		if r.Method == http.MethodDelete && r.URL.String() == l.location {
+			l.deletes++
+		}
+		if err == nil && r.Method == http.MethodPost && r.URL.Query().Get("uploadType") == "resumable" {
+			l.location = response.Header.Get("Location")
+		}
+		l.mu.Unlock()
+		return response, err
 	}
 	l.mu.Lock()
 	if len(l.requests) == 16 {
@@ -277,7 +397,7 @@ func (l *interruptedChunkTransport) RoundTrip(r *http.Request) (*http.Response, 
 		return response, err
 	}
 	l.mu.Lock()
-	drop := !l.dropped && response.StatusCode == http.StatusOK && response.Header.Get("X-Http-Status-Code-Override") == "308"
+	drop := l.dropResponse && !l.dropped && response.StatusCode == http.StatusOK && response.Header.Get("X-Http-Status-Code-Override") == "308"
 	if drop {
 		l.dropped = true
 	}
@@ -294,11 +414,9 @@ func (l *interruptedChunkTransport) RoundTrip(r *http.Request) (*http.Response, 
 	return response, nil
 }
 
-func TestObjectResumableRetriesLostChunkResponse(t *testing.T) {
-	ctx, _, httpClient, _ := newEmulatorClient(t)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	log := &interruptedChunkTransport{base: httpClient.Transport}
+func recordedResumableClient(t *testing.T, ctx context.Context, httpClient *http.Client, dropResponse bool) (*storage.Client, *interruptedChunkTransport) {
+	t.Helper()
+	log := &interruptedChunkTransport{base: httpClient.Transport, dropResponse: dropResponse}
 	guarded := *httpClient
 	guarded.Transport = log
 	// The SDK clones its HTTP client, so install the fault before constructing it.
@@ -312,6 +430,15 @@ func TestObjectResumableRetriesLostChunkResponse(t *testing.T) {
 			t.Errorf("close client: %v", err)
 		}
 	})
+	return client, log
+}
+
+// RSM-SDK-GO-003 exercises the pinned SDK's whole-chunk retry after a lost acknowledgement.
+func TestObjectResumableRetriesLostChunkResponse(t *testing.T) {
+	ctx, _, httpClient, _ := newEmulatorClient(t)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	client, log := recordedResumableClient(t, ctx, httpClient, true)
 	bucket := resumableBucket(t, ctx, client, "sdk-resumable")
 	object := resumableObject(t, bucket, "retry")
 	payload := bytes.Repeat([]byte("retry\x00\xff"), 80000)
@@ -335,7 +462,8 @@ func TestObjectResumableRetriesLostChunkResponse(t *testing.T) {
 	for i, request := range log.requests {
 		if request.Method != http.MethodPost || request.Header.Get("Content-Range") != wantRanges[i] ||
 			request.Header.Get("X-GUploader-No-308") != "yes" || request.URL.String() != log.requests[0].URL.String() {
-			t.Fatalf("chunk %d: %s %s, headers=%v", i, request.Method, request.URL, request.Header)
+			t.Fatalf("chunk %d: method=%s, range=%q, no-308=%q, same location=%v", i, request.Method,
+				request.Header.Get("Content-Range"), request.Header.Get("X-GUploader-No-308"), request.URL.String() == log.requests[0].URL.String())
 		}
 	}
 	if token := log.requests[0].Header.Get("X-Goog-Gcs-Idempotency-Token"); token == "" || token != log.requests[1].Header.Get("X-Goog-Gcs-Idempotency-Token") {
@@ -349,6 +477,7 @@ func TestObjectResumableRetriesLostChunkResponse(t *testing.T) {
 	}
 }
 
+// RSM-SDK-GO-005 retains strict-admin success beside creator permission races.
 func TestStrictAuthResumableWriter(t *testing.T) {
 	ctx, client := newStrictClient(t, strictAdminToken)
 	ctx, cancel := context.WithCancel(ctx)
@@ -366,4 +495,44 @@ func TestStrictAuthResumableWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireResumableObject(t, ctx, object, writer, payload)
+}
+
+// RSM-SDK-GO-005 rechecks overwrite permission using the initiating creator identity.
+func TestStrictAuthResumableCreatorOverwriteRace(t *testing.T) {
+	ctx, admin := newStrictClient(t, strictAdminToken)
+	_, creator := newStrictClient(t, strictCreatorToken)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bucket := resumableBucket(t, ctx, admin, strictProject)
+	object := resumableObject(t, bucket, "creator-created")
+	creatorObject := creator.Bucket(bucket.BucketName()).Object(object.ObjectName())
+	payload := bytes.Repeat([]byte("creator\x00\xff"), 70000)
+	created := creatorObject.NewWriter(ctx)
+	created.ChunkSize = resumableChunkSize
+	created.ContentType = "application/x-creator-resumable"
+	if _, err := created.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := created.Close(); err != nil {
+		t.Fatal(err)
+	}
+	requireResumableObject(t, ctx, object, created, payload)
+	denied := creatorObject.NewWriter(ctx)
+	denied.ChunkSize = resumableChunkSize
+	if _, err := denied.Write(payload); err != nil {
+		requireObjectStatus(t, err, http.StatusForbidden)
+	}
+	requireObjectStatus(t, denied.Close(), http.StatusForbidden)
+	readObject(t, ctx, object, payload, created.Attrs().Generation)
+	object = resumableObject(t, bucket, "creator-race")
+	creatorObject = creator.Bucket(bucket.BucketName()).Object(object.ObjectName())
+	racing := creatorObject.NewWriter(ctx)
+	writeResumablePrefix(t, ctx, racing)
+	winner := []byte("admin wins the concurrent create")
+	attrs, err := uploadDefaultObject(ctx, object.If(storage.Conditions{DoesNotExist: true}), winner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireObjectStatus(t, racing.Close(), http.StatusForbidden)
+	readObject(t, ctx, object, winner, attrs.Generation)
 }

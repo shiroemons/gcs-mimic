@@ -101,25 +101,31 @@ checks only; execution against the resumable server implementation is pending.
 The previous local 501 expectation has been replaced by these contract tests.
 
 The permissive suite covers the untouched default `ChunkSize` with more than
-256 KiB of data, explicit 256 KiB chunks, an empty final chunk, unknown-length
-streaming, exact bytes and size/MD5/CRC32C/content-type/custom metadata. The
-default-size case fits inside the SDK's 16 MiB buffer and uses multipart;
-the explicit-size cases exercise resumable transport. User-provided CRC32C and
-MD5 mismatches must return 400 without publishing or replacing an old generation.
+16 MiB of data, explicit 256 KiB chunks, an empty final chunk, an empty object,
+unknown-length streaming, exact bytes and size/MD5/CRC32C/content-type/custom
+metadata. The recorder requires real resumable POSTs to the returned Location;
+separate small default-size and empty Writer cases retain multipart coverage.
+User-provided CRC32C and MD5 mismatches must return 400 without publishing or
+replacing an old generation.
 Create-if-absent and generation-match races must fail at finalization with 412,
-while matching overwrites atomically replace the visible generation. Context
-cancellation after an acknowledged chunk must leave the object invisible.
+while matching overwrites atomically replace the visible generation. A metadata
+update during an upload separately exercises `MetagenerationMatch` failure and
+a fresh matching condition succeeds. Context cancellation after an acknowledged
+chunk must leave the object invisible and the session available for a status
+query, followed by explicit DELETE cancellation with 499.
 
 One bounded transport wrapper discards an acknowledged chunk response and returns
 `io.ErrUnexpectedEOF`. The test requires a duplicate chunk with the same invocation
 token, successful completion and byte-exact read-back. It uses the existing guarded
-HTTP transport and no proxy or external service. A separate strict-admin journey
-uses `GCS_MIMIC_STRICT_ENDPOINT`; the other journeys use `GCS_MIMIC_ENDPOINT`.
+HTTP transport and no proxy or external service. Strict-admin and creator journeys
+use `GCS_MIMIC_STRICT_ENDPOINT`; the other journeys use `GCS_MIMIC_ENDPOINT`.
+The creator can create but cannot overwrite, including when an admin creates the
+destination after the creator's first chunk and before finalization.
 Both suites skip when their endpoint is unset.
 
-These journeys therefore do not verify explicit session cancellation, status-query
-offset parsing, expiry, restart recovery, peer-container reachability or server
-memory bounds; those require separate wire and integration evidence.
+These journeys do not verify empty-prefix status queries, expiry, restart
+recovery, peer-container reachability or server memory bounds; those require
+separate wire and integration evidence.
 
 ## Strict authentication suite
 
