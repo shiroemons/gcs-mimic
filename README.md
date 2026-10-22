@@ -29,8 +29,8 @@ See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported
 
 ### Delivered workflows and next capabilities
 
-The workflows below name their evidence and remaining boundaries. Final
-public-read integration evidence is pending. These scoped workflows do not
+The workflows below name their final evidence and remaining boundaries.
+These scoped workflows do not
 promote their broader API rows to `IMPLEMENTED`: unresolved fields, permissions
 and protocol differences remain in the same feature ledger.
 
@@ -41,7 +41,7 @@ and protocol differences remain in the same feature ledger.
 | Bounded JSON multipart upload with Go `ChunkSize=0` Writer | MIME edge parity, response replay and resumable uploads | [Multipart](docs/en/evidence/multipart.md) |
 | Strict local tokens and project-level predefined storage roles | Signatures and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
 | Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Policy methods remain PARTIAL; conditions, custom/basic roles, ACLs, testIamPermissions and unresolved wire parity | [Final IAM verification](docs/en/evidence/bucket-iam.md) |
-| Public/private path-style XML GET/HEAD; anonymous and registered-only bucket grants | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines and signatures | [Public reads](docs/en/evidence/public-object-reads.md) (final integration pending) |
+| Public/private path-style XML GET/HEAD; anonymous and registered-only bucket grants | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines and signatures; broader XML methods and authentication wire parity remain PARTIAL | [Final public-read verification](docs/en/evidence/public-object-reads.md) |
 | Single closed/open/suffix stored-byte ranges with pinned generation | If-Range, transcoding and exact fallback/header parity | [Range](docs/en/evidence/object-range.md) |
 | Native initial seed import before readiness without replay over changes | Fixed octet-stream MIME; manifest metadata and legacy seed defaults remain separate work | [Seed](docs/en/evidence/seed-platform.md) |
 
@@ -50,6 +50,11 @@ Compose preserves user mutations and deletions with read-only fixtures, and
 restores fixtures only after an explicit fresh-volume reset. UX-002 and UX-009
 are IMPLEMENTED for their declared scope. ARM64 execution is native; AMD64 uses
 emulation.
+
+Public-read verification is complete for the declared strict local scope:
+DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 are IMPLEMENTED. DESIGN-004 and
+EXT-XML-012/017 remain PARTIAL for their explicit remaining cases; see the
+[final public-read evidence](docs/en/evidence/public-object-reads.md).
 
 Next, implement resumable uploads (delivery order 4).
 Continue with V4 signed GET
@@ -270,7 +275,7 @@ Configuration precedence is command-line options, `GCS_MIMIC_` environment varia
 
 ## Current limitations
 
-Object APIs support the documented [media](docs/en/slices/json-object-media.md), [multipart](docs/en/slices/json-object-multipart.md), [range](docs/en/slices/json-object-range.md), [listing](docs/en/slices/json-object-list.md), [metadata](docs/en/slices/json-object-metadata.md) and [public/private XML reads](docs/en/slices/public-object-reads.md) subsets. Resumable uploads, If-Range, transcoding, version history, object IAM and bucket/object ACLs remain unavailable. Single untranscoded closed/open/suffix ranges return 206; unsatisfiable ranges return 416. XML HEAD returns 200 with Content-Range for a satisfiable range. Malformed, multiple and repeated ranges use a documented local 200 fallback. Listing rejects nonempty `matchGlob`/`filter`, `versions=true`, soft-deleted and folder-prefix options with 501. Metadata patch/update covers content headers and custom metadata; unsupported holds/retention/ACL settings return 501. Without stored Cache-Control, public media uses `public, max-age=3600`, private XML uses `private, max-age=0` and nonpublic JSON media uses `no-cache`. Stored Cache-Control takes precedence for XML and public JSON media. Go SDK `ChunkSize=0` Writer and default/XML or explicit JSON `NewRangeReader` work for the scoped subset. Ordinary media GET returns a direct 200; accepted GET/DELETE/update retry tokens are not deduplicated (SPEC-008..013, SPEC-015 and the listing/range gaps record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
+Object APIs support the documented [media](docs/en/slices/json-object-media.md), [multipart](docs/en/slices/json-object-multipart.md), [range](docs/en/slices/json-object-range.md), [listing](docs/en/slices/json-object-list.md), [metadata](docs/en/slices/json-object-metadata.md) and [public/private XML reads](docs/en/slices/public-object-reads.md) subsets. Resumable uploads, If-Range, transcoding, version history, object IAM and bucket/object ACLs remain unavailable. Single untranscoded closed/open/suffix ranges return 206; unsatisfiable GET ranges return 416. XML HEAD returns 200 with Content-Range, including the local bytes */size response for unsatisfiable ranges. Malformed, multiple and repeated ranges use a documented local 200 fallback. Listing rejects nonempty `matchGlob`/`filter`, `versions=true`, soft-deleted and folder-prefix options with 501. Metadata patch/update covers content headers and custom metadata; unsupported holds/retention/ACL settings return 501. Without stored Cache-Control, public media uses `public, max-age=3600`, private XML uses `private, max-age=0` and nonpublic JSON media uses `no-cache`. Stored Cache-Control takes precedence for XML and public JSON media. Go SDK `ChunkSize=0` Writer and default/XML or explicit JSON `NewRangeReader` work for the scoped subset. Ordinary media GET returns a direct 200; accepted GET/DELETE/update retry tokens are not deduplicated (SPEC-008..013, SPEC-015 and the listing/range gaps record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
 
 [Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and v3/v4/v5 catalogs migrate to v6, preserving object metadata and seed initialization while adding default bucket IAM policies and an etag counter. Migrated catalogs do not import fixtures.
 

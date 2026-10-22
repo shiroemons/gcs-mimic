@@ -1024,8 +1024,9 @@ add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
-The full guide, including seeded Compose and the strict bucket IAM journey,
-passed on 2026-10-22; see the [final integration evidence](evidence/bucket-iam.md).
+The full guide, including seeded Compose and strict bucket IAM/public/private
+journeys, passed on 2026-10-22; see the
+[final public-read integration evidence](evidence/public-object-reads.md).
 
 ## Verification and troubleshooting
 
@@ -1060,5 +1061,6 @@ service in permissive mode.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
 fsync crash window remain unverified. See the [integration evidence](evidence/object-media.md),
 [multipart integration evidence](evidence/multipart.md),
-[strict authentication evidence](evidence/strict-auth.md) and the
+[strict authentication evidence](evidence/strict-auth.md),
+[public-read integration evidence](evidence/public-object-reads.md) and the
 [ledger](../../compatibility/features.json) for exact verification scope.
