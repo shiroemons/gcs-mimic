@@ -3730,9 +3730,9 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata and whole-media GET support exact live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3772,8 +3772,14 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-005-RANGES",
+          "description": "Closed/open/suffix/clamped ranges, 206 representation identity, 416/empty/fallback rules, generation/preconditions, strict authorization and stored gzip bytes.",
+          "result": "PASS",
+          "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"]
+        },
+        {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement Range/If-Range, ETag conditions, fields/full ACL projection, version/soft-delete selection, bucket/object IAM policies, ACLs and allUsers reads, download redirect/header parity and token replay.",
+          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, bucket/object IAM policies, ACLs and allUsers reads, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -3788,6 +3794,11 @@
       ],
       "test_ids": [
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+        "obj_range_http_single_ranges_and_representation_headers",
+        "obj_range_http_unsatisfiable_empty_and_ignored_ranges",
+        "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader",
+        "obj_range_http_strict_authorization_precedes_range_evaluation",
+        "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding",
         "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
         "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
         "obj_http_encoded_names_and_invalid_names",
@@ -3803,6 +3814,7 @@
         "TestStrictAuthRejectsMissingAndInvalidCredentials"
       ],
       "verification": [
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"]},
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -3886,13 +3898,13 @@
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Range/If-Range, ETag conditions, fields, userProject and unsupported semantics return local 501; full omits ACL/owner; no historical versions.",
+        "Single untranscoded JSON byte ranges work. If-Range, transcoding, ETag conditions, fields and userProject remain unsupported; full omits ACL/owner; no historical versions. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
         "Strict mode enforces storage.objects.get through project-level predefined roles only; bucket/object IAM policies, ACLs and allUsers public reads are not modeled and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "GET",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -10796,7 +10808,7 @@
       ],
       "known_deviations": [
         "SPEC-009/012: ordinary media GET is direct 200 and JSON header parity/opaque identifiers remain scoped local choices.",
-        "Range/If-Range and ETag conditions return 501; no historical media, transcoding or authorization."
+        "Single ranges are covered by BEHAVIOR-OBJECT-016; If-Range and ETag conditions remain 501. No historical media or transcoding; strict authorization uses project roles only."
       ],
       "implemented_in": "39ea714194c25fa06b1a6c6a933f0d946bb2db9e",
       "last_verified": "2026-10-21"
@@ -10809,26 +10821,37 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#range",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes#416_requested_range_not_satisfiable"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Valid/suffix/open-ended byte ranges, 206 Content-Range, unsatisfiable ranges and generation pinning.",
+      "notes": "Documented single-range untranscoded JSON reads only: inclusive/open/suffix ranges, clamping, 206 Content-Range/Content-Length, 416, generation pinning, preconditions, strict authorization and bounded seek-based streaming. Scope: docs/en/slices/json-object-range.md. Fallback, empty-suffix and exhaustive header parity remain open on JSON-OBJECTS-005, SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {"id": "CLOSED", "description": "Both media prefixes return exact inclusive bytes, 206 bounds/lengths and clamped final offsets.", "result": "PASS", "test_ids": ["obj_range_http_single_ranges_and_representation_headers"]},
+        {"id": "OPEN-ENDED", "description": "Read exactly from the selected offset through EOF.", "result": "PASS", "test_ids": ["obj_range_http_single_ranges_and_representation_headers"]},
+        {"id": "SUFFIX", "description": "Suffix and oversized suffix select correct bytes without numeral overflow.", "result": "PASS", "test_ids": ["obj_range_http_single_ranges_and_representation_headers"]},
+        {"id": "UNSATISFIABLE", "description": "At/past-end and zero suffix return JSON 416 and bytes */size.", "result": "PASS", "test_ids": ["obj_range_http_unsatisfiable_empty_and_ignored_ranges"]},
+        {"id": "GENERATION", "description": "Generation selection, four preconditions and overwrite preserve the opened generation.", "result": "PASS", "test_ids": ["obj_range_http_generation_preconditions_and_overwrite_pin_open_reader"]},
+        {"id": "AUTHORIZATION", "description": "Strict authentication and project permissions precede range evaluation.", "result": "PASS", "test_ids": ["obj_range_http_strict_authorization_precedes_range_evaluation"]},
+        {"id": "BOUNDED-READ", "description": "Seek near sparse-file end, read at most 64 KiB per chunk, stop exactly and report premature EOF.", "result": "PASS", "test_ids": ["object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"]}
+      ],
+      "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"],
+      "verification": [
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "object_range_reader_seeks_sparse_blob_and_bounds_every_chunk"]}
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-017",
@@ -22888,7 +22911,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned official Go HTTP JSON bucket lifecycle plus object Attrs/NewReader/Delete pass natively and against Compose after raw media upload. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Strict local bearer-token clients (no ADC or metadata-server discovery) run natively via scripts/sdk-go.sh and against Compose with compose.strict.yaml: docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass the full native JSON SDK suite, including NewRangeReader: docs/en/evidence/seed-range-sdk.txt. Earlier Compose, multipart and strict local-token evidence retains its original SDK versions in sdk_evidence. Broader resumable, signing and protocol work remains pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -22940,6 +22963,12 @@
           ]
         },
         {
+          "id": "GO-RANGE",
+          "description": "Pinned official Go JSON NewRangeReader handles closed/open/suffix/clamped, at/past-end and generation-conditioned reads with Storage v1.70.0.",
+          "result": "PASS",
+          "test_ids": ["TestObjectRangeReader"]
+        },
+        {
           "id": "DESIGN-082-PENDING",
           "description": "Implement resumable SDK Writer, signing, bucket/object IAM and ACL permissions, XML/gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
           "result": "PENDING",
@@ -22966,6 +22995,7 @@
       "test_ids": [
         "TestBucketLifecycle",
         "go-compose-bucket-lifecycle",
+        "TestObjectRangeReader",
         "TestObjectMediaLifecycle",
         "guide-compose-go-object-suite",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
@@ -22979,6 +23009,7 @@
         "guide-compose-go-strict-suite"
       ],
       "verification": [
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-sdk.txt", "test_ids": ["TestObjectRangeReader"]},
         {
           "command": "bash scripts/sdk-go.sh",
           "result": "PASS",
@@ -23061,6 +23092,7 @@
         }
       ],
       "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.307.0", "transport": "HTTP JSON; storage.WithJSONReads; NewRangeReader", "result": "PASS", "verified_at": "2026-10-22", "command": "just check-sdk", "artifact": "docs/en/evidence/seed-range-sdk.txt", "test_ids": ["TestObjectRangeReader"]},
         {
           "language": "Go",
           "toolchain": "1.27.3",
@@ -23935,23 +23967,40 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Read-only fixtures and a new persistent volume start with compose up --wait; health succeeds only after recovery/seed.",
+      "notes": "Read-only bucket-directory fixtures import sequentially into a fresh catalog after recovery and before listener readiness. A transactional v5 marker prevents replay after restart or user deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Fixed octet-stream MIME, 10000 entries, 32 nested directories and max_object_bytes apply; no metadata sidecars or source mutation. Scope: docs/en/slices/seed.md; Linux filename and Compose execution remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "seed-config", "description": "CLI/environment/JSON/default precedence and invalid configuration rejection.", "result": "PASS", "test_ids": ["seed_configuration_precedence_and_validation"]},
+        {"id": "seed-layout", "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and fixed MIME.", "result": "PASS", "test_ids": ["seeded_http_metadata_bytes_and_strict_administrative_import"]},
+        {"id": "seed-auth", "description": "Administrative import in both profiles preserves strict API token checks.", "result": "PASS", "test_ids": ["seeded_http_metadata_bytes_and_strict_administrative_import"]},
+        {"id": "seed-project", "description": "Explicit project and empty seed root.", "result": "PASS", "test_ids": ["explicit_project_and_empty_seed_directory_are_supported"]},
+        {"id": "seed-once", "description": "Restart preserves mutations; deleting every bucket does not replay; fresh data reseeds.", "result": "PASS", "test_ids": ["restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds"]},
+        {"id": "seed-disabled", "description": "First startup without fixtures permanently disables import for that catalog.", "result": "PASS", "test_ids": ["disabled_startup_never_replays_fixtures_later"]},
+        {"id": "seed-retry", "description": "Interrupted import blocks readiness, releases ownership and retries create-if-absent without overwrite.", "result": "PASS", "test_ids": ["interrupted_import_retries_without_overwrite_and_releases_lock"]},
+        {"id": "seed-invalid", "description": "Reject invalid/missing/overlapping roots, names and oversized files; accept zero and inclusive size cap.", "result": "PASS", "test_ids": ["invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive"]},
+        {"id": "seed-walk", "description": "Bound traversal at 32 directory levels and 10000 total entries.", "result": "PASS", "test_ids": ["fixture_depth_and_entry_count_are_bounded"]},
+        {"id": "seed-links", "description": "Reject symlink roots/entries and Unix sockets before readiness; verified on macOS.", "result": "PASS", "test_ids": ["symlinks_and_special_files_fail_closed"]},
+        {"id": "seed-utf8", "description": "Execute invalid-byte filename rejection on Linux; macOS cannot create the fixture.", "result": "PENDING", "test_ids": []},
+        {"id": "seed-migration", "description": "Populated v4 migrates to v5 without seeding or overwrite; prior migration regressions stay green.", "result": "PASS", "test_ids": ["populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"]},
+        {"id": "seed-readiness", "description": "Blocked seed publication prevents listener/probe success; import precedes readiness.", "result": "PASS", "test_ids": ["probes_cannot_succeed_while_seed_publication_is_blocked"]},
+        {"id": "seed-compose", "description": "Run read-only seeded Compose up --wait, persistence, all-bucket deletion and deliberate reset/reseed journey.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"],
+      "verification": [
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"]}
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": ["Linux invalid-byte filename rejection and seeded Compose execution are unverified. Trusted seed input must remain stable/read-only throughout import; no source mutation protection or whole-directory atomicity is claimed."],
+      "implemented_in": "8ad9e4ecdf8a034442a1291b9272df0d7d005cc4",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "UX-003",
@@ -24282,7 +24331,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. UX-002 adds a native durable seed marker that prevents replay after restart or all-bucket deletion; its seeded Compose case remains pending. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -24326,7 +24375,7 @@
         },
         {
           "id": "UX-008-PENDING",
-          "description": "Persist/enforce permissions and fixture seeding; verify all fsync windows/power loss.",
+          "description": "Persist/enforce bucket/object permissions and verify all fsync windows/power loss. Native seed marker persistence is covered by UX-002; seeded Compose verification remains pending there.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24389,7 +24438,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No permissions or fixture replay; selected process crashes are covered, every instruction and power loss are not.",
+        "No persisted bucket/object permissions; selected process crashes are covered, every instruction and power loss are not. Native initialization markers prevent fixture replay; seeded Compose verification remains on UX-002.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -24409,7 +24458,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Stop/down preserves catalog and blobs; explicit project-scoped down --volumes removes disposable bucket/object state. Scope: docs/en/slices/json-object-media.md; evidence and limits: docs/en/evidence/object-media.md.",
+      "notes": "Stop/down preserves catalog and blobs; explicit project-scoped down --volumes removes disposable bucket/object state. Native fresh data reseeds under UX-002; the seeded Compose reset/reseed journey remains pending. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -24432,7 +24481,7 @@
         },
         {
           "id": "UX-009-PENDING",
-          "description": "Reapply configured initial seed after reset once fixture import exists.",
+          "description": "Native fresh data reseeds under UX-002; execute the seeded Compose deliberate volume reset/reseed journey.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -24463,7 +24512,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No fixture import/reseeding or admin reset route; explicit volume removal destroys this project's local data."
+        "Native fresh catalogs support initial reseeding; seeded Compose reset/reseed remains unverified. No admin reset route; explicit volume removal destroys this project's local data."
       ],
       "implemented_in": "89acc944ae2c1d5896cea5d84b66a8a2250e8910",
       "last_verified": "2026-10-21"

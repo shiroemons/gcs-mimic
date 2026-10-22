@@ -9,14 +9,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 201 | 174 | 0 | 26 | 1 | 0 | 0 |
-| project_requirement | 92 | 46 | 0 | 27 | 19 | 0 | 0 |
+| behavior | 201 | 173 | 0 | 26 | 2 | 0 | 0 |
+| project_requirement | 92 | 45 | 0 | 28 | 19 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 174 | 1 | 24 | 2 | 0 | 0 |
-| project_requirement | 46 | 0 | 0 | 0 | 0 | 46 |
+| behavior | 173 | 2 | 24 | 2 | 0 | 0 |
+| project_requirement | 45 | 0 | 0 | 0 | 0 | 47 |
 
 ## api_operation
 
@@ -676,7 +676,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-OBJECT-013 | Resumable cancellation and expiration | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-014 | Resumable finalization visibility | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-015 | Read bytes and metadata separately | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-016 | Range reads | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-016 | Range reads | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-017 | Content encoding and transcoding | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-018 | Prefix and delimiter listing | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | Listing interval and glob filters | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -837,7 +837,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-002 | Seed then ready startup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| UX-002 | Seed then ready startup | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 5 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 6 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
