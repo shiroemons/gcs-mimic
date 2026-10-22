@@ -16,7 +16,7 @@ use std::{
     convert::Infallible,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -32,7 +32,7 @@ impl Clock for TestClock {
     }
 }
 
-async fn setup(dir: &TestDir, clock: Arc<TestClock>) -> Catalog {
+async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
         .insert_bucket(BucketRecord {
@@ -168,6 +168,65 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
 }
 
 #[tokio::test]
+async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
+    struct TransitionClock {
+        database: std::path::PathBuf,
+        expire: bool,
+        armed: AtomicBool,
+        calls: AtomicUsize,
+    }
+    impl Clock for TransitionClock {
+        fn now(&self) -> SystemTime {
+            if !self.armed.load(Ordering::SeqCst) {
+                return UNIX_EPOCH;
+            }
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call > 0 && self.expire {
+                return UNIX_EPOCH + Duration::from_secs(604800);
+            }
+            if call == 1 {
+                // Inject a terminal transition after lease lookup and before cancellation's CAS.
+                rusqlite::Connection::open(&self.database)
+                    .unwrap()
+                    .execute("UPDATE resumable_sessions SET state = 'CANCELLED'", [])
+                    .unwrap();
+            }
+            UNIX_EPOCH
+        }
+    }
+    for expire in [false, true] {
+        let dir = TestDir::new();
+        let clock = Arc::new(TransitionClock {
+            database: dir.0.join("catalog.sqlite3"),
+            expire,
+            armed: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+        });
+        let catalog = setup(&dir, clock.clone()).await;
+        let session = catalog
+            .create_resumable_session("bucket", "name", Default::default(), None)
+            .await
+            .unwrap();
+        clock.armed.store(true, Ordering::SeqCst);
+        assert_eq!(
+            catalog
+                .cancel_resumable_session(&session.id, "bucket")
+                .await
+                .unwrap_err(),
+            if expire {
+                ResumableError::NotFound
+            } else {
+                ResumableError::Gone
+            }
+        );
+        assert!(dir.0.join("staging").join(&session.blob_id).exists());
+        catalog.maintain_resumable_sessions().await.unwrap();
+        assert!(!dir.0.join("staging").join(&session.blob_id).exists());
+        catalog.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
     let dir = TestDir::new();
     let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
@@ -286,12 +345,9 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     let stage = dir.0.join("staging").join(&session.blob_id);
     std::fs::remove_file(&stage).unwrap();
     std::fs::create_dir(&stage).unwrap();
-    assert!(
-        catalog
-            .cancel_resumable_session(&session.id, "bucket")
-            .await
-            .is_err()
-    );
+    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 499);
+    assert!(stage.is_dir());
+    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
     assert!(catalog.resumable_maintenance_error().is_some());
     *clock.0.lock().unwrap() = session.deadline;
     assert!(catalog.maintain_resumable_sessions().await.is_err());

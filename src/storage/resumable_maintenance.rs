@@ -109,7 +109,9 @@ impl Catalog {
             connection.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now]).map_err(unavailable)
         }).await?;
         if changed != 1 {
-            return Err(ResumableError::NotFound);
+            self.resumable_session(&lease.session.id, &lease.session.bucket)
+                .await?;
+            return Err(ResumableError::Gone);
         }
         // The terminal row is the durable cleanup journal if unlink or directory sync fails.
         let blob_id = lease.session.blob_id.clone();
@@ -118,11 +120,16 @@ impl Catalog {
             .run(move |connection| clean_session_files(connection, &data_dir, &blob_id))
             .await;
         if let Err(error) = &result {
-            *self.0.maintenance_error.lock().map_err(unavailable)? = Some(error.to_string());
+            *self
+                .0
+                .maintenance_error
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
+            eprintln!("cancelled upload cleanup failed; maintenance will retry: {error}");
         }
         drop(lease);
         self.0.maintenance_wake.notify_one();
-        result.map_err(Into::into)
+        Ok(())
     }
 
     /// Runs bounded cleanup against the injected clock; failed records remain the retry journal.
