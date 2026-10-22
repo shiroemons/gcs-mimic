@@ -1802,3 +1802,38 @@ async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_
         h.stop().await;
     }
 }
+
+#[tokio::test]
+async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session() {
+    let h = Harness::start(1024 * 1024, false, None).await;
+    let init = h.initiate("name=length", "", b"").await;
+    let path = h.path(&init);
+    let id = path.split("upload_id=").nth(1).unwrap();
+    let lease = h
+        .state
+        .catalog
+        .lock_resumable_session(id, "bucket")
+        .await
+        .unwrap();
+    let stage = lease.staging_path();
+    for declared in [1, 262145] {
+        let mut stream = TcpStream::connect(&h.address).await.unwrap();
+        stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {declared}\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(1), Harness::read_response(stream))
+            .await
+            .unwrap();
+        assert_eq!(reply.status, 400);
+        assert_eq!(
+            reply.json()["error"]["errors"][0]["reason"],
+            "invalidParameter"
+        );
+    }
+    assert_eq!(std::fs::metadata(stage).unwrap().len(), 0);
+    drop(lease);
+    let status = h
+        .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+        .await;
+    assert_eq!(status.status, 308);
+    assert!(!status.headers.contains_key("range"));
+    h.stop().await;
+}

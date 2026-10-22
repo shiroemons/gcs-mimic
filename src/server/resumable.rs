@@ -149,6 +149,13 @@ pub(super) async fn session_response(
     if length.is_some_and(|n| n > config.max_object_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
+    if let Some(Range::Data { start, end, .. }) = range
+        && length.is_some_and(|length| length != end - start + 1)
+    {
+        return Err(JsonError::invalid_parameter(
+            "Content-Length does not match Content-Range",
+        ));
+    }
     let mut lease = state.catalog.lock_resumable_session(id, bucket).await?;
     let session = &lease.session;
     let (start, length, total, status) = match range {
