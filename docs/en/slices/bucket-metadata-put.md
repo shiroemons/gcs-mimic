@@ -125,16 +125,23 @@ Same-profile full-resource round trips are covered explicitly.
 
 ## Verification boundary
 
-The acceptance table is frozen before implementation. Execution results will
-be recorded here after running the committed Rust 1.99.1 toolchain.
+The acceptance table was frozen before implementation in `ea302f9`.
+Verification on the check date used the committed Rust 1.99.1 toolchain;
+the final application and Rust test source is `ab7f410`.
 
 | Command | Result |
 | --- | --- |
-| `cargo +1.99.1 test --locked --test bucket_http bucket_put` | Pending |
-| `cargo +1.99.1 test --locked --test bucket_http bucket_patch` | Pending |
-| `cargo +1.99.1 test --workspace --locked` | Pending |
-| `cargo +1.99.1 fmt --all --check` | Pending |
-| `cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings` | Pending |
+| `cargo +1.99.1 test --locked --test bucket_http bucket_put` | PASS: 14 HTTP cases, both profiles |
+| `cargo +1.99.1 test --locked --test bucket_http bucket_patch` | PASS: all 15 existing HTTP cases |
+| `cargo +1.99.1 test --workspace --locked` | PASS: all workspace suites, zero failures or ignored tests; includes the 14 PUT HTTP cases and two PUT catalog cases on final source |
+| `cargo +1.99.1 fmt --all --check` | PASS |
+| `cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings` | PASS |
+
+Targeted tests ran during implementation; the complete workspace, fmt and
+clippy checks ran on the final source. HTTP execution required permission for
+loopback listeners outside the filesystem sandbox. The initial sandboxed
+PATCH attempt failed before readiness with `Operation not permitted (os error 1)`;
+the authorized rerun passed all 15 cases. No negative test was skipped or weakened.
 
 HTTP cases are in tests/bucket_http.rs; clock/rollback cases in tests/catalog.rs;
 transaction-time authorization cases in src/storage/catalog.rs. Official SDK,
