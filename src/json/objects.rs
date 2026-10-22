@@ -37,6 +37,11 @@ pub enum ObjectRequest {
         name: String,
         params: ObjectInsertParams,
     },
+    Multipart {
+        bucket: String,
+        name: Option<String>,
+        params: ObjectInsertParams,
+    },
     Get {
         bucket: String,
         name: String,
@@ -210,9 +215,10 @@ fn parse_object_query(
         if_metageneration_not_match: integer(&mut query, "ifMetagenerationNotMatch")?,
     };
     if method == Method::POST {
-        match query.remove("uploadType").as_deref() {
-            Some("media") => {}
-            Some("multipart" | "resumable") => {
+        let multipart = match query.remove("uploadType").as_deref() {
+            Some("media") => false,
+            Some("multipart") => true,
+            Some("resumable") => {
                 return Err(JsonError::unsupported_object("uploadType"));
             }
             None => {
@@ -227,20 +233,36 @@ fn parse_object_query(
                     "uploadType must be media, multipart or resumable",
                 ));
             }
+        };
+        let name = query.remove("name");
+        if let Some(name) = &name {
+            validate_object_name(name)?;
         }
-        let name = query.remove("name").ok_or_else(|| {
-            JsonError::new(StatusCode::BAD_REQUEST, "required", "Missing required name")
-        })?;
-        validate_object_name(&name)?;
+        if !multipart && name.is_none() {
+            return Err(JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "required",
+                "Missing required name",
+            ));
+        }
         let projection = projection(&mut query)?;
         finish(query)?;
+        let params = ObjectInsertParams {
+            conditions,
+            projection,
+        };
+        if multipart {
+            return Ok(ObjectRequest::Multipart {
+                bucket,
+                name,
+                params,
+            });
+        }
+        let name = name.expect("media upload requires a query name");
         return Ok(ObjectRequest::Insert {
             bucket,
             name,
-            params: ObjectInsertParams {
-                conditions,
-                projection,
-            },
+            params,
         });
     }
     let generation = integer(&mut query, "generation")?;
@@ -634,7 +656,7 @@ fn base64(bytes: &[u8]) -> String {
     result
 }
 
-fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
+pub(super) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
     let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
     if raw.len() != N.div_ceil(3) * 4 {
         return Err(invalid());

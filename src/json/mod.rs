@@ -11,6 +11,7 @@
 mod body;
 mod buckets;
 mod error;
+mod multipart;
 mod object_list;
 mod object_metadata;
 mod objects;
@@ -20,6 +21,7 @@ mod query;
 pub use body::read_body;
 pub use buckets::{bucket_list, bucket_resource, parse_insert, validate_bucket_name};
 pub use error::JsonError;
+pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
 pub use object_list::{ObjectListParams, object_list};
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{

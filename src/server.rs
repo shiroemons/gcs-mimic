@@ -169,7 +169,11 @@ async fn respond(
 ) -> Response<ResponseBody> {
     if let Some(parsed) = json::route_object(request.method(), request.uri()) {
         let media = matches!(&parsed, Ok(ObjectRequest::Get { params, .. }) if params.media);
-        let transfer = media || matches!(&parsed, Ok(ObjectRequest::Insert { .. }));
+        let transfer = media
+            || matches!(
+                &parsed,
+                Ok(ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. })
+            );
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
         activity.send_replace(ObjectActivity {
@@ -217,7 +221,9 @@ async fn object_response(
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     if !matches!(
         operation,
-        ObjectRequest::Insert { .. } | ObjectRequest::Update { .. }
+        ObjectRequest::Insert { .. }
+            | ObjectRequest::Multipart { .. }
+            | ObjectRequest::Update { .. }
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -267,6 +273,116 @@ async fn object_response(
                 .await?;
             json::object_resource(&record, &state.api_base_url, params.projection)?
         }
+        ObjectRequest::Multipart {
+            bucket,
+            name,
+            params,
+        } => {
+            let (_, expected) = json::parse_object_upload_headers(request.headers())?;
+            let boundary = json::multipart_boundary(request.headers())?;
+            // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
+            if request
+                .headers()
+                .get("content-length")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .is_some_and(|length| length > max_bytes.saturating_add(256 * 1024))
+            {
+                return Err(ObjectError::TooLarge.into());
+            }
+            let permit = state.catalog.admit_object_upload()?;
+            // The final name may be in metadata; check the bucket before reading any body.
+            await_upload_catalog(
+                state.catalog.check_object_upload(
+                    &bucket,
+                    name.as_deref().unwrap_or(""),
+                    if name.is_some() {
+                        params.conditions
+                    } else {
+                        Default::default()
+                    },
+                ),
+                catalog_timeout,
+                deadline,
+                activity,
+            )
+            .await?;
+            let body = request.into_body().map_frame(|frame| {
+                activity.send_modify(|progress| progress.awaiting_catalog = false);
+                frame
+            });
+            let mut multipart = json::Multipart::new(body, &boundary);
+            let bytes = multipart.metadata().await?;
+            let name_known = name.is_some();
+            let (name, metadata, expected) = json::multipart_metadata(&bytes, name, expected)?;
+            if !name_known {
+                await_upload_catalog(
+                    state
+                        .catalog
+                        .check_object_upload(&bucket, &name, params.conditions),
+                    catalog_timeout,
+                    deadline,
+                    activity,
+                )
+                .await?;
+            }
+            let content_type = multipart
+                .headers(false)
+                .await?
+                .unwrap_or_else(|| "application/octet-stream".into());
+            let (sender, body) = mpsc::channel(2);
+            let upload = state.catalog.put_object_prechecked(
+                &bucket,
+                &name,
+                content_type,
+                expected,
+                params.conditions,
+                max_bytes,
+                body,
+                permit,
+                metadata,
+            );
+            tokio::pin!(upload);
+            let streaming = async {
+                let mut size = 0_u64;
+                while let Some(bytes) = multipart.next_chunk().await? {
+                    size = size
+                        .checked_add(bytes.len() as u64)
+                        .filter(|size| *size <= max_bytes)
+                        .ok_or_else(|| JsonError::from(ObjectError::TooLarge))?;
+                    if sender.send(Ok(UploadChunk::Data(bytes))).await.is_err() {
+                        return Ok::<_, JsonError>(expected);
+                    }
+                }
+                let expected = multipart.checksums(expected).await?;
+                multipart.finish().await?;
+                Ok(expected)
+            };
+            let record = tokio::select! {
+                result = &mut upload => result?,
+                result = streaming => {
+                    let expected = match result {
+                        Ok(expected) => expected,
+                        Err(error) => {
+                            let _ = sender.send(Err(io::Error::other(error.to_string()))).await;
+                            drop(sender);
+                            // Await cleanup before returning a framing error to the client.
+                            match await_upload_catalog(upload, catalog_timeout, deadline, activity).await {
+                                Ok(_) | Err(ObjectError::BodyAborted(_)) => {},
+                                Err(storage_error) => return Err(storage_error.into()),
+                            }
+                            return Err(error);
+                        }
+                    };
+                    await_upload_catalog(async {
+                        let _ = sender.send(Ok(UploadChunk::EndWithHashes(expected))).await;
+                        drop(sender);
+                        upload.await
+                    }, catalog_timeout, deadline, activity).await?
+                }
+            };
+            json::object_resource(&record, &state.api_base_url, params.projection)?
+        }
         ObjectRequest::Insert {
             bucket,
             name,
@@ -302,6 +418,7 @@ async fn object_response(
                 max_bytes,
                 body,
                 permit,
+                Default::default(),
             );
             tokio::pin!(upload);
             let record = tokio::select! {

@@ -326,8 +326,11 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             .error(400, "invalid");
         server.get("bad").error(404, "notFound");
     }
-    for kind in ["multipart", "resumable"] {
-        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType={kind}&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").as_bytes()).error(501, "notImplemented");
+    for (kind, status, reason) in [
+        ("multipart", 400, "invalidParameter"),
+        ("resumable", 501, "notImplemented"),
+    ] {
+        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType={kind}&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").as_bytes()).error(status, reason);
         server.get("unsupported").error(404, "notFound");
     }
     assert_eq!(server.upload("name=existing", "", b"old").status, 200);
@@ -967,7 +970,7 @@ fn obj_http_early_rejections_survive_body_larger_than_socket_buffers() {
     server.bucket();
     for (query, status, reason) in [
         ("uploadType=media&name=large", 413, "uploadTooLarge"),
-        ("uploadType=multipart&name=large", 501, "notImplemented"),
+        ("uploadType=multipart&name=large", 400, "invalidParameter"),
         ("uploadType=media", 400, "required"),
     ] {
         let mut stream = server.stream();

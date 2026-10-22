@@ -6,6 +6,7 @@ use std::{collections::BTreeMap, fmt, time::SystemTime};
 pub enum UploadChunk {
     Data(bytes::Bytes),
     End,
+    EndWithHashes(ExpectedHashes),
 }
 
 /// Live object generation metadata persisted by the catalog.

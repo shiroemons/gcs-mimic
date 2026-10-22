@@ -210,11 +210,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
             "invalidParameter",
         ),
         (
-            "uploadType=multipart",
-            StatusCode::NOT_IMPLEMENTED,
-            "notImplemented",
-        ),
-        (
             "uploadType=resumable",
             StatusCode::NOT_IMPLEMENTED,
             "notImplemented",

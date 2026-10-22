@@ -440,6 +440,7 @@ impl Catalog {
             max_bytes,
             body,
             permit,
+            ObjectMetadataUpdate::default(),
         )
         .await
     }
@@ -450,6 +451,12 @@ impl Catalog {
         name: &str,
         conditions: ObjectConditions,
     ) -> Result<OwnedSemaphorePermit, ObjectError> {
+        let permit = self.admit_object_upload()?;
+        self.check_object_upload(bucket, name, conditions).await?;
+        Ok(permit)
+    }
+
+    pub(crate) fn admit_object_upload(&self) -> Result<OwnedSemaphorePermit, ObjectError> {
         let permit =
             self.0.uploads.clone().try_acquire_owned().map_err(|_| {
                 object_unavailable(format!("upload limit of {MAX_UPLOADS} reached"))
@@ -457,7 +464,6 @@ impl Catalog {
         if !self.is_healthy() {
             return Err(object_unavailable("catalog is closed"));
         }
-        self.check_object_upload(bucket, name, conditions).await?;
         Ok(permit)
     }
 
@@ -475,6 +481,7 @@ impl Catalog {
         max_bytes: u64,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         permit: OwnedSemaphorePermit,
+        metadata: ObjectMetadataUpdate,
     ) -> Result<ObjectRecord, ObjectError> {
         let catalog = self.clone();
         let bucket = bucket.to_owned();
@@ -519,18 +526,22 @@ impl Catalog {
                     transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(object_unavailable)?;
                     let millis = unix_millis(now).map_err(object_unavailable)?;
                     let time = system_time(millis).map_err(object_unavailable)?;
-                    let record = ObjectRecord {
+                    let mut record = ObjectRecord {
                         bucket, name, generation, metageneration: 1,
                         content_type, size, md5, crc32c, storage_class,
                         content_encoding: None, content_disposition: None,
                         content_language: None, cache_control: None, metadata: Default::default(),
                         time_created: time, updated: time,
                     };
+                    metadata.apply(&mut record)?;
+                    let custom_metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
                     transaction.execute(
-                        "INSERT OR REPLACE INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        "INSERT OR REPLACE INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding, content_disposition, content_language, cache_control, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                         params![record.bucket, record.name, record.generation, record.metageneration,
                             record.content_type, i64::try_from(size).map_err(object_unavailable)?,
-                            &record.md5[..], record.crc32c, record.storage_class, millis, millis, blob_id],
+                            &record.md5[..], record.crc32c, record.storage_class, millis, millis, blob_id,
+                            record.content_encoding, record.content_disposition, record.content_language,
+                            record.cache_control, custom_metadata],
                     ).map_err(object_unavailable)?;
                     if let Some((_, old_id)) = &previous {
                         transaction.execute("INSERT INTO pending_blob_deletions VALUES (?1)", [old_id])
@@ -692,7 +703,7 @@ impl Catalog {
 
 async fn write_body(
     mut file: tokio::fs::File,
-    expected: ExpectedHashes,
+    mut expected: ExpectedHashes,
     max_bytes: u64,
     mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     mut cancellation: oneshot::Receiver<()>,
@@ -711,6 +722,19 @@ async fn write_body(
             .map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
         let chunk = match chunk {
             UploadChunk::End => break,
+            UploadChunk::EndWithHashes(hashes) => {
+                if hashes.md5.zip(expected.md5).is_some_and(|(a, b)| a != b)
+                    || hashes
+                        .crc32c
+                        .zip(expected.crc32c)
+                        .is_some_and(|(a, b)| a != b)
+                {
+                    return Err(ObjectError::ChecksumMismatch);
+                }
+                expected.md5 = expected.md5.or(hashes.md5);
+                expected.crc32c = expected.crc32c.or(hashes.crc32c);
+                break;
+            }
             UploadChunk::Data(chunk) => chunk,
         };
         size = size
@@ -1120,6 +1144,7 @@ mod tests {
                     1000,
                     body,
                     permit,
+                    ObjectMetadataUpdate::default(),
                 )
                 .await
                 .unwrap_err();
