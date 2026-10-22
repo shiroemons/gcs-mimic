@@ -24,6 +24,7 @@ use std::{
 pub const BUCKETS_CREATE: &str = "storage.buckets.create";
 pub const BUCKETS_DELETE: &str = "storage.buckets.delete";
 pub const BUCKETS_GET: &str = "storage.buckets.get";
+pub const BUCKETS_UPDATE: &str = "storage.buckets.update";
 pub const BUCKETS_LIST: &str = "storage.buckets.list";
 pub const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
 pub const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";

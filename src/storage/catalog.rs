@@ -1,6 +1,9 @@
 use super::lock;
 use crate::auth::{Identity, OBJECTS_DELETE, Policy};
-use crate::bucket::{BucketAccess, BucketRecord, CatalogError};
+use crate::bucket::{
+    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, valid_label,
+    validate_storage_class,
+};
 use crate::clock::{Clock, SystemClock};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
@@ -524,6 +527,62 @@ impl Catalog {
             .await
     }
 
+    pub async fn patch_bucket(
+        &self,
+        name: &str,
+        update: BucketMetadataUpdate,
+        if_metageneration_match: Option<i64>,
+        if_metageneration_not_match: Option<i64>,
+        access: &BucketAccess,
+    ) -> Result<BucketRecord, CatalogError> {
+        let name = name.to_owned();
+        let access = access.clone();
+        let clock = self.0.clock.clone();
+        self.run(move |connection| {
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
+            let mut record = transaction.query_row(
+                &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"), [&name], read_bucket,
+            ).optional().map_err(unavailable)?.ok_or(CatalogError::NotFound)?;
+            check_access(&transaction, &name, &record.project, &access)?;
+            if if_metageneration_match.is_some_and(|value| value != record.metageneration)
+                || if_metageneration_not_match == Some(record.metageneration) {
+                return Err(CatalogError::PreconditionFailed);
+            }
+            if update.location.as_ref().is_some_and(|location| *location != record.location) {
+                return Err(CatalogError::UnsupportedMetadata("location".into()));
+            }
+            if let Some(labels) = update.labels {
+                if let Some(labels) = labels {
+                    for (key, value) in labels {
+                        if !valid_label(&key, true) || value.as_deref().is_some_and(|value| !valid_label(value, false)) {
+                            return Err(CatalogError::InvalidMetadata("Invalid bucket label".into()));
+                        }
+                        if let Some(value) = value { record.labels.insert(key, value); }
+                        else { record.labels.remove(&key); }
+                    }
+                } else { record.labels.clear(); }
+            }
+            if record.labels.len() > 64 {
+                return Err(CatalogError::InvalidMetadata("A bucket can have at most 64 labels".into()));
+            }
+            if let Some(class) = update.storage_class {
+                validate_storage_class(&class)?;
+                record.storage_class = class;
+            }
+            if let Some(enabled) = update.versioning_enabled { record.versioning_enabled = enabled; }
+            if let Some(hold) = update.default_event_based_hold { record.default_event_based_hold = hold; }
+            record.metageneration = record.metageneration.checked_add(1).ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
+            let updated = unix_millis(clock.now())?;
+            record.updated = system_time(updated).map_err(unavailable)?;
+            transaction.execute(
+                "UPDATE buckets SET labels = ?2, storage_class = ?3, versioning_enabled = ?4, default_event_based_hold = ?5, metageneration = ?6, updated = ?7 WHERE name = ?1",
+                params![name, serde_json::to_string(&record.labels).map_err(unavailable)?, record.storage_class, record.versioning_enabled, record.default_event_based_hold, record.metageneration, updated],
+            ).map_err(unavailable)?;
+            transaction.commit().map_err(unavailable)?;
+            Ok(record)
+        }).await
+    }
+
     /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
     pub fn bucket_settings_in_transaction(
         transaction: &rusqlite::Transaction<'_>,
@@ -739,6 +798,80 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bucket_patch_rechecks_revocation_and_bucket_recreation() {
+        use crate::auth::{BUCKETS_UPDATE, Binding};
+        let directory =
+            std::env::temp_dir().join(format!("gcs-mimic-patch-policy-{}", std::process::id()));
+        let catalog = Catalog::open(&directory).await.unwrap();
+        let record =
+            crate::json::parse_insert(br#"{"name":"patch-policy"}"#, "project", UNIX_EPOCH)
+                .unwrap();
+        catalog.insert_bucket(record.clone()).await.unwrap();
+        catalog
+            .set_policy(
+                "patch-policy",
+                Policy {
+                    bindings: vec![Binding {
+                        role: "roles/storage.admin".into(),
+                        members: vec!["allUsers".into()],
+                    }],
+                    etag: None,
+                },
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        let access = catalog
+            .bucket_access("patch-policy", None, BUCKETS_UPDATE)
+            .await
+            .unwrap();
+        catalog
+            .set_policy(
+                "patch-policy",
+                Policy {
+                    bindings: vec![],
+                    etag: None,
+                },
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        let update = BucketMetadataUpdate {
+            labels: Some(None),
+            ..Default::default()
+        };
+        assert_eq!(
+            catalog
+                .patch_bucket("patch-policy", update.clone(), Some(99), None, &access)
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(record.clone())
+        );
+        catalog
+            .delete_bucket("patch-policy", None, None)
+            .await
+            .unwrap();
+        let mut replacement = record;
+        replacement.project = "other".into();
+        catalog.insert_bucket(replacement.clone()).await.unwrap();
+        assert_eq!(
+            catalog
+                .patch_bucket("patch-policy", update, None, None, &access)
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(replacement)
+        );
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn bucket_settings_migration_rolls_back_columns_and_version_after_late_failure() {
