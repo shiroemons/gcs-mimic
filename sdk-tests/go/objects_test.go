@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -164,7 +165,11 @@ func TestObjectMediaLifecycle(t *testing.T) {
 				requireObjectStatus(t, conditional.Delete(ctx), http.StatusPreconditionFailed)
 			}
 			readObject(t, ctx, object, payload, attrs.Generation)
-			requireObjectStatus(t, bucket.Delete(ctx), http.StatusConflict)
+			nonemptyStatus := http.StatusConflict
+			if os.Getenv("GCS_MIMIC_COMPAT_PROFILE") == "legacy-emulator" {
+				nonemptyStatus = http.StatusPreconditionFailed
+			}
+			requireObjectStatus(t, bucket.Delete(ctx), nonemptyStatus)
 			if err := object.Generation(attrs.Generation).If(storage.Conditions{
 				GenerationMatch: attrs.Generation, MetagenerationMatch: attrs.Metageneration,
 			}).Delete(ctx); err != nil {

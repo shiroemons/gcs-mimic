@@ -60,6 +60,8 @@ async fn setup(dir: &TestDir) -> Catalog {
             location_type: "multi-region".into(),
             storage_class: "NEARLINE".into(),
             labels: BTreeMap::new(),
+            versioning_enabled: false,
+            default_event_based_hold: false,
             metageneration: 1,
             time_created: UNIX_EPOCH,
             updated: UNIX_EPOCH,
@@ -1434,7 +1436,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
+            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
         )
         .unwrap();
     // Force the second DDL statement to fail and verify the first statement rolls back.
@@ -1469,6 +1471,8 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(catalog.get_bucket("bucket").await.unwrap(), bucket);
+    let settings = catalog.get_bucket("bucket").await.unwrap().unwrap();
+    assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
     let object = put(&catalog, "migrated", b"body", ObjectConditions::default())
         .await
         .unwrap();
@@ -1489,7 +1493,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
 }
 
@@ -1552,12 +1556,16 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         storage_class: "NEARLINE".into(),
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(1234),
+        time_deleted: None,
+        event_based_hold: false,
     };
     drop(connection);
     let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
+    let settings = catalog.get_bucket("bucket").await.unwrap().unwrap();
+    assert!(!settings.versioning_enabled && !settings.default_event_based_hold);
     assert_eq!(
         catalog
             .get_object("bucket", "metadata", None, ObjectConditions::default())

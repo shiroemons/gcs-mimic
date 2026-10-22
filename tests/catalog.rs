@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+mod common;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},
     storage::Catalog,
@@ -41,6 +43,8 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         location_type: "multi-region".into(),
         storage_class: "STANDARD".into(),
         labels: BTreeMap::from([("team".into(), "storage".into())]),
+        versioning_enabled: false,
+        default_event_based_hold: false,
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_micros(42_123_456),
         updated: UNIX_EPOCH + Duration::from_micros(43_987_654),
@@ -53,6 +57,8 @@ async fn create_get_delete_and_restart_preserve_every_field() {
     let catalog = Catalog::open(&dir.0).await.unwrap();
     assert_eq!(catalog.get_bucket("missing").await.unwrap(), None);
     let mut expected = bucket("bucket", "project");
+    expected.versioning_enabled = true;
+    expected.default_event_based_hold = true;
     let created = catalog.insert_bucket(expected.clone()).await.unwrap();
     expected.time_created = UNIX_EPOCH + Duration::from_millis(42_123);
     expected.updated = UNIX_EPOCH + Duration::from_millis(43_987);
@@ -304,6 +310,125 @@ async fn drop_releases_lock_while_a_forked_child_has_not_execed() {
 }
 
 #[tokio::test]
+async fn bucket_settings_migrate_supported_catalogs() {
+    for version in [4, 5, 6, 7] {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let expected = catalog
+            .insert_bucket(bucket("bucket", "project"))
+            .await
+            .unwrap();
+        catalog.close().await.unwrap();
+        let path = dir.0.join("catalog.sqlite3");
+        let connection = Connection::open(&path).unwrap();
+        let objects_sql: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        connection.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold;").unwrap();
+        common::downgrade_object_schema(&connection);
+        if version < 7 {
+            connection
+                .execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations;")
+                .unwrap();
+        }
+        if version < 6 {
+            connection
+                .execute_batch("DROP TABLE bucket_policies; DROP TABLE policy_revision;")
+                .unwrap();
+        }
+        if version < 5 {
+            connection
+                .execute_batch("DROP TABLE startup_seed;")
+                .unwrap();
+        }
+        connection
+            .pragma_update(None, "user_version", version)
+            .unwrap();
+        drop(connection);
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            catalog.get_bucket("bucket").await.unwrap(),
+            Some(expected),
+            "version {version}"
+        );
+        for (index, (versioning, hold)) in
+            [(false, false), (false, true), (true, false), (true, true)]
+                .into_iter()
+                .enumerate()
+        {
+            let mut record = bucket(&format!("settings-{index}"), "project");
+            record.versioning_enabled = versioning;
+            record.default_event_based_hold = hold;
+            catalog.insert_bucket(record).await.unwrap();
+        }
+        catalog.close().await.unwrap();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        for (index, settings) in [(false, false), (false, true), (true, false), (true, true)]
+            .into_iter()
+            .enumerate()
+        {
+            let record = catalog
+                .get_bucket(&format!("settings-{index}"))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (record.versioning_enabled, record.default_event_based_hold),
+                settings
+            );
+        }
+        catalog.close().await.unwrap();
+        let mut connection = Connection::open(path).unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            9
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT sql FROM sqlite_schema WHERE name = 'objects'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            objects_sql
+        );
+        let transaction = connection.transaction().unwrap();
+        transaction
+            .execute(
+                "UPDATE buckets SET versioning_enabled = 1 WHERE name = 'bucket'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            Catalog::bucket_settings_in_transaction(&transaction, "bucket").unwrap(),
+            (true, false)
+        );
+        assert_eq!(
+            Catalog::bucket_settings_in_transaction(&transaction, "missing"),
+            Err(CatalogError::NotFound)
+        );
+        assert!(
+            transaction
+                .execute("UPDATE buckets SET default_event_based_hold = 2", [])
+                .is_err()
+        );
+        assert!(
+            transaction
+                .execute("UPDATE buckets SET versioning_enabled = NULL", [])
+                .is_err()
+        );
+        transaction.rollback().unwrap();
+    }
+}
+
+#[tokio::test]
 async fn rejects_future_schema_unversioned_data_and_corruption() {
     for fixture in [
         "future",
@@ -316,6 +441,9 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         "v6-missing-policy",
         "v6-orphan-policy",
         "v6-stale-policy-revision",
+        "v8-missing-settings",
+        "v8-altered-settings-constraint",
+        "v8-altered-settings-default",
     ] {
         let dir = TestDir::new();
         fs::create_dir_all(&dir.0).unwrap();
@@ -323,7 +451,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 8)
+                .pragma_update(None, "user_version", 10)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -365,6 +493,22 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
                 };
                 connection.execute(sql, []).unwrap();
             }
+            "v8-missing-settings"
+            | "v8-altered-settings-constraint"
+            | "v8-altered-settings-default" => {
+                let catalog = Catalog::open(&dir.0).await.unwrap();
+                catalog.close().await.unwrap();
+                Connection::open(&path)
+                    .unwrap()
+                    .execute_batch("ALTER TABLE buckets DROP COLUMN default_event_based_hold;")
+                    .unwrap();
+                let connection = Connection::open(&path).unwrap();
+                if fixture == "v8-altered-settings-constraint" {
+                    connection.execute_batch("ALTER TABLE buckets ADD COLUMN default_event_based_hold INTEGER NOT NULL DEFAULT 0;").unwrap();
+                } else if fixture == "v8-altered-settings-default" {
+                    connection.execute_batch("ALTER TABLE buckets ADD COLUMN default_event_based_hold INTEGER NOT NULL DEFAULT 1 CHECK(default_event_based_hold IN (0, 1));").unwrap();
+                }
+            }
             _ => fs::write(&path, b"not a SQLite database").unwrap(),
         }
         let before = fs::read(&path).unwrap();
@@ -381,7 +525,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 8"));
+            assert!(error.to_string().contains("schema version 10"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -428,10 +572,10 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
     }
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
-    Connection::open(&path)
-        .unwrap()
-        .execute_batch(
-            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+    let legacy = Connection::open(&path).unwrap();
+    common::downgrade_object_schema(&legacy);
+    legacy.execute_batch(
+            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
         )
         .unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -441,7 +585,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -491,9 +635,10 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
     let connection = Connection::open(&path).unwrap();
+    common::downgrade_object_schema(&connection);
     connection
         .execute_batch(
-            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
         )
         .unwrap();
     // An oversized default policy fails the second insert, after the first policy and v6 marker.
@@ -545,7 +690,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     assert_eq!(
         connection
@@ -565,7 +710,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 8)
+        .pragma_update(None, "user_version", 10)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -577,7 +722,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 8")
+                .contains("schema version 10")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -597,7 +742,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 8;",
+            "future" => "PRAGMA user_version = 10;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

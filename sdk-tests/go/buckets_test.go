@@ -18,6 +18,7 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+	raw "google.golang.org/api/storage/v1"
 )
 
 func emulatorEndpoint(raw, allowedHosts string) (*url.URL, error) {
@@ -138,6 +139,50 @@ func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Cl
 		}
 	})
 	return ctx, client, httpClient, u
+}
+
+func TestBucketSettingsRoundTrip(t *testing.T) {
+	ctx, client, httpClient, endpoint := newEmulatorClient(t)
+	api, err := raw.NewService(ctx, option.WithHTTPClient(httpClient), option.WithEndpoint(endpoint.String()+"/storage/v1/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		t.Fatal(err)
+	}
+	for _, versioning := range []bool{false, true} {
+		for _, hold := range []bool{false, true} {
+			t.Run(fmt.Sprintf("versioning=%t/hold=%t", versioning, hold), func(t *testing.T) {
+				name := fmt.Sprintf("sdk-settings-%x-%t-%t", nonce, versioning, hold)
+				bucket := client.Bucket(name)
+				var err error
+				if hold {
+					// Storage v1.70.0 omits DefaultEventBasedHold from BucketAttrs Create.
+					_, err = api.Buckets.Insert("sdk-project", &raw.Bucket{Name: name, Versioning: &raw.BucketVersioning{Enabled: versioning}, DefaultEventBasedHold: true}).Context(ctx).Do()
+				} else {
+					err = bucket.Create(ctx, "sdk-project", &storage.BucketAttrs{VersioningEnabled: versioning})
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					if err := bucket.Delete(cleanupCtx); err != nil {
+						t.Errorf("cleanup bucket: %v", err)
+					}
+				})
+				attrs, err := bucket.Attrs(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if attrs.VersioningEnabled != versioning || attrs.DefaultEventBasedHold != hold {
+					t.Fatalf("settings round trip: versioning=%t hold=%t, want versioning=%t hold=%t", attrs.VersioningEnabled, attrs.DefaultEventBasedHold, versioning, hold)
+				}
+			})
+		}
+	}
 }
 
 func TestBucketLifecycle(t *testing.T) {

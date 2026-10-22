@@ -583,8 +583,9 @@ async fn populated_v4_catalog_migrates_without_seeding() {
     );
     server.stop();
     let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+    common::downgrade_object_schema(&connection);
     connection
-        .execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE startup_seed; PRAGMA user_version = 4;")
+        .execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE startup_seed; PRAGMA user_version = 4;")
         .unwrap();
     drop(connection);
     let server = Server::start(&mut command(&data, Some(&seed)), false);
@@ -601,7 +602,7 @@ async fn populated_v4_catalog_migrates_without_seeding() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
 }
 
