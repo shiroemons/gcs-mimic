@@ -613,16 +613,11 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
 }
 
 #[test]
-fn obj_headers_003_range_and_conditionals_never_silently_succeed() {
+fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected() {
     for value in ["bytes=0-1", "", "invalid"] {
         let mut headers = HeaderMap::new();
         headers.insert("range", HeaderValue::from_str(value).unwrap());
-        assert_eq!(
-            validate_object_get_headers(&headers, true)
-                .unwrap_err()
-                .status,
-            StatusCode::NOT_IMPLEMENTED
-        );
+        assert!(validate_object_get_headers(&headers, true).is_ok());
         assert!(validate_object_get_headers(&headers, false).is_ok());
     }
     for key in ["if-match", "if-none-match", "x-goog-encryption-key-sha256"] {
@@ -676,6 +671,7 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
     for (name, value) in [
         ("content-type", "text/plain; charset=utf-8"),
         ("content-length", "5"),
+        ("accept-ranges", "bytes"),
         ("x-goog-generation", "9007199254740993"),
         ("x-goog-metageneration", "2"),
         (
@@ -689,7 +685,7 @@ fn obj_render_002_media_headers_match_selected_generation_and_hashes() {
         assert_eq!(headers[name], value);
     }
     assert_eq!(headers["cache-control"], "no-cache");
-    assert_eq!(headers.len(), 9);
+    assert_eq!(headers.len(), 10);
     let mut object = object;
     object.size = u64::MAX;
     assert_eq!(

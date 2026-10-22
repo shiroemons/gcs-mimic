@@ -519,7 +519,6 @@ async fn object_response(
             name,
             params,
         } => {
-            json::validate_object_get_headers(request.headers(), params.media)?;
             if params.media {
                 let (record, mut reader) = state
                     .catalog
@@ -531,8 +530,38 @@ async fn object_response(
                         &access,
                     )
                     .await?;
-                let headers = json::object_media_headers(&record)?;
+                json::validate_object_get_headers(request.headers(), true)?;
+                let mut headers = json::object_media_headers(&record)?;
                 json::validate_object_media_encoding(request.headers(), &record)?;
+                let range = match json::object_media_range(request.headers(), record.size) {
+                    Ok(range) => range,
+                    Err(error) => {
+                        let mut response = error
+                            .into_response()
+                            .map(|body| body.map_err(|never| match never {}).boxed_unsync());
+                        response.headers_mut().insert(
+                            "content-range",
+                            format!("bytes */{}", record.size).parse().unwrap(),
+                        );
+                        return Ok(response);
+                    }
+                };
+                if let Some((offset, length)) = range {
+                    reader.set_range(offset, length).await.map_err(|_| {
+                        JsonError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "backendError",
+                            "Cannot seek object data",
+                        )
+                    })?;
+                    headers.insert("content-length", length.into());
+                    headers.insert(
+                        "content-range",
+                        format!("bytes {}-{}/{}", offset, offset + length - 1, record.size)
+                            .parse()
+                            .unwrap(),
+                    );
+                }
                 let (mut sender, body) = Channel::<Bytes, io::Error>::new(1);
                 let activity = activity.clone();
                 tokio::spawn(async move {
@@ -553,9 +582,13 @@ async fn object_response(
                     }
                 });
                 let mut response = Response::new(body.boxed_unsync());
+                if range.is_some() {
+                    *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+                }
                 *response.headers_mut() = headers;
                 return Ok(response);
             }
+            json::validate_object_get_headers(request.headers(), false)?;
             let record = state
                 .catalog
                 .get_object_authorized(

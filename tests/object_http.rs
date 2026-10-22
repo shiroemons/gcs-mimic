@@ -350,14 +350,14 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 .error(501, "notImplemented");
         }
     }
-    server
-        .request(
-            "GET",
-            "/storage/v1/b/test-bucket/o/existing?alt=media",
-            "Range: bytes=0-1\r\n",
-            b"",
-        )
-        .error(501, "notImplemented");
+    let partial = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/existing?alt=media",
+        "Range: bytes=0-1\r\n",
+        b"",
+    );
+    assert_eq!(partial.status, 206);
+    assert_eq!(partial.body, b"ol");
     server
         .request(
             "GET",

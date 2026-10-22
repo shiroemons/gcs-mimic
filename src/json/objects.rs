@@ -440,14 +440,82 @@ pub fn parse_object_upload_headers(
     Ok((content_type.to_owned(), hashes))
 }
 
-/// Reject unsupported conditional/encryption headers and partial media reads explicitly.
+/// Reject unsupported conditional/encryption headers explicitly.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
 pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(), JsonError> {
     unsupported_headers(headers)?;
-    if media && (headers.contains_key("range") || headers.contains_key("if-range")) {
-        return Err(JsonError::unsupported_object("Range/If-Range"));
+    if media && headers.contains_key("if-range") {
+        return Err(JsonError::unsupported_object("If-Range"));
     }
     Ok(())
+}
+
+/// Resolve one byte range against the selected representation; ignored ranges return None.
+pub fn object_media_range(headers: &HeaderMap, size: u64) -> Result<Option<(u64, u64)>, JsonError> {
+    let mut values = headers.get_all("range").iter();
+    let Some(value) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() {
+        return Ok(None);
+    }
+    let Some((unit, range)) = value
+        .to_str()
+        .ok()
+        .and_then(|value| value.trim().split_once('='))
+    else {
+        return Ok(None);
+    };
+    if !unit.eq_ignore_ascii_case("bytes") || range.contains(',') {
+        return Ok(None);
+    }
+    let Some((first, last)) = range.trim().split_once('-') else {
+        return Ok(None);
+    };
+    // Saturation preserves comparisons with the bounded object size for arbitrarily large numerals.
+    let number = |value: &str| {
+        (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())).then(|| {
+            value.bytes().fold(0_u64, |n, byte| {
+                n.saturating_mul(10).saturating_add(u64::from(byte - b'0'))
+            })
+        })
+    };
+    let (offset, end) = if first.is_empty() {
+        let Some(suffix) = number(last) else {
+            return Ok(None);
+        };
+        // RFC 9110 permits ignoring an empty representation's satisfiable nonzero suffix.
+        if size == 0 && suffix != 0 {
+            return Ok(None);
+        }
+        (size.saturating_sub(suffix), size.saturating_sub(1))
+    } else {
+        let first_digits = first.trim_start_matches('0');
+        let last_digits = last.trim_start_matches('0');
+        if !last.is_empty() && (last_digits.len(), last_digits) < (first_digits.len(), first_digits)
+        {
+            return Ok(None);
+        }
+        let Some(first) = number(first) else {
+            return Ok(None);
+        };
+        let last = if last.is_empty() {
+            u64::MAX
+        } else if let Some(last) = number(last) {
+            last
+        } else {
+            return Ok(None);
+        };
+        (first, last.min(size.saturating_sub(1)))
+    };
+    if size == 0 || offset >= size {
+        return Err(JsonError::new(
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            "requestedRangeNotSatisfiable",
+            "The requested Range cannot be satisfied",
+        ));
+    }
+    Ok(Some((offset, end - offset + 1)))
 }
 
 /// Render the selected immutable generation using the configured advertised endpoint.
@@ -497,7 +565,7 @@ pub fn object_resource(
     Ok(value)
 }
 
-/// Headers for a complete, untranscoded media download (never a Range response).
+/// Representation headers for an untranscoded media download.
 pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
@@ -512,6 +580,7 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
             },
         ),
         ("content-length", object.size.to_string()),
+        ("accept-ranges", "bytes".to_owned()),
         ("x-goog-generation", object.generation.to_string()),
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
