@@ -111,7 +111,7 @@ their tests were not run as part of this comparison.
 | TLS listener | ❌ HTTP only | ✅ HTTPS, HTTP or both | ❌ HTTP only |
 | Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
 | ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
-| Bucket IAM policy get/set and enforcement | 🚧 Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etag checks; no conditions, public grants, ACLs or testIamPermissions | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; no enforcement |
+| Bucket IAM policy get/set and enforcement | ✅ Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etag checks; no conditions, public grants, ACLs or testIamPermissions | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; supplied etags kept without checking; no enforcement |
 | Authentication / permission enforcement | 🚧 Strict profile: local bearer tokens and project-plus-bucket predefined storage roles on JSON routes | ❌ | ❌ |
 | Public URL helper | 🚧 CLI builds encoded URLs; not served yet | ❌ | ❌ |
 | Signed-URL GET/PUT requests | ❌ | 🚧 Accepted without signature/expiry checks | 🚧 Accepted without signature/expiry checks |
@@ -122,11 +122,17 @@ establish access control.
 
 The bucket IAM comparison uses the same get/set-and-enforcement scope for every
 product. In fake-gcs-server
-[`v1.56.1` route registration](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/server.go#L234-L340),
+[`v1.56.1` route registration](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/server.go#L253-L346),
 bucket ACL routes exist but `/b/{bucket}/iam` GET/PUT routes do not. Its
 [object handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go)
-access the backend without evaluating caller IAM grants. This is source review,
-not a differential execution result.
+access the backend without evaluating caller IAM grants. gcp-storage-emulator
+[`v2026.07.19` routes](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py)
+register policy get/set and `testPermissions`. Its
+[bucket handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py)
+store policies, preserve a nonempty supplied etag without comparing it, and do
+not enforce grants. The `testPermissions` stub returns all requested permissions
+for an existing bucket. These are source reviews, not differential execution
+results.
 
 ### 🛠️ Local development and distribution
 

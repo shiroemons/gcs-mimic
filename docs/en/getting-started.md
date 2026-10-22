@@ -471,6 +471,11 @@ curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token'
   "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-before.json"
 jq -e '.kind == "storage#policy" and .resourceId == "projects/_/buckets/strict-bucket"
   and (.etag | length > 0)' "$work_dir/policy-before.json"
+jq -e '(.bindings | map(.members |= sort) | sort_by(.role)) == [
+  {"role":"roles/storage.legacyBucketOwner",
+   "members":["projectEditor:local-project","projectOwner:local-project"]},
+  {"role":"roles/storage.legacyBucketReader","members":["projectViewer:local-project"]}
+]' "$work_dir/policy-before.json"
 jq '.bindings += [{"role":"roles/storage.objectViewer",
   "members":["user:local-bucket-reader@example.invalid"]}]' \
   "$work_dir/policy-before.json" > "$work_dir/policy-grant.json"
@@ -513,10 +518,14 @@ status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%
   -H 'Authorization: Bearer local-bucket-reader-token' \
   "$endpoint/storage/v1/b/strict-other-bucket/o")
 test "$status" = 403
-status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/reader-upload.json" --write-out '%{http_code}' \
   -H 'Authorization: Bearer local-bucket-reader-token' --data-binary 'denied' \
   "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=denied.txt")
 test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/reader-upload.json"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/strict-bucket/o/denied.txt")
+test "$status" = 404
 status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
   -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/iam")
 test "$status" = 403
@@ -530,7 +539,7 @@ curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-ad
 ```
 
 Submitting the old policy fails with 412 `conditionNotMet` and leaves the grant
-intact. Fetch the current policy, remove only the reader's binding and submit its
+intact. Fetch the current policy, remove only the reader member and submit its
 current etag to revoke access:
 
 ```sh
@@ -545,11 +554,14 @@ curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token'
 jq -e 'any(.bindings[]; .role == "roles/storage.objectViewer"
   and (.members | index("user:local-bucket-reader@example.invalid") != null))' \
   "$work_dir/policy-current.json"
-jq '.bindings |= map(select(.role != "roles/storage.objectViewer"))' \
+jq '.bindings |= (map(.members -= ["user:local-bucket-reader@example.invalid"])
+  | map(select(.members | length > 0)))' \
   "$work_dir/policy-current.json" > "$work_dir/policy-revoke.json"
 curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
   -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-revoke.json" \
   "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-revoked.json"
+jq -e --arg previous "$(jq -r .etag "$work_dir/policy-current.json")" \
+  '.etag != $previous' "$work_dir/policy-revoked.json"
 status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
   -H 'Authorization: Bearer local-bucket-reader-token' \
   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media")
@@ -603,6 +615,10 @@ permissive profile:
 ```sh
 docker compose -f compose.yaml -f compose.strict.yaml stop
 docker compose -f compose.yaml -f compose.strict.yaml start --wait
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-restarted.json"
+jq -e --arg saved "$(jq -r .etag "$work_dir/policy-revoked.json")" \
+  '.etag == $saved' "$work_dir/policy-restarted.json"
 curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
   --output "$work_dir/strict-restarted.txt"

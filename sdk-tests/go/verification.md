@@ -1,4 +1,4 @@
-# Go SDK harness verification: 2026-10-21
+# Go SDK harness verification
 
 ## Bucket IAM integration: 2026-10-22
 
@@ -10,9 +10,11 @@ with no project roles; both IAM tests retain the default convenience bindings.
 | Check | Result |
 | --- | --- |
 | `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh` | PASS: vet, 13 top-level tests and 38 subtests; 0 failed, 0 skipped |
+| IAM-only Go runner after exact default-member assertions | PASS: vet and both IAM tests; 0 failed, 0 skipped |
 | `TestStrictAuthBucketIAM` | PASS: default policy, bucket-only read/list, other-bucket denial, denied creation and policy management, stale etag and revocation |
 | `TestBucketIAMPermissive` | PASS: unauthenticated get/set, fresh etag and 412 for a stale etag |
-| Native getting-started IAM section | PASS: all 4 shell blocks, 63 shell lines, extracted directly from the guide and executed with `bash -euxo pipefail` |
+| Native getting-started IAM section | PASS: all 4 shell blocks, 75 shell lines, extracted directly from the guide and executed with `bash -euxo pipefail` |
+| Policy etag after native restart | PASS: guide's policy GET and etag assertion with the same catalog on a new loopback port |
 | `cargo fmt --all --check` | PASS |
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
 | `cargo test --workspace --locked --offline` | PASS: 256 tests; 0 failed, 0 ignored |
@@ -20,8 +22,10 @@ with no project roles; both IAM tests retain the default convenience bindings.
 
 The native walkthrough used the guide's admin setup and the checked-in identity
 registry. It checked exact downloaded bytes, listing, 403 boundaries, 412
-`conditionNotMet` without losing the grant, and 403 after revocation. Its objects,
-test buckets and server were cleaned up. Raw SDK, server and command output stays
+`conditionNotMet` without losing the grant, a fresh revocation etag and 403 after
+revocation. A native restart preserved the revoked policy etag; the Compose
+restart commands were not executed for this check. Its objects, test buckets and
+server were cleaned up. Raw SDK, server and command output stays
 under `$TMPDIR` for integration evidence collection, outside the repository.
 No container build or Google Cloud/metadata-server request was made.
 
