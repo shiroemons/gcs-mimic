@@ -203,23 +203,24 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-21T11:36:09Z",
+      "checked_at_utc": "2026-10-22T05:37:19Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
       },
       "direct_dependencies": [
         {
-          "name": "cloud.google.com/go/storage", "current": "v1.69.0",
-          "latest_non_retracted_stable": "v1.69.0", "license": "Apache-2.0",
-          "compressed_module_bytes": 1006903, "minimum_go": "1.26.0",
+          "name": "cloud.google.com/go/storage", "current": "v1.70.0",
+          "latest_non_retracted_stable": "v1.70.0", "license": "Apache-2.0",
+          "compressed_module_bytes": 1044029, "minimum_go": "1.26.0",
           "purpose": "Official HTTP JSON bucket lifecycle and pagination compatibility tests.",
-          "maintenance": "Google-maintained module, released 2026-10-01.",
-          "source_revision": "9981d08a82c88e29c2250831a4449f1966418609",
+          "maintenance": "Google-maintained module, released 2026-10-22; latest stable and non-retracted status verified on 2026-10-22.",
+          "source_revision": "9a2913189e552da51b0fd60aa635027426f04d71",
           "source_urls": [
             "https://proxy.golang.org/cloud.google.com/go/storage/@latest",
-            "https://proxy.golang.org/cloud.google.com/go/storage/@v/v1.69.0.mod",
-            "https://github.com/googleapis/google-cloud-go/tree/9981d08a82c88e29c2250831a4449f1966418609/storage"
+            "https://proxy.golang.org/cloud.google.com/go/storage/@v/list",
+            "https://proxy.golang.org/cloud.google.com/go/storage/@v/v1.70.0.mod",
+            "https://github.com/googleapis/google-cloud-go/tree/9a2913189e552da51b0fd60aa635027426f04d71/storage"
           ]
         },
         {
@@ -236,7 +237,7 @@
           ]
         }
       ],
-      "resolution_constraints": "go.mod and go.sum record the graph. The latest stable API client requires an auth pseudo-version; transitive versions follow upstream requirements. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+      "resolution_constraints": "go.mod and go.sum record the graph. Storage v1.70.0 requires the stable auth v0.24.1, replacing the earlier auth pseudo-version; transitive versions follow upstream requirements. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
     }
   ],
   "github_actions": [

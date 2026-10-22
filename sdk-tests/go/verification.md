@@ -1,7 +1,9 @@
 # Go SDK harness verification: 2026-10-21
 
 The original harness-only results are retained below. Current pins are Go 1.27.3,
-Storage v1.69.0 and API v0.307.0. The
+Storage v1.70.0 and API v0.307.0. The
+[2026-10-22 SDK update evidence](../../docs/en/evidence/go-sdk-update.txt) records
+the current full native suite. The
 [multipart integration evidence](../../docs/en/evidence/multipart.md) records the
 final full suite, including `TestObjectMultipartWriter` with `ChunkSize=0`,
 metadata/checksums, conditional create/overwrite, Attrs and JSON NewReader.

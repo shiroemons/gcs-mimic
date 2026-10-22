@@ -1,6 +1,6 @@
 # Official Go JSON SDK tests
 
-This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.69.0 and
+This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and
 `google.golang.org/api` v0.307.0, verified on 2026-10-22. `go.sum` records module
 checksums; `go.mod` records the resolved graph. Go 1.21 or newer can download the
 pinned toolchain with `GOTOOLCHAIN=auto`. The `go 1.27.0` directive selects the
@@ -57,7 +57,7 @@ under unique test projects and deletes them and their objects, including cleanup
 on test failure; use an isolated emulator.
 
 The test sets the documented `STORAGE_EMULATOR_HOST` to the validated origin.
-Storage v1.69.0 accepts a full origin or a host:port value and adds `/storage/v1/`.
+Storage v1.70.0 accepts a full origin or a host:port value and adds `/storage/v1/`.
 `storage.NewClient` selects HTTP, `storage.WithJSONReads` selects JSON reads, and
 `option.WithoutAuthentication` prevents credential discovery. Client metrics are
 disabled. The HTTP transport disables proxies, rejects other request origins,
@@ -162,16 +162,20 @@ No real-cloud differential tests are performed.
 
 ## Official sources
 
-All checked on 2026-10-21:
+Storage v1.70.0 sources were checked on 2026-10-22; the remaining references
+retain their original 2026-10-21 review date. The
+[update evidence](../../docs/en/evidence/go-sdk-update.txt) records the release
+review and full native suite results.
 
 - [Go stable releases](https://go.dev/dl/?mode=json)
 - [Go toolchain selection](https://go.dev/doc/toolchain)
 - [Storage version metadata](https://proxy.golang.org/cloud.google.com/go/storage/@latest)
 - [API client version metadata](https://proxy.golang.org/google.golang.org/api/@latest)
-- [Storage v1.69.0 emulator documentation](https://pkg.go.dev/cloud.google.com/go/storage@v1.69.0)
-- [Pinned HTTP client source](https://github.com/googleapis/google-cloud-go/blob/9981d08a82c88e29c2250831a4449f1966418609/storage/storage.go)
-- [Pinned reader transport default](https://github.com/googleapis/google-cloud-go/blob/9981d08a82c88e29c2250831a4449f1966418609/storage/reader.go)
-- [Pinned Writer HTTP implementation](https://github.com/googleapis/google-cloud-go/blob/9981d08a82c88e29c2250831a4449f1966418609/storage/http_client.go)
+- [Storage v1.70.0 release notes](https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/CHANGES.md)
+- [Pinned HTTP client source](https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/storage.go)
+- [Pinned reader transport default](https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/reader.go)
+- [Pinned Writer HTTP implementation](https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/http_client.go)
+- [Pinned IAM implementation](https://github.com/googleapis/google-cloud-go/blob/9a2913189e552da51b0fd60aa635027426f04d71/storage/iam.go)
 - [Pinned upload-type selection](https://github.com/googleapis/google-api-go-client/blob/0d9c67e59dc9291c6047cea77122907594b10994/internal/gensupport/media.go)
 - [Object insert: media path, name, content type and create-if-absent](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert)
 - [Object resource: metadata and checksum encoding](https://docs.cloud.google.com/storage/docs/json_api/v1/objects)
