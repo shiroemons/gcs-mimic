@@ -173,24 +173,6 @@ func TestObjectMediaLifecycle(t *testing.T) {
 			requireObjectMissing(t, ctx, object)
 		})
 	}
-	t.Run("unsupported SDK resumable writer", func(t *testing.T) {
-		object := bucket.Object("unsupported-writer")
-		cleanupObject(t, object)
-		writer := object.NewWriter(ctx)
-		writer.ChunkSize = 256 << 10
-		// Exceed one chunk so the pinned SDK cannot choose single-request multipart.
-		_, writeErr := writer.Write(bytes.Repeat([]byte("x"), writer.ChunkSize+1))
-		closeErr := writer.Close()
-		if writeErr != nil {
-			requireObjectStatus(t, writeErr, http.StatusNotImplemented)
-		}
-		requireObjectStatus(t, closeErr, http.StatusNotImplemented)
-		var apiError *googleapi.Error
-		if !errors.As(closeErr, &apiError) || apiError.Message == "" || len(apiError.Errors) == 0 || apiError.Errors[0].Reason != "notImplemented" {
-			t.Fatalf("resumable rejection must explain unsupported semantics: %v", closeErr)
-		}
-		requireObjectMissing(t, ctx, object)
-	})
 	if err := bucket.Delete(ctx); err != nil {
 		t.Fatalf("delete empty bucket: %v", err)
 	}

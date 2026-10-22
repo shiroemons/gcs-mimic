@@ -89,14 +89,37 @@ is a media upload. Raw media coverage uses the same guarded HTTP client directly
 `TestObjectMultipartWriter` uses `ChunkSize=0` to exercise single-request multipart,
 including empty and multichunk binary data, fixed/custom metadata,
 explicit CRC32C/MD5, rejected checksum mismatches, create-if-absent and
-conditioned overwrites, followed by Attrs and NewReader verification. The media
-lifecycle test retains the unsupported resumable case by writing more than one
-256 KiB chunk with nonzero `ChunkSize`; it requires 501 `notImplemented` with a
-nonempty message and no object publication. That status is the emulator's local
-unsupported-semantics deviation, not Google's resumable behavior. This harness
-establishes the documented single-request Writer subset only.
-Upload invocation tokens require `ifGenerationMatch` and have no replay support;
+conditioned overwrites, followed by Attrs and NewReader verification.
+Single-request upload invocation tokens require `ifGenerationMatch` and have no replay support;
 retrying a committed conditioned upload fails 412 instead of writing again.
+
+## Resumable Writer journeys
+
+`objects_resumable_test.go` defines the next upload acceptance journeys using the
+pinned official Writer. These tests have passed compilation and opt-in skip
+checks only; execution against the resumable server implementation is pending.
+The previous local 501 expectation has been replaced by these contract tests.
+
+The permissive suite covers the untouched default `ChunkSize` with more than
+256 KiB of data, explicit 256 KiB chunks, an empty final chunk, unknown-length
+streaming, exact bytes and size/MD5/CRC32C/content-type/custom metadata. The
+default-size case fits inside the SDK's 16 MiB buffer and uses multipart;
+the explicit-size cases exercise resumable transport. User-provided CRC32C and
+MD5 mismatches must return 400 without publishing or replacing an old generation.
+Create-if-absent and generation-match races must fail at finalization with 412,
+while matching overwrites atomically replace the visible generation. Context
+cancellation after an acknowledged chunk must leave the object invisible.
+
+One bounded transport wrapper discards an acknowledged chunk response and returns
+`io.ErrUnexpectedEOF`. The test requires a duplicate chunk with the same invocation
+token, successful completion and byte-exact read-back. It uses the existing guarded
+HTTP transport and no proxy or external service. A separate strict-admin journey
+uses `GCS_MIMIC_STRICT_ENDPOINT`; the other journeys use `GCS_MIMIC_ENDPOINT`.
+Both suites skip when their endpoint is unset.
+
+These journeys therefore do not verify explicit session cancellation, status-query
+offset parsing, expiry, restart recovery, peer-container reachability or server
+memory bounds; those require separate wire and integration evidence.
 
 ## Strict authentication suite
 
