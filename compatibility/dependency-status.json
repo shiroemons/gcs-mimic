@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-21T18:22:16Z",
-  "scope": "Integrated object listing and metadata slice: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
+  "checked_at_utc": "2026-10-22T01:38:33Z",
+  "scope": "JSON multipart upload slice: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
   "freshness_check": {
-    "command": "cargo +1.99.1 xtask dependencies check",
+    "command": "just check-dependencies",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/object-list-metadata-dependencies.txt",
-    "follow_up": "API v0.307.0 was adopted; the full official Go suite and both container architectures pass on the integrated source. Every freshness input reports CURRENT; there are no freshness exceptions. Remote CI, native amd64 and release-platform execution remain pending."
+    "artifact": "docs/en/evidence/multipart-dependencies.txt",
+    "follow_up": "Tokio 1.54.1 and the current Rust builder index were adopted. Every freshness input reports CURRENT; there are no freshness exceptions. Container rebuild/smoke verification is deferred to final slice integration. Remote CI, native amd64 and release-platform execution remain pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -35,13 +35,13 @@
       "resolution_constraints": "Cargo.lock records the full graph; newest stable direct release verified independently of the manifest range."
     },
     {
-      "name": "tokio", "current": "1.54.0", "latest_non_yanked_stable": "1.54.0",
-      "license": "MIT", "compressed_crate_bytes": 983296, "minimum_rust": "1.85",
+      "name": "tokio", "current": "1.54.1", "latest_non_yanked_stable": "1.54.1",
+      "license": "MIT", "compressed_crate_bytes": 983384, "minimum_rust": "1.85",
       "purpose": "Bounded async runtime, sockets, signals, synchronization and deadlines.",
       "features": ["rt-multi-thread", "net", "signal", "time", "sync", "macros", "fs", "io-util"],
-      "maintenance": "Official publisher release 2026-10-19; actively maintained.",
-      "source_urls": ["https://crates.io/api/v1/crates/tokio", "https://index.crates.io/to/ki/tokio", "https://github.com/tokio-rs/tokio"],
-      "resolution_constraints": "Newest stable checked independently of manifest ranges; no previous runtime version to migrate."
+      "maintenance": "Official publisher patch release 2026-10-21; non-yanked stable status verified from the crates.io index on 2026-10-22. Reverts the timer runtime-handle removal.",
+      "source_urls": ["https://index.crates.io/to/ki/tokio", "https://static.crates.io/crates/tokio/tokio-1.54.1.crate", "https://github.com/tokio-rs/tokio/releases/tag/tokio-1.54.1"],
+      "resolution_constraints": "Newest stable checked independently of manifest ranges; Cargo.lock updates only Tokio from 1.54.0 to 1.54.1 with unchanged features and minimum Rust version."
     },
     {
       "name": "hyper", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
@@ -132,15 +132,15 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244",
-        "latest_verified_digest": "sha256:e6cd1d294a300601eaaa4a294b337e5f0826f427fb2d481e9f76e69e7981e244",
+        "digest": "sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3",
+        "latest_verified_digest": "sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3",
         "verification_status": "ADOPTED",
-        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. The amd64/arm64 platform manifests remain unchanged; Dockerfile now pins the updated index.",
+        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. The amd64 manifest changed; arm64 is unchanged. Dockerfile now pins the updated index; container execution is deferred to final slice integration.",
         "platforms": {
-          "linux/amd64": "sha256:97c67d8fb6098c321d0b47fbf0035ccce7f6d6b480ce96fb4bd6673c4ddb6b98",
+          "linux/amd64": "sha256:d7d8fd94f01c80a355b86fe8691abc26be051daa44fa021a8b5ece5c8cbcb469",
           "linux/arm64": "sha256:4584869b7bc580d3a49023d29cac84a41d51ed5e26960c235d4fc0cd40a3e008"
         },
-        "source_url": "https://github.com/rust-lang/docker-rust/tree/1b9592f08592a09d61dbc6d27a5c7cf2be1c2e92"
+        "source_url": "https://hub.docker.com/v2/repositories/library/rust/tags/1.99.1-slim-trixie"
       },
       {
         "registry": "gcr.io",
