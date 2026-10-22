@@ -124,6 +124,7 @@ impl From<CatalogError> for JsonError {
                 "conditionNotMet",
                 "Precondition failed",
             ),
+            CatalogError::Forbidden => Self::forbidden(),
             CatalogError::Unavailable(_) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
@@ -152,7 +153,7 @@ impl From<ObjectError> for JsonError {
                 "conditionNotMet",
                 "Precondition failed",
             ),
-            ObjectError::OverwriteForbidden => Self::forbidden(),
+            ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",

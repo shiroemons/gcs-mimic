@@ -735,6 +735,45 @@ fn auth_http_rejected_uploads_do_not_read_or_stage_the_body() {
 }
 
 #[test]
+fn auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden() {
+    let config = TestDir::new();
+    let dir = TestDir::new();
+    let server = Server::strict(&dir, &identity_file(&config));
+    server.create_bucket(ADMIN, "project-a", "race").ok();
+    let mut stream = server.stream();
+    stream
+        .write_all(
+            b"POST /upload/storage/v1/b/race/o?uploadType=media&name=object HTTP/1.1\r\nHost: local\r\nAuthorization: Bearer a-only-token\r\nExpect: 100-continue\r\nContent-Length: 4\r\n\r\n",
+        )
+        .unwrap();
+    // The server polls the body only after authorization and the advisory upload check, so
+    // the interim response deterministically orders the recreation after both.
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut interim = Vec::new();
+    while !interim.ends_with(b"\r\n\r\n") {
+        assert_ne!(reader.read_until(b'\n', &mut interim).unwrap(), 0);
+    }
+    assert!(interim.starts_with(b"HTTP/1.1 100"), "{interim:?}");
+    server
+        .request("DELETE", "/storage/v1/b/race", ADMIN, b"")
+        .ok();
+    server.create_bucket(ADMIN, "project-b", "race").ok();
+    stream.write_all(b"late").unwrap();
+    // The caller holds no role in project-b, so publication must not reach the new bucket.
+    Reply::read(stream).forbidden();
+    let listing = server.get(ADMIN, "/storage/v1/b/race/o").ok().json();
+    assert!(listing.get("items").is_none(), "{listing}");
+    // The same caller still learns nothing about the recreated bucket's objects.
+    server
+        .get(PROJECT_A_ONLY, "/storage/v1/b/race/o/object?alt=media")
+        .forbidden();
+    server
+        .get(PROJECT_A_ONLY, "/storage/v1/b/race/o")
+        .forbidden();
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
 fn auth_http_concurrent_creates_without_delete_have_one_winner() {
     let config = TestDir::new();
     let dir = TestDir::new();

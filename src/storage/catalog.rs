@@ -1,5 +1,5 @@
 use super::lock;
-use crate::bucket::{BucketRecord, CatalogError};
+use crate::bucket::{BucketAccess, BucketRecord, CatalogError};
 use crate::clock::{Clock, SystemClock};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Row, TransactionBehavior, params, types::Type,
@@ -365,16 +365,33 @@ impl Catalog {
     }
 
     pub async fn get_bucket(&self, name: &str) -> Result<Option<BucketRecord>, CatalogError> {
+        self.get_bucket_authorized(name, &BucketAccess::Unchecked)
+            .await
+    }
+
+    /// Reads the bucket and checks `access` against the owner observed by the same read.
+    pub(crate) async fn get_bucket_authorized(
+        &self,
+        name: &str,
+        access: &BucketAccess,
+    ) -> Result<Option<BucketRecord>, CatalogError> {
         let name = name.to_owned();
+        let access = access.clone();
         self.run(move |connection| {
-            connection
+            let record = connection
                 .query_row(
                     &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
                     [name],
                     read_bucket,
                 )
                 .optional()
-                .map_err(unavailable)
+                .map_err(unavailable)?;
+            if let Some(record) = &record {
+                access
+                    .check(&record.project)
+                    .ok_or(CatalogError::Forbidden)?;
+            }
+            Ok(record)
         })
         .await
     }
@@ -440,20 +457,39 @@ impl Catalog {
         if_metageneration_match: Option<i64>,
         if_metageneration_not_match: Option<i64>,
     ) -> Result<(), CatalogError> {
+        self.delete_bucket_authorized(
+            name,
+            if_metageneration_match,
+            if_metageneration_not_match,
+            &BucketAccess::Unchecked,
+        )
+        .await
+    }
+
+    /// Deletes the bucket only if `access` holds for the owner observed under the write lock.
+    pub(crate) async fn delete_bucket_authorized(
+        &self,
+        name: &str,
+        if_metageneration_match: Option<i64>,
+        if_metageneration_not_match: Option<i64>,
+        access: &BucketAccess,
+    ) -> Result<(), CatalogError> {
         let name = name.to_owned();
+        let access = access.clone();
         self.run(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
-            let metageneration: i64 = transaction
+            let (metageneration, project): (i64, String) = transaction
                 .query_row(
-                    "SELECT metageneration FROM buckets WHERE name = ?1",
+                    "SELECT metageneration, project FROM buckets WHERE name = ?1",
                     [&name],
-                    |r| r.get(0),
+                    |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional()
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
+            access.check(&project).ok_or(CatalogError::Forbidden)?;
             if if_metageneration_match.is_some_and(|value| value != metageneration)
                 || if_metageneration_not_match == Some(metageneration)
             {
