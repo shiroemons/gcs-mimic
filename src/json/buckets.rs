@@ -314,6 +314,11 @@ fn parse_bucket_update(
             let labels = value
                 .as_object()
                 .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
+            if replace && labels.len() > 64 {
+                return Err(JsonError::invalid_argument(
+                    "A bucket can have at most 64 labels",
+                ));
+            }
             labels
                 .iter()
                 .map(|(key, value)| {

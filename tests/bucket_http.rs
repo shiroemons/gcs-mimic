@@ -629,6 +629,26 @@ fn bucket_metadata_missing_bucket(method: &str) {
                 "{profile}: {body}"
             );
         }
+        if method == "PUT" {
+            let labels: serde_json::Map<_, _> =
+                (0..65).map(|i| (format!("key{i}"), json!("v"))).collect();
+            for query in ["", "?ifMetagenerationMatch=0"] {
+                server
+                    .request(
+                        method,
+                        &format!("{path}{query}"),
+                        &json!({"labels":labels}).to_string(),
+                    )
+                    .error(
+                        400,
+                        if profile == "native" {
+                            "invalidArgument"
+                        } else {
+                            "invalid"
+                        },
+                    );
+            }
+        }
         server.request(method, path, "{}").error(404, "notFound");
         assert!(
             server
