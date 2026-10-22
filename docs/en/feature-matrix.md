@@ -6,11 +6,32 @@ Research cutoff: 2026-10-21. Implementation status and achieved fidelity are ind
 
 API operations, behaviors and project requirements have separate denominators. Parameter and schema-field inventories are not additional features. SDK evidence is recorded separately on each row.
 
+`Kind` groups rows by what they track: `api_operation` is an API method or operation, `behavior` is a semantic rule or workflow, and `project_requirement` is an emulator engineering or usability requirement.
+
+## Implementation status
+
+Status tracks completion of each row's declared acceptance cases.
+
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 284 | 0 | 14 | 0 | 0 | 0 |
 | behavior | 201 | 162 | 0 | 27 | 12 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
+
+## Achieved fidelity
+
+Fidelity describes how the feature is reproduced. These categories are not a completion percentage or a ranking. The counts below use achieved fidelity (`actual_fidelity`); target fidelity is the intended result.
+
+| Fidelity | Meaning |
+| --- | --- |
+| `NONE` | No achieved fidelity has been established yet. |
+| `EXACT` | Observable Google API behavior is reproduced within the explicitly tested scope and profile. |
+| `LOCAL_SIMULATION` | A local model simulates service or infrastructure behavior; it does not provide Google's real infrastructure guarantees. |
+| `METADATA_ONLY` | Settings or fields can be stored and read back, but their effects are not enforced. |
+| `EXTERNAL` | Side effects require a separately provided external service or integration. |
+| `PROJECT` | An emulator engineering or usability requirement, rather than a Google API compatibility claim. |
+
+Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT` fidelity for its tested subset while other acceptance cases remain pending. An `IMPLEMENTED` local simulation still has `LOCAL_SIMULATION` fidelity; it does not become `EXACT`.
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |

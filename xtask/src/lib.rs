@@ -391,6 +391,7 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         string(ledger, "as_of")?
     ));
     result.push_str("API operations, behaviors and project requirements have separate denominators. Parameter and schema-field inventories are not additional features. SDK evidence is recorded separately on each row.\n\n");
+    result.push_str("`Kind` groups rows by what they track: `api_operation` is an API method or operation, `behavior` is a semantic rule or workflow, and `project_requirement` is an emulator engineering or usability requirement.\n\n## Implementation status\n\nStatus tracks completion of each row's declared acceptance cases.\n\n");
     result.push_str("| Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
     for kind in KINDS {
         let group: Vec<_> = rows.iter().filter(|r| r["kind"] == kind).collect();
@@ -403,7 +404,20 @@ pub fn render(ledger: &Value, titles: Option<&Value>) -> Result<String> {
         }
         result.push('\n');
     }
-    result.push_str("\n| Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    result.push_str(concat!(
+        "\n## Achieved fidelity\n\n",
+        "Fidelity describes how the feature is reproduced. These categories are not a completion percentage or a ranking. The counts below use achieved fidelity (`actual_fidelity`); target fidelity is the intended result.\n\n",
+        "| Fidelity | Meaning |\n",
+        "| --- | --- |\n",
+        "| `NONE` | No achieved fidelity has been established yet. |\n",
+        "| `EXACT` | Observable Google API behavior is reproduced within the explicitly tested scope and profile. |\n",
+        "| `LOCAL_SIMULATION` | A local model simulates service or infrastructure behavior; it does not provide Google's real infrastructure guarantees. |\n",
+        "| `METADATA_ONLY` | Settings or fields can be stored and read back, but their effects are not enforced. |\n",
+        "| `EXTERNAL` | Side effects require a separately provided external service or integration. |\n",
+        "| `PROJECT` | An emulator engineering or usability requirement, rather than a Google API compatibility claim. |\n\n",
+        "Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT` fidelity for its tested subset while other acceptance cases remain pending. An `IMPLEMENTED` local simulation still has `LOCAL_SIMULATION` fidelity; it does not become `EXACT`.\n\n",
+        "| Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+    ));
     for kind in KINDS {
         result.push_str(&format!("| {kind} |"));
         for fidelity in [
