@@ -1,5 +1,5 @@
 use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, TransactionBehavior, params};
 use std::{
     fs, io,
     path::Path,
@@ -14,7 +14,7 @@ fn cleanup_page(
     now: i64,
     after: &str,
 ) -> Result<Vec<(String, String, i64)>, CatalogError> {
-    connection.prepare("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 ORDER BY id LIMIT ?3").map_err(unavailable)?
+    connection.prepare("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 AND EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = resumable_sessions.blob_id) ORDER BY id LIMIT ?3").map_err(unavailable)?
         .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(unavailable)?
         .collect::<rusqlite::Result<_>>().map_err(unavailable)
 }
@@ -90,6 +90,12 @@ pub(super) fn clean_session_files(
     if !live {
         unlink(&data_dir.join("blobs").join(&blob_id[..2]).join(blob_id))?;
     }
+    connection
+        .execute(
+            "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+            [blob_id],
+        )
+        .map_err(unavailable)?;
     Ok(())
 }
 
@@ -105,15 +111,22 @@ impl Catalog {
         }
         let id = lease.session.id.clone();
         let now = unix_millis(self.0.clock.now())?;
+        let blob_id = lease.session.blob_id.clone();
         let changed = self.run(move |connection| {
-            connection.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now]).map_err(unavailable)
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
+            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE' AND deadline > ?2", params![id, now]).map_err(unavailable)?;
+            if changed == 1 {
+                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [blob_id]).map_err(unavailable)?;
+            }
+            transaction.commit().map_err(unavailable)?;
+            Ok(changed)
         }).await?;
         if changed != 1 {
             self.resumable_session(&lease.session.id, &lease.session.bucket)
                 .await?;
             return Err(ResumableError::Gone);
         }
-        // The terminal row is the durable cleanup journal if unlink or directory sync fails.
+        // Remove the cleanup journal only after file removal and directory sync succeed.
         let blob_id = lease.session.blob_id.clone();
         let data_dir = self.0.data_dir.clone();
         let result = self

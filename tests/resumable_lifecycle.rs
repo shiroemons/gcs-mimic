@@ -845,6 +845,49 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     catalog.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock).await;
+    let session = catalog
+        .create_resumable_session("bucket", "cancelled", Default::default(), None)
+        .await
+        .unwrap();
+    catalog
+        .cancel_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pending_blob_deletions WHERE blob_id = ?1",
+                [&session.blob_id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    // A second cleanup would fail here, proving that the successful journal is not replayed.
+    std::fs::create_dir(&stage).unwrap();
+    for _ in 0..3 {
+        catalog
+            .create_resumable_session("bucket", "new", Default::default(), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            catalog.maintain_resumable_sessions().await.unwrap(),
+            Some(session.deadline)
+        );
+        assert!(catalog.resumable_maintenance_error().is_none());
+    }
+    assert!(stage.is_dir());
+    std::fs::remove_dir(stage).unwrap();
+    catalog.close().await.unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn recovery_rejects_symlink_prefix_without_changing_its_target() {
