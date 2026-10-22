@@ -9,7 +9,7 @@ pub enum UploadChunk {
     EndWithHashes(ExpectedHashes),
 }
 
-/// Live object generation metadata persisted by the catalog.
+/// Immutable generation metadata persisted for live and noncurrent objects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectRecord {
     pub bucket: String,
@@ -29,9 +29,11 @@ pub struct ObjectRecord {
     /// Millisecond precision, matching bucket timestamps.
     pub time_created: SystemTime,
     pub updated: SystemTime,
+    pub time_deleted: Option<SystemTime>,
+    pub event_based_hold: bool,
 }
 
-/// Absent fields are retained by PATCH and reset by PUT; null clears a field.
+/// Content fields reset on PUT; holds only change when explicitly supplied.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ObjectMetadataUpdate {
     pub replace: bool,
@@ -41,10 +43,14 @@ pub struct ObjectMetadataUpdate {
     pub content_language: Option<Option<String>>,
     pub cache_control: Option<Option<String>>,
     pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub event_based_hold: Option<bool>,
 }
 
 impl ObjectMetadataUpdate {
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+        if let Some(hold) = self.event_based_hold {
+            record.event_based_hold = hold;
+        }
         if self.replace {
             record.content_type.clear();
             record.content_encoding = None;
@@ -120,6 +126,7 @@ pub enum ObjectError {
     PreconditionFailed,
     /// Publication would replace a live object, but the caller may not delete it.
     OverwriteForbidden,
+    ActiveHold,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
     NotModified,
@@ -139,6 +146,7 @@ impl fmt::Display for ObjectError {
             Self::ObjectNotFound => formatter.write_str("object not found"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
             Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
+            Self::ActiveHold => formatter.write_str("object under active hold"),
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),

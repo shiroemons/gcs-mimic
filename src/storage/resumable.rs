@@ -314,7 +314,7 @@ fn encode_options(o: &ResumableOptions) -> Value {
             json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission, "project": project})
         }
     };
-    json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v}))},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full})
+    json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v}))},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full})
 }
 
 fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
@@ -398,6 +398,8 @@ fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
             content_language: field("contentLanguage")?,
             cache_control: field("cacheControl")?,
             metadata: custom,
+            event_based_hold: serde_json::from_value(v["metadata"]["eventBasedHold"].clone())
+                .map_err(|_| invalid())?,
         },
         expected: ExpectedHashes {
             md5: md5

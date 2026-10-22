@@ -12,6 +12,8 @@ pub struct BucketRecord {
     pub location_type: String,
     pub storage_class: String,
     pub labels: BTreeMap<String, String>,
+    pub versioning_enabled: bool,
+    pub default_event_based_hold: bool,
     pub metageneration: i64,
     /// Millisecond precision; the catalog truncates sub-millisecond values.
     pub time_created: SystemTime,

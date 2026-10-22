@@ -285,6 +285,9 @@ impl Catalog {
                 }
                 let (storage_class, allow_overwrite) =
                     authorized_bucket(&transaction, &session.bucket, &options.access)?;
+                let (versioning, default_hold) =
+                    Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)
+                        .map_err(unavailable)?;
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(previous.as_ref(), options.conditions, allow_overwrite)?;
                 let now = clock.now();
@@ -330,19 +333,18 @@ impl Catalog {
                     storage_class,
                     time_created: time,
                     updated: time,
+                    time_deleted: None,
+                    event_based_hold: default_hold,
                 };
                 options.metadata.apply(&mut record)?;
                 let custom = serde_json::to_string(&record.metadata).map_err(unavailable)?;
                 let resource = render(&record)?;
-                transaction.execute("INSERT OR REPLACE INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![record.bucket,record.name,generation,1,record.content_type,i64::try_from(length).map_err(unavailable)?,&md5[..],crc,record.storage_class,millis,millis,session.blob_id,record.content_encoding,record.content_disposition,record.content_language,record.cache_control,custom]).map_err(unavailable)?;
+                let retired =
+                    objects::retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
+                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![record.bucket,record.name,generation,1,record.content_type,i64::try_from(length).map_err(unavailable)?,&md5[..],crc,record.storage_class,millis,millis,session.blob_id,record.content_encoding,record.content_disposition,record.content_language,record.cache_control,custom,record.event_based_hold]).map_err(unavailable)?;
                 transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(unavailable)?;
-                if let Some((_, old_id)) = &previous {
-                    transaction
-                        .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [old_id])
-                        .map_err(unavailable)?;
-                }
                 transaction.commit().map_err(unavailable)?;
-                if let Some((_, old_id)) = previous
+                if let Some(old_id) = retired
                     && let Err(error) = objects::reclaim(connection, &data_dir, &old_id)
                 {
                     eprintln!("deferred blob reclaim {old_id}: {error}");

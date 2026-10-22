@@ -44,7 +44,11 @@ const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
 ) WITHOUT ROWID;
 PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
-                      metageneration, time_created, updated";
+                      metageneration, time_created, updated, versioning_enabled,
+                      default_event_based_hold";
+const BUCKET_SETTINGS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_enabled INTEGER NOT NULL DEFAULT 0 CHECK(versioning_enabled IN (0, 1));
+ALTER TABLE buckets ADD COLUMN default_event_based_hold INTEGER NOT NULL DEFAULT 0 CHECK(default_event_based_hold IN (0, 1));
+PRAGMA user_version = 8;";
 const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                         name TEXT PRIMARY KEY COLLATE BINARY,
                         project TEXT NOT NULL,
@@ -58,6 +62,14 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      ) WITHOUT ROWID;
                      CREATE INDEX buckets_project_name ON buckets(project, name);
                      PRAGMA user_version = 1;";
+
+fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(BUCKET_SETTINGS_SCHEMA)
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
 
 fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
     #[cfg(unix)]
@@ -125,6 +137,16 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(resumable::SCHEMA)
             .map_err(unavailable)?;
         resumable::validate(connection)?;
+    }
+    if version >= 8 {
+        expected
+            .execute_batch(BUCKET_SETTINGS_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 9 {
+        expected
+            .execute_batch(objects::VERSIONING_SCHEMA)
+            .map_err(unavailable)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -214,9 +236,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=7).contains(&version) {
+            if !(0..=9).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 7"
+                    "unsupported catalog schema version {version}; supported version is 9"
                 )));
             }
             if version == 2 {
@@ -291,7 +313,7 @@ impl Catalog {
             }
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
-                .prepare(&format!("SELECT {COLUMNS} FROM buckets LIMIT 0"))
+                .prepare("SELECT name, project, location, location_type, storage_class, labels, metageneration, time_created, updated FROM buckets LIMIT 0")
                 .map_err(unavailable)?;
             if version < 2 {
                 objects::migrate(&mut connection)?;
@@ -311,6 +333,12 @@ impl Catalog {
             }
             if version < 7 {
                 resumable::migrate(&mut connection)?;
+            }
+            if version < 8 {
+                migrate_bucket_settings(&mut connection)?;
+            }
+            if version < 9 {
+                objects::migrate_versioning(&mut connection)?;
             }
             resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
             objects::recover(&connection, &data_dir)?;
@@ -454,8 +482,8 @@ impl Catalog {
             let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
             let changed = transaction
                 .execute(
-                    "INSERT INTO buckets VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-                 ON CONFLICT(name) DO NOTHING",
+                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(name) DO NOTHING"),
                     params![
                         record.name,
                         record.project,
@@ -465,7 +493,9 @@ impl Catalog {
                         labels,
                         record.metageneration,
                         created,
-                        updated
+                        updated,
+                        record.versioning_enabled,
+                        record.default_event_based_hold
                     ],
                 )
                 .map_err(unavailable)?;
@@ -492,6 +522,22 @@ impl Catalog {
     pub async fn get_bucket(&self, name: &str) -> Result<Option<BucketRecord>, CatalogError> {
         self.get_bucket_authorized(name, &BucketAccess::Unchecked)
             .await
+    }
+
+    /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
+    pub fn bucket_settings_in_transaction(
+        transaction: &rusqlite::Transaction<'_>,
+        name: &str,
+    ) -> Result<(bool, bool), CatalogError> {
+        transaction
+            .query_row(
+                "SELECT versioning_enabled, default_event_based_hold FROM buckets WHERE name = ?1",
+                [name],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(unavailable)?
+            .ok_or(CatalogError::NotFound)
     }
 
     /// Reads the bucket and checks `access` against the owner observed by the same read.
@@ -685,12 +731,63 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         metageneration: row.get(6)?,
         time_created: system_time(row.get(7)?)?,
         updated: system_time(row.get(8)?)?,
+        versioning_enabled: row.get(9)?,
+        default_event_based_hold: row.get(10)?,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bucket_settings_migration_rolls_back_columns_and_version_after_late_failure() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(BUCKET_SCHEMA).unwrap();
+        connection.pragma_update(None, "user_version", 7).unwrap();
+        // The first added column fits; the second exceeds this connection-local limit.
+        unsafe {
+            rusqlite::ffi::sqlite3_limit(
+                connection.handle(),
+                rusqlite::ffi::SQLITE_LIMIT_COLUMN,
+                10,
+            );
+        }
+        let error = migrate_bucket_settings(&mut connection).unwrap_err();
+        assert!(error.to_string().contains("too many columns"), "{error}");
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
+        let columns: Vec<String> = connection
+            .prepare("PRAGMA table_info(buckets)")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(
+            !columns
+                .iter()
+                .any(|name| name == "versioning_enabled" || name == "default_event_based_hold")
+        );
+        unsafe {
+            rusqlite::ffi::sqlite3_limit(
+                connection.handle(),
+                rusqlite::ffi::SQLITE_LIMIT_COLUMN,
+                2000,
+            );
+        }
+        migrate_bucket_settings(&mut connection).unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+    }
 
     #[test]
     fn immutable_uri_preserves_native_windows_paths() {
@@ -872,7 +969,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 7),
+                    ("user_version", 9),
                 ] {
                     assert_eq!(
                         connection

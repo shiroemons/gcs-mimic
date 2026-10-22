@@ -23,12 +23,14 @@ use tokio::{
 const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
-    content_encoding, content_disposition, content_language, cache_control, metadata";
+    content_encoding, content_disposition, content_language, cache_control, metadata,
+    time_deleted, event_based_hold";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
     pub name: String,
     pub is_prefix: bool,
+    pub generation: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -39,6 +41,7 @@ pub struct ObjectListQuery {
     pub start_offset: String,
     pub end_offset: String,
     pub include_trailing_delimiter: bool,
+    pub versions: bool,
     pub cursor: Option<ObjectListCursor>,
 }
 
@@ -83,6 +86,50 @@ pub(super) fn migrate_metadata(connection: &mut Connection) -> Result<(), Catalo
     let transaction = connection.transaction().map_err(unavailable)?;
     transaction
         .execute_batch(METADATA_SCHEMA)
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
+
+pub(super) const VERSIONING_SCHEMA: &str =
+    "ALTER TABLE objects RENAME TO objects_before_versioning;
+CREATE TABLE objects (
+    bucket TEXT NOT NULL COLLATE BINARY,
+    name TEXT NOT NULL COLLATE BINARY,
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    metageneration INTEGER NOT NULL CHECK(metageneration > 0),
+    content_type TEXT NOT NULL,
+    size INTEGER NOT NULL CHECK(size >= 0),
+    md5 BLOB NOT NULL CHECK(length(md5) = 16),
+    crc32c INTEGER NOT NULL CHECK(crc32c BETWEEN 0 AND 4294967295),
+    storage_class TEXT NOT NULL,
+    time_created INTEGER NOT NULL,
+    updated INTEGER NOT NULL,
+    blob_id TEXT NOT NULL UNIQUE,
+    content_encoding TEXT,
+    content_disposition TEXT,
+    content_language TEXT,
+    cache_control TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    time_deleted INTEGER,
+    event_based_hold INTEGER NOT NULL DEFAULT 0 CHECK(event_based_hold IN (0, 1)),
+    PRIMARY KEY(bucket, name, generation)
+) WITHOUT ROWID;
+INSERT INTO objects (bucket, name, generation, metageneration, content_type, size,
+    md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding,
+    content_disposition, content_language, cache_control, metadata, time_deleted,
+    event_based_hold)
+SELECT bucket, name, generation, metageneration, content_type, size, md5, crc32c,
+    storage_class, time_created, updated, blob_id, content_encoding,
+    content_disposition, content_language, cache_control, metadata, NULL, 0
+FROM objects_before_versioning;
+DROP TABLE objects_before_versioning;
+CREATE UNIQUE INDEX objects_live ON objects(bucket, name) WHERE time_deleted IS NULL;
+PRAGMA user_version = 9;";
+
+pub(super) fn migrate_versioning(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(VERSIONING_SCHEMA)
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
 }
@@ -571,6 +618,7 @@ impl Catalog {
                     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
                         .map_err(object_unavailable)?;
                     let (storage_class, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
+                    let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &bucket).map_err(object_unavailable)?;
                     let previous = lookup(&transaction, &bucket, &name)?;
                     // Rechecked under the write lock so a concurrent create cannot be overwritten.
                     check_publication(previous.as_ref(), conditions, allow_overwrite)?;
@@ -588,24 +636,22 @@ impl Catalog {
                         content_encoding: None, content_disposition: None,
                         content_language: None, cache_control: None, metadata: Default::default(),
                         time_created: time, updated: time,
+                        time_deleted: None, event_based_hold: default_hold,
                     };
                     metadata.apply(&mut record)?;
                     let custom_metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
+                    let retired = retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
                     transaction.execute(
-                        "INSERT OR REPLACE INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding, content_disposition, content_language, cache_control, metadata) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                        "INSERT INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding, content_disposition, content_language, cache_control, metadata, event_based_hold) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                         params![record.bucket, record.name, record.generation, record.metageneration,
                             record.content_type, i64::try_from(size).map_err(object_unavailable)?,
                             &record.md5[..], record.crc32c, record.storage_class, millis, millis, blob_id,
                             record.content_encoding, record.content_disposition, record.content_language,
-                            record.cache_control, custom_metadata],
+                            record.cache_control, custom_metadata, record.event_based_hold],
                     ).map_err(object_unavailable)?;
-                    if let Some((_, old_id)) = &previous {
-                        transaction.execute("INSERT INTO pending_blob_deletions VALUES (?1)", [old_id])
-                            .map_err(object_unavailable)?;
-                    }
                     transaction.commit().map_err(object_unavailable)?;
                     // Once committed, failure to reclaim must never remove the new live blob.
-                    if let Some((_, old_id)) = previous
+                    if let Some(old_id) = retired
                         && let Err(error) = reclaim(connection, &data_dir, &old_id) {
                         eprintln!("deferred blob reclaim {old_id}: {error}");
                     }
@@ -800,7 +846,8 @@ impl Catalog {
                 .execute(
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
-                    cache_control = ?9, metadata = ?10 WHERE bucket = ?1 AND name = ?2",
+                    cache_control = ?9, metadata = ?10, event_based_hold = ?11
+                    WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
                     params![
                         bucket,
                         name,
@@ -811,7 +858,9 @@ impl Catalog {
                         record.content_disposition,
                         record.content_language,
                         record.cache_control,
-                        metadata
+                        metadata,
+                        record.event_based_hold,
+                        record.generation
                     ],
                 )
                 .map_err(object_unavailable)?;
@@ -850,11 +899,12 @@ impl Catalog {
         let name = name.to_owned();
         let data_dir = self.0.data_dir.clone();
         let access = access.clone();
+        let clock = self.0.clock.clone();
         self.run_object(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(object_unavailable)?;
-            let (_, id) = selected(
+            let (record, id) = selected(
                 &transaction,
                 &bucket,
                 &name,
@@ -863,17 +913,21 @@ impl Catalog {
                 false,
                 &access,
             )?;
-            transaction
-                .execute(
-                    "DELETE FROM objects WHERE bucket = ?1 AND name = ?2",
-                    params![bucket, name],
-                )
+            if record.event_based_hold {
+                return Err(ObjectError::ActiveHold);
+            }
+            let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, &bucket)
                 .map_err(object_unavailable)?;
-            transaction
-                .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [&id])
-                .map_err(object_unavailable)?;
+            let retired = retire_previous(
+                &transaction,
+                Some(&(record, id)),
+                versioning && generation.is_none(),
+                unix_millis(clock.now()).map_err(object_unavailable)?,
+            )?;
             transaction.commit().map_err(object_unavailable)?;
-            if let Err(error) = reclaim(connection, &data_dir, &id) {
+            if let Some(id) = retired
+                && let Err(error) = reclaim(connection, &data_dir, &id)
+            {
                 eprintln!("deferred blob reclaim {id}: {error}");
             }
             Ok(())
@@ -950,6 +1004,28 @@ fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
     Some(end)
 }
 
+fn list_seek_sql(versions: bool, after: bool, bounded: bool) -> String {
+    let (source, live, order) = if versions {
+        ("objects", "", "name, generation")
+    } else {
+        // The primary key includes history; a live seek must not walk noncurrent rows.
+        (
+            "objects INDEXED BY objects_live",
+            "AND time_deleted IS NULL",
+            "name",
+        )
+    };
+    let comparison = if after { ">" } else { ">=" };
+    let upper = if bounded {
+        "AND name < CAST(?3 AS TEXT)"
+    } else {
+        ""
+    };
+    format!(
+        "SELECT {OBJECT_COLUMNS} FROM {source} WHERE bucket = ?1 AND name {comparison} CAST(?2 AS TEXT) {upper} {live} ORDER BY {order} LIMIT 1"
+    )
+}
+
 fn list_page(
     connection: &Connection,
     query: &ObjectListQuery,
@@ -979,14 +1055,19 @@ fn list_page(
     } else {
         ""
     };
-    let mut inclusive = connection.prepare(&format!(
-        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name >= CAST(?2 AS TEXT) {upper_clause} ORDER BY name LIMIT 1"
-    )).map_err(object_unavailable)?;
-    let mut exclusive = connection.prepare(&format!(
-        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name > CAST(?2 AS TEXT) {upper_clause} ORDER BY name LIMIT 1"
+    let mut inclusive = connection
+        .prepare(&list_seek_sql(query.versions, false, upper.is_some()))
+        .map_err(object_unavailable)?;
+    let mut exclusive = connection
+        .prepare(&list_seek_sql(query.versions, true, upper.is_some()))
+        .map_err(object_unavailable)?;
+    let mut versioned = connection.prepare(&format!(
+        "SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND (name, generation) > (CAST(?2 AS TEXT), ?4) {upper_clause} ORDER BY name, generation LIMIT 1"
     )).map_err(object_unavailable)?;
     loop {
         let mut after = false;
+        let mut after_generation = None;
+        let mut trailing_prefix = false;
         if let Some(previous) = &cursor {
             let bound = if previous.is_prefix {
                 let Some(end) = prefix_end(&previous.name) else {
@@ -1000,6 +1081,19 @@ fn list_page(
                 lower = bound;
                 // A trailing marker emits an item and prefix as separate page entries.
                 after = !previous.is_prefix && !trailing_marker(&previous.name, query);
+                if query.versions && !previous.is_prefix {
+                    after_generation = previous.generation;
+                    if trailing_marker(&previous.name, query) {
+                        let more: bool = connection.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation > ?3)",
+                            params![query.bucket, previous.name, previous.generation], |row| row.get(0),
+                        ).map_err(object_unavailable)?;
+                        if !more {
+                            after_generation = None;
+                            trailing_prefix = true;
+                        }
+                    }
+                }
             }
         }
         if upper
@@ -1008,14 +1102,22 @@ fn list_page(
         {
             break;
         }
-        let statement = if after {
+        let statement = if after_generation.is_some() {
+            &mut versioned
+        } else if after {
             &mut exclusive
         } else {
             &mut inclusive
         };
-        let record = match &upper {
-            Some(upper) => statement.query_row(params![query.bucket, lower, upper], read_object),
-            None => statement.query_row(params![query.bucket, lower], read_object),
+        let record = if let Some(generation) = after_generation {
+            statement.query_row(params![query.bucket, lower, upper, generation], read_object)
+        } else {
+            match &upper {
+                Some(upper) => {
+                    statement.query_row(params![query.bucket, lower, upper], read_object)
+                }
+                None => statement.query_row(params![query.bucket, lower], read_object),
+            }
         }
         .optional()
         .map_err(object_unavailable)?;
@@ -1023,9 +1125,11 @@ fn list_page(
         let group = group_prefix(&record.name, query);
         let is_prefix = group.is_some_and(|_| {
             !trailing_marker(&record.name, query)
-                || cursor
-                    .as_ref()
-                    .is_some_and(|cursor| !cursor.is_prefix && cursor.name == record.name)
+                || cursor.as_ref().is_some_and(|cursor| {
+                    !cursor.is_prefix
+                        && cursor.name == record.name
+                        && (!query.versions || trailing_prefix)
+                })
         });
         if page.items.len() + page.prefixes.len() == limit {
             page.next = cursor;
@@ -1039,6 +1143,7 @@ fn list_page(
         cursor = Some(ObjectListCursor {
             name: name.clone(),
             is_prefix,
+            generation: (query.versions && !is_prefix).then_some(record.generation),
         });
         if is_prefix {
             page.prefixes.push(name);
@@ -1100,7 +1205,7 @@ pub(super) fn lookup(
 ) -> Result<Option<(ObjectRecord, String)>, ObjectError> {
     connection
         .query_row(
-            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2"),
+            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND time_deleted IS NULL"),
             params![bucket, name],
             read_object,
         )
@@ -1118,10 +1223,14 @@ fn selected(
     access: &BucketAccess,
 ) -> Result<(ObjectRecord, String), ObjectError> {
     authorized_bucket(connection, bucket, access)?;
-    let (record, id) = lookup(connection, bucket, name)?.ok_or(ObjectError::ObjectNotFound)?;
-    if generation.is_some_and(|generation| generation != record.generation) {
-        return Err(ObjectError::ObjectNotFound);
-    }
+    let (record, id) = if let Some(generation) = generation {
+        connection.query_row(
+            &format!("SELECT {OBJECT_COLUMNS} FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3"),
+            params![bucket, name, generation], read_object,
+        ).optional().map_err(object_unavailable)?
+    } else {
+        lookup(connection, bucket, name)?
+    }.ok_or(ObjectError::ObjectNotFound)?;
     check_conditions(Some(&record), conditions, read)?;
     Ok((record, id))
 }
@@ -1136,7 +1245,38 @@ pub(super) fn check_publication(
     if previous.is_some() && !allow_overwrite {
         return Err(ObjectError::OverwriteForbidden);
     }
+    if previous.is_some_and(|(record, _)| record.event_based_hold) {
+        return Err(ObjectError::ActiveHold);
+    }
     Ok(())
+}
+
+pub(super) fn retire_previous(
+    connection: &Connection,
+    previous: Option<&(ObjectRecord, String)>,
+    retain: bool,
+    millis: i64,
+) -> Result<Option<String>, ObjectError> {
+    let Some((_, id)) = previous else {
+        return Ok(None);
+    };
+    if retain {
+        connection
+            .execute(
+                "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
+                params![id, millis],
+            )
+            .map_err(object_unavailable)?;
+        Ok(None)
+    } else {
+        connection
+            .execute("DELETE FROM objects WHERE blob_id = ?1", [id])
+            .map_err(object_unavailable)?;
+        connection
+            .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+            .map_err(object_unavailable)?;
+        Ok(Some(id.clone()))
+    }
 }
 
 fn check_conditions(
@@ -1196,6 +1336,11 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             storage_class: row.get(8)?,
             time_created: system_time(row.get(9)?)?,
             updated: system_time(row.get(10)?)?,
+            time_deleted: row
+                .get::<_, Option<i64>>(17)?
+                .map(system_time)
+                .transpose()?,
+            event_based_hold: row.get(18)?,
         },
         row.get(11)?,
     ))
@@ -1211,6 +1356,45 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versioning_migration_copies_named_columns_from_permuted_legacy_table() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        // Catalog validation rejects altered schemas; exercise migration mapping independently.
+        let legacy = SCHEMA.replace(
+            "bucket TEXT NOT NULL COLLATE BINARY,\n            name TEXT NOT NULL COLLATE BINARY,",
+            "name TEXT NOT NULL COLLATE BINARY,\n            bucket TEXT NOT NULL COLLATE BINARY,",
+        );
+        assert_ne!(legacy, SCHEMA);
+        connection.execute_batch(&legacy).unwrap();
+        connection.execute_batch(METADATA_SCHEMA).unwrap();
+        let columns = "bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata";
+        connection.execute_batch(&format!(
+            "INSERT INTO objects ({columns}) VALUES ('bucket','object',7,3,'text/plain',5,zeroblob(16),123,'NEARLINE',1234,5678,'opaque-blob','identity','inline','en','private','{{\"team\":\"storage\"}}');"
+        )).unwrap();
+        let selected = format!("SELECT {columns} FROM objects");
+        let read_values = |row: &Row<'_>| {
+            (0..17)
+                .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                .collect::<rusqlite::Result<Vec<_>>>()
+        };
+        let before = connection.query_row(&selected, [], read_values).unwrap();
+        migrate_versioning(&mut connection).unwrap();
+        assert_eq!(
+            connection.query_row(&selected, [], read_values).unwrap(),
+            before
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT time_deleted, event_based_hold FROM objects",
+                    [],
+                    |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, bool>(1)?))
+                )
+                .unwrap(),
+            (None, false)
+        );
+    }
 
     #[tokio::test]
     async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
@@ -1277,6 +1461,7 @@ mod tests {
             INSERT INTO objects SELECT 'bucket', printf('a/%05d', n), n, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, printf('%032x', n) FROM entries;
             INSERT INTO objects VALUES('bucket', 'z', 20001, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, '00000000000000000000000000004e21');").unwrap();
         connection.execute_batch(METADATA_SCHEMA).unwrap();
+        connection.execute_batch(VERSIONING_SCHEMA).unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         unsafe {
@@ -1298,6 +1483,140 @@ mod tests {
         query.cursor = page.next;
         let page = list_page(&connection, &query, 1).unwrap();
         assert_eq!(page.items[0].name, "z");
+        assert!(page.next.is_none());
+        query.cursor = None;
+        query.versions = true;
+        let page = list_page(&connection, &query, 1).unwrap();
+        assert_eq!(page.prefixes, ["a/"]);
+        query.cursor = page.next;
+        let page = list_page(&connection, &query, 1).unwrap();
+        assert_eq!(page.items[0].name, "z");
+        assert!(page.next.is_none());
+        unsafe {
+            rusqlite::ffi::sqlite3_progress_handler(
+                connection.handle(),
+                0,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        assert!(counter.load(Ordering::Relaxed) < 100);
+    }
+
+    #[test]
+    fn object_list_skips_noncurrent_rows_with_bounded_sql_work() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        unsafe extern "C" fn progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
+            // The counter outlives the connection's registered callback on this thread.
+            let counter = unsafe { &*counter.cast::<AtomicUsize>() };
+            i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
+        }
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection.execute_batch(METADATA_SCHEMA).unwrap();
+        connection.execute_batch(VERSIONING_SCHEMA).unwrap();
+        connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
+            INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
+            SELECT 'bucket', CASE WHEN n <= 10000 THEN 'a/history' ELSE printf('y/%05d',n) END, n,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',n),1 FROM entries;
+            INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id)
+            VALUES ('bucket','c',20001,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20001)),
+            ('bucket','d/file',20002,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20002)),
+            ('bucket','z',20003,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',20003));").unwrap();
+        for versions in [false, true] {
+            for after in [false, true] {
+                for bounded in [false, true] {
+                    let sql = format!(
+                        "EXPLAIN QUERY PLAN {}",
+                        list_seek_sql(versions, after, bounded)
+                    );
+                    let mut statement = connection.prepare(&sql).unwrap();
+                    let read = |row: &Row<'_>| row.get::<_, String>(3);
+                    let plan: Vec<String> = if bounded {
+                        statement
+                            .query_map(params!["bucket", "", "zz"], read)
+                            .unwrap()
+                            .collect::<Result<_, _>>()
+                            .unwrap()
+                    } else {
+                        statement
+                            .query_map(params!["bucket", ""], read)
+                            .unwrap()
+                            .collect::<Result<_, _>>()
+                            .unwrap()
+                    };
+                    assert!(
+                        plan.iter().any(|step| step.starts_with("SEARCH objects")),
+                        "{plan:?}"
+                    );
+                    assert!(
+                        plan.iter().all(|step| !step.contains("TEMP B-TREE")),
+                        "{plan:?}"
+                    );
+                    if !versions {
+                        assert!(
+                            plan.iter()
+                                .any(|step| step.contains("USING INDEX objects_live")),
+                            "{plan:?}"
+                        );
+                    }
+                }
+            }
+        }
+        let counter = AtomicUsize::new(0);
+        // One budget covers multiple pages and history-only prefixes, independent of history size.
+        unsafe {
+            rusqlite::ffi::sqlite3_progress_handler(
+                connection.handle(),
+                100,
+                Some(progress),
+                std::ptr::from_ref(&counter).cast_mut().cast(),
+            );
+        }
+        for delimiter in ["", "/"] {
+            let mut query = ObjectListQuery {
+                bucket: "bucket".into(),
+                delimiter: delimiter.into(),
+                ..Default::default()
+            };
+            for expected in ["c", if delimiter.is_empty() { "d/file" } else { "d/" }, "z"] {
+                let page = list_page(&connection, &query, 1).unwrap();
+                let names: Vec<_> = page
+                    .items
+                    .iter()
+                    .map(|record| record.name.as_str())
+                    .chain(page.prefixes.iter().map(String::as_str))
+                    .collect();
+                assert_eq!(names, [expected]);
+                query.cursor = page.next;
+            }
+            assert!(query.cursor.is_none());
+        }
+        let mut query = ObjectListQuery {
+            bucket: "bucket".into(),
+            delimiter: "/".into(),
+            versions: true,
+            ..Default::default()
+        };
+        for expected in ["a/", "c", "d/", "y/", "z"] {
+            let page = list_page(&connection, &query, 1).unwrap();
+            let names: Vec<_> = page
+                .items
+                .iter()
+                .map(|record| record.name.as_str())
+                .chain(page.prefixes.iter().map(String::as_str))
+                .collect();
+            assert_eq!(names, [expected]);
+            query.cursor = page.next;
+        }
+        query.delimiter.clear();
+        query.prefix = "a/".into();
+        query.cursor = Some(ObjectListCursor {
+            name: "a/history".into(),
+            is_prefix: false,
+            generation: Some(9999),
+        });
+        let page = list_page(&connection, &query, 1).unwrap();
+        assert_eq!(page.items[0].generation, 10000);
         assert!(page.next.is_none());
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
@@ -1372,6 +1691,8 @@ mod tests {
                     location_type: "multi-region".into(),
                     storage_class: "STANDARD".into(),
                     labels: Default::default(),
+                    versioning_enabled: false,
+                    default_event_based_hold: false,
                     metageneration: 1,
                     time_created: UNIX_EPOCH,
                     updated: UNIX_EPOCH,
@@ -1443,6 +1764,8 @@ mod tests {
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
                 labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,
@@ -1590,6 +1913,8 @@ mod tests {
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
                 labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,

@@ -1,5 +1,6 @@
 use super::{JsonError, Projection, query::validate_project};
 use crate::bucket::BucketRecord;
+use crate::config::CompatProfile;
 use hyper::StatusCode;
 use serde_json::{Value, json};
 use std::{
@@ -13,7 +14,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "billing",
     "cors",
     "customPlacementConfig",
-    "defaultEventBasedHold",
     "defaultObjectAcl",
     "encryption",
     "hierarchicalNamespace",
@@ -27,7 +27,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "satisfiesPZI",
     "satisfiesPZS",
     "softDeletePolicy",
-    "versioning",
     "website",
 ];
 
@@ -61,14 +60,52 @@ pub fn validate_bucket_name(name: &str) -> Result<(), JsonError> {
     Ok(())
 }
 
-/// Parse only the documented bucket metadata subset; unsupported semantics never round-trip.
+pub(crate) fn validate_bucket_name_for_profile(
+    name: &str,
+    profile: CompatProfile,
+) -> Result<(), JsonError> {
+    if profile == CompatProfile::Native {
+        return validate_bucket_name(name);
+    }
+    let edge = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    if (2..=666).contains(&name.len())
+        && name.bytes().next().is_some_and(edge)
+        && name.bytes().last().is_some_and(edge)
+        && name
+            .bytes()
+            .all(|byte| edge(byte) || b"._-".contains(&byte))
+    {
+        Ok(())
+    } else {
+        Err(JsonError::invalid_argument("invalid bucket name"))
+    }
+}
+
+/// Parse the native bucket metadata subset.
 pub fn parse_insert(
     bytes: &[u8],
     project: &str,
     now: SystemTime,
 ) -> Result<BucketRecord, JsonError> {
+    parse_insert_with_profile(bytes, project, now, CompatProfile::Native)
+}
+
+pub fn parse_insert_with_profile(
+    bytes: &[u8],
+    project: &str,
+    now: SystemTime,
+    profile: CompatProfile,
+) -> Result<BucketRecord, JsonError> {
     validate_project(project)?;
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
+    let parsed = if profile == CompatProfile::LegacyEmulator {
+        serde_json::Deserializer::from_slice(bytes)
+            .into_iter::<Value>()
+            .next()
+            .unwrap_or_else(|| serde_json::from_slice(bytes))
+    } else {
+        serde_json::from_slice(bytes)
+    };
+    let value: Value = parsed.map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
             "parseError",
@@ -80,6 +117,10 @@ pub fn parse_insert(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            // The pinned Go SDK sends an empty rule list for any nonnil BucketAttrs.
+            if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
+                continue;
+            }
             return Err(JsonError::unsupported(field));
         }
     }
@@ -98,13 +139,54 @@ pub fn parse_insert(
             }),
         }
     };
-    let name = string("name", None)?;
-    validate_bucket_name(&name).map_err(|_| JsonError::invalid_argument("Invalid bucket name"))?;
-    let location = string("location", Some("US"))?;
+    let name = if profile == CompatProfile::LegacyEmulator
+        && body.get("name").is_none_or(Value::is_null)
+    {
+        String::new()
+    } else {
+        string("name", None)?
+    };
+    validate_bucket_name_for_profile(&name, profile).map_err(|_| {
+        JsonError::invalid_argument(if profile == CompatProfile::Native {
+            "Invalid bucket name"
+        } else {
+            "invalid bucket name"
+        })
+    })?;
+    let boolean = |value: Option<&Value>, field| -> Result<bool, JsonError> {
+        match value {
+            None => Ok(false),
+            Some(Value::Null) if profile == CompatProfile::LegacyEmulator => Ok(false),
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a boolean"))),
+        }
+    };
+    let versioning_enabled = match body.get("versioning") {
+        None => false,
+        Some(Value::Null) if profile == CompatProfile::LegacyEmulator => false,
+        Some(value) => {
+            let versioning = value
+                .as_object()
+                .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
+            boolean(versioning.get("enabled"), "versioning.enabled")?
+        }
+    };
+    let default_event_based_hold =
+        boolean(body.get("defaultEventBasedHold"), "defaultEventBasedHold")?;
+    let location = if profile == CompatProfile::LegacyEmulator {
+        "US".into()
+    } else {
+        string("location", Some("US"))?
+    };
     if !matches!(location.as_str(), "US" | "EU" | "ASIA") {
         return Err(JsonError::unsupported("location (supported: US, EU, ASIA)"));
     }
-    let storage_class = string("storageClass", Some("STANDARD"))?;
+    let storage_class = if profile == CompatProfile::LegacyEmulator {
+        "STANDARD".into()
+    } else {
+        string("storageClass", Some("STANDARD"))?
+    };
     if matches!(storage_class.as_str(), "REGIONAL" | "RAPID") {
         return Err(JsonError::unsupported(
             "storageClass requires a region or zone",
@@ -122,7 +204,10 @@ pub fn parse_insert(
         return Err(JsonError::invalid_argument("Invalid bucket storageClass"));
     }
     let mut labels = BTreeMap::new();
-    if let Some(value) = body.get("labels") {
+    if let Some(value) = body
+        .get("labels")
+        .filter(|_| profile == CompatProfile::Native)
+    {
         let object = value
             .as_object()
             .ok_or_else(|| JsonError::invalid_argument("labels must be a string map"))?;
@@ -158,6 +243,8 @@ pub fn parse_insert(
         location_type: "multi-region".to_owned(),
         storage_class,
         labels,
+        versioning_enabled,
+        default_event_based_hold,
         metageneration: 1,
         time_created: now,
         updated: now,
@@ -182,6 +269,15 @@ pub fn bucket_resource(
     base_url: &str,
     projection: Projection,
 ) -> Result<Value, JsonError> {
+    bucket_resource_with_profile(bucket, base_url, projection, CompatProfile::Native)
+}
+
+pub fn bucket_resource_with_profile(
+    bucket: &BucketRecord,
+    base_url: &str,
+    projection: Projection,
+    profile: CompatProfile,
+) -> Result<Value, JsonError> {
     // ACL and owner fields are not modeled, so both projections expose the same local subset.
     let (Projection::NoAcl | Projection::Full) = projection;
     let project_number = if bucket.project.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -200,6 +296,22 @@ pub fn bucket_resource(
     if !bucket.labels.is_empty() {
         value["labels"] = json!(bucket.labels);
     }
+    if bucket.versioning_enabled || profile == CompatProfile::LegacyEmulator {
+        value["versioning"] = json!({"enabled": bucket.versioning_enabled});
+    }
+    if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
+        value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();
+    }
+    if profile == CompatProfile::LegacyEmulator {
+        value["location"] = "US-CENTRAL1".into();
+        value["locationType"] = "region".into();
+        value["storageClass"] = "STANDARD".into();
+        value["projectNumber"] = "0".into();
+        value["metageneration"] = "1".into();
+        value["etag"] = "RVRhZw==".into();
+        value["updated"] = value["timeCreated"].clone();
+        value.as_object_mut().unwrap().remove("labels");
+    }
     Ok(value)
 }
 
@@ -210,11 +322,27 @@ pub fn bucket_list(
     base_url: &str,
     projection: Projection,
 ) -> Result<Value, JsonError> {
+    bucket_list_with_profile(
+        buckets,
+        next_page_token,
+        base_url,
+        projection,
+        CompatProfile::Native,
+    )
+}
+
+pub fn bucket_list_with_profile(
+    buckets: &[BucketRecord],
+    next_page_token: Option<&str>,
+    base_url: &str,
+    projection: Projection,
+    profile: CompatProfile,
+) -> Result<Value, JsonError> {
     let mut value = json!({"kind": "storage#buckets"});
     if !buckets.is_empty() {
         value["items"] = buckets
             .iter()
-            .map(|bucket| bucket_resource(bucket, base_url, projection))
+            .map(|bucket| bucket_resource_with_profile(bucket, base_url, projection, profile))
             .collect::<Result<Vec<_>, _>>()?
             .into();
     }

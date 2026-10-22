@@ -2,7 +2,7 @@ use crate::{
     auth::{self, Auth, Caller},
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
-    config::Config,
+    config::{CompatProfile, Config},
     json::{self, BucketRequest, JsonError, ObjectRequest},
     object::{ObjectError, UploadChunk},
     storage::Catalog,
@@ -181,7 +181,9 @@ async fn respond(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
-    if let Some(parsed) = json::resumable::session_route(request.method(), request.uri()) {
+    if let Some(parsed) =
+        json::resumable::session_route(request.method(), request.uri(), config.compat_profile)
+    {
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
         activity.send_replace(ObjectActivity {
@@ -204,7 +206,9 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(parsed) = json::route_object(request.method(), request.uri()) {
+    if let Some(parsed) =
+        json::route_object_with_profile(request.method(), request.uri(), config.compat_profile)
+    {
         let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
         let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
         let transfer = media
@@ -240,20 +244,56 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(parsed) = json::route(request.method(), request.uri()) {
+    if let Some(parsed) = json::route_with_profile(
+        request.method(),
+        request.uri(),
+        config.compat_profile,
+        &config.seed_project,
+    ) {
         let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
-            Ok((operation, caller)) => bucket_response(request, operation, caller, state)
-                .await
-                .map_err(|error| anonymous_error(error, caller)),
+            Ok((operation, caller)) => {
+                bucket_response(request, operation, caller, state, config.compat_profile)
+                    .await
+                    .map_err(|error| anonymous_error(error, caller))
+            }
             Err(error) => Err(error),
         };
-        let mut response = result.unwrap_or_else(JsonError::into_response);
+        let mut response = result
+            .map_err(|mut error| {
+                if config.compat_profile == CompatProfile::LegacyEmulator
+                    && error.status == StatusCode::BAD_REQUEST
+                    && matches!(error.reason, "invalidArgument" | "parseError")
+                {
+                    error.reason = "invalid";
+                }
+                if config.compat_profile == CompatProfile::LegacyEmulator
+                    && error.status == StatusCode::NOT_FOUND
+                    && error.reason == "notFound"
+                {
+                    error.message = "Not Found".into();
+                }
+                error
+            })
+            .unwrap_or_else(JsonError::into_response);
+        if config.compat_profile == CompatProfile::LegacyEmulator
+            && response.status() != StatusCode::NOT_MODIFIED
+        {
+            let (mut parts, body) = response.into_parts();
+            let mut bytes = body.collect().await.unwrap().to_bytes().to_vec();
+            if !bytes.ends_with(b"\n") {
+                bytes.push(b'\n');
+            }
+            parts
+                .headers
+                .insert("content-type", "application/json".parse().unwrap());
+            response = Response::from_parts(parts, Full::new(Bytes::from(bytes)));
+        }
         response
             .headers_mut()
             .insert("connection", "close".parse().unwrap());
         return boxed(response);
     }
-    if let Some(parsed) = xml::route(request.method(), request.uri()) {
+    if let Some(parsed) = xml::route(request.method(), request.uri(), config.compat_profile) {
         let head = request.method() == Method::HEAD;
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
@@ -863,6 +903,7 @@ async fn bucket_response(
     operation: BucketRequest,
     caller: Option<Caller<'_>>,
     state: &State,
+    profile: CompatProfile,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let access = match &operation {
         BucketRequest::Insert(params) => {
@@ -912,16 +953,31 @@ async fn bucket_response(
         }
         BucketRequest::Insert(params) => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let record = json::parse_insert(&bytes, &params.project, state.clock.now())?;
-            let record = state.catalog.insert_bucket(record).await?;
-            json::bucket_resource(&record, &state.api_base_url, params.projection)?
+            let record = json::parse_insert_with_profile(
+                &bytes,
+                &params.project,
+                state.clock.now(),
+                profile,
+            )?;
+            let name = record.name.clone();
+            let record = state
+                .catalog
+                .insert_bucket(record)
+                .await
+                .map_err(|error| bucket_catalog_error(error, profile, Some(&name)))?;
+            json::bucket_resource_with_profile(
+                &record,
+                &state.api_base_url,
+                params.projection,
+                profile,
+            )?
         }
         BucketRequest::Get { bucket, params } => {
             let record = state
                 .catalog
                 .get_bucket_authorized(&bucket, &access)
                 .await?
-                .ok_or(CatalogError::NotFound)?;
+                .ok_or_else(|| bucket_catalog_error(CatalogError::NotFound, profile, None))?;
             let conditions = params.conditions;
             if conditions
                 .if_metageneration_match
@@ -932,7 +988,12 @@ async fn bucket_response(
             if conditions.if_metageneration_not_match == Some(record.metageneration) {
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
-            json::bucket_resource(&record, &state.api_base_url, params.projection)?
+            json::bucket_resource_with_profile(
+                &record,
+                &state.api_base_url,
+                params.projection,
+                profile,
+            )?
         }
         BucketRequest::List(params) => {
             let limit = params.max_results as usize;
@@ -955,11 +1016,12 @@ async fn bucket_response(
             } else {
                 None
             };
-            json::bucket_list(
+            json::bucket_list_with_profile(
                 &records,
                 token.as_deref(),
                 &state.api_base_url,
                 params.projection,
+                profile,
             )?
         }
         BucketRequest::Delete { bucket, conditions } => {
@@ -971,14 +1033,55 @@ async fn bucket_response(
                     conditions.if_metageneration_not_match,
                     &access,
                 )
-                .await?;
-            return Ok(empty_response(StatusCode::NO_CONTENT));
+                .await
+                .map_err(|error| bucket_catalog_error(error, profile, None))?;
+            return Ok(if profile == CompatProfile::LegacyEmulator {
+                Response::builder()
+                    .header("content-type", "application/json")
+                    .body(Full::new(Bytes::from_static(b"null\n")))
+                    .unwrap()
+            } else {
+                empty_response(StatusCode::NO_CONTENT)
+            });
         }
     };
     Ok(Response::builder()
         .header("content-type", "application/json; charset=UTF-8")
         .body(Full::new(Bytes::from(value.to_string())))
         .unwrap())
+}
+
+fn bucket_catalog_error(
+    error: CatalogError,
+    profile: CompatProfile,
+    name: Option<&str>,
+) -> JsonError {
+    if profile == CompatProfile::LegacyEmulator {
+        match error {
+            CatalogError::NotFound => {
+                return JsonError::new(StatusCode::NOT_FOUND, "notFound", "Not Found");
+            }
+            CatalogError::NotEmpty => {
+                return JsonError::new(
+                    StatusCode::PRECONDITION_FAILED,
+                    "conditionNotMet",
+                    "bucket must be empty prior to deletion",
+                );
+            }
+            CatalogError::AlreadyExists => {
+                return JsonError::new(
+                    StatusCode::CONFLICT,
+                    "conflict",
+                    format!(
+                        "A Cloud Storage bucket named '{}' already exists. Try another name. Bucket names must be globally unique across all Google Cloud projects, including those outside of your organization.",
+                        name.unwrap_or_default()
+                    ),
+                );
+            }
+            _ => {}
+        }
+    }
+    error.into()
 }
 
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {

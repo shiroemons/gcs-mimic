@@ -22,8 +22,11 @@ pub(crate) mod resumable;
 pub mod resumable_cancel;
 
 pub use body::read_body;
-pub(crate) use buckets::timestamp;
-pub use buckets::{bucket_list, bucket_resource, parse_insert, validate_bucket_name};
+pub use buckets::{
+    bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
+    parse_insert, parse_insert_with_profile, validate_bucket_name,
+};
+pub(crate) use buckets::{timestamp, validate_bucket_name_for_profile};
 pub use error::JsonError;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource};
@@ -32,13 +35,13 @@ pub use object_list::{ObjectListParams, object_list};
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_media_range,
-    object_resource, parse_object_upload_headers, route_object, validate_object_get_headers,
-    validate_object_media_encoding, validate_object_name,
+    object_resource, parse_object_upload_headers, route_object, route_object_with_profile,
+    validate_object_get_headers, validate_object_media_encoding, validate_object_name,
 };
 pub use page_token::{decode_page_token, encode_page_token};
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
-    validate_project,
+    route_with_profile, validate_project,
 };
 pub(crate) use query::{decode, parse_query};
 

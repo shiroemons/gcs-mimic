@@ -26,6 +26,8 @@ fn record() -> ObjectRecord {
         storage_class: "STANDARD".to_owned(),
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(2345),
+        time_deleted: None,
+        event_based_hold: false,
     }
 }
 

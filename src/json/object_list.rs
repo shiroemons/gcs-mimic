@@ -32,12 +32,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
             return Err(JsonError::unsupported_object(name));
         }
     }
-    for name in [
-        "versions",
-        "softDeleted",
-        "includeFoldersAsPrefixes",
-        "prettyPrint",
-    ] {
+    for name in ["softDeleted", "includeFoldersAsPrefixes", "prettyPrint"] {
         if boolean(&mut params, name)? {
             return Err(JsonError::unsupported_object(name));
         }
@@ -77,6 +72,7 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         start_offset: params.remove("startOffset").unwrap_or_default(),
         end_offset: params.remove("endOffset").unwrap_or_default(),
         include_trailing_delimiter: boolean(&mut params, "includeTrailingDelimiter")?,
+        versions: boolean(&mut params, "versions")?,
         cursor: None,
     };
     if let Some(token) = params.remove("pageToken").filter(|token| !token.is_empty()) {

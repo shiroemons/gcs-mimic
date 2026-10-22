@@ -1,4 +1,5 @@
-use super::{JsonError, validate_bucket_name};
+use super::{JsonError, validate_bucket_name_for_profile};
+use crate::config::CompatProfile;
 use crate::storage::{ObjectListCursor, ObjectListQuery};
 
 const MAX_TOKEN_BYTES: usize = 4096;
@@ -13,7 +14,8 @@ pub fn encode_page_token(
     if prefix.len() > 222 || !last_name.starts_with(prefix) {
         return Err(invalid());
     }
-    validate_bucket_name(last_name)?;
+    // Native listing must retain cursors for source-only names after a profile switch.
+    validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
     let payload = serde_json::json!(["b1", project, prefix, last_name]).to_string();
     let mut token = String::with_capacity(payload.len() * 2 + 17);
     for byte in payload.bytes() {
@@ -51,7 +53,7 @@ pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<Str
     {
         return Err(invalid());
     }
-    validate_bucket_name(name).map_err(|_| invalid())?;
+    validate_bucket_name_for_profile(name, CompatProfile::LegacyEmulator).map_err(|_| invalid())?;
     Ok(name.clone())
 }
 
@@ -63,7 +65,8 @@ fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> Strin
         query.start_offset,
         query.end_offset,
         query.include_trailing_delimiter,
-        projection == super::Projection::Full
+        projection == super::Projection::Full,
+        query.versions
     ])
     .to_string();
     format!("{:016x}", checksum(payload.as_bytes()))
@@ -75,10 +78,11 @@ pub(super) fn encode_object_page_token(
     cursor: &ObjectListCursor,
 ) -> String {
     let payload = serde_json::json!([
-        "o1",
+        "o2",
         object_scope(query, projection),
         cursor.name,
-        cursor.is_prefix
+        cursor.is_prefix,
+        cursor.generation
     ])
     .to_string();
     let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
@@ -111,13 +115,15 @@ pub(super) fn decode_object_page_token(
     if u64::from_str_radix(digest, 16).map_err(|_| invalid())? != checksum(&bytes) {
         return Err(invalid());
     }
-    let (version, scope, name, is_prefix): (String, String, String, bool) =
+    let (version, scope, name, is_prefix, generation): (String, String, String, bool, Option<i64>) =
         serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if version != "o1"
+    if version != "o2"
         || scope != object_scope(query, projection)
         || name.is_empty()
         || name.len() > 1024
         || !name.starts_with(&query.prefix)
+        || generation.is_some_and(|value| value <= 0)
+        || generation.is_some() != (query.versions && !is_prefix)
     {
         return Err(invalid());
     }
@@ -134,7 +140,11 @@ pub(super) fn decode_object_page_token(
     } else {
         super::validate_object_name(&name).map_err(|_| invalid())?;
     }
-    Ok(ObjectListCursor { name, is_prefix })
+    Ok(ObjectListCursor {
+        name,
+        is_prefix,
+        generation,
+    })
 }
 
 fn invalid() -> JsonError {
@@ -171,14 +181,15 @@ mod tests {
         let projection = super::super::Projection::NoAcl;
         let scope = object_scope(&query, projection);
         for payload in [
-            serde_json::json!(["o2", scope, "a", false]),
-            serde_json::json!(["o1", "wrong", "a", false]),
-            serde_json::json!(["o1", scope, "b", false]),
-            serde_json::json!(["o1", scope, "a/no/", true]),
-            serde_json::json!(["o1", scope, "a", true]),
-            serde_json::json!(["o1", scope, "", false]),
-            serde_json::json!(["o1", scope, "a", 1]),
-            serde_json::json!(["o1", scope]),
+            serde_json::json!(["o1", scope, "a", false, null]),
+            serde_json::json!(["o2", "wrong", "a", false, null]),
+            serde_json::json!(["o2", scope, "b", false, null]),
+            serde_json::json!(["o2", scope, "a/no/", true, null]),
+            serde_json::json!(["o2", scope, "a", true, null]),
+            serde_json::json!(["o2", scope, "", false, null]),
+            serde_json::json!(["o2", scope, "a", 1, null]),
+            serde_json::json!(["o2", scope, "a", false, 1]),
+            serde_json::json!(["o2", scope]),
             serde_json::json!({}),
         ] {
             let payload = payload.to_string();
@@ -197,6 +208,47 @@ mod tests {
         ] {
             assert!(decode_object_page_token(token, &query, projection).is_err());
         }
+        let query = ObjectListQuery {
+            versions: true,
+            ..query
+        };
+        let scope = object_scope(&query, projection);
+        for (name, is_prefix, generation) in [
+            ("a", false, None),
+            ("a", false, Some(0)),
+            ("a", false, Some(-1)),
+            ("a/", true, Some(1)),
+        ] {
+            let cursor = ObjectListCursor {
+                name: name.into(),
+                is_prefix,
+                generation,
+            };
+            let payload = serde_json::json!([
+                "o2",
+                scope,
+                cursor.name,
+                cursor.is_prefix,
+                cursor.generation
+            ])
+            .to_string();
+            let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
+            let token = format!("{encoded}.{:016x}", checksum(payload.as_bytes()));
+            assert!(
+                decode_object_page_token(&token, &query, projection).is_err(),
+                "{payload}"
+            );
+        }
+        let cursor = ObjectListCursor {
+            name: "a".into(),
+            is_prefix: false,
+            generation: Some(i64::MAX),
+        };
+        let token = encode_object_page_token(&query, projection, &cursor);
+        assert_eq!(
+            decode_object_page_token(&token, &query, projection).unwrap(),
+            cursor
+        );
     }
 
     #[test]
