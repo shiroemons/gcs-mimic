@@ -132,6 +132,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
         Self {
             body,
             pending: Bytes::new(),
+            // A synthetic CRLF lets the first boundary use the same search as later boundaries.
             buffer: BytesMut::from(&b"\r\n"[..]),
             delimiter: format!("\r\n--{boundary}").into_bytes(),
             eof: false,
@@ -154,8 +155,10 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
     }
 
     async fn line(&mut self, cap: usize, allow_eof: bool) -> Result<Vec<u8>, JsonError> {
+        let mut scanned = 0;
         loop {
-            if let Some(end) = self.buffer.windows(2).position(|v| v == b"\r\n") {
+            if let Some(end) = self.buffer[scanned..].windows(2).position(|v| v == b"\r\n") {
+                let end = scanned + end;
                 if end > cap {
                     return Err(invalid());
                 }
@@ -163,7 +166,10 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                 self.buffer.advance(2);
                 return Ok(line);
             }
-            if self.buffer.len() > cap {
+            // A trailing CR may become the line terminator in the next frame.
+            if self.buffer.len() > cap
+                && (self.eof || self.buffer.len() != cap + 1 || !self.buffer.ends_with(b"\r"))
+            {
                 return Err(invalid());
             }
             if self.eof {
@@ -173,6 +179,7 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
                     Err(invalid())
                 };
             }
+            scanned = self.buffer.len().saturating_sub(1);
             self.fill().await?;
         }
     }
@@ -357,7 +364,13 @@ impl<B: Body<Data = Bytes> + Unpin> Multipart<B> {
             }
             bytes.extend_from_slice(&chunk);
         }
-        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| {
+            JsonError::new(
+                StatusCode::BAD_REQUEST,
+                "parseError",
+                "Invalid checksum JSON",
+            )
+        })?;
         let mut values = value.as_object().cloned().ok_or_else(invalid)?;
         if values
             .keys()
@@ -501,6 +514,33 @@ mod tests {
             assert_eq!(metadata, b"{}");
             assert_eq!(media, payload);
             producer.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn multipart_parser_reads_long_headers_and_padding_in_one_byte_frames() {
+        let padding = " ".repeat(HEADER_CAP - 2);
+        let header = "Content-Type: application/json\r\nX-Long: ";
+        let value = "x".repeat(HEADER_CAP - header.len() - 4);
+        let body = format!(
+            "--boundary{padding}\r\n{header}{value}\r\n\r\n{{}}\r\n--boundary{padding}\r\n\r\nmedia\r\n--boundary--{padding}\r\n"
+        );
+        let (mut sender, receiver) = Channel::<Bytes, io::Error>::new(1);
+        let producer = tokio::spawn(async move {
+            for byte in body.into_bytes() {
+                sender.send_data(Bytes::from(vec![byte])).await.unwrap();
+            }
+        });
+        let (metadata, media) = parse(receiver).await.unwrap();
+        assert_eq!(metadata, b"{}");
+        assert_eq!(media, b"media");
+        producer.await.unwrap();
+        for tail in [b"x\r\n".as_slice(), b"x", b"\r"] {
+            let mut body = wire(b"{}", b"media");
+            body.truncate(body.len() - 2);
+            body.extend_from_slice(padding.as_bytes());
+            body.extend_from_slice(tail);
+            assert!(parse(Full::new(Bytes::from(body))).await.is_err());
         }
     }
 

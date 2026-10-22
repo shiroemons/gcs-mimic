@@ -586,6 +586,35 @@ fn obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_public
 }
 
 #[test]
+fn obj_multipart_http_malformed_checksum_json_preserves_existing_generation() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let original = server
+        .upload(
+            "name=existing",
+            &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
+        )
+        .json();
+    for checksums in [b"{".as_slice(), br#"{"crc32c":"unterminated}"#] {
+        server
+            .upload(
+                "name=existing",
+                &wire(
+                    br#"{"metadata":{"key":"new"}}"#,
+                    None,
+                    b"new",
+                    Some(checksums),
+                ),
+            )
+            .error(400, "parseError");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+        no_leaks(&dir, 1);
+    }
+}
+
+#[test]
 fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);
