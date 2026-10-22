@@ -198,11 +198,25 @@ fn anonymous_object_mutations_require_each_granted_permission() {
 fn anonymous_bucket_and_policy_operations_require_granted_permissions() {
     let (_config, _data, server) = iam::fixture();
     let bucket = "/storage/v1/b/iam-bucket";
-    for role in [None, Some("roles/storage.objectCreator")] {
+    for role in [
+        None,
+        Some("roles/storage.objectCreator"),
+        Some("roles/storage.objectAdmin"),
+        Some("roles/storage.legacyBucketReader"),
+    ] {
         if let Some(role) = role {
             grant(&server, "allUsers", role);
         }
-        server.get("", bucket).login_required();
+        if role == Some("roles/storage.legacyBucketReader") {
+            server.get("", bucket).ok();
+        } else {
+            server.get("", bucket).login_required();
+        }
+        if role == Some("roles/storage.objectAdmin") {
+            server.upload("", "iam-bucket", "object", b"hello").ok();
+            assert_eq!(server.get("", OBJECT).ok().body, b"hello");
+            server.request("DELETE", JSON_OBJECT, "", b"").ok();
+        }
         server.get("", iam::IAM).login_required();
         iam::set(&server, "", &json!({"bindings":[]})).login_required();
         server.request("DELETE", bucket, "", b"").login_required();
