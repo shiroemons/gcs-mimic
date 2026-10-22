@@ -16,7 +16,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose startup is verified on ARM64 and emulated AMD64. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
-| JSON bucket APIs | 🚧 Partial | Create/get/list/delete, scoped keyset paging and conditions; PATCH merges/removes labels and changes the supported default storage class, versioning and default holds with atomic metageneration conditions. Persistent IAM policy get/set with etags and scoped enforcement. PUT, ACLs, testIamPermissions and advanced settings remain unavailable. |
+| JSON bucket APIs | 🚧 Partial | Create/get/list/delete with create-time versioning/default holds, scoped keyset paging and conditions; PATCH merges/removes labels and changes the supported default storage class, versioning and default holds with atomic metageneration conditions. Persistent IAM policy get/set with etags and scoped enforcement. PUT, ACLs, testIamPermissions and advanced settings remain unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart/resumable upload, metadata, MD5/CRC32C, range reads, keyset listing, patch/update and atomic conditions. Persistent version history, selected generation reads/deletes, version paging and event holds work. Resumable cancel/expiry/recovery work; XML/signed resumable, replay, If-Range, transcoding, glob, ACL, temporary holds, retention and soft delete remain unavailable. |
 | XML and gRPC APIs | 🚧 Partial | Path-style XML object GET/HEAD: selected live generation, single ranges, generation/metageneration match headers and XML errors. Virtual-host routing, XML writes/listing and gRPC are unavailable; recognized unsupported XML inputs return 501. |
 | Persistence | 🚧 Partial | Transactional catalog, opaque blobs, exclusive directory lock, restart/crash recovery and initial seed directory import. Individual fsync crash windows and power loss remain unverified. |
@@ -131,7 +131,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Bucket metadata GET (`buckets.get`) | ✅ Basic resource; source defaults via compatibility profile | ✅ Basic resource | ✅ Basic resource |
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
-| Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing, empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
+| Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
 | Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ❌ Not implemented | ❌ | ❌ |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
@@ -164,7 +164,7 @@ retention, lifecycle and other advanced fields are outside these rows.
 
 | Row | Requirements for ✅ within this field set |
 | --- | --- |
-| Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected in the declared local subset. |
+| Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected. These null/empty rules are declared local choices pending SPEC-BUCKET-PATCH, not service-verified. |
 | Bucket PUT | Replace the supported field set, including labels; verify omitted/null/default behavior independently of PATCH against the pinned source contract. |
 | Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
 | Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |

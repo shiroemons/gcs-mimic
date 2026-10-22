@@ -51,7 +51,9 @@ The [executed comparison](evidence/bucket-metadata-patch-comparison.md) pins
 fake-gcs-server v1.56.1 and the official Go serializer revisions/digests.
 The gcp-storage-emulator v2026.07.19
 [bucket handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py)
-was source-reviewed: `_patch_bucket` assigns the supplied labels map and ignores
+was source-reviewed at commit `8262eb4b95e219a89a24c93703225b727433a0e6`,
+file SHA-256 `ce160c2cffdc84937d868a80ea91bed8141b5c2eae9cd623db228cf9fcfec01f`:
+`_patch_bucket` assigns the supplied labels map and ignores
 whole-field null, without per-label merge/deletion logic. No execution claim is
 made for that product. SPEC-BUCKET-PATCH and SPEC-017 retain provider questions;
 no reference implementation overrides the official contract.

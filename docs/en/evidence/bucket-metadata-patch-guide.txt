@@ -1,0 +1,391 @@
+Local checkout, home and temporary path prefixes are replaced with <checkout>, <user-home> and <temp>; other output is unchanged.
+Command: executable sh block in Native binary and configuration, extracted unchanged from docs/en/getting-started.md and run with bash -euxo pipefail
++ cargo +1.99.1 build --release --locked --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling typenum v1.20.1
+   Compiling pin-project-lite v0.2.17
+   Compiling semver v1.0.28
+   Compiling httparse v1.10.1
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling cc v1.9.0
+   Compiling zmij v1.0.23
+   Compiling rustc_version v0.4.1
+   Compiling smallvec v1.16.3
+   Compiling serde_core v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling http v1.5.0
+   Compiling crc32c v0.6.8
+   Compiling cfg-if v1.0.5
+   Compiling hybrid-array v0.4.15
+   Compiling serde_json v1.0.154
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling memchr v2.8.3
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling http-body v1.1.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling syn v3.0.9
+   Compiling digest v0.11.3
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling md-5 v0.11.0
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 21.14s
+++ mktemp -d
++ native_dir=<temp>/tmp.AsmeTC5Boc
++ native_pid=87428
++ trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.AsmeTC5Boc/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.AsmeTC5Boc/server.log
++ kill -0 87428
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.AsmeTC5Boc/server.log
++ kill -0 87428
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.AsmeTC5Boc/server.log
++ kill -0 87428
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.AsmeTC5Boc/server.log
++ kill -0 87428
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.AsmeTC5Boc/server.log
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temp>/tmp.AsmeTC5Boc/server.log
++ native_endpoint=http://127.0.0.1:50179
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:50179/_internal/ready
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"native-bucket"}' 'http://127.0.0.1:50179/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   391  100   367  100    24   194k  13050 --:--:-- --:--:-- --:--:--  381k
+{"etag":"\"b-1792688743458-1792688743458-1\"","id":"native-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"native-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:05:43.458Z","updated":"2026-10-22T17:05:43.458Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' 'http://127.0.0.1:50179/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   721  100    11  45243    690 --:--:-- --:--:-- --:--:-- 48800
+{"bucket":"native-bucket","contentType":"text/plain","crc32c":"Ust9OA==","etag":"\"o-ZCrJUVRWexgU5S840H/rJQ==-1792688743488279-1\"","generation":"1792688743488279","id":"native-bucket/hello.txt/1792688743488279","kind":"storage#object","md5Hash":"ZCrJUVRWexgU5S840H/rJQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/native-bucket/o/hello.txt?generation=1792688743488279&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket/o/hello.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-22T17:05:43.488Z","timeFinalized":"2026-10-22T17:05:43.488Z","timeStorageClassUpdated":"2026-10-22T17:05:43.488Z","updated":"2026-10-22T17:05:43.488Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:50179/storage/v1/b/native-bucket/o/hello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0  12263      0 --:--:-- --:--:-- --:--:-- 11000
++ printf 'native data'
++ cmp - <temp>/tmp.AsmeTC5Boc/download.txt
+++ ./target/release/gcs-mimic url public --base-url http://127.0.0.1:50179 --bucket native-bucket --object hello.txt
++ native_public_url=http://127.0.0.1:50179/native-bucket/hello.txt
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.AsmeTC5Boc/xml.txt --write-out '%{http_code}' http://127.0.0.1:50179/native-bucket/hello.txt
++ status=200
++ test 200 = 200
++ printf 'native data'
++ cmp - <temp>/tmp.AsmeTC5Boc/xml.txt
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"team":"local","stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:50179/storage/v1/b/native-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   474  100   407  100    67   364k  61411 --:--:-- --:--:-- --:--:--  462k
++ jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and .metageneration == "2"' <temp>/tmp.AsmeTC5Boc/patched.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:50179/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   418  100   393  100    25   312k  20374 --:--:-- --:--:-- --:--:--  408k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.AsmeTC5Boc/removed.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:50179/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   393  100   393    0     0   401k      0 --:--:-- --:--:-- --:--:--  383k
++ cmp <temp>/tmp.AsmeTC5Boc/removed.json <temp>/tmp.AsmeTC5Boc/after.json
++ kill -TERM 87428
++ wait 87428
++ trap - EXIT
++ jq . <temp>/tmp.AsmeTC5Boc/server.log
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:50179",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "seed": {
+    "outcome": "disabled"
+  },
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
++ rm -r <temp>/tmp.AsmeTC5Boc
+
+Native guide exit status: 0
++ printf '\nCommand: Docker PATCH guide; reuse the final ARM64 smoke image, run unchanged create/PATCH shell blocks, then stop/start and compare resource\n'
+
+Command: Docker PATCH guide; reuse the final ARM64 smoke image, run unchanged create/PATCH shell blocks, then stop/start and compare resource
++ export COMPOSE_PROJECT_NAME=gcs-mimic-patch-guide-1031
++ COMPOSE_PROJECT_NAME=gcs-mimic-patch-guide-1031
++ export GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-76357
++ GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-76357
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
+++ mktemp -d
++ patch_container_dir=<temp>/tmp.l6U78zzPM7
++ trap 'docker compose down --volumes; rm -r "$patch_container_dir"' EXIT
++ docker image inspect --format '{{.Id}} {{json .RepoDigests}} {{.Os}}/{{.Architecture}}' gcs-mimic:bucket-smoke-arm64-76357
+sha256:db2eeba656233549d4ef2c043a671bff5f37d1a680a43eb674b3468f048764f3 ["gcs-mimic@sha256:db2eeba656233549d4ef2c043a671bff5f37d1a680a43eb674b3468f048764f3"] linux/arm64
++ docker compose config --quiet
++ docker compose up -d --wait
+ Network gcs-mimic-patch-guide-1031_default Creating 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Creating 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Creating 
+ Network gcs-mimic-patch-guide-1031_default Creating 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Created 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Created 
+ Network gcs-mimic-patch-guide-1031_default Created 
+ Network gcs-mimic-patch-guide-1031_default Created 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Creating 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Created 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Starting 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Started 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Waiting 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55315
++ export endpoint=http://127.0.0.1:55315
++ endpoint=http://127.0.0.1:55315
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  25000      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792688906}+ awk '/^## Create, inspect, list and delete buckets$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55315/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64   147k  25009 --:--:-- --:--:-- --:--:--  220k
+{"etag":"\"b-1792688906290-1792688906290-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:08:26.290Z","updated":"2026-10-22T17:08:26.290Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   252k      0 --:--:-- --:--:-- --:--:--  377k
+{"etag":"\"b-1792688906290-1792688906290-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:08:26.290Z","updated":"2026-10-22T17:08:26.290Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55315/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   289k      0 --:--:-- --:--:-- --:--:--  414k
+{"items":[{"etag":"\"b-1792688906290-1792688906290-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:08:26.290Z","updated":"2026-10-22T17:08:26.290Z"}],"kind":"storage#buckets"}+ awk '/^## Patch bucket labels and default storage class$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ patch_dir=<temp>/tmp.PP0nmZpZGC
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   226k      0 --:--:-- --:--:-- --:--:--  377k
+++ jq -er .metageneration <temp>/tmp.PP0nmZpZGC/before.json
++ patch_revision=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:55315/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   453  100   401  100    52   188k  25060 --:--:-- --:--:-- --:--:--  221k
++ jq -e --argjson prior 1 '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.PP0nmZpZGC/merged.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   412  100   387  100    25   177k  11764 --:--:-- --:--:-- --:--:--  201k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.PP0nmZpZGC/removed.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.PP0nmZpZGC/stale.json -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:55315/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
++ patch_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.PP0nmZpZGC/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   254k      0 --:--:-- --:--:-- --:--:--  377k
++ cmp <temp>/tmp.PP0nmZpZGC/removed.json <temp>/tmp.PP0nmZpZGC/after.json
++ rm -r <temp>/tmp.PP0nmZpZGC
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   230k      0 --:--:-- --:--:-- --:--:--  377k
++ docker compose stop
+ Container gcs-mimic-patch-guide-1031-gcs-1 Stopping 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Stopped 
++ docker compose start --wait
+ Container gcs-mimic-patch-guide-1031-gcs-1 Starting 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Started 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Waiting 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55315/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+curl: (7) Failed to connect to 127.0.0.1 port 55315 after 0 ms: Couldn't connect to server
++ docker compose down --volumes
+ Container gcs-mimic-patch-guide-1031-gcs-1 Stopping 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Stopped 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Removing 
+ Container gcs-mimic-patch-guide-1031-gcs-1 Removed 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Removing 
+ Network gcs-mimic-patch-guide-1031_default Removing 
+ Volume gcs-mimic-patch-guide-1031_gcs-data Removed 
+ Network gcs-mimic-patch-guide-1031_default Removed 
++ rm -r <temp>/tmp.l6U78zzPM7
+
+Docker guide exit status: 7
++ printf '\nCommand: Docker PATCH guide retry using the documented selected-port pinning before restart\n'
+
+Command: Docker PATCH guide retry using the documented selected-port pinning before restart
++ export COMPOSE_PROJECT_NAME=gcs-mimic-patch-guide-6635
++ COMPOSE_PROJECT_NAME=gcs-mimic-patch-guide-6635
++ export GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-76357
++ GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-76357
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
+++ mktemp -d
++ patch_container_dir=<temp>/tmp.JJf12vV4Yn
++ trap 'docker compose down --volumes; rm -r "$patch_container_dir"' EXIT
++ docker image inspect --format '{{.Id}} {{json .RepoDigests}} {{.Os}}/{{.Architecture}}' gcs-mimic:bucket-smoke-arm64-76357
+sha256:db2eeba656233549d4ef2c043a671bff5f37d1a680a43eb674b3468f048764f3 ["gcs-mimic@sha256:db2eeba656233549d4ef2c043a671bff5f37d1a680a43eb674b3468f048764f3"] linux/arm64
++ docker compose config --quiet
++ docker compose up -d --wait
+ Volume gcs-mimic-patch-guide-6635_gcs-data Creating 
+ Network gcs-mimic-patch-guide-6635_default Creating 
+ Volume gcs-mimic-patch-guide-6635_gcs-data Creating 
+ Network gcs-mimic-patch-guide-6635_default Creating 
+ Volume gcs-mimic-patch-guide-6635_gcs-data Created 
+ Volume gcs-mimic-patch-guide-6635_gcs-data Created 
+ Network gcs-mimic-patch-guide-6635_default Created 
+ Network gcs-mimic-patch-guide-6635_default Created 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Creating 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Created 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Starting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Started 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Waiting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55317
++ export endpoint=http://127.0.0.1:55317
++ endpoint=http://127.0.0.1:55317
++ export GCS_MIMIC_PORT=55317
++ GCS_MIMIC_PORT=55317
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55317
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55317
++ docker compose up -d --wait
+ Container gcs-mimic-patch-guide-6635-gcs-1 Recreate 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Recreated 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Starting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Started 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Waiting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  26443      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792688988}+ awk '/^## Create, inspect, list and delete buckets$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55317/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64   123k  20901 --:--:-- --:--:-- --:--:--  147k
+{"etag":"\"b-1792688988661-1792688988661-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55317/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:09:48.661Z","updated":"2026-10-22T17:09:48.661Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   273k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792688988661-1792688988661-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55317/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:09:48.661Z","updated":"2026-10-22T17:09:48.661Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55317/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0   318k      0 --:--:-- --:--:-- --:--:--  415k
+{"items":[{"etag":"\"b-1792688988661-1792688988661-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55317/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:09:48.661Z","updated":"2026-10-22T17:09:48.661Z"}],"kind":"storage#buckets"}+ awk '/^## Patch bucket labels and default storage class$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ patch_dir=<temp>/tmp.RiW5NJbcpq
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   263k      0 --:--:-- --:--:-- --:--:--  378k
+++ jq -er .metageneration <temp>/tmp.RiW5NJbcpq/before.json
++ patch_revision=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:55317/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   454  100   402  100    52   215k  28587 --:--:-- --:--:-- --:--:--  443k
++ jq -e --argjson prior 1 '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.RiW5NJbcpq/merged.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   413  100   388  100    25   213k  14084 --:--:-- --:--:-- --:--:--  403k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.RiW5NJbcpq/removed.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.RiW5NJbcpq/stale.json -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:55317/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
++ patch_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.RiW5NJbcpq/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   299k      0 --:--:-- --:--:-- --:--:--  378k
++ cmp <temp>/tmp.RiW5NJbcpq/removed.json <temp>/tmp.RiW5NJbcpq/after.json
++ rm -r <temp>/tmp.RiW5NJbcpq
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   270k      0 --:--:-- --:--:-- --:--:--  378k
++ docker compose stop
+ Container gcs-mimic-patch-guide-6635-gcs-1 Stopping 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Stopped 
++ docker compose start --wait
+ Container gcs-mimic-patch-guide-6635-gcs-1 Starting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Started 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Waiting 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Healthy 
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55317/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   200k      0 --:--:-- --:--:-- --:--:--  378k
++ cmp <temp>/tmp.JJf12vV4Yn/before.json <temp>/tmp.JJf12vV4Yn/after.json
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE" and .metageneration == "3"' <temp>/tmp.JJf12vV4Yn/after.json
+true
++ printf 'PASS: guide-bucket-patch-container; persisted merge/removal/default class and failed stale condition\n'
+PASS: guide-bucket-patch-container; persisted merge/removal/default class and failed stale condition
++ docker compose down --volumes
+ Container gcs-mimic-patch-guide-6635-gcs-1 Stopping 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Stopped 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Removing 
+ Container gcs-mimic-patch-guide-6635-gcs-1 Removed 
+ Volume gcs-mimic-patch-guide-6635_gcs-data Removing 
+ Network gcs-mimic-patch-guide-6635_default Removing 
+ Volume gcs-mimic-patch-guide-6635_gcs-data Removed 
+ Network gcs-mimic-patch-guide-6635_default Removed 
++ rm -r <temp>/tmp.JJf12vV4Yn
+
+Docker guide retry exit status: 0

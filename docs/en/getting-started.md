@@ -115,8 +115,8 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
 PATCH merges supplied label keys and preserves omitted keys. A key set to null
 removes that label; `labels:{}` preserves the map and `labels:null` clears it.
 The supported default class is metadata only; changing it does not rewrite
-existing objects or simulate physical placement. This sequence works against
-the Compose endpoint and the native binary.
+existing objects or simulate physical placement. This sequence uses the Compose
+endpoint; the native smoke check below repeats the merge/removal steps.
 
 ```sh
 patch_dir=$(mktemp -d)
