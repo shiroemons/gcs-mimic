@@ -1,4 +1,5 @@
 use crate::{
+    auth::{self, Auth, Caller},
     bucket::CatalogError,
     clock::Clock,
     config::Config,
@@ -36,6 +37,7 @@ pub struct State {
     pub clock: Arc<dyn Clock>,
     pub catalog: Catalog,
     pub api_base_url: String,
+    pub auth: Auth,
 }
 
 impl State {
@@ -167,12 +169,24 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
+    // Strict authentication covers only Google JSON API routes and runs before route
+    // validation, body reads and catalog access. Probes and unknown routes never authenticate.
+    let authenticate = || {
+        state
+            .auth
+            .authenticate(request.headers(), request.uri().query())
+            .map_err(JsonError::from)
+    };
     if let Some(parsed) = json::route_object(request.method(), request.uri()) {
-        let media = matches!(&parsed, Ok(ObjectRequest::Get { params, .. }) if params.media);
+        let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
+        let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
         let transfer = media
             || matches!(
                 &parsed,
-                Ok(ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. })
+                Ok((
+                    ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. },
+                    _
+                ))
             );
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
@@ -181,8 +195,11 @@ async fn respond(
             deadline: transfer.then_some(deadline),
         });
         let result = match parsed {
-            Ok(operation) => {
-                object_response(request, operation, state, config, activity, deadline).await
+            Ok((operation, caller)) => {
+                object_response(
+                    request, operation, caller, state, config, activity, deadline,
+                )
+                .await
             }
             Err(error) => Err(error),
         };
@@ -196,8 +213,8 @@ async fn respond(
         return response;
     }
     if let Some(parsed) = json::route(request.method(), request.uri()) {
-        let result = match parsed {
-            Ok(operation) => bucket_response(request, operation, state).await,
+        let result = match authenticate().and_then(|caller| parsed.map(|op| (op, caller))) {
+            Ok((operation, caller)) => bucket_response(request, operation, caller, state).await,
             Err(error) => Err(error),
         };
         let mut response = result.unwrap_or_else(JsonError::into_response);
@@ -209,9 +226,46 @@ async fn respond(
     boxed(probe_or_unknown(&request, state))
 }
 
+/// Resolve the owning project of `bucket` and authorize `permission` against it.
+///
+/// Returns the project (`None` for a missing bucket that the caller may learn about), or
+/// `Ok(None)` without catalog access in permissive mode. Anonymous callers are rejected
+/// before the bucket lookup because no anonymous grants are modeled.
+async fn authorize_bucket(
+    state: &State,
+    caller: Option<Caller<'_>>,
+    permission: &str,
+    bucket: &str,
+) -> Result<Option<String>, JsonError> {
+    let Some(caller) = caller else {
+        return Ok(None);
+    };
+    caller.principal()?;
+    let project = state.catalog.get_bucket(bucket).await?.map(|b| b.project);
+    caller.authorize(permission, project.as_deref())?;
+    Ok(project)
+}
+
+/// Authorize a project-scoped collection request such as buckets.insert or buckets.list.
+fn authorize_project(
+    caller: Option<Caller<'_>>,
+    permission: &str,
+    project: &str,
+) -> Result<(), JsonError> {
+    match caller {
+        Some(caller) => Ok(caller.authorize(permission, Some(project))?),
+        None => Ok(()),
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Each request owns its transport, caller, state and deadline context"
+)]
 async fn object_response(
     request: Request<Incoming>,
     operation: ObjectRequest,
+    caller: Option<Caller<'_>>,
     state: &State,
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
@@ -219,6 +273,26 @@ async fn object_response(
 ) -> Result<Response<ResponseBody>, JsonError> {
     let max_bytes = config.max_object_bytes;
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
+    let (permission, bucket) = match &operation {
+        ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
+        ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
+        ObjectRequest::Insert { bucket, .. } | ObjectRequest::Multipart { bucket, .. } => {
+            (auth::OBJECTS_CREATE, bucket)
+        }
+        ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
+        ObjectRequest::Delete { bucket, .. } => (auth::OBJECTS_DELETE, bucket),
+    };
+    // Authorization precedes header/body validation, conditions and existence checks.
+    let project = authorize_bucket(state, caller, permission, bucket).await?;
+    // Replacing a live object additionally needs storage.objects.delete. Without it, publication
+    // fails inside the catalog transaction if the name is live, so a concurrent create cannot be
+    // overwritten. A missing bucket fails publication with 404 regardless.
+    let allow_overwrite = match (caller, &project) {
+        (Some(caller), Some(project)) => caller
+            .principal()
+            .is_ok_and(|identity| identity.allows(auth::OBJECTS_DELETE, project)),
+        _ => true,
+    };
     if !matches!(
         operation,
         ObjectRequest::Insert { .. }
@@ -294,7 +368,7 @@ async fn object_response(
             let permit = state.catalog.admit_object_upload()?;
             // The final name may be in metadata; check the bucket before reading any body.
             await_upload_catalog(
-                state.catalog.check_object_upload(
+                state.catalog.check_upload(
                     &bucket,
                     name.as_deref().unwrap_or(""),
                     if name.is_some() {
@@ -302,6 +376,7 @@ async fn object_response(
                     } else {
                         Default::default()
                     },
+                    allow_overwrite,
                 ),
                 catalog_timeout,
                 deadline,
@@ -320,7 +395,7 @@ async fn object_response(
                 await_upload_catalog(
                     state
                         .catalog
-                        .check_object_upload(&bucket, &name, params.conditions),
+                        .check_upload(&bucket, &name, params.conditions, allow_overwrite),
                     catalog_timeout,
                     deadline,
                     activity,
@@ -342,6 +417,7 @@ async fn object_response(
                 body,
                 permit,
                 metadata,
+                allow_overwrite,
             );
             tokio::pin!(upload);
             let streaming = async {
@@ -402,9 +478,12 @@ async fn object_response(
             }
             // Complete the advisory check before body-derived errors can race its result.
             let permit = await_upload_catalog(
-                state
-                    .catalog
-                    .prepare_object_upload(&bucket, &name, params.conditions),
+                state.catalog.prepare_object_upload(
+                    &bucket,
+                    &name,
+                    params.conditions,
+                    allow_overwrite,
+                ),
                 catalog_timeout,
                 deadline,
                 activity,
@@ -421,6 +500,7 @@ async fn object_response(
                 body,
                 permit,
                 Default::default(),
+                allow_overwrite,
             );
             tokio::pin!(upload);
             let record = tokio::select! {
@@ -562,8 +642,23 @@ async fn await_upload_catalog<T>(
 async fn bucket_response(
     request: Request<Incoming>,
     operation: BucketRequest,
+    caller: Option<Caller<'_>>,
     state: &State,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
+    match &operation {
+        BucketRequest::Insert(params) => {
+            authorize_project(caller, auth::BUCKETS_CREATE, &params.project)?
+        }
+        BucketRequest::List(params) => {
+            authorize_project(caller, auth::BUCKETS_LIST, &params.project)?
+        }
+        BucketRequest::Get { bucket, .. } => {
+            authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?;
+        }
+        BucketRequest::Delete { bucket, .. } => {
+            authorize_bucket(state, caller, auth::BUCKETS_DELETE, bucket).await?;
+        }
+    }
     if !matches!(operation, BucketRequest::Insert(_))
         && (request.headers().contains_key("transfer-encoding")
             || request
