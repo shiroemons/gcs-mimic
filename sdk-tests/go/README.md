@@ -32,11 +32,16 @@ suite can run independently:
 GCS_MIMIC_GO_TEST_RUN='TestEmulatorEndpoint|TestBucketLifecycle' bash scripts/sdk-go.sh
 ```
 
-The runner requires Bash, Rust, Go and jq. It builds with the pinned Rust toolchain,
-selects an available loopback port, checks the bound port in the ready JSON log, probes
+The runner requires Bash, Rust, Go and jq. It builds with the pinned Rust toolchain
+and starts two isolated servers, each with its own loopback port and data directory:
+a permissive server for `GCS_MIMIC_ENDPOINT` and a strict server
+(`--auth-mode strict --identity-file config/identities.json`) for
+`GCS_MIMIC_STRICT_ENDPOINT`. For each server it checks the bound port in the ready
+JSON log (the strict server must also report `"auth_mode":"strict"`), probes
 `/_internal/ready`, then runs vet and uncached verbose tests. The server must
-support `serve --listen IP:PORT --data-dir PATH`. A trap stops the server, reports
-its failure log and deletes only this run's temporary directory.
+support `serve --listen IP:PORT --data-dir PATH` and the strict options. A trap
+stops both servers, propagates a server failure status, reports both failure logs
+and deletes only this run's temporary directory.
 
 For an already running emulator:
 
@@ -92,6 +97,55 @@ establishes the documented single-request Writer subset only.
 Upload invocation tokens require `ifGenerationMatch` and have no replay support;
 retrying a committed conditioned upload fails 412 instead of writing again.
 
+## Strict authentication suite
+
+`strict_auth_test.go` runs only when `GCS_MIMIC_STRICT_ENDPOINT` names an emulator
+started in strict mode; otherwise each test skips with an explicit message.
+`scripts/sdk-go.sh` always sets it, so the runner never skips this suite. The
+tests use the local fixture registry `config/identities.json`:
+
+| Principal | Token | Role on `local-project` |
+| --- | --- | --- |
+| `local-admin@example.invalid` | `local-admin-token` | `roles/storage.admin` |
+| `local-viewer@example.invalid` | `local-viewer-token` | `roles/storage.objectViewer` |
+| `local-creator@example.invalid` | `local-creator-token` | `roles/storage.objectCreator` |
+
+These identities and tokens are deliberately public, non-secret emulator
+fixtures. They are not Google credentials, grant nothing outside the emulator and
+must never be reused for a real service. The registry schema rejects unknown keys,
+so the file itself carries no comment; this README and `compose.strict.yaml`
+label it instead. To run the container with the same registry:
+
+```sh
+docker compose -f compose.yaml -f compose.strict.yaml up
+```
+
+The strict clients set the endpoint explicitly with `option.WithEndpoint` and
+clear `STORAGE_EMULATOR_HOST`, because the pinned SDK forces
+`option.WithoutAuthentication` whenever that variable is set and would drop the
+token. Anonymous clients use `option.WithoutAuthentication`. Authenticated clients
+pass `option.WithTokenSource` with an `oauth2.StaticTokenSource`, which prevents
+Application Default Credentials and metadata-server discovery. Because the SDK
+ignores credential options when `option.WithHTTPClient` is supplied, the same
+static token is attached by an `oauth2.Transport` wrapped around the guarded
+emulator transport described above. `golang.org/x/oauth2` v0.37.0 was already in
+the resolved graph; importing it directly only moves it to the direct `require`
+block, and `go.sum` is unchanged.
+
+Strict coverage, asserted as `googleapi.Error` status and first error reason:
+
+- The admin creates a bucket in `local-project`, reads and lists it, uploads with
+  a single-request Writer (`ChunkSize=0`), reads metadata and bytes, lists
+  objects, updates custom metadata, then deletes the object and the bucket.
+- Anonymous object metadata, media reads and listing fail with 401 `required`;
+  an unregistered bearer token fails the same calls with 401 `authError`.
+- The object viewer reads metadata and bytes and lists objects, but uploads,
+  metadata updates, deletes and bucket metadata reads fail with 403 `forbidden`.
+  The rejected upload publishes nothing and the existing object stays unchanged.
+- The object creator uploads a new object, but overwriting it fails with 403
+  `forbidden` because an overwrite also needs `storage.objects.delete`; the
+  original generation and bytes remain. Its metadata and media reads fail with 403.
+
 `TestObjectList` additionally exercises prefix/delimiter/offset filters and one-entry
 iterator/pager traversal. `TestObjectMetadataUpdate` verifies conditional Update,
 fixed/custom metadata, empty-value and deletion behavior, and unchanged object bytes.
@@ -99,8 +153,8 @@ See the [listing](../../docs/en/slices/json-object-list.md),
 [metadata](../../docs/en/slices/json-object-metadata.md) and
 [multipart](../../docs/en/slices/json-object-multipart.md) contracts for limits.
 
-ACL/IAM, ranges, XML, gRPC, signing and resumable transfers are outside
-this harness's scope. A clean skip or `-run XXX` is compilation evidence only;
+Bucket/object IAM policies, ACLs, `allUsers` grants, ranges, XML, gRPC, signing
+and resumable transfers are outside this harness's scope. A clean skip or `-run XXX` is compilation evidence only;
 successful object execution is recorded in the
 [object media verification summary](../../docs/en/evidence/object-media.md) and
 [raw SDK log](../../docs/en/evidence/object-media-go.txt).

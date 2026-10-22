@@ -1,0 +1,19 @@
+{
+  "identities": [
+    {
+      "id": "local-admin@example.invalid",
+      "tokens": ["local-admin-token"],
+      "project_roles": { "local-project": ["roles/storage.admin"] }
+    },
+    {
+      "id": "local-viewer@example.invalid",
+      "tokens": ["local-viewer-token"],
+      "project_roles": { "local-project": ["roles/storage.objectViewer"] }
+    },
+    {
+      "id": "local-creator@example.invalid",
+      "tokens": ["local-creator-token"],
+      "project_roles": { "local-project": ["roles/storage.objectCreator"] }
+    }
+  ]
+}
