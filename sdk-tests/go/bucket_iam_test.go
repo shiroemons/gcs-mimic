@@ -57,6 +57,8 @@ func TestStrictAuthBucketIAM(t *testing.T) {
 	}
 	_, err = reader.Bucket(other.BucketName()).Object(otherAttrs.Name).Attrs(ctx)
 	requireStrictError(t, err, 403, "forbidden")
+	_, err = reader.Bucket(other.BucketName()).Object(otherAttrs.Name).NewReader(ctx)
+	requireStrictError(t, err, 403, "forbidden")
 	_, err = listObjectNames(ctx, reader.Bucket(other.BucketName()))
 	requireStrictError(t, err, 403, "forbidden")
 	_, err = strictUpload(ctx, readerBucket.Object("denied.txt"), []byte("denied"))

@@ -157,6 +157,8 @@ revocation denies metadata, media and listing while preserving the object.
 `TestBucketIAMPermissive` verifies unauthenticated get/set, a fresh etag and stale
 etag rejection. These tests use the existing clients and opt-in endpoints; no
 new direct dependency or module version is needed.
+The [bucket IAM contract](../../docs/en/slices/bucket-iam.md) defines policy fields,
+supported members, concurrency and remaining boundaries.
 
 Run only bucket IAM coverage with both isolated profiles:
 

@@ -1,19 +1,21 @@
 # Build and run gcs-mimic
 
-The current slice supports JSON bucket create/get/list/delete and object media/multipart upload,
+The current slice supports JSON bucket create/get/list/delete, bucket IAM policy
+get/set and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Resumable uploads, If-Range,
-transcoding, bucket/object IAM policies, ACLs, public grants,
+transcoding, object IAM, testIamPermissions, conditional policies, ACLs, public grants,
 XML endpoints, signed URLs, CORS and TLS remain unavailable.
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens
-against project-level predefined storage roles.
+against project and bucket grants of predefined storage roles.
 The [bucket contract](slices/json-bucket-crud.md) and
 [object media](slices/json-object-media.md), [listing](slices/json-object-list.md),
 [metadata](slices/json-object-metadata.md),
 [multipart](slices/json-object-multipart.md) and
-[strict authentication](slices/strict-auth.md) contracts list supported fields and deviations.
+[strict authentication](slices/strict-auth.md) and
+[bucket IAM](slices/bucket-iam.md) contracts list supported fields and deviations.
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -734,9 +736,10 @@ upload bodies can still commit after the client disconnects; clients must read b
 when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
 cancelled uploads release slots after their cleanup finishes.
 
-Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3
-and v4 to v5. Existing v3 objects gain default metadata columns; v5 adds the durable
-seed initialization marker. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
+Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3,
+v4 and v5 to v6. Existing v3 objects gain default metadata columns; v5 adds the durable
+seed initialization marker, and v6 adds default bucket IAM policies and an etag
+counter. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
 are rejected without changing their data; automatic recovery of deleted v2 generations is
 unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
 entries stop startup with a path diagnostic. Object `selfLink` addresses the current
@@ -794,7 +797,7 @@ invalid names and overlapping roots fail before readiness. Traversal is limited
 to 10000 entries and 32 nested directories; `max_object_bytes` applies per new file.
 No sidecar metadata is imported.
 
-A durable v5 marker prevents replay after restart or deletion of all buckets.
+A durable seed marker prevents replay after restart or deletion of all buckets.
 Interrupted imports resume create-if-absent and preserve existing objects.
 First startup without `seed_dir` and migrations of existing catalogs also mark
 initialization complete: configuring fixtures later does not import them. Use a

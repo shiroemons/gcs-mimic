@@ -1,5 +1,32 @@
 # Go SDK harness verification: 2026-10-21
 
+## Bucket IAM integration: 2026-10-22
+
+The pinned Go 1.27.3 / Storage v1.70.0 / API v0.307.0 suite ran against isolated
+permissive and strict native servers with the bucket IAM implementation merged.
+No module requirements or checksums changed. The strict fixture adds a principal
+with no project roles; both IAM tests retain the default convenience bindings.
+
+| Check | Result |
+| --- | --- |
+| `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh` | PASS: vet, 13 top-level tests and 38 subtests; 0 failed, 0 skipped |
+| `TestStrictAuthBucketIAM` | PASS: default policy, bucket-only read/list, other-bucket denial, denied creation and policy management, stale etag and revocation |
+| `TestBucketIAMPermissive` | PASS: unauthenticated get/set, fresh etag and 412 for a stale etag |
+| Native getting-started IAM section | PASS: all 4 shell blocks, 63 shell lines, extracted directly from the guide and executed with `bash -euxo pipefail` |
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
+| `cargo test --workspace --locked --offline` | PASS: 256 tests; 0 failed, 0 ignored |
+| `npx --yes markdownlint-cli2` on changed Markdown | PASS: 5 files; MD013 disabled for the existing long tables and shell commands; no repository lint config |
+
+The native walkthrough used the guide's admin setup and the checked-in identity
+registry. It checked exact downloaded bytes, listing, 403 boundaries, 412
+`conditionNotMet` without losing the grant, and 403 after revocation. Its objects,
+test buckets and server were cleaned up. Raw SDK, server and command output stays
+under `$TMPDIR` for integration evidence collection, outside the repository.
+No container build or Google Cloud/metadata-server request was made.
+
+The results below describe earlier harness revisions and remain historical.
+
 The original harness-only results are retained below. Current pins are Go 1.27.3,
 Storage v1.70.0 and API v0.307.0. The
 [2026-10-22 SDK update evidence](../../docs/en/evidence/go-sdk-update.txt) records
