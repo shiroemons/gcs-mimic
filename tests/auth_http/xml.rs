@@ -420,6 +420,46 @@ fn xml_public_urls_round_trip_raw_encoded_names_without_normalization() {
 }
 
 #[test]
+fn xml_bucket_paths_reserve_only_api_namespaces() {
+    let (_config, _data, server) = fixture();
+    for bucket in ["batch", "storage", "upload", "download"] {
+        server.create_bucket(ADMIN, "project-a", bucket).ok();
+    }
+    for (bucket, name) in [
+        ("batch", "x"),
+        ("batch", "storage/v1-other/x"),
+        ("storage", "v1-other/x"),
+        ("upload", "storage/v1-other/x"),
+        ("download", "storage/v1-other/x"),
+    ] {
+        server
+            .upload(ADMIN, bucket, &encode_object_name(name), b"bytes")
+            .ok();
+        let url = public_object_url("http://local", bucket, name).unwrap();
+        assert_eq!(
+            server
+                .get(ADMIN, url.strip_prefix("http://local").unwrap())
+                .ok()
+                .body,
+            b"bytes"
+        );
+    }
+    for path in [
+        "/batch/storage/v1",
+        "/batch/storage/v1/x",
+        "/storage/v1/x",
+        "/upload/storage/v1/x",
+        "/download/storage/v1/x",
+        "/_internal/x",
+    ] {
+        let reply = server.get(ADMIN, path);
+        assert_eq!(reply.status, 404, "{path}");
+        assert_eq!(reply.headers["content-type"], "application/json");
+        assert_eq!(reply.json(), json!({"error":"route not implemented"}));
+    }
+}
+
+#[test]
 fn xml_unsupported_operations_fail_before_reading_a_body() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");

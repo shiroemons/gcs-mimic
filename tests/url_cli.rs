@@ -155,6 +155,55 @@ fn rejects_invalid_inputs_without_stdout() {
 }
 
 #[test]
+fn rejects_reserved_api_collisions_without_stdout() {
+    for (bucket, object) in [
+        ("storage", "v1"),
+        ("storage", "v1/x"),
+        ("upload", "storage/v1"),
+        ("upload", "storage/v1/x"),
+        ("download", "storage/v1"),
+        ("download", "storage/v1/x"),
+        ("batch", "storage/v1"),
+        ("batch", "storage/v1/x"),
+    ] {
+        assert_failure(
+            &run(&[
+                "--base-url",
+                "http://localhost:4443",
+                "--bucket",
+                bucket,
+                "--object",
+                object,
+            ]),
+            "object URL collides with a reserved API namespace",
+        );
+    }
+    for (bucket, object) in [
+        ("batch", "x"),
+        ("batch", "storage/v1-other/x"),
+        ("storage", "v1-other/x"),
+        ("upload", "storage/v1-other/x"),
+        ("download", "storage/v1-other/x"),
+        ("storage", "v1/../x"),
+    ] {
+        assert_success(
+            &run(&[
+                "--base-url",
+                "http://localhost:4443",
+                "--bucket",
+                bucket,
+                "--object",
+                object,
+            ]),
+            &format!(
+                "http://localhost:4443/{bucket}/{}",
+                gcs_mimic::url::encode_object_name(object)
+            ),
+        );
+    }
+}
+
+#[test]
 fn ignores_config_file_environment_and_data_directory() {
     let missing =
         std::env::temp_dir().join(format!("gcs-mimic-url-missing-{}", std::process::id()));

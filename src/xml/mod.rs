@@ -84,14 +84,12 @@ impl From<JsonError> for Error {
     }
 }
 
-/// Match reserved Google and emulator namespaces before interpreting a bucket path.
-pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<ReadRequest, Error>> {
-    let path = uri.path();
-    if [
+pub(crate) fn reserved_path(path: &str) -> bool {
+    [
         "/storage/v1",
         "/upload/storage/v1",
         "/download/storage/v1",
-        "/batch",
+        "/batch/storage/v1",
         "/_internal",
     ]
     .iter()
@@ -100,7 +98,13 @@ pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<ReadRequest, Er
             || path
                 .strip_prefix(prefix)
                 .is_some_and(|tail| tail.starts_with('/'))
-    }) {
+    })
+}
+
+/// Match reserved Google and emulator namespaces before interpreting a bucket path.
+pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<ReadRequest, Error>> {
+    let path = uri.path();
+    if reserved_path(path) {
         return None;
     }
     let path = path.strip_prefix('/')?;
