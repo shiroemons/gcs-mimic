@@ -2,7 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Research cutoff: **2026-10-21**. Implementation and runtime conformance have not begun.
+Initial research cutoff: **2026-10-21**. Later slice-specific source checks and
+executed conformance evidence are recorded below and in the feature ledger.
 
 ## Reproducible source snapshots
 
@@ -34,6 +35,28 @@ Source URLs on a moving branch may change after this date. Re-fetch and record t
 | SPEC-006 | Discovery and proto exposure do not establish launch stage or availability | Check launch stage and eligibility for less documented routes, lifecycle matchesPattern early access and preview features. Reserved satisfiesPZS/satisfiesPZI outputs must not be interpreted as real residency guarantees. |
 | SPEC-007 | Shared LRO definitions need per-service applicability verification | A registered Operations service does not guarantee all five methods for every operation. Verify unsupported/cancellation behavior; Delete is not Cancel and Wait is not an unconditional completion promise. |
 | SPEC-017 | Strict authentication error details and missing-bucket authorization are partly undocumented | The `authError` message/location, longer 403 messages, `WWW-Authenticate`, missing-bucket 404/403, `projection=full` permissions and the 412-before-403 overwrite order need authorized real-service evidence. Local choices are listed in the [strict authentication contract](slices/strict-auth.md). |
+
+## Bucket metadata PATCH source check
+
+Checked on **2026-10-23**: [PATCH](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch),
+[Bucket resource](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets),
+[partial updates](https://docs.cloud.google.com/storage/docs/json_api#partial-updates),
+[label updates](https://docs.cloud.google.com/storage/docs/using-bucket-labels),
+[storage classes](https://docs.cloud.google.com/storage/docs/storage-classes) and
+[status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes).
+The [contract](slices/bucket-metadata-patch.md) records Discovery revision
+`20261013`, SHA-256 `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0`,
+and supplementary googleapis commit `14a161a98ef045be80c12ab69d924504a756f109`.
+The [executed comparison](evidence/bucket-metadata-patch-comparison.md) pins
+fake-gcs-server v1.56.1 and the official Go serializer revisions/digests.
+The gcp-storage-emulator v2026.07.19
+[bucket handler](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py)
+was source-reviewed at commit `8262eb4b95e219a89a24c93703225b727433a0e6`,
+file SHA-256 `ce160c2cffdc84937d868a80ea91bed8141b5c2eae9cd623db228cf9fcfec01f`:
+`_patch_bucket` assigns the supplied labels map and ignores
+whole-field null, without per-label merge/deletion logic. No execution claim is
+made for that product. SPEC-BUCKET-PATCH and SPEC-017 retain provider questions;
+no reference implementation overrides the official contract.
 
 ## Strict authentication sources
 

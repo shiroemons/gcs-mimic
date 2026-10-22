@@ -20,6 +20,44 @@ pub struct BucketRecord {
     pub updated: SystemTime,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct BucketMetadataUpdate {
+    pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
+    pub storage_class: Option<String>,
+    pub versioning_enabled: Option<bool>,
+    pub default_event_based_hold: Option<bool>,
+    pub location: Option<String>,
+}
+
+pub(crate) fn valid_label(value: &str, key: bool) -> bool {
+    let initial = |character: char| {
+        character.is_ascii_lowercase()
+            || (!character.is_ascii() && character.is_alphabetic() && !character.is_uppercase())
+    };
+    value.chars().count() <= 63
+        && (!key || value.chars().next().is_some_and(initial))
+        && value.chars().all(|character| {
+            initial(character) || character.is_numeric() || matches!(character, '_' | '-')
+        })
+}
+
+pub(crate) fn validate_storage_class(storage_class: &str) -> Result<(), CatalogError> {
+    match storage_class {
+        "STANDARD"
+        | "NEARLINE"
+        | "COLDLINE"
+        | "ARCHIVE"
+        | "MULTI_REGIONAL"
+        | "DURABLE_REDUCED_AVAILABILITY" => Ok(()),
+        "REGIONAL" | "RAPID" => Err(CatalogError::UnsupportedMetadata(
+            "storageClass requires a region or zone".into(),
+        )),
+        _ => Err(CatalogError::InvalidMetadata(
+            "Invalid bucket storageClass".into(),
+        )),
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum CatalogError {
     AlreadyExists,
@@ -28,6 +66,8 @@ pub enum CatalogError {
     PreconditionFailed,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
+    InvalidMetadata(String),
+    UnsupportedMetadata(String),
     Unavailable(String),
 }
 
@@ -39,6 +79,9 @@ impl fmt::Display for CatalogError {
             Self::NotEmpty => formatter.write_str("bucket is not empty"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
             Self::Forbidden => formatter.write_str("forbidden"),
+            Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
+                formatter.write_str(reason)
+            }
             Self::Unavailable(reason) => write!(formatter, "catalog unavailable: {reason}"),
         }
     }

@@ -1,7 +1,33 @@
 {
-  "as_of": "2026-10-22",
+  "as_of": "2026-10-23",
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
+    {
+      "id": "SPEC-BUCKET-PATCH",
+      "title": "Bucket PATCH legacy input, deletion, revision and propagation semantics remain partly unverified",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-BUCKETS-008",
+        "BEHAVIOR-BUCKET-002",
+        "BEHAVIOR-BUCKET-004",
+        "BEHAVIOR-BUCKET-012",
+        "BEHAVIOR-OBJECT-029",
+        "BEHAVIOR-COMMON-006",
+        "BEHAVIOR-COMMON-011",
+        "DESIGN-002",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/json_api#partial-updates",
+        "https://docs.cloud.google.com/storage/docs/using-bucket-labels"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Official partial updates and label examples establish merge and key-null removal. Whole-map null clearing interprets the general deletion rule; direct legacy JSON behavior for storageClass null/defaults, native null boolean rejection, unknown/output-only input and no-effect revision increment is not established. Local PATCH validates permissive bodies before missing lookup, increments every successful request once, and uses millisecond clock time without artificial advancement. The pinned reference ignores labels/class/conditions, resets omitted booleans and keeps fixed revision fields; both local profiles deliberately preserve omitted settings and expose mutable state after PATCH. Same-profile resource round trips and unchanged case-insensitive location are supported; a native-created metageneration-1 bucket reopened in legacy can hide class/labels, and native insert location comparison remains case-sensitive. Contract: docs/en/slices/bucket-metadata-patch.md; comparison: docs/en/evidence/bucket-metadata-patch-comparison.md.",
+      "required_resolution": "Keep whole method PARTIAL with unsupported ACL/billing/full-projection and advanced-field cases. Obtain authoritative clarification or explicitly authorized service evidence for scalar/map deletion defaults, legacy unknown/output-only inputs, no-effect revision, missing-bucket/combined error order, etag/timestamp and configuration propagation; SPEC-017 separately owns strict authentication wire questions. Do not infer service parity from ignored reference inputs or local SDK success. Resolve carry-over rendering and insert location differences in their owning slices. No real-cloud test is authorized by this evidence."
+    },
     {
       "id": "SPEC-VERSION-DELETE-CONDITIONS",
       "title": "Generation-specific deletion condition selection needs authoritative clarification",

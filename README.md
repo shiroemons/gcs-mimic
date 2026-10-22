@@ -4,7 +4,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete, bucket IAM policy get/set and streaming object media/multipart/resumable upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object and single-range download, delete and initial seed directories, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. JSON resumable sessions support chunk uploads, status/resume, cancellation, fixed seven-day expiry, restart recovery and client-reachable Location from the configured API endpoint. Path-style XML GET/HEAD serves public and private objects. The default permissive profile enforces no authentication; use an isolated local development environment. An optional strict profile checks local bearer tokens against project and bucket grants of predefined storage roles, including anonymous `allUsers` and registered-only `allAuthenticatedUsers` grants.
+The current implementation provides persistent JSON bucket create/get/list/delete and scoped metadata PATCH, bucket IAM policy get/set and streaming object media/multipart/resumable upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object and single-range download, delete and initial seed directories, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. JSON resumable sessions support chunk uploads, status/resume, cancellation, fixed seven-day expiry, restart recovery and client-reachable Location from the configured API endpoint. Path-style XML GET/HEAD serves public and private objects. The default permissive profile enforces no authentication; use an isolated local development environment. An optional strict profile checks local bearer tokens against project and bucket grants of predefined storage roles, including anonymous `allUsers` and registered-only `allAuthenticatedUsers` grants.
 
 ## Implementation status
 
@@ -16,14 +16,14 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose startup is verified on ARM64 and emulated AMD64. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
-| JSON bucket APIs | 🚧 Partial | Create/get/list/delete, versioning/default holds at creation, scoped keyset paging and conditions; persistent IAM policy get/set with etags and scoped enforcement. Settings PATCH/PUT, ACLs, testIamPermissions and other advanced settings remain unavailable. |
+| JSON bucket APIs | 🚧 Partial | Create/get/list/delete with create-time versioning/default holds, scoped keyset paging and conditions; PATCH merges/removes labels and changes the supported default storage class, versioning and default holds with atomic metageneration conditions. Persistent IAM policy get/set with etags and scoped enforcement. PUT, ACLs, testIamPermissions and advanced settings remain unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart/resumable upload, metadata, MD5/CRC32C, range reads, keyset listing, patch/update and atomic conditions. Persistent version history, selected generation reads/deletes, version paging and event holds work. Resumable cancel/expiry/recovery work; XML/signed resumable, replay, If-Range, transcoding, glob, ACL, temporary holds, retention and soft delete remain unavailable. |
 | XML and gRPC APIs | 🚧 Partial | Path-style XML object GET/HEAD: selected live generation, single ranges, generation/metageneration match headers and XML errors. Virtual-host routing, XML writes/listing and gRPC are unavailable; recognized unsupported XML inputs return 501. |
 | Persistence | 🚧 Partial | Transactional catalog, opaque blobs, exclusive directory lock, restart/crash recovery and initial seed directory import. Individual fsync crash windows and power loss remain unverified. |
 | Authentication, IAM and ACLs | 🚧 Partial | Explicit permissive (default) and strict profiles. Strict mode resolves registered local bearer tokens and combines project grants with unconditional bucket policy bindings from a pinned `roles/storage.*` snapshot on JSON routes and XML reads. `allUsers` includes anonymous callers; `allAuthenticatedUsers` requires a registered identity. Object IAM, testIamPermissions, conditions, custom/basic roles, ACLs and UBLA/PAP settings are unavailable. |
 | Public and signed URLs | 🚧 Partial | `gcs-mimic url public` builds encoded path-style URLs served by XML GET/HEAD without changing permissions. Strict reads enforce public/private grants and revocation; signed URLs and virtual-host routing are unavailable. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.307.0 cover bucket CRUD/paging, IAM Policy/SetPolicy, multipart and normal resumable Writer (default 16 MiB or 256 KiB chunks; `ChunkSize=0` is no longer required), Attrs/NewReader/NewRangeReader/Delete, iterators and conditional Update, including strict grants. Scoped default/XML and JSON reads remain supported. Media/multipart retry tokens require generation-match; resumable initiation accepts them without it. No token response replay; Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.307.0 cover bucket CRUD/paging, BucketHandle.Update with SetLabel/DeleteLabel, class/settings and metageneration conditions, IAM Policy/SetPolicy, multipart and normal resumable Writer (default 16 MiB or 256 KiB chunks; `ChunkSize=0` is no longer required), Attrs/NewReader/NewRangeReader/Delete, iterators and conditional Update, including strict grants. Scoped default/XML and JSON reads remain supported. Media/multipart retry tokens require generation-match; resumable initiation accepts them without it. No token response replay; Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -40,7 +40,8 @@ and protocol differences remain in the same feature ledger.
 | Prefix/delimiter/keyset listing and metadata PATCH/PUT | History, glob/context filters, full projection and legacy-input parity | [Listing and metadata](docs/en/evidence/object-list-metadata.md) |
 | Bounded JSON multipart upload with Go single-request Writer | MIME edge parity, response replay and advanced fields | [Multipart](docs/en/evidence/multipart.md) |
 | JSON resumable sessions, chunk/status/retry, finalization, cancellation, seven-day expiry, restart recovery and configured host/peer Location; normal Go Writer | XML/signed initiation, response replay, provider edge parity and unrestricted resource/durability claims | [Final resumable verification](docs/en/evidence/resumable-upload.md) |
-| Bucket create/get/delete with explicit compatibility profile, retained generations and default event holds | Broad methods remain PARTIAL; bucket settings PATCH/PUT and provider wire questions remain pending | [Final bucket verification](docs/en/evidence/bucket-core-parity.md) |
+| Bucket create/get/delete with explicit compatibility profile, retained generations and default event holds | Broad methods remain PARTIAL; bucket PUT and provider wire questions remain pending | [Final bucket verification](docs/en/evidence/bucket-core-parity.md) |
+| Bucket PATCH label merge/removal, default class, versioning/default holds and atomic metageneration conditions | Whole method remains PARTIAL; advanced settings, full projection and provider edge parity remain pending | [Bucket PATCH verification](docs/en/evidence/bucket-metadata-patch.md) |
 | Strict local tokens and project-level predefined storage roles | Signatures and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
 | Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Policy methods remain PARTIAL; conditions, custom/basic roles, ACLs, testIamPermissions and unresolved wire parity | [Final IAM verification](docs/en/evidence/bucket-iam.md) |
 | Public/private path-style XML GET/HEAD; anonymous and registered-only bucket grants | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines and signatures; broader XML methods and authentication wire parity remain PARTIAL | [Final public-read verification](docs/en/evidence/public-object-reads.md) |
@@ -60,7 +61,8 @@ EXT-XML-012/017 remain PARTIAL for their explicit remaining cases; see the
 
 Bucket create/get/delete and their declared versioning/hold effects are delivered;
 see the [final verification](docs/en/evidence/bucket-core-parity.md).
-Next implement bucket metadata PATCH, then PUT, for labels and the supported
+Bucket metadata PATCH is available in its [documented subset](docs/en/slices/bucket-metadata-patch.md).
+Next implement bucket metadata PUT for labels and the supported
 default storage class. Close the basic CRUD/list/metadata/download contract
 gaps, then implement copy, bounded continuation rewrite and compose. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
@@ -91,7 +93,7 @@ is not assigned an arbitrary percentage.
 
 ## Feature comparison
 
-Snapshot reviewed on **2026-10-22**: gcs-mimic's unreleased `0.1.0`
+Snapshot reviewed on **2026-10-23**: gcs-mimic's unreleased `0.1.0`
 compared with fake-gcs-server `v1.56.1` and gcp-storage-emulator `v2026.07.19`.
 Planned features are not counted.
 
@@ -105,7 +107,8 @@ These workflow summaries derive from the ledger's cases and evidence; they
 are not a second whole-method implementation-status system.
 The other products were reviewed through their documentation, source and tests.
 The pinned reference emulator's filesystem and memory backends also ran the
-[bucket wire corpus](docs/en/evidence/bucket-core-comparison.md); their upstream
+[bucket wire corpus](docs/en/evidence/bucket-core-comparison.md) and
+[bucket PATCH corpus](docs/en/evidence/bucket-metadata-patch-comparison.md); their upstream
 test suites were not run.
 
 ### 🧩 JSON API operations
@@ -128,7 +131,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Bucket metadata GET (`buckets.get`) | ✅ Basic resource; source defaults via compatibility profile | ✅ Basic resource | ✅ Basic resource |
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
-| Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ❌ Not implemented | ❌ These fields are not updated; other PATCH fields exist | 🚧 Assigns fields; no label-key merge/null removal |
+| Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
 | Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ❌ Not implemented | ❌ | ❌ |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
@@ -161,7 +164,7 @@ retention, lifecycle and other advanced fields are outside these rows.
 
 | Row | Requirements for ✅ within this field set |
 | --- | --- |
-| Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; verify empty/null input handling against the pinned source contract. |
+| Bucket PATCH | Merge labels, remove selected label keys, update the supported default class and preserve omitted fields; empty labels merges no keys, labels:null clears the map; null/empty class is rejected. These null/empty rules are declared local choices pending SPEC-BUCKET-PATCH, not service-verified. |
 | Bucket PUT | Replace the supported field set, including labels; verify omitted/null/default behavior independently of PATCH against the pinned source contract. |
 | Object PATCH | Change only supplied fixed fields; merge custom keys; null clears a fixed field or the map and removes individual custom keys; preserve other keys and empty-string custom values. |
 | Object PUT | Replace all scoped fixed/custom metadata; reset omitted fixed fields and custom metadata, including clearing `contentEncoding`; absent content type serves as `application/octet-stream`. |
@@ -178,9 +181,13 @@ gcs-mimic's object PATCH/PUT checkmarks use the executed
 [metadata verification](docs/en/evidence/object-metadata.md) and
 [integrated listing/metadata verification](docs/en/evidence/object-list-metadata.md),
 including merge/removal, replacement/defaults, unchanged object bytes and GET
-consistency. The broader method rows remain `PARTIAL`. Bucket PATCH/PUT remain
-unavailable; their checkmarks require implementation and passing evidence for
-the criteria above.
+consistency. Bucket PATCH uses the [frozen contract](docs/en/slices/bucket-metadata-patch.md),
+[reference comparison](docs/en/evidence/bucket-metadata-patch-comparison.md) and
+[integration evidence](docs/en/evidence/bucket-metadata-patch.md). Whole-map null
+clearing interprets the general PATCH deletion rule; scalar null/default,
+unknown/output-only input and no-effect revision behavior remain unverified
+against Google. The broader method rows remain `PARTIAL`. Bucket PUT remains
+unavailable and needs independent replacement/default evidence.
 
 The scoped checkmarks above use recorded execution evidence:
 [final bucket core and history](docs/en/evidence/bucket-core-parity.md),
@@ -191,7 +198,7 @@ The scoped checkmarks above use recorded execution evidence:
 [range](docs/en/evidence/object-range.md) and
 [final integrated regressions](docs/en/evidence/resumable-upload.md).
 Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
-wire-edge gaps remain recorded in the ledger. Bucket PATCH/PUT, copy, rewrite
+wire-edge gaps remain recorded in the ledger. Bucket PUT, copy, rewrite
 and compose remain unavailable until implemented and verified; the new roadmap
 does not turn them into completed features.
 

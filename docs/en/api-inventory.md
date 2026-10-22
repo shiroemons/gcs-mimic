@@ -419,8 +419,8 @@ grants never authorize project-scoped bucket insert/list.
 
 - `compatibility/upstream/json-methods.json`: verb, path, parameters, request/response schema refs and upload/download capabilities for 87 methods.
 - `compatibility/upstream/json-schemas.json`: factual field/type/enum/ref nesting for all 38 schemas and global query parameters.
-- `compatibility/schema-field-coverage.json`: 357 property locations, each pending decomposition and verification.
-- `compatibility/parameter-coverage.json`: 401 global/per-method path/query parameter locations, each pending.
+- `compatibility/schema-field-coverage.json`: 357 property locations; selected Bucket PATCH fields have scoped acceptance cases, with broader method coverage pending.
+- `compatibility/parameter-coverage.json`: 401 global/per-method path/query parameter locations; buckets.patch parameters have scoped cases and explicit unsupported semantics.
 - `compatibility/upstream/storage-rpc-methods.json`:24 Storage v2 signatures and streaming flags.
 - `compatibility/upstream/auxiliary-rpc-methods.json`:60 direct Control/Insights/Batch signatures, typed LRO metadata, HTTP bindings and shared service registrations.
 

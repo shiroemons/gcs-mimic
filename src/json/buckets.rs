@@ -1,5 +1,5 @@
 use super::{JsonError, Projection, query::validate_project};
-use crate::bucket::BucketRecord;
+use crate::bucket::{BucketMetadataUpdate, BucketRecord, valid_label, validate_storage_class};
 use crate::config::CompatProfile;
 use hyper::StatusCode;
 use serde_json::{Value, json};
@@ -7,6 +7,8 @@ use std::{
     collections::BTreeMap,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+const LEGACY_LOCATION: &str = "US-CENTRAL1";
 
 pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "acl",
@@ -187,22 +189,7 @@ pub fn parse_insert_with_profile(
     } else {
         string("storageClass", Some("STANDARD"))?
     };
-    if matches!(storage_class.as_str(), "REGIONAL" | "RAPID") {
-        return Err(JsonError::unsupported(
-            "storageClass requires a region or zone",
-        ));
-    }
-    if !matches!(
-        storage_class.as_str(),
-        "STANDARD"
-            | "NEARLINE"
-            | "COLDLINE"
-            | "ARCHIVE"
-            | "MULTI_REGIONAL"
-            | "DURABLE_REDUCED_AVAILABILITY"
-    ) {
-        return Err(JsonError::invalid_argument("Invalid bucket storageClass"));
-    }
+    validate_storage_class(&storage_class)?;
     let mut labels = BTreeMap::new();
     if let Some(value) = body
         .get("labels")
@@ -251,16 +238,128 @@ pub fn parse_insert_with_profile(
     })
 }
 
-fn valid_label(value: &str, key: bool) -> bool {
-    let initial = |character: char| {
-        character.is_ascii_lowercase()
-            || (!character.is_ascii() && character.is_alphabetic() && !character.is_uppercase())
+pub fn parse_bucket_patch(
+    bytes: &[u8],
+    profile: CompatProfile,
+) -> Result<BucketMetadataUpdate, JsonError> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
+        JsonError::new(
+            StatusCode::BAD_REQUEST,
+            "parseError",
+            "Invalid JSON bucket resource",
+        )
+    })?;
+    let body = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
+    for field in UNSUPPORTED_FIELDS {
+        if body.contains_key(*field) {
+            if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
+                continue;
+            }
+            return Err(JsonError::unsupported(field));
+        }
+    }
+    // shortcut: legacy JSON unknown/output-only handling needs service evidence; use insert's ignored-input rule.
+    let string = |field: &str| {
+        body.get(field)
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| JsonError::invalid_argument(format!("{field} must be a string")))
+            })
+            .transpose()
     };
-    value.chars().count() <= 63
-        && (!key || value.chars().next().is_some_and(initial))
-        && value.chars().all(|character| {
-            initial(character) || character.is_numeric() || matches!(character, '_' | '-')
+    let boolean = |value: Option<&Value>, field: &str| {
+        value
+            .map(|value| {
+                if value.is_null() && profile == CompatProfile::LegacyEmulator {
+                    return Ok(false);
+                }
+                value.as_bool().ok_or_else(|| {
+                    JsonError::invalid_argument(format!("{field} must be a boolean"))
+                })
+            })
+            .transpose()
+    };
+    let storage_class = string("storageClass")?;
+    if let Some(class) = &storage_class {
+        validate_storage_class(class)?;
+    }
+    let labels = body
+        .get("labels")
+        .map(|value| {
+            if value.is_null() {
+                return Ok(None);
+            }
+            let labels = value
+                .as_object()
+                .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
+            labels
+                .iter()
+                .map(|(key, value)| {
+                    let value = if value.is_null() {
+                        None
+                    } else {
+                        Some(
+                            value
+                                .as_str()
+                                .ok_or_else(|| {
+                                    JsonError::invalid_argument(
+                                        "Label values must be strings or null",
+                                    )
+                                })?
+                                .to_owned(),
+                        )
+                    };
+                    if !valid_label(key, true)
+                        || value
+                            .as_deref()
+                            .is_some_and(|value| !valid_label(value, false))
+                    {
+                        return Err(JsonError::invalid_argument("Invalid bucket label"));
+                    }
+                    Ok((key.clone(), value))
+                })
+                .collect::<Result<_, JsonError>>()
+                .map(Some)
         })
+        .transpose()?;
+    let versioning_enabled = body
+        .get("versioning")
+        .map(|value| {
+            if value.is_null() && profile == CompatProfile::LegacyEmulator {
+                return Ok(Some(false));
+            }
+            let versioning = value
+                .as_object()
+                .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
+            boolean(versioning.get("enabled"), "versioning.enabled")
+        })
+        .transpose()?
+        .flatten();
+    let mut location = string("location")?;
+    if profile == CompatProfile::LegacyEmulator {
+        if location
+            .as_ref()
+            .is_some_and(|location| !location.eq_ignore_ascii_case(LEGACY_LOCATION))
+        {
+            return Err(JsonError::unsupported("location"));
+        }
+        // The profile exposes a fixed location independently of the stored placement.
+        location = None;
+    }
+    Ok(BucketMetadataUpdate {
+        labels,
+        storage_class,
+        versioning_enabled,
+        default_event_based_hold: boolean(
+            body.get("defaultEventBasedHold"),
+            "defaultEventBasedHold",
+        )?,
+        location,
+    })
 }
 
 /// Render supported metadata using a caller-validated advertised origin/base path.
@@ -303,14 +402,15 @@ pub fn bucket_resource_with_profile(
         value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();
     }
     if profile == CompatProfile::LegacyEmulator {
-        value["location"] = "US-CENTRAL1".into();
+        value["location"] = LEGACY_LOCATION.into();
         value["locationType"] = "region".into();
-        value["storageClass"] = "STANDARD".into();
         value["projectNumber"] = "0".into();
-        value["metageneration"] = "1".into();
-        value["etag"] = "RVRhZw==".into();
-        value["updated"] = value["timeCreated"].clone();
-        value.as_object_mut().unwrap().remove("labels");
+        if bucket.metageneration == 1 {
+            value["storageClass"] = "STANDARD".into();
+            value["etag"] = "RVRhZw==".into();
+            value["updated"] = value["timeCreated"].clone();
+            value.as_object_mut().unwrap().remove("labels");
+        }
     }
     Ok(value)
 }

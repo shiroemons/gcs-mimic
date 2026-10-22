@@ -1,6 +1,6 @@
 {
-  "as_of": "2026-10-21",
-  "note": "Property locations from all38 JSON schemas; references are preserved in upstream/json-schemas.json rather than recursively expanded. This inventory does not cover every XML or protobuf field. Every item is unimplemented.",
+  "as_of": "2026-10-23",
+  "note": "Property locations from all 38 JSON schemas; references are preserved in upstream/json-schemas.json rather than recursively expanded. Selected Bucket PATCH fields have scoped cases; broader method and provider coverage remains pending. This inventory does not cover every XML or protobuf field.",
   "count": 357,
   "fields": [
     {
@@ -383,9 +383,36 @@
       "shape": {
         "type": "boolean"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket defaultEventBasedHold: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.defaultObjectAcl",
@@ -541,9 +568,34 @@
       "shape": {
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket etag: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.generation",
@@ -810,9 +862,34 @@
       "shape": {
         "type": "object"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket labels: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.lifecycle",
@@ -1106,9 +1183,34 @@
         "type": "string",
         "format": "int64"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket metageneration: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.name",
@@ -1366,9 +1468,34 @@
       "shape": {
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket storageClass: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.timeCreated",
@@ -1390,9 +1517,34 @@
         "type": "string",
         "format": "date-time"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket updated: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.versioning",
@@ -1401,9 +1553,36 @@
       "shape": {
         "type": "object"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket versioning: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.versioning.enabled",
@@ -1412,9 +1591,36 @@
       "shape": {
         "type": "boolean"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket versioning.enabled: scoped PATCH mutation/response/persistence verified in docs/en/evidence/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Broader all-method field interactions and provider edge behavior remain unverified; PATCH subset does not complete the resource field.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.website",

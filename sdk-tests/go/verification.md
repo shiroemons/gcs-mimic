@@ -1,5 +1,41 @@
 # Go SDK harness verification
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+## Bucket metadata PATCH contract tests: 2026-10-23
+
+`TestBucketMetadataUpdate` and `TestStrictAuthBucketMetadataUpdate` add official
+SDK acceptance cases for label merge/null removal, default storage class,
+versioning/default hold true and false, both bucket metageneration conditions,
+read-after-write metadata consistency and strict read-only denial. The existing
+guarded clients and local-only identity registry are reused.
+
+The slice-start `cargo xtask dependencies check` exited 0: Go 1.27.3,
+Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0 are CURRENT. No module or
+lockfile changes were made. `GOTOOLCHAIN=auto go vet ./...` passed and the two
+new tests compile and explicitly skip with emulator endpoints unset.
+Against reviewed application source `2b4441cef21370f95cfb3506da1cbf1ebda09787`,
+merged in verification checkout `3035d23f7b3a9c85a786441fc07c961d037c8eca`,
+the final `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh` exited 0:
+vet, all 31 top-level tests and 73 subtests passed, with zero failures or skips
+(package time 3.239s). The four-target pinned reference comparison also exited 0,
+with 185 requests per target, 740 records total and both PATCH assertion groups
+passing. The two bucket PATCH tests pass against isolated permissive/strict
+native servers; the raw corpus independently verifies both compatibility profiles.
+The [comparison evidence](../../docs/en/evidence/bucket-metadata-patch-comparison.md)
+records exact serializer mappings, documented reference differences and the final
+raw comparison plus complete SDK output. These checks involved no dependency
+updates, real Google buckets, metadata server, container build or upstream
+test-suite execution. Markdownlint passes; MD013 alone is disabled for existing
+long tables and reproducible commands. The local-path scan and diff checks pass.
+
+`updated` uses the injected clock and JSON millisecond precision. Consecutive
+updates can share a timestamp; tests require it to be non-decreasing and not
+before creation time. A successful mutation is established independently by
+metageneration increasing exactly once, a changed ETag, the requested metadata
+change and agreement with subsequent Attrs. Failed conditions and denied
+permissions must preserve the entire checked metadata revision.
+
 ## Resumable Writer contract tests: 2026-10-22
 
 The official Go download feed and module-proxy `@latest` endpoints confirm the

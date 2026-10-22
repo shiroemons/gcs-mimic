@@ -125,6 +125,8 @@ impl From<CatalogError> for JsonError {
                 "Precondition failed",
             ),
             CatalogError::Forbidden => Self::forbidden(),
+            CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
+            CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Unavailable(_) => Self::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "backendError",
