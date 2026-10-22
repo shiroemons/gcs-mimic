@@ -1,0 +1,236 @@
+JSON resumable upload resource measurements, 2026-10-22 (UTC).
+Raw output below contains no local paths or capability URLs.
+
+Measured application source: 1c27c9ebbd6e6f64e538d92917f47ce827ed5c18.
+Release binary SHA-256:
+c9b70c3265a1f41ad31acc06820770e226857eec0cfc16150d7f533e789cd83d.
+The later Docker builder index refresh changes no application source or native binary.
+Scope: resumable-upload buffering completion condition and RSM-CHUNK-009;
+no compatibility ledger status is changed by this log.
+
+Host and tools:
+- Darwin 27.0.0 arm64, macOS 27.0.1 build 26A434, model Mac16,11.
+- 68,719,476,736 bytes host RAM; 14 logical CPUs; APFS-backed host data volume.
+- rustc 1.99.1 (58cf8f9c3 2026-10-13), aarch64-apple-darwin,
+  LLVM 23.1.1; cargo 1.99.1 (5f94df478 2026-08-27).
+- curl 8.7.1 (x86_64-apple-darwin26.0), libcurl 8.7.1,
+  SecureTransport, LibreSSL 3.3.6; macOS Bash 3.2, Perl Time::HiRes,
+  ps, /usr/bin/time -l, shasum -a 256 and jq.
+
+Exact reproduction from <checkout>:
+  cargo build --release --locked
+  bash -n scripts/measure-resumable.sh
+  shellcheck scripts/measure-resumable.sh
+  bash scripts/measure-resumable.sh
+Results: release build PASS (24.27 seconds); syntax and shellcheck PASS;
+one complete successful measurement run, five workloads, no transfer errors.
+An initial harness invocation stopped before its first PUT because macOS Bash
+rejects an empty array under nounset; the array was fixed before measurements.
+
+Declared profile and methods:
+- A fresh native release server and isolated $TMPDIR catalog for every workload;
+  permissive local authentication, loopback HTTP/1, no TLS or cloud requests.
+- Explicit --max-object-bytes 2147483648 (2 GiB). Other defaults are unchanged:
+  32 connections, 2 async workers, 2 blocking workers, 8 upload-body permits,
+  32 catalog admissions, one executing SQLite job, 2 MiB SQLite cache,
+  FULL synchronous WAL, 5-second body-inactivity and 900-second absolute budget.
+- 128 retained-session cap, two copied 64 KiB body-channel slots per upload.
+  These are configured/source bounds, distinct from the measurements below.
+- One 8 MiB /dev/urandom chunk file is repeated to construct each logical
+  object. curl -T streams this disk file; neither client nor server receives
+  an object-sized input array. No compression is requested. Repetition means
+  this is not a unique-random-byte, compression or deduplication benchmark.
+- Raw JSON initiation POST returns a fixed client-reachable Location, consumed
+  unchanged. Each PUT carries Content-Range and an 8 MiB body. Assert HTTP 308
+  and exact Range for intermediate requests, then HTTP 200/201 and exact final
+  metadata size. All observed final responses were 200.
+- Upload wall time uses Perl Time::HiRes around the upload wave, excluding
+  initiation, expected hashing and verification downloads. Throughput is total
+  uploaded MiB divided by that interval, including client process/loop overhead.
+- ps -p <server-pid> -o rss= samples native process RSS (KiB) every 0.05 seconds
+  plus ps execution overhead, from before uploads through their completion.
+  Sampled peaks can miss short transients. Baselines follow session initiation.
+- /usr/bin/time -l wraps the server itself. Its maximum resident set size is
+  bytes, covers startup, upload, verification downloads and orderly SIGTERM,
+  and is reported separately from upload-only samples and peak footprint.
+- Server upload CPU is the difference of ps -o time= immediately before/after
+  the upload wave (0.01-second display precision); this excludes downloads.
+  Whole-lifetime user/sys CPU comes separately from time -l. No child clients
+  or samplers are included in server CPU/RSS.
+- curl time_total measures each request including upload and response wait;
+  final-request latency includes its last chunk and finalization work. p50/p95
+  are sorted lower empirical quantiles: index floor((n-1)*p)+1, not interpolated.
+  They describe chunk requests in one run, not independent repeated trials.
+- Slow case uses curl --limit-rate 1M (1 MiB/s) on each of its two PUTs.
+  Concurrent case initiates all eight sessions before launching eight clients,
+  each with a 256 MiB object (2 GiB aggregate), then waits for every client.
+- Expected SHA-256 is computed by streaming repeated disk chunks to shasum;
+  each verification download streams curl output to shasum with pipefail.
+  All twelve object downloads match. Disk is du -sk of the server data directory
+  after uploads, including blobs, SQLite, WAL/SHM and directory allocation;
+  it excludes the 8 MiB client fixture and is not a time-sampled disk peak.
+- Every case stops its server and removes its own temporary data afterward.
+
+Measured summary (MiB = 1048576 bytes; RSS KiB = 1024 bytes):
+case         object MiB  sessions  upload peak RSS MiB  lifetime max RSS MiB  CPU s  wall s     MiB/s    final latency s
+small                16         1                 6.80                  7.16   0.06    0.101039  158.354  0.053073
+medium              256         1                 7.20                  7.73   0.98    1.329243  192.591  0.441350
+large              1024         1                 7.23                  7.81   3.66    5.089183  201.211  1.676408
+slow                 16         1                 6.95                  7.25   0.14   16.161522    0.990  8.098895
+concurrent          256         8                10.33                 10.61   6.01    4.101328  499.350  1.504904..1.542089
+
+Conclusion strictly limited to this host/profile/run:
+Single-session 16 MiB, 256 MiB and 1 GiB uploads had sampled server RSS peaks
+of 6960, 7376 and 7408 KiB, respectively (within 7.24 MiB); lifetime maximum
+RSS stayed within 7.82 MiB. A 64-fold increase in object size did not produce
+proportional resident growth in these cases. The slow case stayed within
+7.26 MiB lifetime RSS and eight simultaneous sessions within 10.61 MiB.
+This supports bounded buffering for the measured large/slow/concurrent cases;
+it does not prove constant memory for all payload sizes or concurrency profiles.
+Finalization latency increases with object size in this run; no throughput or
+latency improvement over another implementation or revision is claimed.
+
+Not performed: Linux/container/cgroup memory.peak, container RSS, a 128 MiB
+container-limit proof, memory pressure, disk-full tests, crash/power-loss tests,
+real-cloud differential traffic, SDK suites or repeated statistical trials.
+Host filesystem cache and macOS memory accounting differ from Linux cgroups;
+process RSS must not be interpreted as cgroup memory or total host cache use.
+The one ARM64 Docker build recorded in freshness evidence is a build check,
+not a container resource measurement.
+
+Raw successful run follows (unaltered):
+
+case=small object_MiB=16 sessions=1 chunk_MiB=8 rate=none baseline_RSS_KiB=6368 sampled_upload_peak_RSS_KiB=6960 disk_KiB=16568
+upload_wall_seconds=0.101039 throughput_MiB_s=158.354 server_upload_CPU_seconds=0.06 CPU_seconds_per_GiB=3.840
+final id=1 status=200 latency_seconds=0.053073
+chunk_request_count=2 latency_seconds_p50=0.017441 p95=0.017441 max=0.053073
+sha256 id=1 expected=b163e3c2cf5a4fec490112d00180ecdd6aacb025bca231ff91b08fea156a5b5f actual=b163e3c2cf5a4fec490112d00180ecdd6aacb025bca231ff91b08fea156a5b5f MATCH
+        0.28 real         0.03 user         0.04 sys
+             7503872  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 795  page reclaims
+                   2  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 341  messages sent
+                1031  messages received
+                   1  signals received
+                  53  voluntary context switches
+                5561  involuntary context switches
+           476673542  instructions retired
+           282886147  cycles elapsed
+             3555736  peak memory footprint
+
+case=medium object_MiB=256 sessions=1 chunk_MiB=8 rate=none baseline_RSS_KiB=6384 sampled_upload_peak_RSS_KiB=7376 disk_KiB=262488
+upload_wall_seconds=1.329243 throughput_MiB_s=192.591 server_upload_CPU_seconds=0.98 CPU_seconds_per_GiB=3.920
+final id=1 status=200 latency_seconds=0.441350
+chunk_request_count=32 latency_seconds_p50=0.017044 p95=0.020504 max=0.441350
+sha256 id=1 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+        2.60 real         0.53 user         0.59 sys
+             8110080  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 832  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                5833  messages sent
+               16422  messages received
+                   1  signals received
+                 434  voluntary context switches
+               88893  involuntary context switches
+          6701893743  instructions retired
+          4186326345  cycles elapsed
+             4178328  peak memory footprint
+
+case=large object_MiB=1024 sessions=1 chunk_MiB=8 rate=none baseline_RSS_KiB=6368 sampled_upload_peak_RSS_KiB=7408 disk_KiB=1049316
+upload_wall_seconds=5.089183 throughput_MiB_s=201.211 server_upload_CPU_seconds=3.66 CPU_seconds_per_GiB=3.660
+final id=1 status=200 latency_seconds=1.676408
+chunk_request_count=128 latency_seconds_p50=0.015176 p95=0.019770 max=1.676408
+sha256 id=1 expected=3622a1dbacb810811118251abe0f3e7720be7a839065f3b2e4e69f353c93b51f actual=3622a1dbacb810811118251abe0f3e7720be7a839065f3b2e4e69f353c93b51f MATCH
+        9.92 real         2.09 user         2.13 sys
+             8192000  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 837  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               23102  messages sent
+               65670  messages received
+                   1  signals received
+                1725  voluntary context switches
+              330806  involuntary context switches
+         24148548856  instructions retired
+         15725573950  cycles elapsed
+             4276656  peak memory footprint
+
+case=slow object_MiB=16 sessions=1 chunk_MiB=8 rate=1M baseline_RSS_KiB=6352 sampled_upload_peak_RSS_KiB=7120 disk_KiB=16664
+upload_wall_seconds=16.161522 throughput_MiB_s=0.990 server_upload_CPU_seconds=0.14 CPU_seconds_per_GiB=8.960
+final id=1 status=200 latency_seconds=8.098895
+chunk_request_count=2 latency_seconds_p50=8.020220 p95=8.020220 max=8.098895
+sha256 id=1 expected=b163e3c2cf5a4fec490112d00180ecdd6aacb025bca231ff91b08fea156a5b5f actual=b163e3c2cf5a4fec490112d00180ecdd6aacb025bca231ff91b08fea156a5b5f MATCH
+       16.34 real         0.06 user         0.09 sys
+             7602176  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 801  page reclaims
+                   2  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                 366  messages sent
+                1033  messages received
+                   1  signals received
+                  51  voluntary context switches
+                5331  involuntary context switches
+           428810057  instructions retired
+           374919941  cycles elapsed
+             3670448  peak memory footprint
+
+case=concurrent object_MiB=256 sessions=8 chunk_MiB=8 rate=none baseline_RSS_KiB=6560 sampled_upload_peak_RSS_KiB=10576 disk_KiB=2166888
+upload_wall_seconds=4.101328 throughput_MiB_s=499.350 server_upload_CPU_seconds=6.01 CPU_seconds_per_GiB=3.005
+final id=1 status=200 latency_seconds=1.510616
+final id=2 status=200 latency_seconds=1.504904
+final id=3 status=200 latency_seconds=1.525811
+final id=4 status=200 latency_seconds=1.510026
+final id=5 status=200 latency_seconds=1.533621
+final id=6 status=200 latency_seconds=1.533155
+final id=7 status=200 latency_seconds=1.537426
+final id=8 status=200 latency_seconds=1.542089
+chunk_request_count=256 latency_seconds_p50=0.064201 p95=0.087254 max=1.542089
+sha256 id=1 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=2 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=3 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=4 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=5 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=6 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=7 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+sha256 id=8 expected=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb actual=4774e83e7d18cd6d9759bab49c79a6a56bb7b2efa50f3a3866be2a92adc55bcb MATCH
+        9.53 real         3.88 user         3.14 sys
+            11124736  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1017  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+               45392  messages sent
+              131444  messages received
+                   1  signals received
+                4327  voluntary context switches
+              230298  involuntary context switches
+         41002533141  instructions retired
+         26295716030  cycles elapsed
+             7160240  peak memory footprint
+PASS: all chunk statuses, acknowledged ranges, final metadata sizes and download SHA-256 checks.
