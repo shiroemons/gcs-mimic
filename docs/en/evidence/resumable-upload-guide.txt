@@ -1,0 +1,2168 @@
+Local path prefixes were redacted as <checkout>, <home> and <temporary-directory>; resumable upload_id capability values were redacted as <redacted>; all other output is unchanged.
+Source: 05001b1fc8b84c072b1adc163e61453df2b7d04b
+Command: extract every sh block from docs/en/getting-started.md in document order and run with env -u GOOGLE_APPLICATION_CREDENTIALS -u GOOGLE_CLOUD_PROJECT -u GCLOUD_PROJECT -u CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE -u STORAGE_EMULATOR_HOST bash -euvxo pipefail
+Instrumentation: print one successful-exit marker after each shell block and capture resumable response artifacts before the documented temporary-directory cleanup.
+export COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-$$
++ export COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-56726
++ COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-56726
+export GCS_MIMIC_IMAGE="gcs-mimic:object-demo-$$"
++ export GCS_MIMIC_IMAGE=gcs-mimic:object-demo-56726
++ GCS_MIMIC_IMAGE=gcs-mimic:object-demo-56726
+docker build -t "$GCS_MIMIC_IMAGE" .
++ docker build -t gcs-mimic:object-demo-56726 .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.82kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 248B done
+#6 DONE 0.0s
+
+#7 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#7 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.0s done
+#7 DONE 0.0s
+
+#8 [build 1/9] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.0s done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 2.31kB done
+#9 DONE 0.0s
+
+#10 [runtime 2/5] WORKDIR /app
+#10 CACHED
+
+#11 [build 2/9] WORKDIR /build
+#11 CACHED
+
+#12 [build 8/9] COPY distribution/notices ./distribution/notices
+#12 CACHED
+
+#13 [build 3/9] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#13 CACHED
+
+#14 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#14 CACHED
+
+#15 [build 4/9] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#15 CACHED
+
+#16 [build 5/9] COPY xtask/src ./xtask/src
+#16 CACHED
+
+#17 [build 6/9] COPY src ./src
+#17 CACHED
+
+#18 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#18 CACHED
+
+#19 [build 9/9] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#19 CACHED
+
+#20 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#20 CACHED
+
+#21 [build 7/9] COPY LICENSE-MIT LICENSE-APACHE ./
+#21 CACHED
+
+#22 exporting to image
+#22 exporting layers done
+#22 exporting manifest sha256:c52a51adca73289415556f4f37940935e84d77909bceb002db7c3b637c1c843d done
+#22 exporting config sha256:92f07c40253b66e943a93618959ff1349b4d39f6dfaf7333a87f8c66098b060a done
+#22 exporting attestation manifest sha256:93801bc35d911b71a6236f0f48c157f17a3c4edd8d1703b1b5b7b7282160217b 0.0s done
+#22 exporting manifest list sha256:965d9e739294911d73cff41aaf4870cb8d3aaf1d591ad609d4d4051d869f6177
+#22 exporting manifest list sha256:965d9e739294911d73cff41aaf4870cb8d3aaf1d591ad609d4d4051d869f6177 0.0s done
+#22 naming to docker.io/library/gcs-mimic:object-demo-56726 done
+#22 unpacking to docker.io/library/gcs-mimic:object-demo-56726 0.0s done
+#22 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/lnf8ics0nzbulprevojhh8nvx
+export GCS_MIMIC_PORT=0
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
+docker compose config --quiet
++ docker compose config --quiet
+docker compose up -d --wait
++ docker compose up -d --wait
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Creating 
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Created 
+ Volume gcs-mimic-object-demo-56726_gcs-data Created 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Creating 
+ Container gcs-mimic-object-demo-56726-gcs-1 Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+address=$(docker compose port gcs 4443)
+docker compose port gcs 4443
+++ docker compose port gcs 4443
++ address=127.0.0.1:55275
+endpoint="http://$address"
++ endpoint=http://127.0.0.1:55275
+docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+curl --disable --noproxy '*' --fail "$endpoint/_internal/health"
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55275/_internal/health
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  12574      0 --:--:-- --:--:-- --:--:-- 19000
+{"status":"ok","unix_time":1792670147}curl --disable --noproxy '*' --fail "$endpoint/_internal/ready"
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55275/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0   3364      0 --:--:-- --:--:-- --:--:--  3454
+{"status":"ok","unix_time":1792670147}printf '\nPASS: guide shell block 1 (exit 0)\n'
++ printf '\nPASS: guide shell block 1 (exit 0)\n'
+
+PASS: guide shell block 1 (exit 0)
+export GCS_MIMIC_PORT=${address##*:}
++ export GCS_MIMIC_PORT=55275
++ GCS_MIMIC_PORT=55275
+export GCS_MIMIC_API_BASE_URL="$endpoint"
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55275
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55275
+docker compose up -d --wait
++ docker compose up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+printf '\nPASS: guide shell block 2 (exit 0)\n'
++ printf '\nPASS: guide shell block 2 (exit 0)\n'
+
+PASS: guide shell block 2 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' \
+  "$endpoint/storage/v1/b?project=local-project"
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55275/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64  40803   6730 --:--:-- --:--:-- --:--:-- 50222
+{"etag":"\"b-1792670150873-1792670150873-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:50.873Z","updated":"2026-10-22T11:55:50.873Z"}curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55275/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   112k      0 --:--:-- --:--:-- --:--:--  126k
+{"etag":"\"b-1792670150873-1792670150873-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:50.873Z","updated":"2026-10-22T11:55:50.873Z"}curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55275/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0  42576      0 --:--:-- --:--:-- --:--:-- 47222
+{"items":[{"etag":"\"b-1792670150873-1792670150873-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:50.873Z","updated":"2026-10-22T11:55:50.873Z"}],"kind":"storage#buckets"}printf '\nPASS: guide shell block 3 (exit 0)\n'
++ printf '\nPASS: guide shell block 3 (exit 0)\n'
+
+PASS: guide shell block 3 (exit 0)
+peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
++ peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"peer-bucket"}' 'http://gcs:4443/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    384 100    362 100     22  50693   3080                              0100    384 {"etag":"\"b-1792670151277-1792670151277-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:51.277Z","updated":"2026-10-22T11:55:51.277Z"}100    362 100     22  48253   2932                              0100    384 100    362 100     22  46238   2810                              0
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/peer-bucket
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    362 100    362   0      0  87460      0                              0100    362 100    362   0      0  86665      0                              0100    362 100    362   0      0  86520      0                              0
+{"etag":"\"b-1792670151277-1792670151277-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:51.277Z","updated":"2026-10-22T11:55:51.277Z"}docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b?project=local-project&prefix=peer-'
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b?project=local-project&prefix=peer-'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    399 100    399   0      0  67216      0                              0100    399 100    399   0      0  67013      0                              0100    399 100    399   0      0  66923      0                              0
+{"items":[{"etag":"\"b-1792670151277-1792670151277-1\"","id":"peer-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"peer-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/peer-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:51.277Z","updated":"2026-10-22T11:55:51.277Z"}],"kind":"storage#buckets"}docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+printf '\nPASS: guide shell block 4 (exit 0)\n'
++ printf '\nPASS: guide shell block 4 (exit 0)\n'
+
+PASS: guide shell block 4 (exit 0)
+work_dir=$(mktemp -d)
+mktemp -d
+++ mktemp -d
++ work_dir=<temporary-directory>/tmp.9Cafvtxcg6
+printf 'Hello from gcs-mimic.\n' > "$work_dir/upload.txt"
++ printf 'Hello from gcs-mimic.\n'
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' \
+  -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temporary-directory>/tmp.9Cafvtxcg6/upload.txt 'http://127.0.0.1:55275/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   765  100   743  100    22  44384   1314 --:--:-- --:--:-- --:--:-- 47812
+jq . "$work_dir/object.json"
++ jq . <temporary-directory>/tmp.9Cafvtxcg6/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-1\"",
+  "generation": "1792670152843969",
+  "id": "demo-bucket/notes/hello.txt/1792670152843969",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T11:55:52.843Z",
+  "timeFinalized": "2026-10-22T11:55:52.843Z",
+  "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+  "updated": "2026-10-22T11:55:52.843Z"
+}
+generation=$(jq -r .generation "$work_dir/object.json")
+jq -r .generation "$work_dir/object.json"
+++ jq -r .generation <temporary-directory>/tmp.9Cafvtxcg6/object.json
++ generation=1792670152843969
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   743  100   743    0     0   162k      0 --:--:-- --:--:-- --:--:--  181k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-1\"",
+  "generation": "1792670152843969",
+  "id": "demo-bucket/notes/hello.txt/1792670152843969",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T11:55:52.843Z",
+  "timeFinalized": "2026-10-22T11:55:52.843Z",
+  "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+  "updated": "2026-10-22T11:55:52.843Z"
+}
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792670152843969' --output <temporary-directory>/tmp.9Cafvtxcg6/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   3386      0 --:--:-- --:--:-- --:--:--  3666
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
++ cmp <temporary-directory>/tmp.9Cafvtxcg6/upload.txt <temporary-directory>/tmp.9Cafvtxcg6/download.txt
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/condition.json" \
+  --write-out '%{http_code}' -H 'Content-Type: text/plain' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+curl --disable --noproxy '*' --silent --output "$work_dir/condition.json"   --write-out '%{http_code}' -H 'Content-Type: text/plain'   --data-binary @"$work_dir/upload.txt"   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0"
+++ curl --disable --noproxy '*' --silent --output <temporary-directory>/tmp.9Cafvtxcg6/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temporary-directory>/tmp.9Cafvtxcg6/upload.txt 'http://127.0.0.1:55275/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
++ status=412
+test "$status" = 412
++ test 412 = 412
+jq . "$work_dir/condition.json"
++ jq . <temporary-directory>/tmp.9Cafvtxcg6/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/not-modified" \
+  --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+curl --disable --noproxy '*' --silent --output "$work_dir/not-modified"   --write-out '%{http_code}'   "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation"
+++ curl --disable --noproxy '*' --silent --output <temporary-directory>/tmp.9Cafvtxcg6/not-modified --write-out '%{http_code}' 'http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792670152843969'
++ status=304
+test "$status" = 304
++ test 304 = 304
+test ! -s "$work_dir/not-modified"
++ test '!' -s <temporary-directory>/tmp.9Cafvtxcg6/not-modified
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/nonempty.json" \
+  --write-out '%{http_code}' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+curl --disable --noproxy '*' --silent --output "$work_dir/nonempty.json"   --write-out '%{http_code}' -X DELETE "$endpoint/storage/v1/b/demo-bucket"
+++ curl --disable --noproxy '*' --silent --output <temporary-directory>/tmp.9Cafvtxcg6/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:55275/storage/v1/b/demo-bucket
++ status=409
+test "$status" = 409
++ test 409 = 409
+jq . "$work_dir/nonempty.json"
++ jq . <temporary-directory>/tmp.9Cafvtxcg6/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
+printf '\nPASS: guide shell block 5 (exit 0)\n'
++ printf '\nPASS: guide shell block 5 (exit 0)\n'
+
+PASS: guide shell block 5 (exit 0)
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'peer data' \
+  'http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=peer%2Fhello.txt'
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'peer data' 'http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=peer%2Fhello.txt'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    747 100    738 100      9  38353    467                        {"bucket":"demo-bucket","contentType":"text/plain","crc32c":"bXKHqg==","etag":"\"o-Q3LJnuufn1o/BuroHlr6RA==-1792670153234959-1\"","generation":"1792670153234959","id":"demo-bucket/peer/hello.txt/1792670153234959","kind":"storage#object","md5Hash":"Q3LJnuufn1o/BuroHlr6RA==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/peer%2Fhello.txt?generation=1792670153234959&alt=media","metageneration":"1","name":"peer/hello.txt","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/peer%2Fhello.txt","size":"9","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:53.234Z","timeFinalized":"2026-10-22T11:55:53.234Z","timeStorageClassUpdated":"2026-10-22T11:55:53.234Z","updated":"2026-10-22T11:55:53.234Z"}      0100    747 100    738 100      9  38062    464                              0100    747 100    738 100      9  38049    464                              0
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100    738 100    738   0      0 439.1k      0                              0100    738 100    738   0      0 415.8k      0                              0100    738 100    738   0      0 399.2k      0                              0
+{"bucket":"demo-bucket","contentType":"text/plain","crc32c":"bXKHqg==","etag":"\"o-Q3LJnuufn1o/BuroHlr6RA==-1792670153234959-1\"","generation":"1792670153234959","id":"demo-bucket/peer/hello.txt/1792670153234959","kind":"storage#object","md5Hash":"Q3LJnuufn1o/BuroHlr6RA==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/peer%2Fhello.txt?generation=1792670153234959&alt=media","metageneration":"1","name":"peer/hello.txt","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/peer%2Fhello.txt","size":"9","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:53.234Z","timeFinalized":"2026-10-22T11:55:53.234Z","timeStorageClassUpdated":"2026-10-22T11:55:53.234Z","updated":"2026-10-22T11:55:53.234Z"}docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media' \
+  > "$work_dir/peer-download.txt"
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail 'http://gcs:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100     22 100     22   0      0   5664      0                              0100     22 100     22   0      0   5648      0                              0100     22 100     22   0      0   5638      0                              0
+cmp "$work_dir/upload.txt" "$work_dir/peer-download.txt"
++ cmp <temporary-directory>/tmp.9Cafvtxcg6/upload.txt <temporary-directory>/tmp.9Cafvtxcg6/peer-download.txt
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
++ docker run --rm --read-only --network gcs-mimic-object-demo-56726_default curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0  0      0   0      0   0      0      0      0                              0
+printf '\nPASS: guide shell block 6 (exit 0)\n'
++ printf '\nPASS: guide shell block 6 (exit 0)\n'
+
+PASS: guide shell block 6 (exit 0)
+printf 'Hello multipart.\n' > "$work_dir/multipart-media.txt"
++ printf 'Hello multipart.\n'
+printf '%s\r\n' \
+  '--guide-boundary' \
+  'Content-Type: application/json; charset=UTF-8' '' \
+  '{"name":"multipart/hello.txt","contentType":"text/plain; charset=utf-8","metadata":{"team":"local","source":"multipart"}}' \
+  '--guide-boundary' 'Content-Type: application/octet-stream' '' \
+  > "$work_dir/upload.multipart"
++ printf '%s\r\n' --guide-boundary 'Content-Type: application/json; charset=UTF-8' '' '{"name":"multipart/hello.txt","contentType":"text/plain; charset=utf-8","metadata":{"team":"local","source":"multipart"}}' --guide-boundary 'Content-Type: application/octet-stream' ''
+tee -a "$work_dir/upload.multipart" < "$work_dir/multipart-media.txt" > /dev/null
++ tee -a <temporary-directory>/tmp.9Cafvtxcg6/upload.multipart
+printf '\r\n--guide-boundary--\r\n' >> "$work_dir/upload.multipart"
++ printf '\r\n--guide-boundary--\r\n'
+curl --disable --noproxy '*' --fail \
+  -H 'Content-Type: multipart/related; boundary=guide-boundary' \
+  --data-binary @"$work_dir/upload.multipart" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=multipart&ifGenerationMatch=0" \
+  > "$work_dir/multipart.json"
++ curl --disable --noproxy '*' --fail -H 'Content-Type: multipart/related; boundary=guide-boundary' --data-binary @<temporary-directory>/tmp.9Cafvtxcg6/upload.multipart 'http://127.0.0.1:55275/upload/storage/v1/b/demo-bucket/o?uploadType=multipart&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  1112  100   823  100   289  30987  10881 --:--:-- --:--:-- --:--:-- 42769
+jq -e '.name == "multipart/hello.txt" and .contentType == "text/plain; charset=utf-8" and .metadata == {"team":"local","source":"multipart"}' \
+  "$work_dir/multipart.json"
++ jq -e '.name == "multipart/hello.txt" and .contentType == "text/plain; charset=utf-8" and .metadata == {"team":"local","source":"multipart"}' <temporary-directory>/tmp.9Cafvtxcg6/multipart.json
+true
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt" \
+  > "$work_dir/multipart-get.json"
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   823  100   823    0     0   111k      0 --:--:-- --:--:-- --:--:--  114k
+cmp "$work_dir/multipart.json" "$work_dir/multipart-get.json"
++ cmp <temporary-directory>/tmp.9Cafvtxcg6/multipart.json <temporary-directory>/tmp.9Cafvtxcg6/multipart-get.json
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt?alt=media" \
+  --output "$work_dir/multipart-download.txt"
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt?alt=media' --output <temporary-directory>/tmp.9Cafvtxcg6/multipart-download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    17  100    17    0     0   1927      0 --:--:-- --:--:-- --:--:--  2125
+cmp "$work_dir/multipart-media.txt" "$work_dir/multipart-download.txt"
++ cmp <temporary-directory>/tmp.9Cafvtxcg6/multipart-media.txt <temporary-directory>/tmp.9Cafvtxcg6/multipart-download.txt
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt"
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+printf '\nPASS: guide shell block 7 (exit 0)\n'
++ printf '\nPASS: guide shell block 7 (exit 0)\n'
+
+PASS: guide shell block 7 (exit 0)
+set +x
++ set +x
+umask 077
+dd if=/dev/zero of="$work_dir/resumable-first.bin" bs=262144 count=1
+1+0 records in
+1+0 records out
+262144 bytes transferred in 0.000150 secs (1747626667 bytes/sec)
+printf 'done\n' > "$work_dir/resumable-last.bin"
+cp "$work_dir/resumable-first.bin" "$work_dir/resumable.bin"
+tee -a "$work_dir/resumable.bin" < "$work_dir/resumable-last.bin" > /dev/null
+test "$(wc -c < "$work_dir/resumable.bin")" -eq 262149
+wc -c < "$work_dir/resumable.bin"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/resumable-init.headers" \
+  --output "$work_dir/resumable-init.body" --write-out '%{http_code}' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Upload-Content-Type: application/octet-stream' \
+  -H 'X-Upload-Content-Length: 262149' \
+  --data '{"metadata":{"source":"resumable-guide"}}' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fhello.bin&ifGenerationMatch=0")
+curl --disable --noproxy '*' --silent --show-error   --dump-header "$work_dir/resumable-init.headers"   --output "$work_dir/resumable-init.body" --write-out '%{http_code}'   -H 'Content-Type: application/json'   -H 'X-Upload-Content-Type: application/octet-stream'   -H 'X-Upload-Content-Length: 262149'   --data '{"metadata":{"source":"resumable-guide"}}'   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fhello.bin&ifGenerationMatch=0"
+test "$status" = 200
+test ! -s "$work_dir/resumable-init.body"
+tr -d '\r' < "$work_dir/resumable-init.headers" | grep -qi '^cache-control: no-store$'
+session_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-init.headers")
+awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }'   "$work_dir/resumable-init.headers"
+[[ "$session_uri" == "$endpoint/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin")
+curl --disable --noproxy '*' --silent --show-error --output /dev/null   --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin"
+test "$status" = 404
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --dump-header "$work_dir/resumable-chunk.headers" \
+  --output "$work_dir/resumable-chunk.body" --write-out '%{http_code}' \
+  -H 'Content-Length: 262144' -H 'Content-Range: bytes 0-262143/262149' \
+  --data-binary @"$work_dir/resumable-first.bin" "$session_uri")
+curl --disable --noproxy '*' --silent --show-error -X PUT   --dump-header "$work_dir/resumable-chunk.headers"   --output "$work_dir/resumable-chunk.body" --write-out '%{http_code}'   -H 'Content-Length: 262144' -H 'Content-Range: bytes 0-262143/262149'   --data-binary @"$work_dir/resumable-first.bin" "$session_uri"
+test "$status" = 308
+test ! -s "$work_dir/resumable-chunk.body"
+tr -d '\r' < "$work_dir/resumable-chunk.headers" | grep -qi '^range: bytes=0-262143$'
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=resumable%2F" | jq -e 'has("items") | not'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    26  100    26    0     0   3825      0 --:--:-- --:--:-- --:--:--  4333
+true
+printf '\nPASS: guide shell block 8 (exit 0)\n'
+
+PASS: guide shell block 8 (exit 0)
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --dump-header "$work_dir/resumable-status.headers" \
+  --output "$work_dir/resumable-status.body" --write-out '%{http_code}' \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri")
+curl --disable --noproxy '*' --silent --show-error -X PUT   --dump-header "$work_dir/resumable-status.headers"   --output "$work_dir/resumable-status.body" --write-out '%{http_code}'   -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri"
+test "$status" = 308
+test ! -s "$work_dir/resumable-status.body"
+tr -d '\r' < "$work_dir/resumable-status.headers" | grep -qi '^range: bytes=0-262143$'
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --output "$work_dir/resumable.json" --write-out '%{http_code}' \
+  -H 'Content-Length: 5' -H 'Content-Range: bytes 262144-262148/262149' \
+  --data-binary @"$work_dir/resumable-last.bin" "$session_uri")
+curl --disable --noproxy '*' --silent --show-error -X PUT   --output "$work_dir/resumable.json" --write-out '%{http_code}'   -H 'Content-Length: 5' -H 'Content-Range: bytes 262144-262148/262149'   --data-binary @"$work_dir/resumable-last.bin" "$session_uri"
+test "$status" = 200
+jq -e '.name == "resumable/hello.bin" and .size == "262149" and
+  .metageneration == "1" and .metadata.source == "resumable-guide" and
+  (.generation | test("^[1-9][0-9]*$")) and
+  (.md5Hash | length > 0) and (.crc32c | length > 0)' "$work_dir/resumable.json"
+true
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin?alt=media" \
+  --output "$work_dir/resumable-download.bin"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  256k  100  256k    0     0  22.2M      0 --:--:-- --:--:-- --:--:-- 22.7M
+cmp "$work_dir/resumable.bin" "$work_dir/resumable-download.bin"
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --output "$work_dir/resumable-completed.json" --write-out '%{http_code}' \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri")
+curl --disable --noproxy '*' --silent --show-error -X PUT   --output "$work_dir/resumable-completed.json" --write-out '%{http_code}'   -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri"
+test "$status" = 200
+cmp "$work_dir/resumable.json" "$work_dir/resumable-completed.json"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+printf '\nPASS: guide shell block 9 (exit 0)\n'
+
+PASS: guide shell block 9 (exit 0)
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/resumable-cancel.headers" --output /dev/null \
+  --write-out '%{http_code}' -X POST -H 'Content-Length: 0' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fcancel.bin&ifGenerationMatch=0")
+curl --disable --noproxy '*' --silent --show-error   --dump-header "$work_dir/resumable-cancel.headers" --output /dev/null   --write-out '%{http_code}' -X POST -H 'Content-Length: 0'   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fcancel.bin&ifGenerationMatch=0"
+test "$status" = 200
+cancel_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-cancel.headers")
+awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }'   "$work_dir/resumable-cancel.headers"
+[[ "$cancel_uri" == "$endpoint/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
+  -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$cancel_uri")
+curl --disable --noproxy '*' --silent --show-error -X DELETE   -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$cancel_uri"
+test "$status" = 499
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */*' \
+  --output /dev/null --write-out '%{http_code}' "$cancel_uri")
+curl --disable --noproxy '*' --silent --show-error -X PUT   -H 'Content-Length: 0' -H 'Content-Range: bytes */*'   --output /dev/null --write-out '%{http_code}' "$cancel_uri"
+test "$status" = 410
+status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fcancel.bin")
+curl --disable --noproxy '*' --silent --show-error --output /dev/null   --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fcancel.bin"
+test "$status" = 404
+unset session_uri cancel_uri
+printf '\nPASS: guide shell block 10 (exit 0)\n'
+
+PASS: guide shell block 10 (exit 0)
+export GCS_MIMIC_API_BASE_URL=http://gcs:4443
+docker compose up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --dump-header - \
+  --output /dev/null --write-out '%{http_code}\n' \
+  -H 'Content-Type: application/json' -H 'X-Upload-Content-Length: 9' \
+  --data '{}' \
+  'http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fpeer.txt&ifGenerationMatch=0' \
+  > "$work_dir/resumable-peer.headers"
+test "$(tail -n 1 "$work_dir/resumable-peer.headers")" = 200
+tail -n 1 "$work_dir/resumable-peer.headers"
+peer_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-peer.headers")
+awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }'   "$work_dir/resumable-peer.headers"
+[[ "$peer_uri" == http://gcs:4443/* ]]
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error -X PUT \
+  --write-out '\n%{http_code}' \
+  -H 'Content-Length: 9' -H 'Content-Range: bytes 0-8/9' \
+  --data-binary 'peer data' "$peer_uri" > "$work_dir/resumable-peer.response"
+test "$(tail -n 1 "$work_dir/resumable-peer.response")" = 200
+tail -n 1 "$work_dir/resumable-peer.response"
+sed '$d' "$work_dir/resumable-peer.response" | jq -e '.name == "resumable/peer.txt" and .size == "9"'
+true
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail \
+  'http://gcs:4443/storage/v1/b/demo-bucket/o/resumable%2Fpeer.txt?alt=media' \
+  > "$work_dir/resumable-peer.txt"
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100      9 100      9   0      0   1746      0                              0100      9 100      9   0      0   1740      0                              0100      9 100      9   0      0   1738      0                              0
+printf 'peer data' > "$work_dir/resumable-peer-expected.txt"
+cmp "$work_dir/resumable-peer-expected.txt" "$work_dir/resumable-peer.txt"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fpeer.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+unset peer_uri
+printf '\nPASS: guide shell block 11 (exit 0)\n'
+
+PASS: guide shell block 11 (exit 0)
+export GCS_MIMIC_API_BASE_URL="http://localhost:${GCS_MIMIC_PORT}"
+docker compose up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+status=$(curl --disable --noproxy '*' --silent --show-error -X POST \
+  -H 'Content-Length: 0' -H 'Origin: http://localhost:3000' \
+  --dump-header "$work_dir/resumable-browser.headers" --output /dev/null \
+  --write-out '%{http_code}' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fbrowser.bin&ifGenerationMatch=0")
+curl --disable --noproxy '*' --silent --show-error -X POST   -H 'Content-Length: 0' -H 'Origin: http://localhost:3000'   --dump-header "$work_dir/resumable-browser.headers" --output /dev/null   --write-out '%{http_code}'   "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fbrowser.bin&ifGenerationMatch=0"
+test "$status" = 200
+browser_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-browser.headers")
+awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }'   "$work_dir/resumable-browser.headers"
+[[ "$browser_uri" == "$GCS_MIMIC_API_BASE_URL/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
+  -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$browser_uri")
+curl --disable --noproxy '*' --silent --show-error -X DELETE   -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$browser_uri"
+test "$status" = 499
+unset browser_uri
+export GCS_MIMIC_API_BASE_URL="$endpoint"
+docker compose up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+printf '\nPASS: guide shell block 12 (exit 0)\n'
+
+PASS: guide shell block 12 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data 'nested data' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fnested%2Fother.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   786  100   775  100    11  56232    798 --:--:-- --:--:-- --:--:-- 60461
+{"bucket":"demo-bucket","contentType":"text/plain","crc32c":"08TQZg==","etag":"\"o-umUewqsNf0WURHb/cB1mcQ==-1792670166561752-1\"","generation":"1792670166561752","id":"demo-bucket/notes/nested/other.txt/1792670166561752","kind":"storage#object","md5Hash":"umUewqsNf0WURHb/cB1mcQ==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt?generation=1792670166561752&alt=media","metageneration":"1","name":"notes/nested/other.txt","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-22T11:56:06.561Z","timeFinalized":"2026-10-22T11:56:06.561Z","timeStorageClassUpdated":"2026-10-22T11:56:06.561Z","updated":"2026-10-22T11:56:06.561Z"}curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F" | jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   809  100   809    0     0   193k      0 --:--:-- --:--:-- --:--:--  197k
+{
+  "items": [
+    {
+      "bucket": "demo-bucket",
+      "contentType": "text/plain",
+      "crc32c": "tV02Vw==",
+      "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-1\"",
+      "generation": "1792670152843969",
+      "id": "demo-bucket/notes/hello.txt/1792670152843969",
+      "kind": "storage#object",
+      "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+      "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+      "metageneration": "1",
+      "name": "notes/hello.txt",
+      "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+      "size": "22",
+      "storageClass": "STANDARD",
+      "timeCreated": "2026-10-22T11:55:52.843Z",
+      "timeFinalized": "2026-10-22T11:55:52.843Z",
+      "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+      "updated": "2026-10-22T11:55:52.843Z"
+    }
+  ],
+  "kind": "storage#objects",
+  "prefixes": [
+    "notes/nested/"
+  ]
+}
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F&delimiter=%2F&maxResults=1" \
+  > "$work_dir/page.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   914  100   914    0     0   136k      0 --:--:-- --:--:-- --:--:--  148k
+jq . "$work_dir/page.json"
+{
+  "items": [
+    {
+      "bucket": "demo-bucket",
+      "contentType": "text/plain",
+      "crc32c": "tV02Vw==",
+      "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-1\"",
+      "generation": "1792670152843969",
+      "id": "demo-bucket/notes/hello.txt/1792670152843969",
+      "kind": "storage#object",
+      "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+      "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+      "metageneration": "1",
+      "name": "notes/hello.txt",
+      "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+      "size": "22",
+      "storageClass": "STANDARD",
+      "timeCreated": "2026-10-22T11:55:52.843Z",
+      "timeFinalized": "2026-10-22T11:55:52.843Z",
+      "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+      "updated": "2026-10-22T11:55:52.843Z"
+    }
+  ],
+  "kind": "storage#objects",
+  "nextPageToken": "5b226f31222c2263613332353065343638376535353761222c226e6f7465732f68656c6c6f2e747874222c66616c73655d.197a087b3fc859cd"
+}
+page_token=$(jq -er .nextPageToken "$work_dir/page.json")
+jq -er .nextPageToken "$work_dir/page.json"
+curl --disable --noproxy '*' --fail --get \
+  --data-urlencode 'prefix=notes/' --data-urlencode 'delimiter=/' \
+  --data-urlencode 'maxResults=1' --data-urlencode "pageToken=$page_token" \
+  "$endpoint/storage/v1/b/demo-bucket/o" | jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    55  100    55    0     0  20801      0 --:--:-- --:--:-- --:--:-- 27500
+{
+  "kind": "storage#objects",
+  "prefixes": [
+    "notes/nested/"
+  ]
+}
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fnested%2Fother.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+metageneration=$(jq -r .metageneration "$work_dir/object.json")
+jq -r .metageneration "$work_dir/object.json"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"contentType":"text/plain; charset=utf-8","cacheControl":"private, max-age=60","metadata":{"team":"local"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration" \
+  > "$work_dir/patched.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   931  100   823  100   108   119k  16052 --:--:-- --:--:-- --:--:--  151k
+jq . "$work_dir/patched.json"
+{
+  "bucket": "demo-bucket",
+  "cacheControl": "private, max-age=60",
+  "contentType": "text/plain; charset=utf-8",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-2\"",
+  "generation": "1792670152843969",
+  "id": "demo-bucket/notes/hello.txt/1792670152843969",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+  "metadata": {
+    "team": "local"
+  },
+  "metageneration": "2",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T11:55:52.843Z",
+  "timeFinalized": "2026-10-22T11:55:52.843Z",
+  "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+  "updated": "2026-10-22T11:56:06.700Z"
+}
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/stale.json" \
+  --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' \
+  --data '{"metadata":{"stale":"rejected"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration")
+curl --disable --noproxy '*' --silent --output "$work_dir/stale.json"   --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json'   --data '{"metadata":{"stale":"rejected"}}'   "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration"
+test "$status" = 412
+jq . "$work_dir/stale.json"
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
+metageneration=$(jq -r .metageneration "$work_dir/patched.json")
+jq -r .metageneration "$work_dir/patched.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
+  --data '{"contentType":"text/plain","metadata":{"only":"replacement"}}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifMetagenerationMatch=$metageneration" \
+  > "$work_dir/object.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   839  100   777  100    62  87836   7008 --:--:-- --:--:-- --:--:--  102k
+jq . "$work_dir/object.json"
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792670152843969-3\"",
+  "generation": "1792670152843969",
+  "id": "demo-bucket/notes/hello.txt/1792670152843969",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792670152843969&alt=media",
+  "metadata": {
+    "only": "replacement"
+  },
+  "metageneration": "3",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-22T11:55:52.843Z",
+  "timeFinalized": "2026-10-22T11:55:52.843Z",
+  "timeStorageClassUpdated": "2026-10-22T11:55:52.843Z",
+  "updated": "2026-10-22T11:56:06.828Z"
+}
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=notes%2F" > "$work_dir/list.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   814  100   814    0     0   221k      0 --:--:-- --:--:-- --:--:--  264k
+jq -e --slurpfile object "$work_dir/object.json" '.items == $object' "$work_dir/list.json"
+true
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/metadata-download.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   5735      0 --:--:-- --:--:-- --:--:--  7333
+cmp "$work_dir/upload.txt" "$work_dir/metadata-download.txt"
+printf '\nPASS: guide shell block 13 (exit 0)\n'
+
+PASS: guide shell block 13 (exit 0)
+docker compose stop
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+docker compose start --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0  23550      0 --:--:-- --:--:-- --:--:-- 24250
+{"etag":"\"b-1792670150873-1792670150873-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:50.873Z","updated":"2026-10-22T11:55:50.873Z"}curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/restarted.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   1650      0 --:--:-- --:--:-- --:--:--  1692
+cmp "$work_dir/upload.txt" "$work_dir/restarted.txt"
+docker compose down
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removing 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removed 
+ Network gcs-mimic-object-demo-56726_default Removing 
+ Network gcs-mimic-object-demo-56726_default Removed 
+docker compose up -d --wait
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Creating 
+ Container gcs-mimic-object-demo-56726-gcs-1 Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   109k      0 --:--:-- --:--:-- --:--:--  126k
+{"etag":"\"b-1792670150873-1792670150873-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:50.873Z","updated":"2026-10-22T11:55:50.873Z"}curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" > "$work_dir/restarted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   777  100   777    0     0   159k      0 --:--:-- --:--:-- --:--:--  189k
+cmp "$work_dir/object.json" "$work_dir/restarted.json"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationMatch=$generation"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt"
+test "$status" = 404
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/demo-bucket"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/demo-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/demo-bucket"
+test "$status" = 404
+printf '\nPASS: guide shell block 14 (exit 0)\n'
+
+PASS: guide shell block 14 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"reset-bucket"}' "$endpoint/storage/v1/b?project=local-project"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   365  100    23  32037   2018 --:--:-- --:--:-- --:--:-- 35272
+{"etag":"\"b-1792670172779-1792670172779-1\"","id":"reset-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"reset-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55275/storage/v1/b/reset-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:56:12.779Z","updated":"2026-10-22T11:56:12.779Z"}curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'reset data' \
+  "$endpoint/upload/storage/v1/b/reset-bucket/o?uploadType=media&name=reset.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   729  100   719  100    10  61886    860 --:--:-- --:--:-- --:--:-- 66272
+{"bucket":"reset-bucket","contentType":"text/plain","crc32c":"CadGGQ==","etag":"\"o-SHoZ+0yIhNSxOH4PcKndIg==-1792670172824453-1\"","generation":"1792670172824453","id":"reset-bucket/reset.txt/1792670172824453","kind":"storage#object","md5Hash":"SHoZ+0yIhNSxOH4PcKndIg==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/reset-bucket/o/reset.txt?generation=1792670172824453&alt=media","metageneration":"1","name":"reset.txt","selfLink":"http://127.0.0.1:55275/storage/v1/b/reset-bucket/o/reset.txt","size":"10","storageClass":"STANDARD","timeCreated":"2026-10-22T11:56:12.824Z","timeFinalized":"2026-10-22T11:56:12.824Z","timeStorageClassUpdated":"2026-10-22T11:56:12.824Z","updated":"2026-10-22T11:56:12.824Z"}docker compose down --volumes
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removing 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removed 
+ Volume gcs-mimic-object-demo-56726_gcs-data Removing 
+ Network gcs-mimic-object-demo-56726_default Removing 
+ Volume gcs-mimic-object-demo-56726_gcs-data Removed 
+ Network gcs-mimic-object-demo-56726_default Removed 
+docker compose up -d --wait
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Creating 
+ Network gcs-mimic-object-demo-56726_default Creating 
+ Volume gcs-mimic-object-demo-56726_gcs-data Created 
+ Volume gcs-mimic-object-demo-56726_gcs-data Created 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Network gcs-mimic-object-demo-56726_default Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Creating 
+ Container gcs-mimic-object-demo-56726-gcs-1 Created 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/reset-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/reset-bucket"
+test "$status" = 404
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/reset-bucket/o/reset.txt?alt=media")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/reset-bucket/o/reset.txt?alt=media"
+test "$status" = 404
+printf '\nPASS: guide shell block 15 (exit 0)\n'
+
+PASS: guide shell block 15 (exit 0)
+(cd sdk-tests/go && GCS_MIMIC_ENDPOINT="$endpoint" GOTOOLCHAIN=auto go test -count=1 -v ./...)
+=== RUN   TestStrictAuthBucketIAM
+    bucket_iam_test.go:16: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthBucketIAM (0.00s)
+=== RUN   TestBucketIAMPermissive
+    bucket_iam_test.go:96: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestBucketIAMPermissive (0.16s)
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:144: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestBucketLifecycle (0.18s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.61s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.05s)
+    --- PASS: TestObjectList/Prefix (0.02s)
+    --- PASS: TestObjectList/Delimiter (0.04s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.04s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.01s)
+    --- PASS: TestObjectList/Offsets (0.01s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.00s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestObjectMetadataUpdate (0.03s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.12s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.02s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.04s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.05s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.03s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.02s)
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.06s)
+    --- PASS: TestObjectRangeReader/closed (0.01s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.00s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+=== RUN   TestObjectResumableWriter
+    objects_resumable_test.go:80: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectResumableWriter/default_chunk_size_resumable
+=== RUN   TestObjectResumableWriter/default_chunk_size_small_multipart
+=== RUN   TestObjectResumableWriter/multiple_256_KiB_chunks
+=== RUN   TestObjectResumableWriter/empty_final_chunk
+=== RUN   TestObjectResumableWriter/empty_object
+=== RUN   TestObjectResumableWriter/unknown_length_stream
+--- PASS: TestObjectResumableWriter (1.36s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_resumable (0.84s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_small_multipart (0.12s)
+    --- PASS: TestObjectResumableWriter/multiple_256_KiB_chunks (0.15s)
+    --- PASS: TestObjectResumableWriter/empty_final_chunk (0.09s)
+    --- PASS: TestObjectResumableWriter/empty_object (0.06s)
+    --- PASS: TestObjectResumableWriter/unknown_length_stream (0.10s)
+=== RUN   TestObjectResumableChecksumFailurePreservesObject
+    objects_resumable_test.go:152: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true
+--- PASS: TestObjectResumableChecksumFailurePreservesObject (0.39s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false (0.09s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true (0.15s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false (0.09s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true (0.06s)
+=== RUN   TestObjectResumableConditionsAtFinalization
+    objects_resumable_test.go:228: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=false
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=true
+--- PASS: TestObjectResumableConditionsAtFinalization (0.32s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=false (0.19s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=true (0.12s)
+=== RUN   TestObjectResumableMetagenerationAtFinalization
+    objects_resumable_test.go:278: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestObjectResumableMetagenerationAtFinalization (0.24s)
+=== RUN   TestObjectResumableContextCancellationDoesNotPublish
+    objects_resumable_test.go:318: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestObjectResumableContextCancellationDoesNotPublish (0.12s)
+=== RUN   TestObjectResumableRetriesLostChunkResponse
+    objects_resumable_test.go:438: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestObjectResumableRetriesLostChunkResponse (0.18s)
+=== RUN   TestStrictAuthResumableWriter
+    objects_resumable_test.go:482: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthResumableWriter (0.00s)
+=== RUN   TestStrictAuthResumableCreatorOverwriteRace
+    objects_resumable_test.go:502: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthResumableCreatorOverwriteRace (0.00s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:62: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+--- PASS: TestObjectMediaLifecycle (0.42s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.04s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.11s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.10s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.15s)
+=== RUN   TestXMLReadsStrict
+    public_reads_test.go:101: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestXMLReadsStrict (0.00s)
+=== RUN   TestPublicReadsGrantAndRevoke
+    public_reads_test.go:151: GCS_MIMIC_STRICT_ENDPOINT is unset; public reads require an explicit strict emulator
+--- SKIP: TestPublicReadsGrantAndRevoke (0.00s)
+=== RUN   TestPublicReadsAllAuthenticatedUsers
+    public_reads_test.go:189: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestPublicReadsAllAuthenticatedUsers (0.00s)
+=== RUN   TestXMLReadsEncodedNames
+    public_reads_test.go:247: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestXMLReadsEncodedNames (0.00s)
+=== RUN   TestXMLReadsPermissive
+    public_reads_test.go:267: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:55275
+--- PASS: TestXMLReadsPermissive (0.03s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:221: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthAdminLifecycle (0.00s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+    strict_auth_test.go:300: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthRejectsMissingAndInvalidCredentials (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+    strict_auth_test.go:328: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthObjectViewer (0.00s)
+=== RUN   TestStrictAuthObjectCreator
+    strict_auth_test.go:359: GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict
+--- SKIP: TestStrictAuthObjectCreator (0.00s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	4.754s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+printf '\nPASS: guide shell block 16 (exit 0)\n'
+
+PASS: guide shell block 16 (exit 0)
+docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+docker compose -f compose.yaml -f compose.strict.yaml logs --no-log-prefix gcs \
+  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "strict" and .identities == 4) | {auth_mode, identities}'
+{"auth_mode":"strict","identities":4}
+printf '\nPASS: guide shell block 17 (exit 0)\n'
+
+PASS: guide shell block 17 (exit 0)
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/anonymous.json" \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b?project=local-project")
+curl --disable --noproxy '*' --silent --output "$work_dir/anonymous.json"   --write-out '%{http_code}' "$endpoint/storage/v1/b?project=local-project"
+test "$status" = 401
+jq -e '.error.errors[0].reason == "required"' "$work_dir/anonymous.json"
+true
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/bad-token.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer not-a-registered-token' \
+  "$endpoint/storage/v1/b?project=local-project")
+curl --disable --noproxy '*' --silent --output "$work_dir/bad-token.json"   --write-out '%{http_code}' -H 'Authorization: Bearer not-a-registered-token'   "$endpoint/storage/v1/b?project=local-project"
+test "$status" = 401
+jq -e '.error.errors[0].reason == "authError"' "$work_dir/bad-token.json"
+true
+printf '\nPASS: guide shell block 18 (exit 0)\n'
+
+PASS: guide shell block 18 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data '{"name":"strict-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project" | jq '{name}'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   392  100   368  100    24  58851   3838 --:--:-- --:--:-- --:--:-- 65333
+{
+  "name": "strict-bucket"
+}
+printf 'strict data\n' > "$work_dir/strict.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: text/plain' --data-binary @"$work_dir/strict.txt" \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt" \
+  > "$work_dir/strict-object.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   795  100   783  100    12   136k   2146 --:--:-- --:--:-- --:--:--  155k
+jq '{name, generation}' "$work_dir/strict-object.json"
+{
+  "name": "notes/private file.txt",
+  "generation": "1792670187071732"
+}
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-admin.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    12  100    12    0     0   1876      0 --:--:-- --:--:-- --:--:--  2000
+cmp "$work_dir/strict.txt" "$work_dir/strict-admin.txt"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media"
+test "$status" = 401
+printf '\nPASS: guide shell block 19 (exit 0)\n'
+
+PASS: guide shell block 19 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-viewer-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-viewer.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    12  100    12    0     0    897      0 --:--:-- --:--:-- --:--:--   923
+cmp "$work_dir/strict.txt" "$work_dir/strict-viewer.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-viewer-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o" | jq '[.items[].name]'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   820  100   820    0     0   122k      0 --:--:-- --:--:-- --:--:--  133k
+[
+  "notes/private file.txt"
+]
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/viewer-upload.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer local-viewer-token' \
+  -H 'Content-Type: text/plain' --data-binary 'viewer data' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fviewer.txt")
+curl --disable --noproxy '*' --silent --output "$work_dir/viewer-upload.json"   --write-out '%{http_code}' -H 'Authorization: Bearer local-viewer-token'   -H 'Content-Type: text/plain' --data-binary 'viewer data'   "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fviewer.txt"
+test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/viewer-upload.json"
+true
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/strict-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/strict-bucket"
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/missing-strict-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/missing-strict-bucket"
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/missing-strict-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/missing-strict-bucket"
+test "$status" = 404
+printf '\nPASS: guide shell block 20 (exit 0)\n'
+
+PASS: guide shell block 20 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'created data' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fcreated.txt" \
+  | jq '{name}'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   771  100   759  100    12  34345    543 --:--:-- --:--:-- --:--:-- 35045
+{
+  "name": "notes/created.txt"
+}
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/creator-overwrite.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'overwrite attempt' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt")
+curl --disable --noproxy '*' --silent --output "$work_dir/creator-overwrite.json"   --write-out '%{http_code}' -H 'Authorization: Bearer local-creator-token'   -H 'Content-Type: text/plain' --data-binary 'overwrite attempt'   "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt"
+test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/creator-overwrite.json"
+true
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'overwrite attempt' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt&ifGenerationMatch=0")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-creator-token'   -H 'Content-Type: text/plain' --data-binary 'overwrite attempt'   "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt&ifGenerationMatch=0"
+test "$status" = 412
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-creator-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fcreated.txt")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-creator-token'   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fcreated.txt"
+test "$status" = 403
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-unchanged.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    12  100    12    0     0   2315      0 --:--:-- --:--:-- --:--:--  2400
+cmp "$work_dir/strict.txt" "$work_dir/strict-unchanged.txt"
+printf '\nPASS: guide shell block 21 (exit 0)\n'
+
+PASS: guide shell block 21 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-before.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   320  100   320    0     0   196k      0 --:--:-- --:--:-- --:--:--  312k
+jq -e '.kind == "storage#policy" and .resourceId == "projects/_/buckets/strict-bucket"
+  and (.etag | length > 0)' "$work_dir/policy-before.json"
+true
+jq -e '(.bindings | map(.members |= sort) | sort_by(.role)) == [
+  {"role":"roles/storage.legacyBucketOwner",
+   "members":["projectEditor:local-project","projectOwner:local-project"]},
+  {"role":"roles/storage.legacyBucketReader","members":["projectViewer:local-project"]}
+]' "$work_dir/policy-before.json"
+true
+jq '.bindings += [{"role":"roles/storage.objectViewer",
+  "members":["user:local-bucket-reader@example.invalid"]}]' \
+  "$work_dir/policy-before.json" > "$work_dir/policy-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-granted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   986  100   413  100   573  63246  87748 --:--:-- --:--:-- --:--:--  160k
+jq -e --arg previous "$(jq -r .etag "$work_dir/policy-before.json")" \
+  '.etag != $previous' "$work_dir/policy-granted.json"
+jq -r .etag "$work_dir/policy-before.json"
+true
+printf '\nPASS: guide shell block 22 (exit 0)\n'
+
+PASS: guide shell block 22 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/bucket-reader.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    12  100    12    0     0   2182      0 --:--:-- --:--:-- --:--:--  2400
+cmp "$work_dir/strict.txt" "$work_dir/bucket-reader.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o" \
+  | jq -e 'any(.items[]; .name == "notes/private file.txt")'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  1580  100  1580    0     0   382k      0 --:--:-- --:--:-- --:--:--  514k
+true
+printf '\nPASS: guide shell block 23 (exit 0)\n'
+
+PASS: guide shell block 23 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data '{"name":"strict-other-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project" | jq '{name}'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   416  100   386  100    30   114k   9140 --:--:-- --:--:-- --:--:--  135k
+{
+  "name": "strict-other-bucket"
+}
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-other-bucket/o")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-bucket-reader-token'   "$endpoint/storage/v1/b/strict-other-bucket/o"
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/reader-upload.json" --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' --data-binary 'denied' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=denied.txt")
+curl --disable --noproxy '*' --silent --output "$work_dir/reader-upload.json" --write-out '%{http_code}'   -H 'Authorization: Bearer local-bucket-reader-token' --data-binary 'denied'   "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=denied.txt"
+test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/reader-upload.json"
+true
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/strict-bucket/o/denied.txt")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/strict-bucket/o/denied.txt"
+test "$status" = 404
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/iam")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/iam"
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -X PUT -H 'Authorization: Bearer local-bucket-reader-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-granted.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -X PUT -H 'Authorization: Bearer local-bucket-reader-token'   -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-granted.json"   "$endpoint/storage/v1/b/strict-bucket/iam"
+test "$status" = 403
+curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-other-bucket"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+printf '\nPASS: guide shell block 24 (exit 0)\n'
+
+PASS: guide shell block 24 (exit 0)
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/policy-stale.json" \
+  --write-out '%{http_code}' -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-before.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam")
+curl --disable --noproxy '*' --silent --output "$work_dir/policy-stale.json"   --write-out '%{http_code}' -X PUT -H 'Authorization: Bearer local-admin-token'   -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-before.json"   "$endpoint/storage/v1/b/strict-bucket/iam"
+test "$status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$work_dir/policy-stale.json"
+true
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-current.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   413  100   413    0     0  84028      0 --:--:-- --:--:-- --:--:--  100k
+jq -e 'any(.bindings[]; .role == "roles/storage.objectViewer"
+  and (.members | index("user:local-bucket-reader@example.invalid") != null))' \
+  "$work_dir/policy-current.json"
+true
+jq '.bindings |= (map(.members -= ["user:local-bucket-reader@example.invalid"])
+  | map(select(.members | length > 0)))' \
+  "$work_dir/policy-current.json" > "$work_dir/policy-revoke.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/policy-revoke.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-revoked.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   758  100   320  100   438  28681  39257 --:--:-- --:--:-- --:--:-- 68909
+jq -e --arg previous "$(jq -r .etag "$work_dir/policy-current.json")" \
+  '.etag != $previous' "$work_dir/policy-revoked.json"
+jq -r .etag "$work_dir/policy-current.json"
+true
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-bucket-reader-token'   "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media"
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/o")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   -H 'Authorization: Bearer local-bucket-reader-token' "$endpoint/storage/v1/b/strict-bucket/o"
+test "$status" = 403
+printf '\nPASS: guide shell block 25 (exit 0)\n'
+
+PASS: guide shell block 25 (exit 0)
+public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/private file.txt')
+docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/private file.txt'
+peer_public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url http://gcs:4443 --bucket strict-bucket --object 'notes/private file.txt')
+docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs   gcs-mimic url public --base-url http://gcs:4443 --bucket strict-bucket --object 'notes/private file.txt'
+printf '%s\n' "$public_url"
+http://127.0.0.1:55275/strict-bucket/notes/private%20file.txt
+test "$public_url" = "$endpoint/strict-bucket/notes/private%20file.txt"
+test "$peer_public_url" = 'http://gcs:4443/strict-bucket/notes/private%20file.txt'
+dot_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/../private file.txt')
+docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/../private file.txt'
+test "$dot_url" = "$endpoint/strict-bucket/notes%2F..%2Fprivate%20file.txt"
+printf '\nPASS: guide shell block 26 (exit 0)\n'
+
+PASS: guide shell block 26 (exit 0)
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/private.xml" \
+  --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --output "$work_dir/private.xml"   --write-out '%{http_code}' "$public_url"
+test "$status" = 401
+grep -q '<Code>AuthenticationRequired</Code>' "$work_dir/private.xml"
+printf '\nPASS: guide shell block 27 (exit 0)\n'
+
+PASS: guide shell block 27 (exit 0)
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url")
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image"   --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url"
+test "$status" = 401
+printf '\nPASS: guide shell block 28 (exit 0)\n'
+
+PASS: guide shell block 28 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-before.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   320  100   320    0     0  15962      0 --:--:-- --:--:-- --:--:-- 16842
+jq '.bindings += [{"role":"roles/storage.objectViewer","members":["allUsers"]}]' \
+  "$work_dir/public-before.json" > "$work_dir/public-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/public-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-granted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   922  100   381  100   541  19263  27353 --:--:-- --:--:-- --:--:-- 48526
+strict_generation=$(jq -er .generation "$work_dir/strict-object.json")
+jq -er .generation "$work_dir/strict-object.json"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/public-get.headers" --output "$work_dir/public.txt" \
+  --write-out '%{http_code}' "$public_url?generation=$strict_generation")
+curl --disable --noproxy '*' --silent --show-error   --dump-header "$work_dir/public-get.headers" --output "$work_dir/public.txt"   --write-out '%{http_code}' "$public_url?generation=$strict_generation"
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/public.txt"
+tr -d '\r' < "$work_dir/public-get.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-get.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+status=$(curl --disable --noproxy '*' --silent --show-error --head \
+  --output "$work_dir/public-head.headers" --write-out '%{http_code}' \
+  "$public_url?generation=$strict_generation")
+curl --disable --noproxy '*' --silent --show-error --head   --output "$work_dir/public-head.headers" --write-out '%{http_code}'   "$public_url?generation=$strict_generation"
+test "$status" = 200
+tr -d '\r' < "$work_dir/public-head.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-head.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+printf '\nPASS: guide shell block 29 (exit 0)\n'
+
+PASS: guide shell block 29 (exit 0)
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --fail --dump-header /dev/stderr \
+  "$peer_public_url?generation=$strict_generation" \
+  > "$work_dir/public-peer.txt" 2> "$work_dir/public-peer-get.headers"
+cmp "$work_dir/strict.txt" "$work_dir/public-peer.txt"
+grep -q '^HTTP/1.1 200' "$work_dir/public-peer-get.headers"
+tr -d '\r' < "$work_dir/public-peer-get.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-peer-get.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --head --output /dev/null \
+  --dump-header /dev/stderr --write-out '%{http_code}' \
+  "$peer_public_url?generation=$strict_generation" 2> "$work_dir/public-peer-head.headers")
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image"   --disable --noproxy '*' --silent --show-error --head --output /dev/null   --dump-header /dev/stderr --write-out '%{http_code}'   "$peer_public_url?generation=$strict_generation" 2> "$work_dir/public-peer-head.headers"
+test "$status" = 200
+tr -d '\r' < "$work_dir/public-peer-head.headers" | grep -qi '^cache-control: public, max-age=3600$'
+tr -d '\r' < "$work_dir/public-peer-head.headers" | grep -qi "^x-goog-generation: $strict_generation$"
+printf '\nPASS: guide shell block 30 (exit 0)\n'
+
+PASS: guide shell block 30 (exit 0)
+docker compose -f compose.yaml -f compose.strict.yaml stop
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+docker compose -f compose.yaml -f compose.strict.yaml start --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+printf '\nPASS: guide shell block 31 (exit 0)\n'
+
+PASS: guide shell block 31 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-restarted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   381  100   381    0     0  30563      0 --:--:-- --:--:-- --:--:-- 31750
+cmp "$work_dir/public-granted.json" "$work_dir/public-restarted.json"
+status=$(curl --disable --noproxy '*' --silent --show-error --output "$work_dir/public-restarted.txt" \
+  --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --show-error --output "$work_dir/public-restarted.txt"   --write-out '%{http_code}' "$public_url"
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/public-restarted.txt"
+printf '\nPASS: guide shell block 32 (exit 0)\n'
+
+PASS: guide shell block 32 (exit 0)
+jq '(.bindings[].members[] | select(. == "allUsers")) = "allAuthenticatedUsers"' \
+  "$work_dir/public-restarted.json" > "$work_dir/authenticated-grant.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/authenticated-grant.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/authenticated-granted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   948  100   394  100   554  38722  54447 --:--:-- --:--:-- --:--:-- 94800
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-anonymous.xml" \
+  --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-anonymous.xml"   --write-out '%{http_code}' "$public_url"
+test "$status" = 401
+grep -q '<Code>AuthenticationRequired</Code>' "$work_dir/authenticated-anonymous.xml"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  -H 'Authorization: Bearer local-bucket-reader-token' --output "$work_dir/authenticated.txt" \
+  --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --show-error   -H 'Authorization: Bearer local-bucket-reader-token' --output "$work_dir/authenticated.txt"   --write-out '%{http_code}' "$public_url"
+test "$status" = 200
+cmp "$work_dir/strict.txt" "$work_dir/authenticated.txt"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-invalid.xml" \
+  -H 'Authorization: Bearer unregistered-token' --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-invalid.xml"   -H 'Authorization: Bearer unregistered-token' --write-out '%{http_code}' "$public_url"
+test "$status" = 400
+grep -q '<Code>InvalidAuthentication</Code>' "$work_dir/authenticated-invalid.xml"
+printf '\nPASS: guide shell block 33 (exit 0)\n'
+
+PASS: guide shell block 33 (exit 0)
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/public-current.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   394  100   394    0     0   170k      0 --:--:-- --:--:-- --:--:--  192k
+jq '.bindings |= (map(.members -= ["allAuthenticatedUsers"])
+  | map(select(.members | length > 0)))' \
+  "$work_dir/public-current.json" > "$work_dir/public-revoke.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data-binary @"$work_dir/public-revoke.json" \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-revoked.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   758  100   320  100   438   119k   163k --:--:-- --:--:-- --:--:--  370k
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$public_url"
+test "$status" = 401
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/public-revoked.xml" \
+  -H 'Authorization: Bearer local-bucket-reader-token' --write-out '%{http_code}' "$public_url")
+curl --disable --noproxy '*' --silent --output "$work_dir/public-revoked.xml"   -H 'Authorization: Bearer local-bucket-reader-token' --write-out '%{http_code}' "$public_url"
+test "$status" = 403
+grep -q '<Code>AccessDenied</Code>' "$work_dir/public-revoked.xml"
+printf '\nPASS: guide shell block 34 (exit 0)\n'
+
+PASS: guide shell block 34 (exit 0)
+status=$(docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url")
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image"   --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$peer_public_url"
+test "$status" = 401
+printf '\nPASS: guide shell block 35 (exit 0)\n'
+
+PASS: guide shell block 35 (exit 0)
+(cd sdk-tests/go && GCS_MIMIC_STRICT_ENDPOINT="$endpoint" GOTOOLCHAIN=auto \
+  go test -count=1 -v -run '^(TestStrictAuth|TestXMLReadsStrict|TestXMLReadsEncodedNames|TestPublicReads)' ./...)
+=== RUN   TestStrictAuthBucketIAM
+--- PASS: TestStrictAuthBucketIAM (0.42s)
+=== RUN   TestStrictAuthResumableWriter
+--- PASS: TestStrictAuthResumableWriter (0.05s)
+=== RUN   TestStrictAuthResumableCreatorOverwriteRace
+--- PASS: TestStrictAuthResumableCreatorOverwriteRace (0.11s)
+=== RUN   TestXMLReadsStrict
+=== RUN   TestXMLReadsStrict/whole
+=== RUN   TestXMLReadsStrict/range
+=== RUN   TestXMLReadsStrict/generation
+=== RUN   TestXMLReadsStrict/matching_conditions
+=== RUN   TestXMLReadsStrict/head
+--- PASS: TestXMLReadsStrict (0.11s)
+    --- PASS: TestXMLReadsStrict/whole (0.00s)
+    --- PASS: TestXMLReadsStrict/range (0.00s)
+    --- PASS: TestXMLReadsStrict/generation (0.00s)
+    --- PASS: TestXMLReadsStrict/matching_conditions (0.00s)
+    --- PASS: TestXMLReadsStrict/head (0.00s)
+=== RUN   TestPublicReadsGrantAndRevoke
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=false
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=true
+--- PASS: TestPublicReadsGrantAndRevoke (0.12s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=false (0.04s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=true (0.09s)
+=== RUN   TestPublicReadsAllAuthenticatedUsers
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered
+--- PASS: TestPublicReadsAllAuthenticatedUsers (0.08s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false (0.01s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous (0.01s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered (0.00s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered (0.00s)
+=== RUN   TestXMLReadsEncodedNames
+=== RUN   TestXMLReadsEncodedNames/space_name.bin
+=== RUN   TestXMLReadsEncodedNames/plus+name.bin
+=== RUN   TestXMLReadsEncodedNames/percent%2Fname.bin
+=== RUN   TestXMLReadsEncodedNames/日本語/雪.bin
+=== RUN   TestXMLReadsEncodedNames/dir/file.bin
+--- PASS: TestXMLReadsEncodedNames (0.21s)
+    --- PASS: TestXMLReadsEncodedNames/space_name.bin (0.05s)
+    --- PASS: TestXMLReadsEncodedNames/plus+name.bin (0.01s)
+    --- PASS: TestXMLReadsEncodedNames/percent%2Fname.bin (0.01s)
+    --- PASS: TestXMLReadsEncodedNames/日本語/雪.bin (0.01s)
+    --- PASS: TestXMLReadsEncodedNames/dir/file.bin (0.01s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:246: strict endpoint; admin principal from the local fixture registry; project=local-project
+--- PASS: TestStrictAuthAdminLifecycle (0.06s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.12s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous (0.08s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+--- PASS: TestStrictAuthObjectViewer (0.09s)
+=== RUN   TestStrictAuthObjectCreator
+--- PASS: TestStrictAuthObjectCreator (0.06s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	1.735s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+printf '\nPASS: guide shell block 36 (exit 0)\n'
+
+PASS: guide shell block 36 (exit 0)
+docker compose -f compose.yaml -f compose.strict.yaml stop
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+docker compose -f compose.yaml -f compose.strict.yaml start --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-restarted.json"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   320  100   320    0     0  40516      0 --:--:-- --:--:-- --:--:-- 45714
+jq -e --arg saved "$(jq -r .etag "$work_dir/policy-revoked.json")" \
+  '.etag == $saved' "$work_dir/policy-restarted.json"
+jq -r .etag "$work_dir/policy-revoked.json"
+true
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-restarted.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    12  100    12    0     0    211      0 --:--:-- --:--:-- --:--:--   214
+cmp "$work_dir/strict.txt" "$work_dir/strict-restarted.txt"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/strict-bucket")
+curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}'   "$endpoint/storage/v1/b/strict-bucket"
+test "$status" = 401
+for name in notes%2Fprivate%20file.txt notes%2Fcreated.txt; do
+  curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+    "$endpoint/storage/v1/b/strict-bucket/o/$name"
+done
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+docker compose up -d --wait
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreate 
+ Container gcs-mimic-object-demo-56726-gcs-1 Recreated 
+ Container gcs-mimic-object-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Started 
+ Container gcs-mimic-object-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-object-demo-56726-gcs-1 Healthy 
+docker compose logs --no-log-prefix gcs \
+  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "permissive") | {auth_mode}'
+{"auth_mode":"permissive"}
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-project" | jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    26  100    26    0     0  11612      0 --:--:-- --:--:-- --:--:-- 13000
+{
+  "kind": "storage#buckets"
+}
+printf '\nPASS: guide shell block 37 (exit 0)\n'
+
+PASS: guide shell block 37 (exit 0)
+docker compose down --volumes
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-object-demo-56726-gcs-1 Stopped 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removing 
+ Container gcs-mimic-object-demo-56726-gcs-1 Removed 
+ Volume gcs-mimic-object-demo-56726_gcs-data Removing 
+ Network gcs-mimic-object-demo-56726_default Removing 
+ Volume gcs-mimic-object-demo-56726_gcs-data Removed 
+ Network gcs-mimic-object-demo-56726_default Removed 
+docker image rm "$GCS_MIMIC_IMAGE"
+Untagged: gcs-mimic:object-demo-56726
+Deleted: sha256:965d9e739294911d73cff41aaf4870cb8d3aaf1d591ad609d4d4051d869f6177
+printf '\nCaptured resumable response headers and resources:\n'
+
+Captured resumable response headers and resources:
+for guide_capture in "$work_dir"/resumable*.headers "$work_dir"/resumable*.json; do
+  printf '\nFile: %s\n' "${guide_capture##*/}"
+  sed -n '1,80p' "$guide_capture"
+done
+
+File: resumable-browser.headers
+HTTP/1.1 200 OK
+location: http://localhost:55275/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&upload_id=<redacted>
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:56:03 GMT
+
+
+File: resumable-cancel.headers
+HTTP/1.1 200 OK
+location: http://127.0.0.1:55275/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&upload_id=<redacted>
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:55:55 GMT
+
+
+File: resumable-chunk.headers
+HTTP/1.1 308 Permanent Redirect
+range: bytes=0-262143
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:55:55 GMT
+
+
+File: resumable-init.headers
+HTTP/1.1 200 OK
+location: http://127.0.0.1:55275/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&upload_id=<redacted>
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:55:55 GMT
+
+
+File: resumable-peer.headers
+HTTP/1.1 200 OK
+location: http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&upload_id=<redacted>
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:55:58 GMT
+
+200
+
+File: resumable-status.headers
+HTTP/1.1 308 Permanent Redirect
+range: bytes=0-262143
+cache-control: no-store
+connection: close
+content-length: 0
+date: Thu, 22 Oct 2026 11:55:55 GMT
+
+
+File: resumable-completed.json
+{"bucket":"demo-bucket","contentType":"application/octet-stream","crc32c":"nUDfRQ==","etag":"\"o-WowXrWV6ePqieSOcg9DgLQ==-1792670155289625-1\"","generation":"1792670155289625","id":"demo-bucket/resumable/hello.bin/1792670155289625","kind":"storage#object","md5Hash":"WowXrWV6ePqieSOcg9DgLQ==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin?generation=1792670155289625&alt=media","metadata":{"source":"resumable-guide"},"metageneration":"1","name":"resumable/hello.bin","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin","size":"262149","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:55.289Z","timeFinalized":"2026-10-22T11:55:55.289Z","timeStorageClassUpdated":"2026-10-22T11:55:55.289Z","updated":"2026-10-22T11:55:55.289Z"}
+File: resumable.json
+{"bucket":"demo-bucket","contentType":"application/octet-stream","crc32c":"nUDfRQ==","etag":"\"o-WowXrWV6ePqieSOcg9DgLQ==-1792670155289625-1\"","generation":"1792670155289625","id":"demo-bucket/resumable/hello.bin/1792670155289625","kind":"storage#object","md5Hash":"WowXrWV6ePqieSOcg9DgLQ==","mediaLink":"http://127.0.0.1:55275/download/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin?generation=1792670155289625&alt=media","metadata":{"source":"resumable-guide"},"metageneration":"1","name":"resumable/hello.bin","selfLink":"http://127.0.0.1:55275/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin","size":"262149","storageClass":"STANDARD","timeCreated":"2026-10-22T11:55:55.289Z","timeFinalized":"2026-10-22T11:55:55.289Z","timeStorageClassUpdated":"2026-10-22T11:55:55.289Z","updated":"2026-10-22T11:55:55.289Z"}wc -c "$work_dir"/resumable*.bin "$work_dir"/resumable*.txt
+  262149 <temporary-directory>/tmp.9Cafvtxcg6/resumable-download.bin
+  262144 <temporary-directory>/tmp.9Cafvtxcg6/resumable-first.bin
+       5 <temporary-directory>/tmp.9Cafvtxcg6/resumable-last.bin
+  262149 <temporary-directory>/tmp.9Cafvtxcg6/resumable.bin
+       9 <temporary-directory>/tmp.9Cafvtxcg6/resumable-peer-expected.txt
+       9 <temporary-directory>/tmp.9Cafvtxcg6/resumable-peer.txt
+  786465 total
+rm -r "$work_dir"
+unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
+printf '\nPASS: guide shell block 38 (exit 0)\n'
+
+PASS: guide shell block 38 (exit 0)
+cargo +1.99.1 build --release --locked --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling typenum v1.20.1
+   Compiling pin-project-lite v0.2.17
+   Compiling httparse v1.10.1
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling semver v1.0.28
+   Compiling cc v1.9.0
+   Compiling rustc_version v0.4.1
+   Compiling futures-core v0.3.34
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling smallvec v1.16.3
+   Compiling serde_json v1.0.154
+   Compiling getrandom v0.4.3
+   Compiling http v1.5.0
+   Compiling crc32c v0.6.8
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling hybrid-array v0.4.15
+   Compiling cfg-if v1.0.5
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling http-body v1.1.0
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling syn v3.0.9
+   Compiling libsqlite3-sys v0.38.2
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling digest v0.11.3
+   Compiling md-5 v0.11.0
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 25.58s
+native_dir=$(mktemp -d)
+mktemp -d
+./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
+  --api-base-url http://127.0.0.1:4443 > "$native_dir/server.log" 2>&1 &
+native_pid=$!
+trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
+for attempt in $(seq 1 100); do
+  if jq -e 'select(.event == "ready")' "$native_dir/server.log" >/dev/null; then break; fi
+  kill -0 "$native_pid"
+  sleep 0.1
+done
+seq 1 100
+native_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$native_dir/server.log")"
+jq -r 'select(.event == "ready") | .listen' "$native_dir/server.log"
+./target/release/gcs-mimic healthcheck --url "$native_endpoint/_internal/ready"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"native-bucket"}' "$native_endpoint/storage/v1/b?project=local-project"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   391  100   367  100    24   108k   7285 --:--:-- --:--:-- --:--:--  127k
+{"etag":"\"b-1792670229897-1792670229897-1\"","id":"native-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"native-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:57:09.897Z","updated":"2026-10-22T11:57:09.897Z"}curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' \
+  "$native_endpoint/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   721  100    11  37059    565 --:--:-- --:--:-- --:--:-- 38526
+{"bucket":"native-bucket","contentType":"text/plain","crc32c":"Ust9OA==","etag":"\"o-ZCrJUVRWexgU5S840H/rJQ==-1792670229940508-1\"","generation":"1792670229940508","id":"native-bucket/hello.txt/1792670229940508","kind":"storage#object","md5Hash":"ZCrJUVRWexgU5S840H/rJQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/native-bucket/o/hello.txt?generation=1792670229940508&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket/o/hello.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-22T11:57:09.940Z","timeFinalized":"2026-10-22T11:57:09.940Z","timeStorageClassUpdated":"2026-10-22T11:57:09.940Z","updated":"2026-10-22T11:57:09.940Z"}curl --disable --noproxy '*' --fail \
+  "$native_endpoint/storage/v1/b/native-bucket/o/hello.txt?alt=media" > "$native_dir/download.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0   4616      0 --:--:-- --:--:-- --:--:--  5500
+printf 'native data' | cmp - "$native_dir/download.txt"
+native_public_url=$(./target/release/gcs-mimic url public --base-url "$native_endpoint" \
+  --bucket native-bucket --object hello.txt)
+./target/release/gcs-mimic url public --base-url "$native_endpoint"   --bucket native-bucket --object hello.txt
+status=$(curl --disable --noproxy '*' --silent --show-error --output "$native_dir/xml.txt" \
+  --write-out '%{http_code}' "$native_public_url")
+curl --disable --noproxy '*' --silent --show-error --output "$native_dir/xml.txt"   --write-out '%{http_code}' "$native_public_url"
+test "$status" = 200
+printf 'native data' | cmp - "$native_dir/xml.txt"
+kill -TERM "$native_pid"
+wait "$native_pid"
+trap - EXIT
+jq . "$native_dir/server.log"
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:59080",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "seed": {
+    "outcome": "disabled"
+  },
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
+rm -r "$native_dir"
+printf '\nPASS: guide shell block 39 (exit 0)\n'
+
+PASS: guide shell block 39 (exit 0)
+unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
+seed_demo=$(mktemp -d)
+mktemp -d
+mkdir -p "$seed_demo/fixtures/example-bucket"
+printf 'hello world' > "$seed_demo/fixtures/example-bucket/hello.txt"
+./target/release/gcs-mimic serve --listen 127.0.0.1:0 \
+  --data-dir "$seed_demo/data" --seed-dir "$seed_demo/fixtures" \
+  --seed-project local-project > "$seed_demo/server.log" 2>&1 &
+seed_pid=$!
+trap 'kill -TERM "$seed_pid" 2>/dev/null || true' EXIT
+for attempt in $(seq 1 100); do
+  if jq -e 'select(.event == "ready")' "$seed_demo/server.log" >/dev/null; then break; fi
+  kill -0 "$seed_pid"
+  sleep 0.1
+done
+seq 1 100
+seed_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$seed_demo/server.log")"
+jq -r 'select(.event == "ready") | .listen' "$seed_demo/server.log"
+./target/release/gcs-mimic healthcheck --url "$seed_endpoint/_internal/ready"
+curl --disable --noproxy '*' --fail \
+  "$seed_endpoint/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/full.txt"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0   8928      0 --:--:-- --:--:-- --:--:-- 11000
+printf 'hello world' | cmp - "$seed_demo/full.txt"
+curl --disable --noproxy '*' --fail-with-body -sS -D "$seed_demo/range.headers" \
+  -H 'Range: bytes=0-4' \
+  "$seed_endpoint/download/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/range.txt"
+printf 'hello' | cmp - "$seed_demo/range.txt"
+sed -n '1,20p' "$seed_demo/range.headers"
+HTTP/1.1 206 Partial Content
+cache-control: no-cache
+content-type: application/octet-stream
+content-length: 5
+accept-ranges: bytes
+x-goog-generation: 1792670230089519
+x-goog-metageneration: 1
+x-goog-hash: crc32c=yZRlqg==,md5=XrY7u+Ae7tCTyyK7j1rNww==
+x-goog-stored-content-length: 11
+x-goog-stored-content-encoding: identity
+etag: "o-XrY7u+Ae7tCTyyK7j1rNww==-1792670230089519-1"
+content-range: bytes 0-4/11
+connection: close
+date: Thu, 22 Oct 2026 11:57:10 GMT
+
+printf 'Range body: '; sed -n '1p' "$seed_demo/range.txt"; printf '\n'
+Range body: hello
+kill -TERM "$seed_pid"
+wait "$seed_pid"
+trap - EXIT
+jq . "$seed_demo/server.log"
+{
+  "event": "seeding"
+}
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:59086",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "seed": {
+    "buckets": 1,
+    "existing_objects": 0,
+    "objects": 1,
+    "outcome": "imported"
+  },
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
+rm -r "$seed_demo"
+printf '\nPASS: guide shell block 40 (exit 0)\n'
+
+PASS: guide shell block 40 (exit 0)
+export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo-$$
+export GCS_MIMIC_IMAGE="gcs-mimic:seed-demo-$$"
+docker build -t "$GCS_MIMIC_IMAGE" .
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.82kB 0.0s done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 ...
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 0.0s
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.5s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 248B done
+#6 DONE 0.0s
+
+#7 [build 1/9] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#7 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.0s done
+#7 DONE 0.0s
+
+#8 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#8 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.0s done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 2.31kB done
+#9 DONE 0.0s
+
+#10 [build 5/9] COPY xtask/src ./xtask/src
+#10 CACHED
+
+#11 [build 8/9] COPY distribution/notices ./distribution/notices
+#11 CACHED
+
+#12 [build 7/9] COPY LICENSE-MIT LICENSE-APACHE ./
+#12 CACHED
+
+#13 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#13 CACHED
+
+#14 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#14 CACHED
+
+#15 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#15 CACHED
+
+#16 [build 6/9] COPY src ./src
+#16 CACHED
+
+#17 [runtime 2/5] WORKDIR /app
+#17 CACHED
+
+#18 [build 2/9] WORKDIR /build
+#18 CACHED
+
+#19 [build 3/9] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#19 CACHED
+
+#20 [build 9/9] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#20 CACHED
+
+#21 [build 4/9] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#21 CACHED
+
+#22 exporting to image
+#22 exporting layers done
+#22 exporting manifest sha256:c52a51adca73289415556f4f37940935e84d77909bceb002db7c3b637c1c843d done
+#22 exporting config sha256:92f07c40253b66e943a93618959ff1349b4d39f6dfaf7333a87f8c66098b060a done
+#22 exporting attestation manifest sha256:34d25388566a3cd343dd3e24ec0d31bf87b49c08c39dc2981bced7483f9a23eb
+#22 exporting attestation manifest sha256:34d25388566a3cd343dd3e24ec0d31bf87b49c08c39dc2981bced7483f9a23eb done
+#22 exporting manifest list sha256:374226b6b90e2974390317a4c9eb970b73ed978cbb7fdb387e959a956272c572 done
+#22 naming to docker.io/library/gcs-mimic:seed-demo-56726 done
+#22 unpacking to docker.io/library/gcs-mimic:seed-demo-56726 done
+#22 DONE 0.1s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/jj8nrm0943kweorv1o1ook3lc
+export GCS_MIMIC_PORT=0
+docker compose -f compose.yaml -f compose.seed.yaml up -d --wait
+ Network gcs-mimic-seed-demo-56726_default Creating 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Creating 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Creating 
+ Network gcs-mimic-seed-demo-56726_default Creating 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Created 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Created 
+ Network gcs-mimic-seed-demo-56726_default Created 
+ Network gcs-mimic-seed-demo-56726_default Created 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Creating 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Created 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Starting 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Started 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Waiting 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Healthy 
+seed_address=$(docker compose -f compose.yaml -f compose.seed.yaml port gcs 4443)
+docker compose -f compose.yaml -f compose.seed.yaml port gcs 4443
+curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b?project=local-project"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   401  100   401    0     0  93977      0 --:--:-- --:--:-- --:--:--   97k
+{"items":[{"etag":"\"b-1792670232826-1792670232826-1\"","id":"local-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"local-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/local-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T11:57:12.826Z","updated":"2026-10-22T11:57:12.826Z"}],"kind":"storage#buckets"}curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b/local-bucket/o"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   768  100   768    0     0   106k      0 --:--:-- --:--:-- --:--:--  125k
+{"items":[{"bucket":"local-bucket","contentType":"application/octet-stream","crc32c":"rRP7FQ==","etag":"\"o-UPCAR8SZ72eCs+reRGaxpA==-1792670232841092-1\"","generation":"1792670232841092","id":"local-bucket/hello.txt/1792670232841092","kind":"storage#object","md5Hash":"UPCAR8SZ72eCs+reRGaxpA==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/local-bucket/o/hello.txt?generation=1792670232841092&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/local-bucket/o/hello.txt","size":"25","storageClass":"STANDARD","timeCreated":"2026-10-22T11:57:12.841Z","timeFinalized":"2026-10-22T11:57:12.841Z","timeStorageClassUpdated":"2026-10-22T11:57:12.841Z","updated":"2026-10-22T11:57:12.841Z"}],"kind":"storage#objects"}curl --disable --noproxy '*' --fail \
+  "http://$seed_address/storage/v1/b/local-bucket/o/hello.txt?alt=media"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    25  100    25    0     0  10771      0 --:--:-- --:--:-- --:--:-- 12500
+Hello from the emulator.
+docker compose -f compose.yaml -f compose.seed.yaml stop
+ Container gcs-mimic-seed-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Stopped 
+printf '\nPASS: guide shell block 41 (exit 0)\n'
+
+PASS: guide shell block 41 (exit 0)
+printf '\nAdditional isolated seed-demo cleanup:\n'
+
+Additional isolated seed-demo cleanup:
+docker compose -f compose.yaml -f compose.seed.yaml down --volumes
+ Container gcs-mimic-seed-demo-56726-gcs-1 Stopping 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Stopped 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Removing 
+ Container gcs-mimic-seed-demo-56726-gcs-1 Removed 
+ Network gcs-mimic-seed-demo-56726_default Removing 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Removing 
+ Volume gcs-mimic-seed-demo-56726_gcs-data Removed 
+ Network gcs-mimic-seed-demo-56726_default Removed 
+docker image rm "$GCS_MIMIC_IMAGE"
+Untagged: gcs-mimic:seed-demo-56726
+Deleted: sha256:374226b6b90e2974390317a4c9eb970b73ed978cbb7fdb387e959a956272c572
+printf '\nPASS: additional seed-demo cleanup (exit 0)\n'
+
+PASS: additional seed-demo cleanup (exit 0)
+
+Guide exit code: 0
+Guide duration seconds: 93
+
+Cleanup verification: exact Compose projects created by this verification.
+Command: docker ps -a --format JSON, filtered to the exact smoke and guide project names
+{
+  "remaining_containers": 0
+}
+Container cleanup verification exit code: 0
+Command: docker volume ls --format JSON, filtered to the exact smoke and guide project names
+{
+  "remaining_volumes": 0
+}
+Volume cleanup verification exit code: 0
+Command: docker network ls --format JSON, filtered to the exact smoke and guide project names
+{
+  "remaining_networks": 0
+}
+Network cleanup verification exit code: 0
+
+Observed result summary (2026-10-22 UTC):
+All 41 executable sh blocks passed in document order, without guide corrections.
+Host initiation returned 200 and a 127.0.0.1:55275 Location; incomplete chunk and status returned 308 with Range: bytes=0-262143; finalization and completed status returned 200 with equal Object resources.
+The host object contained exactly 262149 bytes and matched the assembled source with cmp; no object was visible before completion.
+Cancellation returned 499, subsequent status returned 410 and the uncreated object returned 404.
+The Compose peer followed the unchanged http://gcs:4443 Location and finalized/downloaded exactly 9 bytes; cmp passed.
+The browser-address configuration returned a http://localhost:55275 Location reachable by host curl, then cancellation returned 499. This does not claim browser execution or CORS support.
+The permissive Compose Go run passed 15 top-level tests and 47 subtests, skipped 11 strict-only tests because its strict endpoint was unset, and had no failures.
+The later strict Compose Go run passed all 11 selected top-level tests and 22 subtests, with no skips or failures.
+Persistent bytes, metadata and public grants survived the documented restart/recreation steps; explicit reset removed disposable data. Native and seeded native/Compose journeys passed.
+All created containers, volumes and networks were removed; the two guide image tags and two smoke image tags were removed.
+The guide contains no runnable signed-URL or remote-CI journey: those remain explicitly unsupported/unverified. Its final text-fenced contributor command list was already covered by just check and just check-containers, and was not repeated.
+No real-cloud differential request, native AMD64 execution, remote CI, publication, power-loss test or performance measurement was performed.

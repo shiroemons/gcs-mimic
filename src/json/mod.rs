@@ -18,6 +18,8 @@ mod object_metadata;
 mod objects;
 mod page_token;
 mod query;
+pub(crate) mod resumable;
+pub mod resumable_cancel;
 
 pub use body::read_body;
 pub(crate) use buckets::timestamp;

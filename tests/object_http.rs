@@ -326,13 +326,8 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             .error(400, "invalid");
         server.get("bad").error(404, "notFound");
     }
-    for (kind, status, reason) in [
-        ("multipart", 400, "invalidParameter"),
-        ("resumable", 501, "notImplemented"),
-    ] {
-        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType={kind}&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").as_bytes()).error(status, reason);
-        server.get("unsupported").error(404, "notFound");
-    }
+    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").error(400, "invalidParameter");
+    server.get("unsupported").error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
@@ -1141,4 +1136,324 @@ fn obj_http_sigkill_after_blob_rename_before_commit_and_after_success() {
     assert_eq!(server.get("durable").json(), committed);
     assert_eq!(server.get("durable?alt=media").body, b"committed");
     assert_eq!(count_blobs(), 1);
+}
+
+fn resumable_path(server: &Server) -> String {
+    let reply = server.request(
+        "POST",
+        "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=durable",
+        "Content-Type: application/json\r\n",
+        br#"{"contentType":"application/test","metadata":{"source":"initiation"}}"#,
+    );
+    assert_eq!(reply.status, 200);
+    reply.headers["location"]
+        .strip_prefix("https://advertised.invalid/api")
+        .unwrap()
+        .to_owned()
+}
+
+fn resumable_progress(database: &rusqlite::Connection) -> (u64, String) {
+    database
+        .query_row("SELECT offset, state FROM resumable_sessions", [], |row| {
+            Ok((u64::try_from(row.get::<_, i64>(0)?).unwrap(), row.get(1)?))
+        })
+        .unwrap()
+}
+
+fn resumable_files(
+    dir: &TestDir,
+    database: &rusqlite::Connection,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let id: String = database
+        .query_row("SELECT blob_id FROM resumable_sessions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    (
+        dir.0.join("staging").join(&id),
+        dir.0.join("blobs").join(&id[..2]).join(&id),
+    )
+}
+
+fn wait_for_boundary(message: &str, mut reached: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !reached() {
+        assert!(Instant::now() < deadline, "{message}");
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn send_resumable_chunk(
+    server: &Server,
+    path: &str,
+    start: u64,
+    length: u64,
+    total: &str,
+    byte: u8,
+) -> TcpStream {
+    let mut stream = server.stream();
+    write!(stream, "PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Length: {length}\r\nContent-Range: bytes {start}-{}/{total}\r\n\r\n", start + length - 1).unwrap();
+    let buffer = [byte; 64 * 1024];
+    let mut remaining = length;
+    while remaining > 0 {
+        let n = remaining.min(buffer.len() as u64) as usize;
+        stream.write_all(&buffer[..n]).unwrap();
+        remaining -= n as u64;
+    }
+    stream
+}
+
+fn assert_resumable_complete(server: &Server, dir: &TestDir, resource: &Value) {
+    assert_eq!(server.get("durable").json(), *resource);
+    let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let (offset, state) = resumable_progress(&database);
+    assert_eq!(state, "COMPLETE");
+    assert_eq!(offset.to_string(), resource["size"].as_str().unwrap());
+    let (objects, generation): (i64, i64) = database
+        .query_row("SELECT count(*), max(generation) FROM objects", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(objects, 1);
+    assert_eq!(
+        generation.to_string(),
+        resource["generation"].as_str().unwrap()
+    );
+    let last: i64 = database
+        .query_row("SELECT last_generation FROM object_generation", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(last, generation);
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    let blobs: usize = std::fs::read_dir(dir.0.join("blobs"))
+        .unwrap()
+        .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+        .sum();
+    assert_eq!(blobs, 1, "only the committed object blob remains");
+}
+
+#[test]
+fn resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, 1024 * 1024, 5000);
+    server.bucket();
+    let path = resumable_path(&server);
+    let prefix = 256 * 1024;
+    assert_eq!(
+        Reply::read(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
+        308
+    );
+    let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let (stage, _) = resumable_files(&dir, &database);
+    database.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let sending = send_resumable_chunk(&server, &path, prefix, prefix, "*", b'x');
+    wait_for_boundary(
+        "chunk bytes must reach staging before the offset commit",
+        || std::fs::metadata(&stage).unwrap().len() > prefix,
+    );
+    assert_eq!(resumable_progress(&database), (prefix, "ACTIVE".into()));
+    server.child.kill().unwrap();
+    assert!(!server.child.wait().unwrap().success());
+    drop(sending);
+    database.execute_batch("ROLLBACK").unwrap();
+    drop(server);
+
+    let server = Server::start(&dir, 1024 * 1024, 5000);
+    assert_eq!(std::fs::metadata(&stage).unwrap().len(), prefix);
+    let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
+    assert_eq!(status.status, 308);
+    assert_eq!(status.headers["range"], format!("bytes=0-{}", prefix - 1));
+    let final_reply = Reply::read(send_resumable_chunk(
+        &server,
+        &path,
+        prefix,
+        prefix,
+        &(prefix * 2).to_string(),
+        b'b',
+    ));
+    assert_eq!(final_reply.status, 200);
+    let mut expected = vec![b'a'; prefix as usize];
+    expected.extend(vec![b'b'; prefix as usize]);
+    assert_eq!(server.get("durable?alt=media").body, expected);
+    assert_resumable_complete(&server, &dir, &final_reply.json());
+}
+
+#[test]
+fn resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes() {
+    for no_308 in [false, true] {
+        let dir = TestDir::new();
+        let mut server = Server::start(&dir, 1024 * 1024, 5000);
+        server.bucket();
+        let path = resumable_path(&server);
+        let prefix = vec![b'a'; 256 * 1024];
+        let headers = format!(
+            "Content-Range: bytes 0-{}/*\r\n{}",
+            prefix.len() - 1,
+            if no_308 {
+                "X-GUploader-No-308: yes\r\n"
+            } else {
+                ""
+            }
+        );
+        let acknowledged = server.request("PUT", &path, &headers, &prefix);
+        assert_eq!(acknowledged.status, if no_308 { 200 } else { 308 });
+        if no_308 {
+            assert_eq!(acknowledged.headers["x-http-status-code-override"], "308");
+        }
+        assert!(acknowledged.body.is_empty());
+        server.child.kill().unwrap();
+        assert!(!server.child.wait().unwrap().success());
+        drop(server);
+
+        let server = Server::start(&dir, 1024 * 1024, 5000);
+        let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
+        assert_eq!(status.status, 308);
+        assert_eq!(status.headers["range"], acknowledged.headers["range"]);
+        let total = prefix.len() + 4;
+        let final_reply = server.request(
+            "PUT",
+            &path,
+            &format!(
+                "Content-Range: bytes {}-{}/{total}\r\n",
+                prefix.len(),
+                total - 1
+            ),
+            b"tail",
+        );
+        assert_eq!(final_reply.status, 200);
+        let mut expected = prefix;
+        expected.extend_from_slice(b"tail");
+        assert_eq!(server.get("durable?alt=media").body, expected);
+        assert_resumable_complete(&server, &dir, &final_reply.json());
+    }
+}
+
+#[test]
+fn resumable_sigkill_after_final_checkpoint_restores_active_staging() {
+    assert_resumable_precommit_recovery(false);
+}
+
+#[test]
+fn resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object() {
+    assert_resumable_precommit_recovery(true);
+}
+
+fn assert_resumable_precommit_recovery(after_rename: bool) {
+    let dir = TestDir::new();
+    let prefix = 64 * 1024 * 1024;
+    let total = prefix + 4;
+    let mut server = Server::start(&dir, total, 5000);
+    server.bucket();
+    let original = server.upload("name=durable", "", b"old").json();
+    let path = resumable_path(&server);
+    assert_eq!(
+        Reply::read(send_resumable_chunk(&server, &path, 0, prefix, "*", b'a')).status,
+        308
+    );
+    let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let (stage, blob) = resumable_files(&dir, &database);
+    let sending = send_resumable_chunk(&server, &path, prefix, 4, &total.to_string(), b'b');
+    // Hashing a fixed disk prefix leaves time to acquire the lock after the final checkpoint.
+    wait_for_boundary(
+        "final chunk must checkpoint before hashing and publication",
+        || resumable_progress(&database).0 == total,
+    );
+    database.execute_batch("BEGIN IMMEDIATE").unwrap();
+    assert_eq!(
+        resumable_progress(&database),
+        (total, "ACTIVE".into()),
+        "missed the final checkpoint-to-publication lock window"
+    );
+    if after_rename {
+        wait_for_boundary(
+            "final blob rename must precede the blocked Object/COMPLETE commit",
+            || blob.is_file(),
+        );
+        assert!(!stage.exists());
+    }
+    let generation: i64 = database
+        .query_row(
+            "SELECT generation FROM objects WHERE name='durable'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        generation.to_string(),
+        original["generation"].as_str().unwrap()
+    );
+    server.child.kill().unwrap();
+    assert!(!server.child.wait().unwrap().success());
+    if !after_rename {
+        assert!(
+            stage.is_file() && !blob.exists(),
+            "missed the checkpoint-before-rename crash window"
+        );
+    }
+    drop(sending);
+    database.execute_batch("ROLLBACK").unwrap();
+    drop(server);
+
+    let server = Server::start(&dir, total, 5000);
+    assert_eq!(resumable_progress(&database), (total, "ACTIVE".into()));
+    assert_eq!(std::fs::metadata(&stage).unwrap().len(), total);
+    assert!(
+        !blob.exists(),
+        "uncommitted blob must be restored to staging"
+    );
+    assert_eq!(server.get("durable").json(), original);
+    assert_eq!(server.get("durable?alt=media").body, b"old");
+    let status = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
+    assert_eq!(status.status, 308);
+    assert_eq!(status.headers["range"], format!("bytes=0-{}", total - 1));
+    let completed = Reply::read(send_resumable_chunk(
+        &server,
+        &path,
+        prefix,
+        4,
+        &total.to_string(),
+        b'b',
+    ));
+    assert_eq!(completed.status, 200);
+    let resource = completed.json();
+    assert_ne!(resource["generation"], original["generation"]);
+    let bytes = server.get("durable?alt=media").body;
+    assert_eq!(bytes.len() as u64, total);
+    assert!(bytes[..prefix as usize].iter().all(|byte| *byte == b'a'));
+    assert_eq!(&bytes[prefix as usize..], b"bbbb");
+    let repeated = server.request("PUT", &path, "Content-Range: bytes */*\r\n", b"");
+    assert_eq!(repeated.status, 200);
+    assert_eq!(repeated.json(), resource);
+    assert_resumable_complete(&server, &dir, &resource);
+}
+
+#[test]
+fn resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, 1000, 5000);
+    server.bucket();
+    let path = resumable_path(&server);
+    let headers = "Content-Range: bytes 0-4/5\r\nX-Goog-Meta-final: committed\r\n";
+    let completed = server.request("PUT", &path, headers, b"exact");
+    assert_eq!(completed.status, 200);
+    let resource = completed.json();
+    assert_eq!(
+        resource["metadata"],
+        json!({"source":"initiation", "final":"committed"})
+    );
+    server.child.kill().unwrap();
+    assert!(!server.child.wait().unwrap().success());
+    drop(server);
+
+    let server = Server::start(&dir, 1000, 5000);
+    assert_eq!(server.get("durable?alt=media").body, b"exact");
+    let status = server.request("PUT", &path, "Content-Range: bytes */5\r\n", b"");
+    assert_eq!(status.status, 200);
+    assert!(!status.headers.contains_key("x-http-status-code-override"));
+    assert_eq!(status.json(), resource);
+    let repeated = server.request("PUT", &path, headers, b"exact");
+    assert_eq!(repeated.status, 200);
+    assert_eq!(repeated.json(), resource);
+    assert_resumable_complete(&server, &dir, &resource);
 }

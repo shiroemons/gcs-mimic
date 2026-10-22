@@ -42,6 +42,12 @@ pub enum ObjectRequest {
         name: Option<String>,
         params: ObjectInsertParams,
     },
+    Resumable {
+        bucket: String,
+        name: Option<String>,
+        params: ObjectInsertParams,
+        content_encoding: Option<String>,
+    },
     Get {
         bucket: String,
         name: String,
@@ -173,6 +179,13 @@ fn parse_object_query(
             return Err(JsonError::unsupported_object(key));
         }
     }
+    let resumable =
+        method == Method::POST && query.get("uploadType").is_some_and(|v| v == "resumable");
+    let content_encoding = if resumable {
+        query.remove("contentEncoding")
+    } else {
+        None
+    };
     let method_keys: &[&str] = if method == Method::POST {
         &["contentEncoding", "kmsKeyName", "predefinedAcl"]
     } else if method == Method::GET {
@@ -218,9 +231,7 @@ fn parse_object_query(
         let multipart = match query.remove("uploadType").as_deref() {
             Some("media") => false,
             Some("multipart") => true,
-            Some("resumable") => {
-                return Err(JsonError::unsupported_object("uploadType"));
-            }
+            Some("resumable") => true,
             None => {
                 return Err(JsonError::new(
                     StatusCode::BAD_REQUEST,
@@ -251,6 +262,23 @@ fn parse_object_query(
             conditions,
             projection,
         };
+        if resumable {
+            if conditions.if_generation_match.is_some_and(|n| n < 0)
+                || conditions.if_generation_not_match.is_some_and(|n| n < 0)
+                || conditions.if_metageneration_match.is_some_and(|n| n <= 0)
+                || conditions
+                    .if_metageneration_not_match
+                    .is_some_and(|n| n <= 0)
+            {
+                return Err(JsonError::invalid_parameter("Invalid upload precondition"));
+            }
+            return Ok(ObjectRequest::Resumable {
+                bucket,
+                name,
+                params,
+                content_encoding,
+            });
+        }
         if multipart {
             return Ok(ObjectRequest::Multipart {
                 bucket,

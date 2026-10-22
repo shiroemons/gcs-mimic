@@ -210,11 +210,6 @@ fn obj_query_001_required_upload_and_unsupported_types() {
             "invalidParameter",
         ),
         (
-            "uploadType=resumable",
-            StatusCode::NOT_IMPLEMENTED,
-            "notImplemented",
-        ),
-        (
             "uploadType=media&name=file&generation=1",
             StatusCode::BAD_REQUEST,
             "invalidParameter",

@@ -136,6 +136,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     listener = bind_listener(config.listen) => listener?,
                 };
+                catalog.start_resumable_maintenance();
                 let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
                 let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
                 if let Some(count) = state.auth.identity_count() {

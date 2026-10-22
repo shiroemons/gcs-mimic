@@ -9,14 +9,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 284 | 0 | 14 | 0 | 0 | 0 |
-| behavior | 201 | 167 | 0 | 27 | 7 | 0 | 0 |
-| project_requirement | 92 | 43 | 0 | 27 | 22 | 0 | 0 |
+| behavior | 201 | 162 | 0 | 27 | 12 | 0 | 0 |
+| project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 284 | 2 | 12 | 0 | 0 | 0 |
-| behavior | 167 | 8 | 24 | 2 | 0 | 0 |
-| project_requirement | 43 | 0 | 0 | 0 | 0 | 49 |
+| behavior | 162 | 13 | 24 | 2 | 0 | 0 |
+| project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
 
@@ -150,7 +150,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
@@ -670,11 +670,11 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-OBJECT-007 | Metadata mediaLink/selfLink | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | Simple media upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | Multipart JSON upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| BEHAVIOR-OBJECT-010 | Resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-011 | Resumable chunk writes | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-012 | Resumable status query | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-013 | Resumable cancellation and expiration | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-014 | Resumable finalization visibility | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-010 | Resumable initiation | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-011 | Resumable chunk writes | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-012 | Resumable status query | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-013 | Resumable cancellation and expiration | IMPLEMENTED | P3 | EXACT | EXACT | 0 |
+| BEHAVIOR-OBJECT-014 | Resumable finalization visibility | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-015 | Read bytes and metadata separately | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | Range reads | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-017 | Content encoding and transcoding | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 7 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 8 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -943,4 +943,4 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-046 | Public URL construction without permission mutation | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-055 | Listen versus advertised API/public addresses | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | Proxy-aware advertised URLs with explicit trust | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-057 | Resumable Location reachable by clients | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-057 | Resumable Location reachable by clients | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |

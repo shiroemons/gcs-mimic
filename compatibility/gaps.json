@@ -3,6 +3,50 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-RSM-DISCOVERY-PATH",
+      "title": "Discovery resumable protocol path differs from the documented and Go SDK initiation path",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "DESIGN-082"],
+      "source_urls": ["https://storage.googleapis.com/$discovery/rest?version=v1", "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go"],
+      "observed_at": "2026-10-22",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Discovery revision 20261013 declares /resumable/upload/storage/v1/b/{bucket}/o as the resumable protocol path. The performing guide and API v0.307.0 generated ObjectsInsertCall instead initiate POST /upload/storage/v1/b/{bucket}/o?uploadType=resumable. The slice requires the latter verified source path and does not infer whether the former is an accepted alias. The pinned gensupport transport then uses POST to the returned session URI, unlike the guide's PUT, and requires HTTP 200 plus X-HTTP-Status-Code-Override: 308 when X-GUploader-No-308: yes is sent; both request forms are explicitly included in the contract.",
+      "required_resolution": "Retain the guide/SDK initiation path and PUT plus pinned SDK POST coverage. Obtain authoritative clarification or explicitly authorized differential evidence for the Discovery alias before claiming the entire objects.insert upload protocol surface. Do not treat an untested alias as GA or remove the SDK's no-308 header. Fetched digests are in docs/en/sources.md; scope and cases are in docs/en/slices/resumable-upload.md."
+    },
+    {
+      "id": "SPEC-RSM-EDGES",
+      "title": "Resumable error, total, checksum and terminal-session edge parity needs independent evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "BEHAVIOR-OBJECT-011", "BEHAVIOR-OBJECT-012", "BEHAVIOR-OBJECT-013", "BEHAVIOR-OBJECT-014", "DESIGN-082"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/resumable-uploads", "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters", "https://docs.cloud.google.com/storage/docs/data-validation#json-resumable-upload", "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/resumable.go"],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Sources establish seven-day lifetime, persisted-prefix immutability, 308/Range with no Range for zero persisted bytes, unknown totals, final 200/201 and JSON cancellation 499. The concept page gives 410 for an invalid URI before one week and 404 after one week; the performing guide promises only a future 4xx after cancellation. They do not establish exact deadline equality, cancellation-repeat/completed-DELETE body shape, failed-session retention, zero-body bytes */N finalization distinction, total/header conflict errors, offset-gap or concurrent-writer errors, chunk alignment enforcement, final custom-metadata key conflicts, or MIME precedence when metadata conflicts with X-Upload-Content-Type. Local choices are 604800 seconds with expiry at equality, cancelled-session 410 before deadline and 404 at/after, completed-session DELETE 410 before expiry, and committed cancellation 499 even if physical cleanup fails, with visible journaled cleanup retried by maintenance. Other local choices are bounded completed-resource retention, 400 malformed/gap/total errors, 503 concurrent-writer/admission rejection, complete-request offset checkpoints, and metadata contentType before X-Upload-Content-Type. Pinned Go sends an empty final POST with bytes */offset for an exact chunk multiple and whole-object CRC32C in final X-Goog-Hash. The general concept page recommends Content-MD5, whereas JSON-specific validation documents final X-Goog-Hash; Content-MD5 stays explicitly unsupported in the existing local JSON profile. Checked official JSON sources do not define fake-gcs-server's alternate x-goog-upload-* command protocol. No real-service differential test was run.",
+      "required_resolution": "Keep the exact supported subset and explicit local choices in docs/en/slices/resumable-upload.md; never claim provider error/edge parity from local tests. Local committed terminal validation failures preserve their original error response when physical cleanup fails; diagnostics and the deletion journal retain the cleanup failure for maintenance retry, and successful cleanup is not repeated before expiry. Obtain authoritative clarification or explicitly authorized cloud evidence for error bodies/order, invalid-session lifetime boundaries, completed/failed session retention, status versus empty finalization, length/total conflicts, concurrent/invalid chunks, metadata/header precedence, Content-MD5 and alternate upload command applicability. Keep x-goog-upload command variants outside the verified slice and reject recognized unsupported semantics. Completed-session protocol state is separate from SPEC-013 token-keyed response replay."
+    },
+    {
+      "id": "SPEC-RSM-AUTH-CONDITIONS",
+      "title": "Resumable bearer capability and changed-permission/precondition evaluation timing need reconciliation",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "BEHAVIOR-OBJECT-014", "DESIGN-082"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/resumable-uploads", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert", "https://docs.cloud.google.com/storage/docs/access-control/iam-json"],
+      "observed_at": "2026-10-22",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The performing/concept guides say anyone holding the session URI may upload without further authentication. The performing guide also warns that changed bucket permissions can cause a nonretryable 4xx. Objects.insert requires create plus delete for overwrite and says initiation query parameters are ignored in subsequent PUT requests, without specifying all advisory-versus-final checks or the principal used after delegation. The slice preserves the initiating authorization context, permits delegated chunk/status/cancel without reauthentication, and re-evaluates that context and all four stored generation/metageneration conditions atomically at final publication. Bucket incarnation prevents deletion/recreation from reusing stale authority. The existing 412-before-overwrite-403 local order remains SPEC-017; no provider timing/order is inferred.",
+      "required_resolution": "Verify permission revocation, creator-only concurrent overwrite, deleted/recreated buckets, delegated requests with different/missing credentials, and all four precondition races locally without weakening atomic publication. Obtain authoritative clarification or explicitly authorized service observations of the checked principal, permission recheck timing and condition/permission error ordering before claiming exact provider parity. Do not require a fresh bearer header for possession-authorized session requests or mistake invocation tokens for capability authorization."
+    },
+    {
+      "id": "SPEC-RSM-LOCATION",
+      "title": "Fixed advertised resumable Location does not implement automatic allowed-origin selection",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-057"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/request-endpoints"],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "src/config.rs exposes only fixed api_base_url; src/url.rs normalizes absolute HTTP(S) bases and optional proxy prefixes. The design/onboarding proposal describes validated_request_origin with allowed authorities, but that mode, allowlist and trusted-proxy configuration do not exist. The slice chooses the actual fixed advertised endpoint and never trusts Host/Forwarded/X-Forwarded-*; host, peer and browser-address cases use explicitly reachable configurations. One fixed origin does not automatically address disjoint host and Compose DNS spaces. Browser CORS enforcement is outside this slice.",
+      "required_resolution": "Verify host SDK, Compose-peer and browser-address reachability with their advertised configurations and hostile header tests. Preserve the fixed-base security boundary and document a common reachable DNS/proxy endpoint or separate configurations. Implement and verify an explicit allowlist/trust model before offering automatic request-origin Location selection; do not claim the broader automatic multi-origin proposal complete from fixed-origin tests."
+    },
+    {
       "id": "SPEC-XML-PREFIX",
       "title": "Shared-listener XML names colliding with JSON namespaces need routing evidence",
       "status": "OPEN",
@@ -302,16 +346,17 @@
     },
     {
       "id": "SPEC-013",
-      "title": "Accepted invocation tokens do not replay responses; uploads require generation-match",
+      "title": "Accepted invocation tokens do not replay responses; media and multipart uploads require generation-match",
       "status": "OPEN",
       "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-008", "BEHAVIOR-OBJECT-009", "DESIGN-082"],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#xgoog-gcs-idempotency-token",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/invoke.go"
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/invoke.go",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/writer.go"
       ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "Pinned Go Storage v1.69.0 attaches X-Goog-Gcs-Idempotency-Token to object operations even with RetryNever. GET/DELETE and metadata update retain local acceptance without deduplication; retries re-execute, so repeated DELETE returns 404 after its first 204. Media and multipart uploads now accept one nonempty token only with ifGenerationMatch (including zero); otherwise they return 501 before body input. Retrying a committed conditioned upload returns 412 without another generation. Empty or duplicate tokens return 400 invalidParameter. Shared validation also applies to objects.list and PATCH, without dedicated HTTP tests for those malformed-token cases. No response replay or token-keyed deduplication exists.",
+      "observed_evidence": "Pinned Go Storage v1.70.0 attaches X-Goog-Gcs-Idempotency-Token to object operations even with RetryNever. GET/DELETE and metadata update retain local acceptance without deduplication; retries re-execute, so repeated DELETE returns 404 after its first 204. Media and multipart uploads now accept one nonempty token only with ifGenerationMatch (including zero); otherwise they return 501 before body input. Retrying a committed conditioned upload returns 412 without another generation. The pinned v1.70.0 resumable Writer also sends a token at initiation: one nonempty token is accepted without ifGenerationMatch because initiation only creates another bounded session and never mutates object state. Retried initiation returns a distinct capability, not a replayed response; stored conditions still apply atomically at finalization. Session writes accept one nonempty chunk token while offsets govern retries. Empty or duplicate tokens return 400 invalidParameter. Shared validation also applies to objects.list and PATCH, without dedicated HTTP tests for those malformed-token cases. No response replay or token-keyed deduplication exists.",
       "required_resolution": "Keep affected rows PARTIAL and record conditioned acceptance without replay. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; extend malformed-token HTTP coverage to listing and PATCH. Do not strip SDK headers or describe generation conditions as deduplication. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
     },
     {

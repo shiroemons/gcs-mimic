@@ -323,7 +323,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 7)
+                .pragma_update(None, "user_version", 8)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -381,7 +381,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 7"));
+            assert!(error.to_string().contains("schema version 8"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -431,7 +431,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
     Connection::open(&path)
         .unwrap()
         .execute_batch(
-            "DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
         )
         .unwrap();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -441,7 +441,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -493,7 +493,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
         )
         .unwrap();
     // An oversized default policy fails the second insert, after the first policy and v6 marker.
@@ -545,7 +545,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
     assert_eq!(
         connection
@@ -565,7 +565,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 7)
+        .pragma_update(None, "user_version", 8)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -577,7 +577,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 7")
+                .contains("schema version 8")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -597,7 +597,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 7;",
+            "future" => "PRAGMA user_version = 8;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

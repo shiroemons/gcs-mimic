@@ -851,15 +851,17 @@ fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_gen
     let value = server.upload(&format!("name=existing&ifGenerationMatch={generation}&ifGenerationNotMatch=0&ifMetagenerationMatch=1&ifMetagenerationNotMatch=2"), &wire(b"{}",None,b"new",None)).json();
     assert_ne!(value["generation"], original["generation"]);
     assert_eq!(value["metageneration"], "1");
-    server
-        .request(
-            "POST",
-            "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=new",
-            "",
-            b"",
-        )
-        .error(501, "notImplemented");
     no_leaks(&dir, 1);
+    let session = server.request(
+        "POST",
+        "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=new",
+        "",
+        b"",
+    );
+    assert_eq!(session.status, 200);
+    assert!(session.body.is_empty());
+    server.get("new").error(404, "notFound");
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 1);
 }
 
 #[test]

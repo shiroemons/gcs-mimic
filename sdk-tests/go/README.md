@@ -89,14 +89,43 @@ is a media upload. Raw media coverage uses the same guarded HTTP client directly
 `TestObjectMultipartWriter` uses `ChunkSize=0` to exercise single-request multipart,
 including empty and multichunk binary data, fixed/custom metadata,
 explicit CRC32C/MD5, rejected checksum mismatches, create-if-absent and
-conditioned overwrites, followed by Attrs and NewReader verification. The media
-lifecycle test retains the unsupported resumable case by writing more than one
-256 KiB chunk with nonzero `ChunkSize`; it requires 501 `notImplemented` with a
-nonempty message and no object publication. That status is the emulator's local
-unsupported-semantics deviation, not Google's resumable behavior. This harness
-establishes the documented single-request Writer subset only.
-Upload invocation tokens require `ifGenerationMatch` and have no replay support;
+conditioned overwrites, followed by Attrs and NewReader verification.
+Single-request upload invocation tokens require `ifGenerationMatch` and have no replay support;
 retrying a committed conditioned upload fails 412 instead of writing again.
+
+## Resumable Writer journeys
+
+`objects_resumable_test.go` defines the next upload acceptance journeys using the
+pinned official Writer. These tests have passed compilation and opt-in skip
+checks only; execution against the resumable server implementation is pending.
+The previous local 501 expectation has been replaced by these contract tests.
+
+The permissive suite covers the untouched default `ChunkSize` with more than
+16 MiB of data, explicit 256 KiB chunks, an empty final chunk, an empty object,
+unknown-length streaming, exact bytes and size/MD5/CRC32C/content-type/custom
+metadata. The recorder requires real resumable POSTs to the returned Location;
+separate small default-size and empty Writer cases retain multipart coverage.
+User-provided CRC32C and MD5 mismatches must return 400 without publishing or
+replacing an old generation.
+Create-if-absent and generation-match races must fail at finalization with 412,
+while matching overwrites atomically replace the visible generation. A metadata
+update during an upload separately exercises `MetagenerationMatch` failure and
+a fresh matching condition succeeds. Context cancellation after an acknowledged
+chunk must leave the object invisible and the session available for a status
+query, followed by explicit DELETE cancellation with 499.
+
+One bounded transport wrapper discards an acknowledged chunk response and returns
+`io.ErrUnexpectedEOF`. The test requires a duplicate chunk with the same invocation
+token, successful completion and byte-exact read-back. It uses the existing guarded
+HTTP transport and no proxy or external service. Strict-admin and creator journeys
+use `GCS_MIMIC_STRICT_ENDPOINT`; the other journeys use `GCS_MIMIC_ENDPOINT`.
+The creator can create but cannot overwrite, including when an admin creates the
+destination after the creator's first chunk and before finalization.
+Both suites skip when their endpoint is unset.
+
+These journeys do not verify empty-prefix status queries, expiry, restart
+recovery, peer-container reachability or server memory bounds; those require
+separate wire and integration evidence.
 
 ## Strict authentication suite
 
