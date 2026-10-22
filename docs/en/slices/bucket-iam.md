@@ -17,6 +17,8 @@ All sources were checked on 2026-10-22. Storage pages displayed
 - [Policy](https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy)
   (last updated 2025-05-21): valid versions 0, 1 and 3, base64 etags,
   nonempty binding members and 1,500 principal occurrences per policy.
+- [ProtoJSON](https://protobuf.dev/programming-guides/json/): bytes accept standard
+  or URL-safe base64, padded or unpadded; empty bytes are the default value.
 - [Allow policy versions](https://docs.cloud.google.com/iam/docs/allow-policies#versions)
   (last updated 2026-10-13): unconditional policies return version 1 even when
   the caller supplies version 3.
@@ -47,7 +49,10 @@ returns 501 because requester billing is unsupported. Unknown query keys and
 duplicates return 400. GET requires an empty body; PUT uses the existing 64 KiB
 bounded JSON reader. Unknown JSON fields are ignored; recognized unsupported
 semantics are rejected. `kind` and `resourceId` are ignored in requests.
-`auditConfigs` is recognized but unsupported and returns 501.
+`auditConfigs` returns 501 because it is absent from the
+[Storage Discovery](https://storage.googleapis.com/$discovery/rest?version=v1)
+`storage#policy` schema but recognized by the generic
+[IAM Policy message](https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy).
 
 Responses contain `kind: "storage#policy"`,
 `resourceId: "projects/_/buckets/{bucket}"`, `version: 1`, `etag` and
@@ -57,7 +62,12 @@ Each binding must name a role and at least one member. A Go SDK `SetPolicy` with
 zero bindings omits the field and is rejected, as required by this Discovery
 snapshot; send an explicit empty array to clear a policy over HTTP.
 
-Roles are exactly the predefined storage snapshot. Supported members are
+Roles are the bucket-grantable entries in the predefined storage snapshot.
+The snapshot records every role's documented lowest grantable resource;
+managed-folder roles also apply to buckets, while Project-only
+`roles/storage.hmacKeyAdmin` and `roles/storage.expressModeUserAccess` return
+400 `invalid`. Project-level identity registry grants are unchanged.
+Supported members are
 `user:<id>`, `serviceAccount:<id>` and the convenience members
 `projectOwner:<project>`, `projectEditor:<project>`, `projectViewer:<project>`.
 Local IDs follow the registry's 1..=254-byte visible-ASCII rule, and comparison
@@ -74,10 +84,18 @@ documented non-UBLA defaults. Migration gives existing buckets these same defaul
 
 Limits are 1,500 principal occurrences across all bindings, counting duplicates,
 and 64 KiB JSON body/persisted bindings. The body cap can be reached before the
-principal limit when IDs are long. No policy update increases bucket
+principal limit when IDs are long. Duplicate members and repeated bindings for
+the same role are stored and returned in their submitted order, without merging
+or deduplication. The official setIamPolicy and Policy references checked above
+do not specify their normalization; this preservation is the supported local
+behavior, with cloud normalization parity unverified.
+No policy update increases bucket
 metageneration. An opaque base64 etag changes on every successful set, including
-identical sets. An omitted etag overwrites; a supplied different etag returns
-412 without changing policy or etag. Comparison and update are one immediate
+identical sets. An omitted or empty-string etag overwrites, following the
+ProtoJSON bytes default. Malformed base64 returns 400 `invalid`; standard and
+URL-safe encodings, with or without padding, compare as the same bytes.
+A supplied different valid etag returns 412 without changing policy or etag.
+Comparison and update are one immediate
 catalog transaction. A catalog-wide persistent counter prevents etag reuse
 after bucket deletion/recreation. Policies are deleted with their bucket.
 
@@ -97,7 +115,7 @@ and validates policies and etags identically, without permission checks.
 | Condition | Result |
 | --- | --- |
 | Malformed JSON | 400 `parseError` |
-| Invalid policy shape, version, role/member, empty binding or excessive principals | 400 `invalid` |
+| Invalid policy shape, version, role/member, non-bucket-grantable role, malformed base64 etag, empty binding or excessive principals | 400 `invalid` |
 | Malformed/unknown/duplicate query or invalid bucket path | Existing 400 query/path error |
 | Recognized public/group/domain/federated/deleted member, basic/custom role, condition | 501 `notImplemented` |
 | Requester billing/common unsupported query semantics | 501 `notImplemented` |
@@ -119,13 +137,18 @@ preserve the existing policy, its etag, object data and bucket metadata.
 | --- | --- |
 | Default policy and requested versions | `iam_default_policy_and_versions` |
 | Replacement, ignored fields, empty policy and fresh etags | `iam_policy_round_trip_and_unconditional_versions` |
+| Duplicate members and repeated role bindings preserve order | `iam_preserves_duplicate_members_and_role_bindings` |
 | Persistence across restart | `iam_policy_survives_restart` |
 | Existing v5 database migration preserves objects | `iam_migrates_v5_catalog` |
+| Migration covers binary name boundaries with unique default revisions | `policy_migration_visits_every_bucket_in_binary_name_order` |
+| Late migration failure rolls back and restart succeeds | `failed_policy_migration_rolls_back_and_restarts_from_version_five` |
+| Missing/orphan policy and stale revision allocator reject startup without changing files | `rejects_future_schema_unversioned_data_and_corruption` |
 | Permissive mode keeps validation and CAS | `iam_permissive_policy_and_cas` |
 | Anonymous and get/set permission denials | `iam_requires_effective_get_and_set_permissions` |
 | Project and bucket grants, scope isolation, revocation | `iam_bucket_grants_authorize_only_the_target_bucket` |
 | All bucket/object routes and overwrite delete permission | `iam_bucket_grants_cover_existing_routes`, `iam_bucket_grants_authorize_only_the_target_bucket` |
-| Stale and concurrent etag sets | `iam_stale_and_concurrent_etags` |
+| Empty, stale and concurrent etag sets; unpadded byte equivalence | `iam_stale_and_concurrent_etags` |
+| Standard/URL-safe base64 byte equivalence | `etag_bytes_accept_protojson_encodings_and_normalize_for_comparison` |
 | Revocation racing an object read | `iam_revocation_races_object_reads`, `revoked_bucket_binding_is_rechecked_inside_operations` |
 | Delete/recreate resets policy and never reuses etag | `iam_recreated_bucket_has_fresh_policy` |
 | Each invalid/unsupported policy class and query/body errors | `iam_rejects_invalid_policy_shapes`, `iam_rejects_unsupported_policy_semantics`, `iam_rejects_queries_paths_and_bodies` |
@@ -145,13 +168,15 @@ post-revocation request is denied.
 
 Executed on 2026-10-22:
 
-- `cargo test --locked --offline`: 223 passed, 0 failed; includes 15 new IAM HTTP
-  test functions and one deterministic catalog revocation test.
+- `cargo test --locked --offline`: 227 passed, 0 failed; includes 16 IAM HTTP
+  test functions, deterministic catalog revocation, startup invariant rejection
+  and successful/rolled-back policy migration cases.
 - `cargo fmt --check`: passed.
 - `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`:
   passed.
-- `cargo xtask dependencies check`: passed; all compiler, crate, SDK, action and
-  container inputs CURRENT. This slice adds no dependency.
+- The initial slice's `cargo xtask dependencies check` passed with all compiler,
+  crate, SDK, action and container inputs CURRENT. These fixes add no dependency;
+  the freshness check was not repeated.
 
 SDK integration, container verification and compatibility-ledger updates are
 separate integration work. No cloud differential request was made.
