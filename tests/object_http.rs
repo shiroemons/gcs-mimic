@@ -333,7 +333,9 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
         server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType={kind}&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").as_bytes()).error(status, reason);
         server.get("unsupported").error(404, "notFound");
     }
-    assert_eq!(server.upload("name=existing", "", b"old").status, 200);
+    let existing = server.upload("name=existing", "", b"old");
+    assert_eq!(existing.status, 200);
+    let generation = existing.json()["generation"].as_str().unwrap().to_owned();
     for header in [
         "If-Match: opaque\r\n",
         "If-None-Match: *\r\n",
@@ -349,15 +351,41 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 .request(method, "/storage/v1/b/test-bucket/o/existing", header, b"")
                 .error(501, "notImplemented");
         }
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/existing?alt=media",
+                header,
+                b"",
+            )
+            .error(501, "notImplemented");
     }
     server
         .request(
             "GET",
-            "/storage/v1/b/test-bucket/o/existing?alt=media",
-            "Range: bytes=0-1\r\n",
+            &format!(
+                "/storage/v1/b/test-bucket/o/existing?alt=media&ifGenerationNotMatch={generation}"
+            ),
+            "If-Match: \"x\"\r\n",
             b"",
         )
         .error(501, "notImplemented");
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/test-bucket/o/missing?alt=media",
+            "X-Goog-Encryption-Key: key\r\n",
+            b"",
+        )
+        .error(501, "notImplemented");
+    let partial = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/existing?alt=media",
+        "Range: bytes=0-1\r\n",
+        b"",
+    );
+    assert_eq!(partial.status, 206);
+    assert_eq!(partial.body, b"ol");
     server
         .request(
             "GET",

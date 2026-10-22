@@ -1,0 +1,20 @@
+Machine-local path prefixes were redacted; other output is unchanged.
+$ GCS_MIMIC_GO_TEST_RUN=TestObjectRangeReader bash scripts/sdk-go.sh
+    Blocking waiting for file lock on build directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.53s
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.69.0; HTTP JSON transport; endpoint=http://127.0.0.1:57385
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.03s)
+    --- PASS: TestObjectRangeReader/closed (0.00s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.00s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.279s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

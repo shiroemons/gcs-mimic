@@ -16,7 +16,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{OwnedSemaphorePermit, mpsc, oneshot},
 };
 
@@ -330,14 +330,28 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
 /// An open immutable generation. Unlinking its directory entry cannot change its bytes.
 pub struct ObjectReader {
     file: tokio::fs::File,
+    remaining: u64,
 }
 
 impl ObjectReader {
+    pub async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
+        self.file.seek(io::SeekFrom::Start(offset)).await?;
+        self.remaining = length;
+        Ok(())
+    }
+
     pub async fn next_chunk(&mut self) -> io::Result<Option<Bytes>> {
-        let mut buffer = vec![0; CHUNK_SIZE];
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+        let mut buffer = vec![0; self.remaining.min(CHUNK_SIZE as u64) as usize];
         let length = self.file.read(&mut buffer).await?;
+        if length == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        self.remaining -= length as u64;
         buffer.truncate(length);
-        Ok((length != 0).then(|| Bytes::from(buffer)))
+        Ok(Some(Bytes::from(buffer)))
     }
 }
 
@@ -678,10 +692,12 @@ impl Catalog {
             )?;
             // Open under the same execution permit that serializes deletes and overwrites.
             let file = File::open(blob_path(&data_dir, &id)?).map_err(object_unavailable)?;
+            let remaining = record.size;
             Ok((
                 record,
                 ObjectReader {
                     file: tokio::fs::File::from_std(file),
+                    remaining,
                 },
             ))
         })
@@ -1160,6 +1176,56 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
+        use std::io::{Seek, Write};
+
+        struct SparseBlob(PathBuf);
+        impl Drop for SparseBlob {
+            fn drop(&mut self) {
+                fs::remove_file(&self.0).unwrap();
+            }
+        }
+        let path = temp_catalog_dir("range-sparse");
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let _blob = SparseBlob(path);
+        let size = 64_u64 * 1024 * 1024;
+        file.set_len(size).unwrap();
+        file.seek(io::SeekFrom::Start(size - 3)).unwrap();
+        file.write_all(b"end").unwrap();
+        let mut reader = ObjectReader {
+            file: tokio::fs::File::from_std(file),
+            remaining: size,
+        };
+        let offset = size - CHUNK_SIZE as u64 - 3;
+        reader
+            .set_range(offset, CHUNK_SIZE as u64 + 3)
+            .await
+            .unwrap();
+        assert_eq!(reader.file.stream_position().await.unwrap(), offset);
+        let chunk = reader.next_chunk().await.unwrap().unwrap();
+        assert_eq!(chunk.len(), CHUNK_SIZE);
+        assert!(chunk.iter().all(|byte| *byte == 0));
+        assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"end"[..]);
+        assert!(reader.next_chunk().await.unwrap().is_none());
+        assert_eq!(reader.file.stream_position().await.unwrap(), size);
+        reader.set_range(size - 3, 2).await.unwrap();
+        assert_eq!(reader.next_chunk().await.unwrap().unwrap(), b"en"[..]);
+        assert!(reader.next_chunk().await.unwrap().is_none());
+        assert_eq!(reader.file.stream_position().await.unwrap(), size - 1);
+        reader.set_range(size, 1).await.unwrap();
+        assert_eq!(
+            reader.next_chunk().await.unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        drop(reader);
+    }
 
     #[test]
     fn object_list_seeks_past_large_prefixes_with_bounded_sql_work() {
