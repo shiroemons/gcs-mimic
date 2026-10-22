@@ -1550,3 +1550,156 @@ async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_
     }
     h.stop().await;
 }
+
+#[tokio::test]
+async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() {
+    let h = Harness::start(1000, false, None).await;
+    h.state.catalog.start_resumable_maintenance();
+    for cancel in [false, true] {
+        let init = h.initiate(&format!("name=cleanup-{cancel}"), "", b"").await;
+        let path = h.path(&init);
+        let id = path.split("upload_id=").nth(1).unwrap();
+        let session = h
+            .state
+            .catalog
+            .resumable_session(id, "bucket")
+            .await
+            .unwrap();
+        let stage = h.dir.0.join("staging").join(session.blob_id);
+        // Let the scheduler arm the seven-day timer before injecting the failed unlink.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        std::fs::remove_file(&stage).unwrap();
+        std::fs::create_dir(&stage).unwrap();
+        let response = if cancel {
+            h.request("DELETE", &path, "", b"").await
+        } else {
+            h.request("PUT", &path, "X-Goog-Hash: crc32c=invalid\r\n", b"")
+                .await
+        };
+        assert_eq!(response.status, if cancel { 499 } else { 503 });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while h.state.catalog.resumable_maintenance_error().is_none() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "cleanup scheduler was not woken"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
+        std::fs::remove_dir(&stage).unwrap();
+        std::fs::write(&stage, b"uncommitted tail").unwrap();
+        while stage.exists() || h.state.catalog.resumable_maintenance_error().is_some() {
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(h.clock.now() < session.deadline);
+        assert_eq!(
+            h.request(
+                "GET",
+                &format!("/storage/v1/b/bucket/o/cleanup-{cancel}"),
+                "",
+                b""
+            )
+            .await
+            .status,
+            404
+        );
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail() {
+    let mut h = Harness::start(1024 * 1024, false, None).await;
+    let init = h.initiate("name=resumed", "", b"").await;
+    let path = h.path(&init);
+    let chunk = vec![b'a'; 256 * 1024];
+    assert_eq!(
+        h.request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &chunk)
+            .await
+            .status,
+        308
+    );
+    h.stop.send(()).unwrap();
+    h.server.await.unwrap().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    h.address = listener.local_addr().unwrap().to_string();
+    h.base = format!("http://{}", h.address);
+    h.state = Arc::new(State {
+        ready: AtomicBool::new(true),
+        clock: h.clock.clone(),
+        catalog: Catalog::open_with_clock(&h.dir.0, h.clock.clone())
+            .await
+            .unwrap(),
+        api_base_url: h.base.clone(),
+        auth: Auth::permissive(),
+    });
+    let config = Config {
+        api_base_url: h.base.clone(),
+        max_object_bytes: 1024 * 1024,
+        ..Default::default()
+    };
+    let (stop, rx) = oneshot::channel();
+    let state = h.state.clone();
+    h.stop = stop;
+    h.server = tokio::spawn(async move {
+        serve(listener, config, state, async {
+            rx.await.unwrap();
+            Ok(())
+        })
+        .await
+    });
+    let status = h
+        .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+        .await;
+    assert_eq!(status.status, 308);
+    assert_eq!(status.headers["range"], "bytes=0-262143");
+    assert_eq!(
+        h.request(
+            "POST",
+            &path,
+            "Content-Range: bytes 262144-262144/262145\r\n",
+            b"b"
+        )
+        .await
+        .status,
+        200
+    );
+    let mut expected = chunk;
+    expected.push(b'b');
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/resumed?alt=media", "", b"")
+            .await
+            .body,
+        expected
+    );
+    let init = h.initiate("name=expired-write", "", b"").await;
+    let expired = h.path(&init);
+    let id = expired.split("upload_id=").nth(1).unwrap();
+    let session = h
+        .state
+        .catalog
+        .resumable_session(id, "bucket")
+        .await
+        .unwrap();
+    *h.clock.0.lock().unwrap() = session.deadline;
+    assert_eq!(
+        h.request("PUT", &expired, "", b"no publication")
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        h.request("PUT", &expired, "Content-Range: bytes */*\r\n", b"")
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/expired-write", "", b"")
+            .await
+            .status,
+        404
+    );
+    h.stop().await;
+}

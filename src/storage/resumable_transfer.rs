@@ -93,14 +93,16 @@ impl Catalog {
         let blob_id = lease.session.blob_id.clone();
         let stage = lease.staging_path();
         let data_dir = self.0.data_dir.clone();
-        self.run_upload(move |connection| {
+        let result = self.run_upload(move |connection| {
             let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
             let changed=transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'",[id]).map_err(unavailable)?;
             if changed==1 {transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",[&blob_id]).map_err(unavailable)?;}
             transaction.commit().map_err(unavailable)?;
             if changed==1 {objects::unlink(&stage).map_err(unavailable)?;objects::reclaim(connection,&data_dir,&blob_id)?;}
             Ok(())
-        }).await.map_err(Into::into)
+        }).await.map_err(Into::into);
+        self.0.maintenance_wake.notify_one();
+        result
     }
 
     async fn finalize_resumable(
