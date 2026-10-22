@@ -1519,9 +1519,38 @@ mod tests {
     }
 
     fn project_access(overwrite: bool) -> BucketAccess {
-        BucketAccess::Project {
-            project: "project".into(),
-            overwrite,
+        policy_access("project", Some("project"), overwrite)
+    }
+
+    fn policy_access(project: &str, observed: Option<&str>, overwrite: bool) -> BucketAccess {
+        use crate::auth::{Auth, OBJECTS_CREATE, Registry};
+        let roles = if overwrite {
+            vec!["roles/storage.admin"]
+        } else {
+            vec!["roles/storage.objectViewer", "roles/storage.objectCreator"]
+        };
+        let auth = Auth::strict(
+            Registry::parse(
+                serde_json::json!({"identities":[{
+                    "id":"local", "tokens":["token"], "project_roles":{project:roles}
+                }]})
+                .to_string()
+                .as_bytes(),
+            )
+            .unwrap(),
+        );
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+        let identity = auth
+            .authenticate(&headers, None)
+            .unwrap()
+            .unwrap()
+            .principal()
+            .unwrap();
+        BucketAccess::Policy {
+            identity: identity.clone(),
+            permission: OBJECTS_CREATE.into(),
+            project: observed.map(str::to_owned),
         }
     }
 
@@ -1790,10 +1819,7 @@ mod tests {
         let directory = temp_catalog_dir("recreated-bucket");
         let catalog = Catalog::open(&directory).await.unwrap();
         create_bucket(&catalog, "project").await;
-        let access = BucketAccess::Project {
-            project: "project".into(),
-            overwrite: true,
-        };
+        let access = project_access(true);
         // The advisory check passes in the authorized project; the bucket is then deleted and
         // recreated under another project before the body completes.
         let permit = catalog
@@ -1824,10 +1850,7 @@ mod tests {
             .unwrap();
         assert_eq!(page.items, vec![current.clone()]);
         // An access authorized against the bucket's actual project still succeeds.
-        let actual = BucketAccess::Project {
-            project: "other-project".into(),
-            overwrite: false,
-        };
+        let actual = policy_access("other-project", Some("other-project"), false);
         assert_eq!(
             catalog
                 .get_object_authorized("bucket", "object", None, Default::default(), &actual)
@@ -1842,10 +1865,18 @@ mod tests {
     async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
         let directory = temp_catalog_dir("missing-bucket-access");
         let catalog = Catalog::open(&directory).await.unwrap();
-        let access = BucketAccess::Missing {
-            permitted: vec!["project".into()],
-            overwrite: Vec::new(),
+        let BucketAccess::Policy {
+            identity,
+            permission,
+            ..
+        } = policy_access("project", None, false)
+        else {
+            unreachable!()
         };
+        let access = catalog
+            .bucket_access("bucket", &identity, &permission)
+            .await
+            .unwrap();
         let conditions = ObjectConditions::default();
         // Still missing: the caller holds the permission somewhere, so it learns 404.
         assert_eq!(
@@ -1905,10 +1936,7 @@ mod tests {
         );
         let permit = catalog.admit_object_upload().unwrap();
         assert!(publish(&catalog, "fresh", permit, access).await.is_ok());
-        let deleter = BucketAccess::Missing {
-            permitted: vec!["project".into()],
-            overwrite: vec!["project".into()],
-        };
+        let deleter = policy_access("project", None, true);
         let permit = catalog.admit_object_upload().unwrap();
         assert!(publish(&catalog, "object", permit, deleter).await.is_ok());
         assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);

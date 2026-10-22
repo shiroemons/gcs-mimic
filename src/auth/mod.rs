@@ -10,7 +10,6 @@ mod policy;
 pub(crate) mod roles;
 pub use policy::{Binding, Policy};
 
-use crate::bucket::BucketAccess;
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
@@ -130,15 +129,6 @@ impl Identity {
             .values()
             .any(|permissions| permissions.contains(permission))
     }
-
-    /// Projects where a granted role contains `permission`; bounded by the registry limits.
-    pub fn projects_allowing(&self, permission: &str) -> Vec<String> {
-        self.permissions
-            .iter()
-            .filter(|(_, permissions)| permissions.contains(permission))
-            .map(|(project, _)| project.clone())
-            .collect()
-    }
 }
 
 /// The resolved strict-mode caller.
@@ -172,27 +162,6 @@ impl<'a> Caller<'a> {
         } else {
             Err(AuthFailure::Forbidden)
         }
-    }
-
-    /// Authorize `permission` on a bucket owned by `project` (`None` when it was missing) and
-    /// return the access the catalog must re-validate inside the operation's transaction.
-    pub fn bucket_access(
-        self,
-        permission: &str,
-        project: Option<String>,
-    ) -> Result<BucketAccess, AuthFailure> {
-        self.authorize(permission, project.as_deref())?;
-        let identity = self.principal()?;
-        Ok(match project {
-            Some(project) => BucketAccess::Project {
-                overwrite: identity.allows(OBJECTS_DELETE, &project),
-                project,
-            },
-            None => BucketAccess::Missing {
-                permitted: identity.projects_allowing(permission),
-                overwrite: identity.projects_allowing(OBJECTS_DELETE),
-            },
-        })
     }
 }
 
@@ -466,10 +435,10 @@ mod tests {
     fn role_snapshot_is_sorted_unique_storage_permission_data() {
         let names: Vec<_> = roles::PREDEFINED_ROLES
             .iter()
-            .map(|(name, _)| *name)
+            .map(|(name, _, _)| *name)
             .collect();
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]), "{names:?}");
-        for (role, permissions) in roles::PREDEFINED_ROLES {
+        for (role, _, permissions) in roles::PREDEFINED_ROLES {
             assert!(role.starts_with("roles/storage."), "{role}");
             assert!(!permissions.is_empty(), "{role}");
             assert!(
@@ -503,7 +472,7 @@ mod tests {
             let project_roles: serde_json::Map<_, _> = chunk
                 .iter()
                 .enumerate()
-                .map(|(offset, (role, _))| {
+                .map(|(offset, (role, _, _))| {
                     (
                         projects[chunk_index * MAX_PROJECTS + offset].clone(),
                         serde_json::json!([role]),
@@ -525,9 +494,9 @@ mod tests {
         let identity = &registry.identities[0];
         let all: BTreeSet<_> = roles::PREDEFINED_ROLES
             .iter()
-            .flat_map(|(_, permissions)| permissions.iter().copied())
+            .flat_map(|(_, _, permissions)| permissions.iter().copied())
             .collect();
-        for (index, (_, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
+        for (index, (_, _, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
             for permission in &all {
                 assert_eq!(
                     identity.allows(permission, &projects[index]),

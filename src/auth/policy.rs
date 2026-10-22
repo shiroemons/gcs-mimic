@@ -40,9 +40,11 @@ impl Policy {
                     .strip_prefix("user:")
                     .or_else(|| member.strip_prefix("serviceAccount:"))
                     == Some(identity.id())
-            }) && roles::PREDEFINED_ROLES.iter().any(|(role, permissions)| {
-                *role == binding.role && permissions.binary_search(&permission).is_ok()
-            })
+            }) && roles::PREDEFINED_ROLES
+                .iter()
+                .any(|(role, _, permissions)| {
+                    *role == binding.role && permissions.binary_search(&permission).is_ok()
+                })
         })
     }
 

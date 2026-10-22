@@ -99,7 +99,7 @@ pub(super) fn check_access(
             identity.allows(OBJECTS_DELETE, project) || policy.allows(identity, OBJECTS_DELETE)
         );
     }
-    access.check(project).ok_or(CatalogError::Forbidden)
+    Ok(true)
 }
 
 impl Catalog {

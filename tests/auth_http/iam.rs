@@ -94,6 +94,18 @@ fn iam_policy_round_trip_and_unconditional_versions() {
 }
 
 #[test]
+fn iam_preserves_duplicate_members_and_role_bindings() {
+    let (_config, _data, server) = fixture();
+    let policy = json!({"bindings":[
+        {"role":"roles/storage.bucketViewer", "members":["user:local", "user:local"]},
+        {"role":"roles/storage.bucketViewer", "members":["user:another"]}
+    ]});
+    let result = set(&server, ADMIN, &policy).ok().json();
+    assert_eq!(result["bindings"], policy["bindings"]);
+    assert_eq!(server.get(ADMIN, IAM).ok().json(), result);
+}
+
+#[test]
 fn iam_policy_survives_restart() {
     let (config, data, mut server) = fixture();
     let policy = set(&server, ADMIN, &grants(&["roles/storage.objectViewer"]))
@@ -321,8 +333,15 @@ fn iam_stale_and_concurrent_etags() {
     let initial = server.get(ADMIN, IAM).ok().json();
     let updated = set(&server, ADMIN, &initial).ok().json();
     set(&server, ADMIN, &initial).error(412, "conditionNotMet");
-    set(&server, ADMIN, &json!({"etag":"", "bindings":[]})).error(412, "conditionNotMet");
     assert_eq!(server.get(ADMIN, IAM).ok().json(), updated);
+    let updated = set(&server, ADMIN, &json!({"etag":"", "bindings":[]}))
+        .ok()
+        .json();
+    assert_eq!(updated["bindings"], json!([]));
+    let mut unpadded = updated.clone();
+    unpadded["etag"] = json!(updated["etag"].as_str().unwrap().trim_end_matches('='));
+    let updated = set(&server, ADMIN, &unpadded).ok().json();
+    set(&server, ADMIN, &json!({"etag":"c3RhbGU=", "bindings":[]})).error(412, "conditionNotMet");
     let barrier = Arc::new(Barrier::new(8));
     let statuses = thread::scope(|scope| {
         let handles: Vec<_> = (0..8)
@@ -409,6 +428,12 @@ fn iam_rejects_invalid_policy_shapes() {
         json!({"version":1.5}),
         json!({"etag":null}),
         json!({"etag":1}),
+        json!({"etag":"not base64!", "bindings":[]}),
+        json!({"etag":"A", "bindings":[]}),
+        json!({"etag":"AA=", "bindings":[]}),
+        json!({"etag":"AA===", "bindings":[]}),
+        json!({"etag":"AA=A", "bindings":[]}),
+        json!({"etag":"AB==", "bindings":[]}),
         json!({"bindings":null}),
         json!({"bindings":{}}),
         json!({"bindings":[null]}),
@@ -425,6 +450,8 @@ fn iam_rejects_invalid_policy_shapes() {
         "",
         "storage.admin",
         "roles/storage.unknown",
+        "roles/storage.hmacKeyAdmin",
+        "roles/storage.expressModeUserAccess",
         "roles/owner/extra",
         "projects//roles/name",
         "projects/project/roles/",

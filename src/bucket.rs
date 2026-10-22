@@ -55,43 +55,10 @@ pub enum BucketAccess {
     /// Permissive profile: no authorization applies and overwrites are allowed.
     #[default]
     Unchecked,
-    /// The caller was authorized against `project`, the owner observed at authorization time.
-    /// `overwrite` records whether the caller may also replace live objects there.
-    Project { project: String, overwrite: bool },
-    /// The bucket was missing at authorization time. If it exists by the time the operation
-    /// runs, the caller is re-authorized against its actual project using the projects where
-    /// the caller holds the required permission (`permitted`) and `storage.objects.delete`
-    /// (`overwrite`).
-    Missing {
-        permitted: Vec<String>,
-        overwrite: Vec<String>,
-    },
     /// Re-evaluate effective grants against the policy selected by the operation transaction.
     Policy {
         identity: crate::auth::Identity,
         permission: String,
         project: Option<String>,
     },
-}
-
-impl BucketAccess {
-    /// Authorize access to a bucket currently owned by `project`.
-    ///
-    /// Returns whether replacing a live object is allowed, or `None` when the caller was never
-    /// authorized for that project.
-    pub fn check(&self, project: &str) -> Option<bool> {
-        let listed = |projects: &[String]| projects.iter().any(|p| p == project);
-        match self {
-            Self::Unchecked => Some(true),
-            Self::Project {
-                project: authorized,
-                overwrite,
-            } => (authorized == project).then_some(*overwrite),
-            Self::Missing {
-                permitted,
-                overwrite,
-            } => listed(permitted).then(|| listed(overwrite)),
-            Self::Policy { .. } => None,
-        }
-    }
 }
