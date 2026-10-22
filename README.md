@@ -2,7 +2,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media/multipart upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object and single-range download, delete and initial seed directories, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. The default permissive profile enforces no authentication; use an isolated local development environment. An optional strict profile checks local bearer tokens against project-level predefined storage roles.
+The current implementation provides persistent JSON bucket create/get/list/delete, bucket IAM policy get/set and streaming object media/multipart upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object and single-range download, delete and initial seed directories, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. The default permissive profile enforces no authentication; use an isolated local development environment. An optional strict profile checks local bearer tokens against project and bucket grants of predefined storage roles.
 
 ## Implementation status
 
@@ -14,14 +14,14 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose startup is verified on ARM64 and emulated AMD64. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
-| JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
+| JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; persistent IAM policy get/set with etag checks and scoped enforcement. ACLs, testIamPermissions and advanced settings are unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart upload with metadata and MD5/CRC32C, metadata/whole-media get, single byte ranges and delete, prefix/delimiter/offset listing with keyset paging, metadata patch/update and atomic conditions. Resumable, If-Range, transcoding, glob/version listing and ACL/hold/retention metadata are unavailable. |
 | XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
 | Persistence | 🚧 Partial | Transactional catalog, opaque blobs, exclusive directory lock, restart/crash recovery and initial seed directory import. Individual fsync crash windows and power loss remain unverified. |
-| Authentication, IAM and ACLs | 🚧 Partial | Explicit permissive (default) and strict profiles. Strict mode resolves local bearer tokens from a JSON identity registry and enforces a pinned snapshot of predefined `roles/storage.*` roles granted per project on JSON bucket/object routes. Bucket/object IAM policies, ACLs and `allUsers`/`allAuthenticatedUsers` are unavailable. |
+| Authentication, IAM and ACLs | 🚧 Partial | Explicit permissive (default) and strict profiles. Strict mode resolves local bearer tokens from a JSON identity registry and combines project grants with unconditional bucket policy bindings from a pinned `roles/storage.*` snapshot on JSON bucket/object routes. Object IAM, testIamPermissions, conditional policies, custom/basic roles, ACLs and public grants are unavailable. |
 | Public and signed URLs | 🚧 Partial | `gcs-mimic url public` builds encoded path-style URLs without changing permissions. The server does not serve them yet (404); public grants, XML reads and signed URLs are unavailable. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.307.0 verified for JSON bucket CRUD/paging, single-request Writer (`ChunkSize=0`), Attrs/NewReader/NewRangeReader/Delete, Objects iterators and conditional Update, plus strict-mode static bearer tokens for admin, viewer and creator roles. Upload tokens require generation-match; replay and resumable Writer are unsupported. Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.307.0 verified for JSON bucket CRUD/paging, IAM Policy/SetPolicy, single-request Writer (`ChunkSize=0`), Attrs/NewReader/NewRangeReader/Delete, Objects iterators and conditional Update, plus strict-mode project and bucket grants, etag rejection and revocation. Upload tokens require generation-match; replay and resumable Writer are unsupported. Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -36,7 +36,8 @@ and protocol differences remain in the same feature ledger.
 | Persistent JSON bucket/object round trip with checksums and atomic generation conditions | Advanced fields, full IAM/ACL and complete wire parity | [Media](docs/en/evidence/object-media.md) |
 | Prefix/delimiter/keyset listing and metadata PATCH/PUT | History, glob/context filters, full projection and legacy-input parity | [Listing and metadata](docs/en/evidence/object-list-metadata.md) |
 | Bounded JSON multipart upload with Go `ChunkSize=0` Writer | MIME edge parity, response replay and resumable uploads | [Multipart](docs/en/evidence/multipart.md) |
-| Strict local tokens and project-level predefined storage roles | Bucket IAM, public reads and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
+| Strict local tokens and project-level predefined storage roles | Public reads and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
+| Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Conditions, public grants, custom/basic roles, ACLs and testIamPermissions | [Runnable guide](docs/en/getting-started.md#grant-and-revoke-bucket-only-access) and [Go verification](sdk-tests/go/verification.md#bucket-iam-integration-2026-10-22) |
 | Single closed/open/suffix stored-byte ranges with pinned generation | If-Range, transcoding and exact fallback/header parity | [Range](docs/en/evidence/object-range.md) |
 | Native initial seed import before readiness without replay over changes | Fixed octet-stream MIME; manifest metadata and legacy seed defaults remain separate work | [Seed](docs/en/evidence/seed-platform.md) |
 
@@ -46,7 +47,7 @@ restores fixtures only after an explicit fresh-volume reset. UX-002 and UX-009
 are IMPLEMENTED for their declared scope. ARM64 execution is native; AMD64 uses
 emulation.
 
-Next, implement bucket IAM policies and public XML GET/HEAD.
+Next, implement public grants and XML GET/HEAD.
 Continue with resumable uploads, V4 signed GET
 then PUT, copy then compose, browser CORS and Ruby/Rails journeys. Add applicable
 Ruby checks as each capability lands. Distribution verification has separate
@@ -110,14 +111,28 @@ their tests were not run as part of this comparison.
 | TLS listener | ❌ HTTP only | ✅ HTTPS, HTTP or both | ❌ HTTP only |
 | Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
 | ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
-| IAM policy operations | ❌ | ❌ | 🚧 Stored policies and permissive stubs |
-| Authentication / permission enforcement | 🚧 Strict profile: local bearer tokens and project-level predefined storage roles on JSON routes | ❌ | ❌ |
+| Bucket IAM policy get/set and enforcement | ✅ Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etag checks; no conditions, public grants, ACLs or testIamPermissions | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; supplied etags kept without checking; no enforcement |
+| Authentication / permission enforcement | 🚧 Strict profile: local bearer tokens and project-plus-bucket predefined storage roles on JSON routes | ❌ | ❌ |
 | Public URL helper | 🚧 CLI builds encoded URLs; not served yet | ❌ | ❌ |
 | Signed-URL GET/PUT requests | ❌ | 🚧 Accepted without signature/expiry checks | 🚧 Accepted without signature/expiry checks |
 | Signed-URL signature / expiry validation | ❌ | ❌ | ❌ |
 
 An ACL value, stored IAM policy, accepted signed URL or CORS response does not
 establish access control.
+
+The bucket IAM comparison uses the same get/set-and-enforcement scope for every
+product. In fake-gcs-server
+[`v1.56.1` route registration](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/server.go#L253-L346),
+bucket ACL routes exist but `/b/{bucket}/iam` GET/PUT routes do not. Its
+[object handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go)
+access the backend without evaluating caller IAM grants. gcp-storage-emulator
+[`v2026.07.19` routes](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py)
+register policy get/set and `testPermissions`. Its
+[bucket handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py)
+store policies, preserve a nonempty supplied etag without comparing it, and do
+not enforce grants. The `testPermissions` stub returns all requested permissions
+for an existing bucket. These are source reviews, not differential execution
+results.
 
 ### 🛠️ Local development and distribution
 
@@ -170,10 +185,13 @@ COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose stop
 
 To require authentication, add `compose.strict.yaml`. It selects
 `auth_mode=strict` and mounts the local fixture registry `config/identities.json`,
-whose admin, object-viewer and object-creator tokens are public emulator test
+whose admin, object-viewer, object-creator and bucket-reader tokens are public emulator test
 values, not Google credentials. Send them as `Authorization: Bearer <token>`;
 anonymous requests return 401 and missing permissions return 403. Only
-project-level predefined storage roles are enforced.
+project and bucket grants of predefined storage roles are enforced. The
+bucket-reader starts without project roles; follow the
+[bucket-only grant walkthrough](docs/en/getting-started.md#grant-and-revoke-bucket-only-access)
+to grant and revoke object reads on one bucket.
 
 ```sh
 COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo GCS_MIMIC_PORT=0 \
@@ -226,11 +244,11 @@ Configuration precedence is command-line options, `GCS_MIMIC_` environment varia
 
 ## Current limitations
 
-Object APIs support the documented [media](docs/en/slices/json-object-media.md), [multipart](docs/en/slices/json-object-multipart.md), [range](docs/en/slices/json-object-range.md), [listing](docs/en/slices/json-object-list.md) and [metadata](docs/en/slices/json-object-metadata.md) subsets. Resumable uploads, If-Range, transcoding, version history and bucket/object ACL/IAM remain unavailable. Single untranscoded closed/open/suffix ranges return 206; unsatisfiable ranges return 416. Malformed, multiple and repeated ranges use a documented local 200 fallback. Listing rejects nonempty `matchGlob`/`filter`, `versions=true`, soft-deleted and folder-prefix options with 501. Metadata patch/update covers content headers and custom metadata; unsupported holds/retention/ACL settings return 501. JSON media returns `Cache-Control: no-cache` because public access is not implemented. Go SDK `ChunkSize=0` Writer and JSON `NewRangeReader` work for the scoped subset. Ordinary media GET returns a direct 200; accepted GET/DELETE/update retry tokens are not deduplicated (SPEC-008..013, SPEC-015 and the listing/range gaps record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
+Object APIs support the documented [media](docs/en/slices/json-object-media.md), [multipart](docs/en/slices/json-object-multipart.md), [range](docs/en/slices/json-object-range.md), [listing](docs/en/slices/json-object-list.md) and [metadata](docs/en/slices/json-object-metadata.md) subsets. Resumable uploads, If-Range, transcoding, version history, object IAM and bucket/object ACLs remain unavailable. Single untranscoded closed/open/suffix ranges return 206; unsatisfiable ranges return 416. Malformed, multiple and repeated ranges use a documented local 200 fallback. Listing rejects nonempty `matchGlob`/`filter`, `versions=true`, soft-deleted and folder-prefix options with 501. Metadata patch/update covers content headers and custom metadata; unsupported holds/retention/ACL settings return 501. JSON media returns `Cache-Control: no-cache` because public access is not implemented. Go SDK `ChunkSize=0` Writer and JSON `NewRangeReader` work for the scoped subset. Ordinary media GET returns a direct 200; accepted GET/DELETE/update retry tokens are not deduplicated (SPEC-008..013, SPEC-015 and the listing/range gaps record remaining contract gaps). Objects default to a configurable 1 GiB cap; bounded streaming is functionally tested, without RSS/cgroup/CPU benchmarks or a 1 GiB constrained-container claim.
 
-[Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and v3/v4 catalogs migrate to v5, including stored object metadata and the seed initialization marker. Migrated catalogs do not import fixtures.
+[Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and v3/v4/v5 catalogs migrate to v6, preserving object metadata and seed initialization while adding default bucket IAM policies and an etag counter. Migrated catalogs do not import fixtures.
 
-Initial [seed directory import](docs/en/slices/seed.md) runs before readiness and does not replay fixtures over existing data. Bucket/object IAM policies, ACLs, public grants, signed URLs, CORS and TLS are not available. Strict mode covers only project-level predefined storage roles; see the [strict authentication contract](docs/en/slices/strict-auth.md) and SPEC-017 for local error and missing-bucket rules. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
+Initial [seed directory import](docs/en/slices/seed.md) runs before readiness and does not replay fixtures over existing data. Bucket IAM supports unconditional predefined-role bindings and etag concurrency; object IAM, testIamPermissions, ACLs, public grants, conditions, custom/basic roles, signed URLs, CORS and TLS are unavailable. Strict mode combines project and bucket grants; see the [strict authentication contract](docs/en/slices/strict-auth.md) and SPEC-017 for local error and missing-bucket rules. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
 
 For contributors, install [just](https://github.com/casey/just#installation) and
 run `just check` while editing, then `just pre-push` before pushing to run the
