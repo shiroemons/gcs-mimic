@@ -58,6 +58,12 @@ the legacy service, as the earlier insert/object-metadata contracts record.
 | `bucket_patch_uses_clock_and_rolls_back_invalid_merge` | Injected clock, final-map validation and revision overflow | updated uses catalog clock at millisecond precision; invalid final map/overflow rolls back every field |
 | `bucket_patch_settings_control_future_object_effects` | Enable/disable versioning and default hold | Future uploads/overwrites use new settings; prior holds/history survive setting changes |
 | `bucket_patch_legacy_rendering_and_restart` | Source-only name, settings, class/labels, restart and native carry-over | Source location/framing retained; PATCH exposes actual mutable metadata/revisions consistently on GET/list |
+| `bucket_patch_full_resource_round_trip_preserves_unchanged_fields` | GET resource patched back in both profiles with a label edit | Accept the rendered location; preserve all fields except labels, revision, etag and clock-derived updated |
+| `bucket_patch_location_comparison_is_case_insensitive` | Mixed-case native/profile-rendered location; changed location | Unchanged location matches ignoring ASCII case and is never rewritten; relocation returns 501 without mutation |
+| `bucket_get_rejects_patch_only_acl_query_parameters` | predefinedAcl/predefinedDefaultObjectAcl on GET versus PATCH | GET retains 400 invalidParameter for unrecognized method parameters; PATCH returns 501 notImplemented |
+| `bucket_patch_null_settings_follow_profile_defaults` | Null versioning, versioning.enabled and defaultEventBasedHold | Legacy null resets the supplied setting to false; native null fails 400 without mutation; omitted settings remain intact |
+| `bucket_patch_accepts_only_empty_lifecycle_rules` | Exact empty lifecycle rule list and similar unsupported shapes | Accept only lifecycle:{"rule":[]} without any lifecycle effect; nonempty rules and extra members return 501 without mutation |
+| `bucket_patch_missing_bucket_validates_body_before_lookup` | Permissive PATCH on missing bucket with invalid versus valid body | Invalid JSON/types return 400 before lookup; valid empty object returns 404; no bucket is created |
 
 Every successful PATCH, including an empty object or removal of a missing key,
 increments metageneration exactly once and sets updated from the injected catalog
@@ -70,11 +76,24 @@ authorization, condition checks, final-label validation and publication share
 one short immediate SQLite transaction. Schema v8 already stores every field;
 no migration, blob access or object enumeration is required.
 
+Incrementing metageneration for an empty `{}` PATCH is a local assumption:
+the cited sources do not establish whether a no-effect request advances the
+revision. Similarly, permissive PATCH body validation occurs before lookup,
+so an invalid body on a missing bucket returns 400 before 404. The sources
+do not establish that error precedence. These rules have executable local
+tests above and do not claim direct-service evidence.
+
 ## Supported and rejected fields
 
 Omitted settings are preserved. `versioning.enabled` and
 `defaultEventBasedHold` accept booleans; false disables their future effect.
-Empty versioning objects preserve enabled; null settings are invalid. Existing
+Empty versioning objects preserve enabled. Legacy null `versioning`,
+`versioning.enabled` and `defaultEventBasedHold` reset the supplied setting
+to false, matching insert and the pinned reference's zero-valued boolean
+decoding. Native rejects those null settings with 400. This native rejection
+is an unverified assumption: the resource declares boolean fields, while the
+partial-update guide says "Although many fields cannot be deleted" without
+identifying whether these settings reject null or reset to defaults. Existing
 event holds are not released by disabling the default, and retained versions
 are not removed by disabling versioning. Storage class is bucket default
 metadata, not physical placement; changing it never rewrites existing objects.
@@ -89,8 +108,13 @@ Recognized unsupported fields are acl, autoclass, billing, cors,
 customPlacementConfig, defaultObjectAcl, encryption, hierarchicalNamespace,
 iamConfiguration, ipFilter, lifecycle, logging, objectRetention,
 retentionPolicy, rpo, satisfiesPZI, satisfiesPZS, softDeletePolicy and website.
-The insert-only empty-lifecycle SDK exception does not apply to PATCH.
-Location changes are also unsupported; an unchanged location is accepted.
+The same exception as insert accepts exactly `lifecycle:{"rule":[]}` because
+an empty rule list adds no lifecycle behavior; other lifecycle shapes still
+return 501. Location changes are unsupported; an unchanged rendered location
+is accepted ignoring ASCII case, without enabling relocation.
+Native compares the stored location inside the
+transaction. The legacy adapter compares its fixed US-CENTRAL1 rendering and
+never submits that unchanged display value as a stored placement change.
 Output-only id, name, kind, selfLink, projectNumber, generation, metageneration,
 etag, timeCreated, updated, locationType, owner, softDeleteTime and hardDeleteTime
 are ignored even if changed or null. They cannot rename or move a bucket.
@@ -140,7 +164,8 @@ Verification on the contract check date, using the committed Rust 1.99.1 pin:
 
 | Command | Result |
 | --- | --- |
-| `cargo +1.99.1 test --locked bucket_patch` | PASS: all 11 new PATCH tests, including both HTTP profiles |
+| `cargo +1.99.1 test --locked --test bucket_http bucket_patch` | PASS: all 14 PATCH HTTP tests, including both profiles and the five added PATCH regressions |
+| `cargo +1.99.1 test --locked --test bucket_http bucket_get_rejects_patch_only_acl_query_parameters` | PASS: GET query regression in both profiles |
 | `cargo +1.99.1 test --workspace --locked` | PASS: all workspace suites, zero failures or ignored tests |
 | `cargo +1.99.1 fmt --all --check` | PASS |
 | `cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings` | PASS |
