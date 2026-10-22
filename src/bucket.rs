@@ -66,6 +66,12 @@ pub enum BucketAccess {
         permitted: Vec<String>,
         overwrite: Vec<String>,
     },
+    /// Re-evaluate effective grants against the policy selected by the operation transaction.
+    Policy {
+        identity: crate::auth::Identity,
+        permission: String,
+        project: Option<String>,
+    },
 }
 
 impl BucketAccess {
@@ -85,6 +91,7 @@ impl BucketAccess {
                 permitted,
                 overwrite,
             } => listed(permitted).then(|| listed(overwrite)),
+            Self::Policy { .. } => None,
         }
     }
 }

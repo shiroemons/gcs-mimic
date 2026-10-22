@@ -49,11 +49,54 @@ pub enum BucketRequest {
         bucket: String,
         conditions: Conditions,
     },
+    GetIam {
+        bucket: String,
+    },
+    SetIam {
+        bucket: String,
+    },
 }
 
 /// Match the raw URI before decoding any bucket path segment.
 pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
     const COLLECTION: &str = "/storage/v1/b";
+    if let Some(segment) = uri
+        .path()
+        .strip_prefix("/storage/v1/b/")
+        .and_then(|path| path.strip_suffix("/iam"))
+        && !segment.is_empty()
+        && !segment.contains('/')
+    {
+        return Some((|| {
+            let bucket = decode(segment, false)?;
+            validate_bucket_name(&bucket)?;
+            if !matches!(*method, Method::GET | Method::PUT) {
+                let mut error = JsonError::new(
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "methodNotAllowed",
+                    "HTTP method is not supported for this IAM endpoint",
+                );
+                error.allow = Some("GET, PUT");
+                return Err(error);
+            }
+            let mut query = parse_query(uri.query().unwrap_or_default())?;
+            common(&mut query)?;
+            if *method == Method::GET {
+                if let Some(version) = query.remove("optionsRequestedPolicyVersion")
+                    && !matches!(version.as_str(), "1" | "3")
+                {
+                    return Err(JsonError::invalid_parameter(
+                        "optionsRequestedPolicyVersion must be 1 or 3",
+                    ));
+                }
+                finish(query)?;
+                Ok(BucketRequest::GetIam { bucket })
+            } else {
+                finish(query)?;
+                Ok(BucketRequest::SetIam { bucket })
+            }
+        })());
+    }
     let bucket = if uri.path() == COLLECTION {
         None
     } else {

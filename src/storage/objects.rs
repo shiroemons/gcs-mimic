@@ -379,8 +379,9 @@ impl Catalog {
         }
         let access = access.clone();
         self.run_object(move |connection| {
-            authorized_bucket(connection, &query.bucket, &access)?;
-            list_page(connection, &query, limit)
+            let transaction = connection.transaction().map_err(object_unavailable)?;
+            authorized_bucket(&transaction, &query.bucket, &access)?;
+            list_page(&transaction, &query, limit)
         })
         .await
     }
@@ -442,8 +443,9 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         self.run_object(move |connection| {
-            let (_, allow_overwrite) = authorized_bucket(connection, &bucket, &access)?;
-            let previous = lookup(connection, &bucket, &name)?;
+            let transaction = connection.transaction().map_err(object_unavailable)?;
+            let (_, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
+            let previous = lookup(&transaction, &bucket, &name)?;
             check_publication(previous.as_ref(), conditions, allow_overwrite)
         })
         .await
@@ -647,8 +649,15 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         self.run_object(move |connection| {
+            let transaction = connection.transaction().map_err(object_unavailable)?;
             selected(
-                connection, &bucket, &name, generation, conditions, true, &access,
+                &transaction,
+                &bucket,
+                &name,
+                generation,
+                conditions,
+                true,
+                &access,
             )
             .map(|(record, _)| record)
         })
@@ -687,8 +696,15 @@ impl Catalog {
         let data_dir = self.0.data_dir.clone();
         let access = access.clone();
         self.run_object(move |connection| {
+            let transaction = connection.transaction().map_err(object_unavailable)?;
             let (record, id) = selected(
-                connection, &bucket, &name, generation, conditions, true, &access,
+                &transaction,
+                &bucket,
+                &name,
+                generation,
+                conditions,
+                true,
+                &access,
             )?;
             // Open under the same execution permit that serializes deletes and overwrites.
             let file = File::open(blob_path(&data_dir, &id)?).map_err(object_unavailable)?;
@@ -1054,7 +1070,11 @@ fn authorized_bucket(
         .optional()
         .map_err(object_unavailable)?
         .ok_or(ObjectError::BucketNotFound)?;
-    let allow_overwrite = access.check(&project).ok_or(ObjectError::Forbidden)?;
+    let allow_overwrite =
+        super::check_access(connection, bucket, &project, access).map_err(|error| match error {
+            CatalogError::Forbidden => ObjectError::Forbidden,
+            error => object_unavailable(error),
+        })?;
     Ok((storage_class, allow_overwrite))
 }
 
@@ -1671,6 +1691,98 @@ mod tests {
             Ok(current)
         );
         assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn revoked_bucket_binding_is_rechecked_inside_operations() {
+        use crate::auth::{
+            Auth, BUCKETS_GET_IAM, BUCKETS_SET_IAM, Binding, OBJECTS_CREATE, OBJECTS_GET, Policy,
+            Registry,
+        };
+        let directory = temp_catalog_dir("revoked-policy");
+        let catalog = Catalog::open(&directory).await.unwrap();
+        create_bucket(&catalog, "project").await;
+        let current = put(&catalog, "object", b"original").await;
+        let auth = Auth::strict(
+            Registry::parse(br#"{"identities":[{"id":"local", "tokens":["token"]}]}"#).unwrap(),
+        );
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+        let identity = auth
+            .authenticate(&headers, None)
+            .unwrap()
+            .unwrap()
+            .principal()
+            .unwrap();
+        let granted = Policy {
+            bindings: vec![Binding {
+                role: "roles/storage.admin".into(),
+                members: vec!["user:local".into()],
+            }],
+            etag: None,
+        };
+        catalog
+            .set_policy("bucket", granted, &BucketAccess::Unchecked)
+            .await
+            .unwrap();
+        let read = catalog
+            .bucket_access("bucket", identity, OBJECTS_GET)
+            .await
+            .unwrap();
+        let create = catalog
+            .bucket_access("bucket", identity, OBJECTS_CREATE)
+            .await
+            .unwrap();
+        let get_iam = catalog
+            .bucket_access("bucket", identity, BUCKETS_GET_IAM)
+            .await
+            .unwrap();
+        let set_iam = catalog
+            .bucket_access("bucket", identity, BUCKETS_SET_IAM)
+            .await
+            .unwrap();
+        let permit = catalog
+            .prepare_object_upload("bucket", "fresh", Default::default(), &create)
+            .await
+            .unwrap();
+        // These accesses passed advisory authorization; transaction rechecks must observe
+        // revocation before selecting a blob or publishing an upload.
+        catalog
+            .set_policy(
+                "bucket",
+                Policy {
+                    bindings: vec![],
+                    etag: None,
+                },
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        assert_all_forbidden(&catalog, &read, &current).await;
+        assert_eq!(
+            catalog.get_policy("bucket", &get_iam).await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog
+                .set_policy(
+                    "bucket",
+                    Policy {
+                        bindings: vec![],
+                        etag: None
+                    },
+                    &set_iam
+                )
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            publish(&catalog, "fresh", permit, create).await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[tokio::test]

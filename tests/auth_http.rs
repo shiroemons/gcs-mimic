@@ -1,5 +1,8 @@
 mod common;
 
+#[path = "auth_http/iam.rs"]
+mod iam;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{
