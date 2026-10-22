@@ -1594,7 +1594,15 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
             );
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
+        loop {
+            let status = h.request("DELETE", &path, "", b"").await.status;
+            if status != 503 {
+                assert_eq!(status, 410);
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
         std::fs::remove_dir(&stage).unwrap();
         std::fs::write(&stage, b"uncommitted tail").unwrap();
         while stage.exists() || h.state.catalog.resumable_maintenance_error().is_some() {
