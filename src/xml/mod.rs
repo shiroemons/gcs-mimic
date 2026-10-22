@@ -146,6 +146,8 @@ fn number(raw: &str, zero: bool) -> Result<i64, Error> {
 }
 
 pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<(), Error> {
+    // storage/v1.70.0 invoke.go:215-220 sends client telemetry and retry IDs;
+    // http_client.go:1551-1587 uses them on idempotent reads, which need no token replay.
     for key in headers.keys() {
         let key = key.as_str();
         if (key.starts_with("x-goog-")
@@ -154,6 +156,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
                 "x-goog-if-generation-match"
                     | "x-goog-if-metageneration-match"
                     | "x-goog-api-client"
+                    | "x-goog-gcs-idempotency-token"
             ))
             || matches!(
                 key,

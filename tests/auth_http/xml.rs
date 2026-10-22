@@ -442,6 +442,40 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
 }
 
 #[test]
+fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
+    let (_config, _data, server) = fixture();
+    grant(&server, "allUsers", "roles/storage.objectViewer");
+    server
+        .upload(ADMIN, "iam-bucket", "dir%2Ffixture.bin", b"hello world")
+        .ok();
+    let headers = concat!(
+        "User-Agent: Go-http-client/1.1\r\n",
+        "Accept-Encoding: gzip\r\n",
+        "X-Goog-Api-Client: gccl-invocation-id/8bf3a9fb-418c-4a43-867c-b463a65f1c85 gccl-attempt-count/1 gl-go/1.27.3 gccl/1.70.0\r\n",
+        "X-Goog-Gcs-Idempotency-Token: 8bf3a9fb-418c-4a43-867c-b463a65f1c85\r\n",
+    );
+    let path = "/iam-bucket/dir%2Ffixture.bin";
+    let reply = server.get(headers, path);
+    assert_eq!(reply.ok().body, b"hello world");
+    let head = server.request("HEAD", path, headers, b"");
+    assert_eq!(head.status, 200);
+    assert_eq!(head.headers["content-length"], "11");
+    let conditions = format!(
+        "{headers}Range: bytes=6-10\r\nx-goog-if-generation-match: {}\r\nx-goog-if-metageneration-match: 1\r\n",
+        reply.headers["x-goog-generation"]
+    );
+    let range = server.get(&conditions, path);
+    assert_eq!(range.status, 206);
+    assert_eq!(range.body, b"world");
+    server
+        .upload(ADMIN, "iam-bucket", "dir%2Ffixture.bin", b"replacement")
+        .ok();
+    assert_eq!(server.get(headers, path).ok().body, b"replacement");
+    iam::set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    xml_error(&server.get(headers, path), 401, "AuthenticationRequired");
+}
+
+#[test]
 fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");
