@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "as_of": "2026-10-22",
+  "as_of": "2026-10-23",
   "project_name": "gcs-mimic",
   "scope": "Dated public Cloud Storage contract baseline and emulator project requirements.",
   "counting_rules": [
@@ -46,7 +46,7 @@
     "Storage Control REST": 1
   },
   "delivery_plan": {
-    "updated_at": "2026-10-22",
+    "updated_at": "2026-10-23",
     "semantics": "Planning metadata only. Feature statuses, fidelities, acceptance results and verification records below remain authoritative and unchanged. Existing scope references describe executed subsets, not new IMPLEMENTED claims.",
     "phase_rule": "P0-P7 retain their existing coverage-group assignments. Complete the basic JSON bucket/object deliverables, local HTTPS/TLS, JSON CORS defaults, scoped bucket/XML CORS and their verification gate before signed URLs. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
     "progress_rule": "Report completed, evidence-backed deliverables against a frozen selected delivery scope, separately from API/behavior/project counts. Do not assign PARTIAL a fractional weight, double-count overlapping feature references, or infer gate completion from this plan.",
@@ -367,7 +367,7 @@
       {
         "id": "bucket-core-parity",
         "title": "Bucket create, get and delete with versioning and default holds",
-        "scope": "Delivered order 5 on 2026-10-22: all seven original completion conditions are mapped to executed results in docs/en/evidence/bucket-core-parity.md. Native and explicit compatibility profiles preserve strict authorization; API-created settings drive retained versions and actual holds. Both pinned reference backends and local profiles execute the same wire corpus. Intentional/strict/unsupported differences remain explicit rather than whole-method source/Google parity. Broad bucket, versioning and hold rows remain PARTIAL; metadata PATCH is next. Full replacement/import/embedding/gRPC and provider wire questions remain visibly open outside this bounded gate.",
+        "scope": "Delivered order 5 on 2026-10-22: all seven original completion conditions are mapped to executed results in docs/en/evidence/bucket-core-parity.md. Native and explicit compatibility profiles preserve strict authorization; API-created settings drive retained versions and actual holds. Both pinned reference backends and local profiles execute the same wire corpus. Intentional/strict/unsupported differences remain explicit rather than whole-method source/Google parity. Broad bucket, versioning and hold rows remain PARTIAL; metadata PATCH is delivered by the separate order-6 scope; PUT is next. Full replacement/import/embedding/gRPC and provider wire questions remain visibly open outside this bounded gate.",
         "feature_ids": [
           "JSON-BUCKETS-001",
           "JSON-BUCKETS-002",
@@ -393,28 +393,51 @@
           "docs/en/evidence/bucket-core-parity-guide.txt",
           "docs/en/evidence/bucket-core-parity-dependencies.txt"
         ]
+      },
+      {
+        "id": "bucket-metadata-patch",
+        "title": "Bucket metadata PATCH with effective settings and atomic conditions",
+        "scope": "Delivered order 6 on 2026-10-23: all three original completion conditions map to executed results in docs/en/evidence/bucket-metadata-patch.md. Labels merge/key removal/map clearing, supported default class, versioning/default-hold PATCH and future object effects, atomic metageneration conditions, injected-clock revision, strict update permission/revocation and durable GET/list consistency pass HTTP/catalog, pinned Go, both-architecture smoke and affected native/Docker guide checks. Both pinned reference backends and both local profiles execute the same corpus; omitted-setting preservation, revision rendering and fail-closed settings are explicit intentional differences. Broad API/behavior rows remain PARTIAL for advanced fields and provider questions; DESIGN-014 retains its existing local scope. Bucket metadata PUT is next; physical placement, full ACL/billing/projection, service timing and power-loss claims remain outside this bounded gate.",
+        "feature_ids": [
+          "JSON-BUCKETS-008",
+          "BEHAVIOR-BUCKET-002",
+          "BEHAVIOR-BUCKET-004",
+          "BEHAVIOR-BUCKET-012",
+          "BEHAVIOR-OBJECT-029",
+          "BEHAVIOR-COMMON-006",
+          "BEHAVIOR-COMMON-011",
+          "DESIGN-002",
+          "DESIGN-014",
+          "DESIGN-082"
+        ],
+        "acceptance_case_refs": [
+          "JSON-BUCKETS-008/PATCH-LABELS",
+          "JSON-BUCKETS-008/PATCH-LABEL-VALIDATION",
+          "JSON-BUCKETS-008/PATCH-CLASS",
+          "JSON-BUCKETS-008/PATCH-SETTINGS",
+          "JSON-BUCKETS-008/PATCH-CONDITIONS",
+          "JSON-BUCKETS-008/PATCH-AUTHORIZATION",
+          "JSON-BUCKETS-008/PATCH-RESOURCE-PERSISTENCE",
+          "JSON-BUCKETS-008/PATCH-INPUT-ERRORS",
+          "JSON-BUCKETS-008/PATCH-QUERIES",
+          "JSON-BUCKETS-008/PATCH-ROUND-TRIP",
+          "JSON-BUCKETS-008/PATCH-GO-SDK",
+          "JSON-BUCKETS-008/PATCH-REFERENCE",
+          "JSON-BUCKETS-008/PATCH-GUIDE"
+        ],
+        "evidence": [
+          "docs/en/evidence/bucket-metadata-patch.md",
+          "docs/en/evidence/bucket-metadata-patch-comparison.md",
+          "docs/en/evidence/bucket-metadata-patch-comparison.txt",
+          "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "docs/en/evidence/bucket-metadata-patch-dependencies.txt",
+          "docs/en/evidence/bucket-metadata-patch-sdk-go.txt",
+          "docs/en/evidence/bucket-metadata-patch-containers.txt",
+          "docs/en/evidence/bucket-metadata-patch-guide.txt"
+        ]
       }
     ],
     "next_deliverables": [
-      {
-        "id": "bucket-metadata-patch",
-        "order": 6,
-        "title": "Patch basic bucket metadata",
-        "depends_on": [
-          "bucket-core-parity",
-          "json-bucket-crud",
-          "bucket-iam-policies"
-        ],
-        "feature_ids": [
-          "JSON-BUCKETS-008"
-        ],
-        "completion_conditions": [
-          "Freeze a current-source PATCH contract for labels and the supported default storageClass values, including omitted/null fields, label removal, immutable/output-only fields and recognized unsupported settings.",
-          "Apply merge/removal semantics with atomic metageneration conditions, strict storage.buckets.update permission, consistent metageneration/updated changes and no mutation on validation or authorization failure.",
-          "Pass wire and pinned SDK label-update cases, stale-condition and concurrent-update cases, GET/list consistency and restart persistence; record field-level evidence before changing status."
-        ],
-        "deferred_scope": "CORS configuration has its own required pre-signing bucket/XML CORS slice. ACL/UBLA/PAP, versioning, lifecycle, retention, soft delete, relocation and actual storage placement beyond the bucket core baseline remain separate later scopes; source-required core effects must already pass the earlier gate. Default-class metadata does not simulate physical placement."
-      },
       {
         "id": "bucket-metadata-update",
         "order": 7,
@@ -2963,7 +2986,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final integration evidence is pending. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -2971,7 +2994,7 @@
         {
           "id": "PATCH-LABELS",
           "description": "Merge/set/replace/remove labels, preserve omitted keys and empty values; empty map preserves and null map clears under the declared local PATCH interpretation.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_empty_null_and_invalid_inputs"
@@ -2980,7 +3003,7 @@
         {
           "id": "PATCH-LABEL-VALIDATION",
           "description": "Validate final 64-key limit, Unicode/length/key/value boundaries and rollback invalid merges.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
             "bucket_patch_uses_clock_and_rolls_back_invalid_merge"
@@ -2989,7 +3012,7 @@
         {
           "id": "PATCH-CLASS",
           "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400 and unsupported region/zone classes are 501.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
             "bucket_patch_merges_labels_class_and_preserves_resources"
@@ -2998,7 +3021,7 @@
         {
           "id": "PATCH-SETTINGS",
           "description": "Enable/disable versioning and default event holds for future uploads; retain previous history/holds, native null rejection and legacy null reset.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_null_settings_follow_profile_defaults"
@@ -3007,7 +3030,7 @@
         {
           "id": "PATCH-CONDITIONS",
           "description": "Atomically evaluate match/not-match/both signed-int64 metageneration conditions; malformed/duplicate queries fail and one conditioned concurrent update wins.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
             "bucket_patch_conditioned_race_has_one_winner"
@@ -3016,7 +3039,7 @@
         {
           "id": "PATCH-AUTHORIZATION",
           "description": "Require storage.buckets.update, enforce project and bucket grants before body and in the transaction; revoked/recreated ownership and policy state stay protected.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_strict_permissions_and_policy_preservation",
             "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
@@ -3025,7 +3048,7 @@
         {
           "id": "PATCH-RESOURCE-PERSISTENCE",
           "description": "Increment metageneration once, change etag, use injected clock; preserve identity, bytes and IAM; response/GET/list and both profiles survive restart.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_uses_clock_and_rolls_back_invalid_merge",
@@ -3035,7 +3058,7 @@
         {
           "id": "PATCH-INPUT-ERRORS",
           "description": "Reject invalid JSON/types/body limits and recognized unsupported fields without mutation; ignore unknown/output-only values only under the explicit local boundary; exact empty lifecycle exception.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_empty_null_and_invalid_inputs",
             "bucket_patch_unsupported_and_output_inputs_preserve_state",
@@ -3046,7 +3069,7 @@
         {
           "id": "PATCH-QUERIES",
           "description": "full/noAcl expose the same modeled subset, invalid projection is 400, predefinedAcl/predefinedDefaultObjectAcl/userProject are 501; GET/PATCH-only queries stay separate.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
             "bucket_get_rejects_patch_only_acl_query_parameters",
@@ -3056,7 +3079,7 @@
         {
           "id": "PATCH-ROUND-TRIP",
           "description": "Same-profile full resource round trip and unchanged case-insensitive rendered location preserve fields; relocation remains 501.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_patch_location_comparison_is_case_insensitive"
@@ -3065,7 +3088,7 @@
         {
           "id": "PATCH-GO-SDK",
           "description": "Pinned Go BucketHandle.Update/SetLabel/DeleteLabel, class/settings, match/not-match, GET and strict denial/admin behavior.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "TestBucketMetadataUpdate",
             "TestStrictAuthBucketMetadataUpdate"
@@ -3074,7 +3097,7 @@
         {
           "id": "PATCH-REFERENCE",
           "description": "Compare both pinned reference backends and both local profiles; record ignored reference labels/class/conditions and intentional omission/revision/unsupported-field differences.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket-patch-reference-comparison"
           ]
@@ -3082,7 +3105,7 @@
         {
           "id": "PATCH-GUIDE",
           "description": "Run actual curl merge/removal/class/stale-condition and GET checks against native binary and Docker image.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "guide-bucket-patch-native",
             "guide-bucket-patch-container"
@@ -3132,16 +3155,89 @@
         "guide-bucket-patch-native",
         "guide-bucket-patch-container"
       ],
-      "verification": [],
-      "sdk_evidence": [],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources",
+            "bucket_patch_empty_null_and_invalid_inputs",
+            "bucket_patch_label_boundaries_and_classes",
+            "bucket_patch_uses_clock_and_rolls_back_invalid_merge",
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults",
+            "bucket_patch_conditions_and_query_contract",
+            "bucket_patch_conditioned_race_has_one_winner",
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
+            "bucket_patch_legacy_rendering_and_restart",
+            "bucket_patch_unsupported_and_output_inputs_preserve_state",
+            "bucket_patch_accepts_only_empty_lifecycle_rules",
+            "bucket_patch_missing_bucket_validates_body_before_lookup",
+            "bucket_get_rejects_patch_only_acl_query_parameters",
+            "bucket_patch_rejects_get_only_generation_query_parameter",
+            "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
+            "bucket_patch_location_comparison_is_case_insensitive"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataUpdate",
+            "TestStrictAuthBucketMetadataUpdate"
+          ]
+        },
+        {
+          "command": "bash scripts/compare-reference-emulator.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-comparison.txt",
+          "test_ids": [
+            "bucket-patch-reference-comparison"
+          ]
+        },
+        {
+          "command": "Getting-started native and Docker create/PATCH shell blocks plus Docker restart resource comparison",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-guide.txt",
+          "test_ids": [
+            "guide-bucket-patch-native",
+            "guide-bucket-patch-container"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; BucketHandle.Update/SetLabel/DeleteLabel, default class/settings, match/not-match, strict local permission denial",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataUpdate",
+            "TestStrictAuthBucketMetadataUpdate"
+          ]
+        }
+      ],
       "known_deviations": [
         "Recognized unsupported writable fields and predefined ACL/billing query semantics return 501; full projection omits ACL/owner. Bucket PUT is separate and unavailable.",
         "SPEC-BUCKET-PATCH: whole-map null follows general deletion guidance; native null settings, storageClass null/empty rejection, unknown/output-only handling, empty-update revision increment and missing-bucket error order are local choices, not service-observed parity.",
         "Legacy PATCH preserves omitted settings and exposes actual mutable metadata/revisions after mutation, unlike reference omission resets and fixed resources; supports durable versioning beyond reference filesystem capabilities. Same-profile GET round trips pass; native-to-legacy metageneration-1 carry-over can hide class/labels.",
         "Class is default metadata only; no object rewrite/placement/transition, billing, full Google identity, power-loss or new resource/performance guarantee."
       ],
-      "implemented_in": "e066dce14261ae60613f559cf179d02314d897ae",
-      "last_verified": null,
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23",
       "http_method": "PATCH",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -9804,7 +9900,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -9839,7 +9935,7 @@
         {
           "id": "PATCH-LABELS",
           "description": "Merge/set/replace/remove labels, preserve omitted keys and empty values; empty map preserves and null map clears under the declared local PATCH interpretation.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_empty_null_and_invalid_inputs"
@@ -9848,7 +9944,7 @@
         {
           "id": "PATCH-ROUND-TRIP",
           "description": "Same-profile full resource round trip and unchanged case-insensitive rendered location preserve fields; relocation remains 501.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_patch_location_comparison_is_case_insensitive"
@@ -9883,6 +9979,18 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources",
+            "bucket_patch_empty_null_and_invalid_inputs",
+            "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
+            "bucket_patch_location_comparison_is_case_insensitive"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -9906,8 +10014,8 @@
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
-      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-COMMON-007",
@@ -10281,7 +10389,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10392,7 +10500,7 @@
         {
           "id": "PATCH-CONDITIONS",
           "description": "Atomically evaluate match/not-match/both signed-int64 metageneration conditions; malformed/duplicate queries fail and one conditioned concurrent update wins.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract",
             "bucket_patch_conditioned_race_has_one_winner"
@@ -10496,6 +10604,16 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract",
+            "bucket_patch_conditioned_race_has_one_winner"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -10554,8 +10672,8 @@
         "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
         "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Upload tokens require generation-match and do not replay responses."
       ],
-      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-COMMON-012",
@@ -10888,7 +11006,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10911,7 +11029,7 @@
         {
           "id": "PATCH-LABELS",
           "description": "Merge/set/replace/remove labels, preserve omitted keys and empty values; empty map preserves and null map clears under the declared local PATCH interpretation.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_merges_labels_class_and_preserves_resources",
             "bucket_patch_empty_null_and_invalid_inputs"
@@ -10920,7 +11038,7 @@
         {
           "id": "PATCH-LABEL-VALIDATION",
           "description": "Validate final 64-key limit, Unicode/length/key/value boundaries and rollback invalid merges.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
             "bucket_patch_uses_clock_and_rolls_back_invalid_merge"
@@ -10945,14 +11063,26 @@
             "bkt_http_crud_metadata_conditions_and_errors",
             "bkt_ins_002_labels_unicode_boundaries_and_count"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources",
+            "bucket_patch_empty_null_and_invalid_inputs",
+            "bucket_patch_label_boundaries_and_classes",
+            "bucket_patch_uses_clock_and_rolls_back_invalid_merge"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Label combining marks and ambiguous international characters are rejected under a documented subset."
       ],
-      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
-      "last_verified": "2026-10-21"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-BUCKET-003",
@@ -11032,7 +11162,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11055,7 +11185,7 @@
         {
           "id": "PATCH-CLASS",
           "description": "Change supported default storageClass without rewriting objects; invalid/null/empty class is 400 and unsupported region/zone classes are 501.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_label_boundaries_and_classes",
             "bucket_patch_merges_labels_class_and_preserves_resources"
@@ -11078,14 +11208,24 @@
             "bkt_http_crud_metadata_conditions_and_errors",
             "bkt_ins_003_location_and_storage_class_subset"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_label_boundaries_and_classes",
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Bucket class is metadata only; no object placement, class transitions, billing or retention effects."
       ],
-      "implemented_in": "f98a1f016ad8d930f1735d97ab148ae4e3195ac4",
-      "last_verified": "2026-10-21"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-BUCKET-005",
@@ -11307,7 +11447,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Create-time default hold has actual publication/protected-mutation effects; explicit false overrides and selected release pass. Changed defaults are tested at the catalog boundary; bucket PATCH changes defaults; PUT and provider parity remain pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Create-time default hold has actual publication/protected-mutation effects; explicit false overrides and selected release pass. Changed defaults are tested at the catalog boundary; bucket PATCH changes defaults; PUT and provider parity remain pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [
         "JSON-BUCKETS-005",
         "JSON-OBJECTS-007",
@@ -11366,7 +11506,7 @@
         {
           "id": "PATCH-SETTINGS",
           "description": "Enable/disable versioning and default event holds for future uploads; retain previous history/holds, native null rejection and legacy null reset.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_null_settings_follow_profile_defaults"
@@ -11405,6 +11545,16 @@
           "test_ids": [
             "TestObjectEventBasedHold"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -11428,8 +11578,8 @@
         "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
         "Bucket metadata PATCH/PUT cannot change defaults yet; required APIs remain PARTIAL. Pinned Go high-level Create omits DefaultEventBasedHold, so official JSON Buckets.Insert creates enabled defaults before high-level SDK effects."
       ],
-      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-BUCKET-013",
@@ -14631,7 +14781,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Durable live/noncurrent transitions, selected reads/deletes, increasing-generation listing, bounded paging, strict races/recovery/migration pass. Disabled configuration is tested at the catalog boundary; bucket PATCH toggles settings; PUT and provider parity remain pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Durable live/noncurrent transitions, selected reads/deletes, increasing-generation listing, bounded paging, strict races/recovery/migration pass. Disabled configuration is tested at the catalog boundary; bucket PATCH toggles settings; PUT and provider parity remain pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [
         "JSON-BUCKETS-005",
         "JSON-OBJECTS-004",
@@ -14724,7 +14874,7 @@
         {
           "id": "PATCH-SETTINGS",
           "description": "Enable/disable versioning and default event holds for future uploads; retain previous history/holds, native null rejection and legacy null reset.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_settings_control_future_object_effects",
             "bucket_patch_null_settings_follow_profile_defaults"
@@ -14781,6 +14931,16 @@
           "test_ids": [
             "storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_null_settings_follow_profile_defaults"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -14806,8 +14966,8 @@
         "Archive timestamp/error wire details and host power-loss/every fsync window remain unverified; soft delete and lifecycle interactions remain pending.",
         "Required API dependencies remain PARTIAL; target EXACT is unchanged."
       ],
-      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-030",
@@ -22698,7 +22858,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -22759,7 +22919,7 @@
         {
           "id": "PATCH-AUTHORIZATION",
           "description": "Require storage.buckets.update, enforce project and bucket grants before body and in the transaction; revoked/recreated ownership and policy state stay protected.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "bucket_patch_strict_permissions_and_policy_preservation",
             "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
@@ -22810,6 +22970,16 @@
             "TestStrictAuthObjectViewer",
             "TestStrictAuthObjectCreator"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -22835,8 +23005,8 @@
         "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
         "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
       ],
-      "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-003",
@@ -23737,7 +23907,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Bucket PATCH requires storage.buckets.update and rechecks revocation/incarnation atomically without changing IAM policy; full-check evidence: docs/en/evidence/bucket-metadata-patch.md. All existing scoped grant-enforcement cases plus PATCH pass, so the declared local scope remains IMPLEMENTED; broad provider wire/ACL/hierarchy exclusions stay on their existing rows.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008"
@@ -23816,6 +23986,15 @@
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
             "TestPublicReadsGrantAndRevoke"
           ]
+        },
+        {
+          "id": "PATCH-AUTHORIZATION",
+          "description": "Require storage.buckets.update, enforce project and bucket grants before body and in the transaction; revoked/recreated ownership and policy state stay protected.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
+          ]
         }
       ],
       "test_ids": [
@@ -23839,7 +24018,9 @@
         "guide-compose-bucket-iam",
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
-        "TestPublicReadsGrantAndRevoke"
+        "TestPublicReadsGrantAndRevoke",
+        "bucket_patch_strict_permissions_and_policy_preservation",
+        "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
       ],
       "verification": [
         {
@@ -23903,6 +24084,16 @@
           "test_ids": [
             "TestPublicReadsGrantAndRevoke"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
+          "test_ids": [
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23939,8 +24130,8 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-015",
@@ -27771,7 +27962,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH integration cases are decomposed for the supported subset; final evidence is pending at docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -27913,7 +28104,7 @@
         {
           "id": "PATCH-GO-SDK",
           "description": "Pinned Go BucketHandle.Update/SetLabel/DeleteLabel, class/settings, match/not-match, GET and strict denial/admin behavior.",
-          "result": "PENDING",
+          "result": "PASS",
           "test_ids": [
             "TestBucketMetadataUpdate",
             "TestStrictAuthBucketMetadataUpdate"
@@ -28079,6 +28270,16 @@
             "TestStrictAuthResumableWriter",
             "TestStrictAuthResumableCreatorOverwriteRace"
           ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataUpdate",
+            "TestStrictAuthBucketMetadataUpdate"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -28217,6 +28418,22 @@
             "TestStrictAuthResumableWriter",
             "TestStrictAuthResumableCreatorOverwriteRace"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; BucketHandle.Update/SetLabel/DeleteLabel, default class/settings, match/not-match, strict local permission denial",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataUpdate",
+            "TestStrictAuthBucketMetadataUpdate"
+          ]
         }
       ],
       "known_deviations": [
@@ -28225,8 +28442,8 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
-      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
-      "last_verified": "2026-10-22"
+      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-083",

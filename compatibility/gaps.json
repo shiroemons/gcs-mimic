@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-22",
+  "as_of": "2026-10-23",
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
@@ -13,7 +13,9 @@
         "BEHAVIOR-BUCKET-012",
         "BEHAVIOR-OBJECT-029",
         "BEHAVIOR-COMMON-006",
-        "BEHAVIOR-COMMON-011"
+        "BEHAVIOR-COMMON-011",
+        "DESIGN-002",
+        "DESIGN-082"
       ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",

@@ -389,3 +389,77 @@ PASS: guide-bucket-patch-container; persisted merge/removal/default class and fa
 + rm -r <temp>/tmp.JJf12vV4Yn
 
 Docker guide retry exit status: 0
++ printf '\nCommand: execute the same create/PATCH guide blocks against the already built native release binary, including stale-condition rejection\n'
+
+Command: execute the same create/PATCH guide blocks against the already built native release binary, including stale-condition rejection
+++ mktemp -d
++ patch_native_dir=<temp>/tmp.dJUVLdPDoX
++ patch_native_pid=33062
++ trap 'kill -TERM "$patch_native_pid"; wait "$patch_native_pid"; rm -r "$patch_native_dir"' EXIT
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.dJUVLdPDoX/data
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.dJUVLdPDoX/server.log
++ kill -0 33062
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.dJUVLdPDoX/server.log
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temp>/tmp.dJUVLdPDoX/server.log
++ export endpoint=http://127.0.0.1:51422
++ endpoint=http://127.0.0.1:51422
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:51422/_internal/ready
++ awk '/^## Create, inspect, list and delete buckets$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:51422/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64   241k  40920 --:--:-- --:--:-- --:--:--  440k
+{"etag":"\"b-1792689428619-1792689428619-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:17:08.619Z","updated":"2026-10-22T17:17:08.619Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:51422/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   453k      0 --:--:-- --:--:-- --:--:--  377k
+{"etag":"\"b-1792689428619-1792689428619-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:17:08.619Z","updated":"2026-10-22T17:17:08.619Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:51422/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   429k      0 --:--:-- --:--:-- --:--:--  414k
+{"items":[{"etag":"\"b-1792689428619-1792689428619-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-22T17:17:08.619Z","updated":"2026-10-22T17:17:08.619Z"}],"kind":"storage#buckets"}+ awk '/^## Patch bucket labels and default storage class$/ {section=1; next} section && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ patch_dir=<temp>/tmp.SprN0UsB3q
++ curl --disable --noproxy '*' --fail http://127.0.0.1:51422/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   463k      0 --:--:-- --:--:-- --:--:--  377k
+++ jq -er .metageneration <temp>/tmp.SprN0UsB3q/before.json
++ patch_revision=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:51422/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   453  100   401  100    52   438k  58165 --:--:-- --:--:-- --:--:--  442k
++ jq -e --argjson prior 1 '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.SprN0UsB3q/merged.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:51422/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   412  100   387  100    25   418k  27685 --:--:-- --:--:-- --:--:--  402k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.SprN0UsB3q/removed.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.SprN0UsB3q/stale.json -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:51422/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
++ patch_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.SprN0UsB3q/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:51422/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   507k      0 --:--:-- --:--:-- --:--:--  377k
++ cmp <temp>/tmp.SprN0UsB3q/removed.json <temp>/tmp.SprN0UsB3q/after.json
++ rm -r <temp>/tmp.SprN0UsB3q
++ printf 'PASS: guide-bucket-patch-native; unchanged shared curl blocks include stale-condition 412 and unchanged GET\n'
+PASS: guide-bucket-patch-native; unchanged shared curl blocks include stale-condition 412 and unchanged GET
++ kill -TERM 33062
++ wait 33062
++ rm -r <temp>/tmp.dJUVLdPDoX
+
+Native shared PATCH guide exit status: 0

@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-21",
+  "as_of": "2026-10-23",
   "note": "Global and per-method JSON Discovery path/query parameter locations. Repeated parameters remain separate because their contracts may differ. Not independent product features.",
   "count": 401,
   "parameters": [
@@ -945,14 +945,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter bucket: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter bucket: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:ifMetagenerationMatch",
@@ -967,14 +983,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter ifMetagenerationMatch: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter ifMetagenerationMatch: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:ifMetagenerationNotMatch",
@@ -989,14 +1021,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter ifMetagenerationNotMatch: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter ifMetagenerationNotMatch: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:predefinedAcl",
@@ -1017,14 +1065,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter predefinedAcl: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter predefinedAcl: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:predefinedDefaultObjectAcl",
@@ -1046,14 +1110,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter predefinedDefaultObjectAcl: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter predefinedDefaultObjectAcl: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:projection",
@@ -1071,14 +1151,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter projection: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter projection: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.patch:userProject",
@@ -1092,14 +1188,30 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-PATCH-SUBSET",
-          "description": "PATCH parameter userProject: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "description": "PATCH parameter userProject: supported syntax/conditions or explicit 501/subset behavior verified in docs/en/evidence/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        },
+        {
+          "id": "BUCKET-PATCH-REMAINING",
+          "description": "Provider error parity and any unsupported ACL/billing/full-projection semantics remain pending; explicit rejection is not implementation.",
           "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-patch-checks.txt",
           "test_ids": [
             "bucket_patch_conditions_and_query_contract"
           ]
         }
-      ],
-      "verification": []
+      ]
     },
     {
       "id": "PARAM:storage.buckets.relocate:bucket",
