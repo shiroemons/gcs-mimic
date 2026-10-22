@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 283 | 0 | 15 | 0 | 0 | 0 |
+| api_operation | 298 | 282 | 0 | 16 | 0 | 0 | 0 |
 | behavior | 201 | 158 | 0 | 31 | 12 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 283 | 2 | 13 | 0 | 0 | 0 |
+| api_operation | 282 | 2 | 14 | 0 | 0 | 0 |
 | behavior | 158 | 13 | 28 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
@@ -104,7 +104,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETS-013 | buckets.update | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### JSON API / defaultObjectAccessControls
 
