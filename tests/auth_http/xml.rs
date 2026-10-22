@@ -657,6 +657,41 @@ fn xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads() {
 }
 
 #[test]
+fn xml_read_idempotency_tokens_require_one_nonempty_value() {
+    let (_config, _data, server) = fixture();
+    grant(&server, "allUsers", "roles/storage.objectViewer");
+    for (headers, code) in [
+        ("x-goog-gcs-idempotency-token:\r\n", "InvalidArgument"),
+        ("x-goog-gcs-idempotency-token: \t \r\n", "InvalidArgument"),
+        (
+            "x-goog-gcs-idempotency-token: first\r\nX-Goog-Gcs-Idempotency-Token: second\r\n",
+            "ExcessHeaderValues",
+        ),
+        (
+            "x-goog-gcs-idempotency-token:\r\nx-goog-gcs-idempotency-token: second\r\n",
+            "ExcessHeaderValues",
+        ),
+    ] {
+        xml_error(&server.get(headers, OBJECT), 400, code);
+        let head = server.request("HEAD", OBJECT, headers, b"");
+        assert_eq!(head.status, 400);
+        assert_eq!(
+            head.headers["content-type"],
+            "application/xml; charset=UTF-8"
+        );
+        assert!(head.body.is_empty());
+    }
+    assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
+    assert_eq!(
+        server
+            .get("x-goog-gcs-idempotency-token: valid\r\n", OBJECT)
+            .ok()
+            .body,
+        b"hello world"
+    );
+}
+
+#[test]
 fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     let (_config, _data, server) = fixture();
     grant(&server, "allUsers", "roles/storage.objectViewer");

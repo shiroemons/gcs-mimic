@@ -156,6 +156,23 @@ fn number(raw: &str, zero: bool) -> Result<i64, Error> {
 }
 
 pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<(), Error> {
+    let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
+    if let Some(token) = tokens.next() {
+        if tokens.next().is_some() {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "ExcessHeaderValues",
+                "Expected a single x-goog-gcs-idempotency-token header.",
+            ));
+        }
+        if token.as_bytes().trim_ascii().is_empty() {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "Expected a non-empty x-goog-gcs-idempotency-token header.",
+            ));
+        }
+    }
     // storage/v1.70.0 invoke.go:215-220 sends client telemetry and retry IDs;
     // http_client.go:1551-1587 uses them on idempotent reads, which need no token replay.
     for key in headers.keys() {
