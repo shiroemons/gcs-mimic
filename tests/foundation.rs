@@ -91,6 +91,7 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
         let collision = conflicting_process(&address, &other);
         assert!(!collision.status.success());
         assert!(collision.stdout.is_empty());
+        #[cfg(unix)]
         assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
         common::stop_server(&mut child, &mut stdout);
     }
