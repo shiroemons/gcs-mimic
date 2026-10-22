@@ -34,6 +34,24 @@ registers bucket PATCH and POST with PATCH override, but no bucket PUT.
 The [bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/bucket.go#L35-L68)
 parses only versioning/default hold and is not reached by PUT.
 
+`GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh`
+exited 0 on checkout `4bb930cbfe75d4a2c189088fc39ab269cbf712b4` with
+application/test source `ab7f410`. Both reference backends and both local
+profiles ran 292 requests each (1,168 raw records total), including 32 PUTs
+per target. All four PATCH/PUT assertion groups passed. The reference-only
+invocation with `GCS_MIMIC_REFERENCE_ONLY=1` also exited 0, with 584 records.
+The script verifies the source archive digest before building the pinned
+reference and uses the committed Rust 1.99.1 and Go 1.27.3 toolchains.
+
+The local assertions check whole-map replacement; omitted/null/empty labels;
+STANDARD/false omission defaults; native null-boolean 400 versus legacy reset;
+null class 400; unsupported settings/ACL/billing 501; malformed body and invalid
+projection/generation 400; missing bucket 404; condition failure 412 without
+mutation; one revision increment per success; and PUT/GET/list agreement with
+unchanged identity, placement, object list and bytes. Both local profiles pass
+these assertions. The reference has no successful PUT and therefore provides
+no omitted-field or null-scalar replacement contract.
+
 Observed reference differences in both backends:
 
 - All 32 PUT cases return HTTP 404 with the same JSON envelope: code 404,
@@ -54,6 +72,10 @@ This comparison is not a Google-service differential test. Google omitted/null
 defaults remain limited to the separately frozen local contract. No container
 build, getting-started run, upstream test suite or real Google bucket is used
 by these checks.
+Markdownlint, `bash -n`, `git diff --check` and the changed-file local-path scan
+passed. MD013 remains disabled by the existing document directive for long
+commands and source links. The complete Go suite, container builds and
+getting-started journeys remain separate final integration checks.
 
 ## Bucket metadata PATCH contract tests: 2026-10-23
 

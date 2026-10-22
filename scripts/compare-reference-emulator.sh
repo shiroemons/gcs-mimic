@@ -123,7 +123,7 @@ request() {
   local label=$1 method=$2 path=$3 body=${4-} content_type=${5:-application/json}
   local index target origin status result
   local args=()
-  if [[ $method == POST || $method == PATCH ]]; then args=(--data-binary "$body" --header "Content-Type: $content_type"); fi
+  if [[ $method == POST || $method == PATCH || $method == PUT ]]; then args=(--data-binary "$body" --header "Content-Type: $content_type"); fi
   for index in "${!targets[@]}"; do
     target=${targets[$index]}
     origin=${origins[$index]}
@@ -329,6 +329,122 @@ if [[ $reference_only == 0 ]]; then
             end) | .ok))
   ' "$work/results.jsonl" >/dev/null
   echo 'PATCH-ASSERT mimic profiles status, merge/removal, settings, revision and failure preservation: PASS'
+fi
+
+put_bucket() {
+  local label=$1 body=$2 query=${3:-} name=${4:-compare-put}
+  request "$label" PUT "/storage/v1/b/$name$query" "$body"
+  state "$label" "$name"
+}
+
+create put-create compare-put '{"defaultEventBasedHold":true}'
+request put-upload POST '/upload/storage/v1/b/compare-put/o?uploadType=media&name=kept.txt' 'PUT preserved payload' text/plain
+state put-before compare-put
+put_bucket put-all-fields '{"labels":{"keep":"one","remove":"two"},"storageClass":"NEARLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}'
+put_bucket put-label-replace '{"labels":{"only":"replacement"}}'
+put_bucket put-label-empty '{"labels":{}}'
+put_bucket put-label-null '{"labels":null}'
+put_bucket put-settings-enable '{"versioning":{"enabled":true},"defaultEventBasedHold":true}'
+put_bucket put-settings-omitted '{}'
+put_bucket put-settings-disable '{"versioning":{"enabled":false},"defaultEventBasedHold":false}'
+put_bucket put-versioning-empty '{"versioning":{}}'
+put_bucket put-settings-null '{"versioning":null,"defaultEventBasedHold":null}'
+put_bucket put-class-null '{"storageClass":null}'
+put_bucket put-unknown '{"futureUnknownField":{"enabled":true}}'
+for field in cors lifecycle retentionPolicy iamConfiguration; do
+  put_bucket "put-unsupported-$field" "{\"$field\":null}"
+done
+put_bucket put-empty-acl '{"acl":[]}'
+put_bucket put-nonempty-acl '{"acl":[{"entity":"allUsers","role":"READER"}]}'
+put_bucket put-default-acl '{"defaultObjectAcl":[{"entity":"allUsers","role":"READER"}]}'
+put_bucket put-empty-lifecycle '{"lifecycle":{"rule":[]}}'
+put_bucket put-malformed '{"labels":'
+put_bucket put-missing '{}' '' compare-put-missing
+put_bucket put-projection-full '{}' '?projection=full'
+put_bucket put-projection-noacl '{}' '?projection=noAcl'
+put_bucket put-projection-invalid '{}' '?projection=invalid'
+put_bucket put-predefined-acl '{}' '?predefinedAcl=private'
+put_bucket put-predefined-default-acl '{}' '?predefinedDefaultObjectAcl=private'
+put_bucket put-user-project '{}' '?userProject=compare-project'
+put_bucket put-generation '{}' '?generation=1'
+create put-conditions-create compare-put-conditions
+put_bucket put-match-success '{"labels":{"condition":"match"}}' '?ifMetagenerationMatch=1' compare-put-conditions
+put_bucket put-match-stale '{"labels":{"condition":"stale"}}' '?ifMetagenerationMatch=1' compare-put-conditions
+put_bucket put-notmatch-success '{"labels":{"condition":"notmatch"}}' '?ifMetagenerationNotMatch=1' compare-put-conditions
+put_bucket put-notmatch-failure '{"labels":{"condition":"denied"}}' '?ifMetagenerationNotMatch=3' compare-put-conditions
+request put-objects GET /storage/v1/b/compare-put/o
+request put-object-bytes GET '/storage/v1/b/compare-put/o/kept.txt?alt=media'
+
+# The pinned server.go registers bucket PATCH and its POST override, but no bucket PUT.
+# bucket.go updateBucket therefore cannot establish PUT replacement semantics.
+jq -es '
+  [group_by(.target)[] | select(.[0].target | startswith("reference-"))] as $targets
+  | ($targets | length == 2) and all($targets[];
+    (map({key:.case,value:.}) | from_entries) as $rows
+    | [.[] | select(.request.method == "PUT")] as $puts
+    | ($puts | length == 32) and all($puts[];
+        .status == 404 and (.body | fromjson) == {error:{code:404,message:"Not Found",
+          errors:[{domain:"global",reason:"notFound",message:"Not Found"}]}})
+      and all($puts[] | select(.case != "put-missing");
+        (.request.path | split("?")[0] | split("/")[-1]) as $name
+        | ($rows[.case + "-get-state"].body | fromjson) as $after
+        | ($rows[if $name == "compare-put" then "put-before-get-state" else "put-conditions-create" end].body | fromjson) as $before
+        | $after == $before
+          and ($rows[.case + "-list-state"].body | fromjson | .items | map(select(.name == $name))) == [$after])
+      and $rows["put-missing-get-state"].status == 404
+      and ($rows["put-objects"].body | fromjson | .items | map(.name)) == ["kept.txt"]
+      and $rows["put-object-bytes"].body == "PUT preserved payload")
+' "$work/results.jsonl" >/dev/null
+echo 'PUT-ASSERT reference backends reject bucket PUT with JSON 404 and preserve metadata/objects: PASS'
+
+if [[ $reference_only == 0 ]]; then
+  jq -es '
+    def resource($rows; $case): $rows[$case].body | fromjson;
+    [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
+    | ($targets | length == 2) and all($targets[];
+      (map({key:.case,value:.}) | from_entries) as $rows
+      | [.[] | select(.request.method == "PUT")] as $puts
+      | ($puts | length == 32) and all($puts[];
+          .status == (if .case == "put-malformed" or .case == "put-class-null" or .case == "put-projection-invalid"
+              or .case == "put-generation" or (.case == "put-settings-null" and .target == "mimic-native") then 400
+            elif .case == "put-missing" then 404
+            elif (.case | startswith("put-unsupported-")) or .case == "put-nonempty-acl" or .case == "put-default-acl"
+              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then 501
+            elif .case == "put-match-stale" or .case == "put-notmatch-failure" then 412
+            else 200 end))
+        and (resource($rows; "put-all-fields").labels == {keep:"one",remove:"two"})
+        and (resource($rows; "put-label-replace").labels == {only:"replacement"})
+        and (resource($rows; "put-notmatch-failure-get-state").labels == {condition:"notmatch"})
+        and (reduce $puts[] as $put (
+          {ok:true, previous:{"compare-put":resource($rows; "put-before-get-state"),
+            "compare-put-conditions":resource($rows; "put-conditions-create")}};
+          ($put.request.path | split("?")[0] | split("/")[-1]) as $name
+          | resource($rows; $put.case + "-get-state") as $after
+          | .previous[$name] as $before
+          | if $name == "compare-put-missing" then
+              .ok = (.ok and $rows[$put.case + "-get-state"].status == 404)
+            else
+              .ok = (.ok and
+                (resource($rows; $put.case + "-list-state").items | map(select(.name == $name))) == [$after]
+                and (if $put.status == 200 then
+                  ($put.request.body | fromjson) as $input
+                  | ($put.body | fromjson) == $after
+                    and ($after.metageneration | tonumber) == (($before.metageneration | tonumber) + 1)
+                    and $after.etag != $before.etag and $after.updated >= $before.updated
+                    and $after.updated >= $after.timeCreated and $after.timeCreated == $before.timeCreated
+                    and $after.name == $before.name and $after.id == $before.id
+                    and $after.location == $before.location and $after.projectNumber == $before.projectNumber
+                    and ($after.labels // {}) == ($input.labels // {})
+                    and $after.storageClass == ($input.storageClass // "STANDARD")
+                    and ($after.versioning.enabled // false) == ($input.versioning.enabled // false)
+                    and ($after.defaultEventBasedHold // false) == ($input.defaultEventBasedHold // false)
+                else $after == $before end))
+              | .previous[$name] = $after
+            end) | .ok)
+        and (resource($rows; "put-objects").items | map(.name)) == ["kept.txt"]
+        and $rows["put-object-bytes"].body == "PUT preserved payload")
+  ' "$work/results.jsonl" >/dev/null
+  echo 'PUT-ASSERT mimic profiles replace/default metadata, enforce conditions and preserve objects: PASS'
 fi
 
 echo
