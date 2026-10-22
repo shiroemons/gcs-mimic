@@ -23,9 +23,9 @@ func TestStrictAuthBucketIAM(t *testing.T) {
 		t.Fatalf("admin get default policy: %v", err)
 	}
 	if len(policy.InternalProto.Etag) == 0 || len(policy.Roles()) != 2 ||
-		!policy.HasRole("projectOwner:"+strictProject, "roles/storage.legacyBucketOwner") ||
-		!policy.HasRole("projectEditor:"+strictProject, "roles/storage.legacyBucketOwner") ||
-		!policy.HasRole("projectViewer:"+strictProject, "roles/storage.legacyBucketReader") {
+		!slices.Equal(slices.Sorted(slices.Values(policy.Members("roles/storage.legacyBucketOwner"))),
+			[]string{"projectEditor:" + strictProject, "projectOwner:" + strictProject}) ||
+		!slices.Equal(policy.Members("roles/storage.legacyBucketReader"), []string{"projectViewer:" + strictProject}) {
 		t.Fatalf("unexpected default policy: %v", policy.InternalProto)
 	}
 	_, err = readerBucket.Object(attrs.Name).Attrs(ctx)
