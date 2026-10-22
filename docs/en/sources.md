@@ -31,6 +31,17 @@ Source URLs on a moving branch may change after this date. Re-fetch and record t
 | SPEC-004 | FeatureConfig bucket selectors: regex schema versus exact-name guidance | Verify the current preview restrictions. Do not infer enabled regex behavior from a field name. |
 | SPEC-006 | Discovery and proto exposure do not establish launch stage or availability | Check launch stage and eligibility for less documented routes, lifecycle matchesPattern early access and preview features. Reserved satisfiesPZS/satisfiesPZI outputs must not be interpreted as real residency guarantees. |
 | SPEC-007 | Shared LRO definitions need per-service applicability verification | A registered Operations service does not guarantee all five methods for every operation. Verify unsupported/cancellation behavior; Delete is not Cancel and Wait is not an unconditional completion promise. |
+| SPEC-017 | Strict authentication error details and missing-bucket authorization are partly undocumented | The `authError` message/location, longer 403 messages, `WWW-Authenticate`, missing-bucket 404/403, `projection=full` permissions and the 412-before-403 overwrite order need authorized real-service evidence. Local choices are listed in the [strict authentication contract](slices/strict-auth.md). |
+
+## Strict authentication sources
+
+Checked on 2026-10-22; each page displayed "Last updated 2026-10-21 UTC".
+
+| Source | Use |
+| --- | --- |
+| [JSON API status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | 401 `required` example, `authError` reason and 403 `forbidden` example |
+| [IAM permissions for JSON methods](https://docs.cloud.google.com/storage/docs/access-control/iam-json) | Permission per supported route and the overwrite `storage.objects.delete` requirement |
+| [IAM roles for Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/iam-roles) | Pinned 20-role `storage.*` permission snapshot in `src/auth/roles.rs` |
 
 ## Important scope boundaries
 
@@ -55,6 +66,8 @@ Protocol fields and public APIs are a dated baseline. An inventory is not an ass
 - https://docs.cloud.google.com/storage-transfer/docs/overview
 - https://docs.cloud.google.com/storage/docs/access-control
 - https://docs.cloud.google.com/storage/docs/access-control/iam
+- https://docs.cloud.google.com/storage/docs/access-control/iam-json
+- https://docs.cloud.google.com/storage/docs/access-control/iam-roles
 - https://docs.cloud.google.com/storage/docs/access-control/signed-urls
 - https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2
 - https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually
