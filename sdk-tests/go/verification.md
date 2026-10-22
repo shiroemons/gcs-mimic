@@ -1,5 +1,23 @@
 # Go SDK harness verification
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+## Bucket metadata PATCH contract tests: 2026-10-23
+
+`TestBucketMetadataUpdate` and `TestStrictAuthBucketMetadataUpdate` add official
+SDK acceptance cases for label merge/null removal, default storage class,
+versioning/default hold true and false, both bucket metageneration conditions,
+read-after-write metadata consistency and strict read-only denial. The existing
+guarded clients and local-only identity registry are reused.
+
+The slice-start `cargo xtask dependencies check` exited 0: Go 1.27.3,
+Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0 are CURRENT. No module or
+lockfile changes were made. `GOTOOLCHAIN=auto go vet ./...` passed and the two
+new tests compile and explicitly skip with emulator endpoints unset.
+Server integration is pending the core PATCH implementation; compile/skip
+checks do not establish API support. The [comparison evidence](../../docs/en/evidence/bucket-metadata-patch-comparison.md)
+records exact serializer mappings and the executed pinned reference corpus.
+
 ## Resumable Writer contract tests: 2026-10-22
 
 The official Go download feed and module-proxy `@latest` endpoints confirm the

@@ -1,5 +1,7 @@
 # Official Go SDK tests
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and
 `google.golang.org/api` v0.307.0, verified on 2026-10-22. `go.sum` records module
 checksums; `go.mod` records the resolved graph. Go 1.21 or newer can download the
@@ -69,6 +71,23 @@ project-scoped listing with a small page size, prefix filtering across four
 explicit one-item pages, duplicate create as `googleapi.Error` 409, delete,
 get-after-delete as `storage.ErrBucketNotExist`, and missing delete as
 `googleapi.Error` 404. SDK version and transport appear in verbose test output.
+
+Bucket PATCH coverage: `TestBucketMetadataUpdate` uses high-level
+`BucketHandle.Update` and `BucketAttrsToUpdate` to add/merge labels, remove
+individual keys (including delete-only and absent-key updates), change the
+default storage class and enable/disable versioning and default event-based
+holds. Both metageneration match and not-match have successful and 412 cases;
+failures preserve metadata. Every successful response must advance
+metageneration, update time and ETag, preserve identity/creation time/location,
+and agree with a subsequent `Attrs` call. The strict companion grants
+`roles/storage.legacyBucketReader` to a bucket-only principal, verifies readable
+Attrs and denied Update (403), then verifies admin Update and unchanged object
+bytes. The [PATCH comparison evidence](../../docs/en/evidence/bucket-metadata-patch-comparison.md)
+records the pinned SDK serializer and the independent reference behavior.
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='^TestBucketMetadataUpdate$|^TestStrictAuthBucketMetadataUpdate$' bash scripts/sdk-go.sh
+```
 
 Object coverage: raw `net/http` media upload with `ifGenerationMatch=0`, then
 official SDK metadata (name, bucket, size, content type, generation,
