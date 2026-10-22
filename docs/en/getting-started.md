@@ -8,7 +8,7 @@ metadata get/patch/update, prefix/delimiter/paged listing, whole-object and sing
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
-Resumable uploads, If-Range, transcoding, object IAM, testIamPermissions,
+If-Range, transcoding, object IAM, testIamPermissions,
 conditional policies, ACLs, virtual-host routing, XML writes/listing, signed URLs,
 UBLA/PAP settings, CORS and TLS remain unavailable.
 The default permissive profile enforces no authentication; use an isolated local
@@ -21,6 +21,10 @@ The [bucket contract](slices/json-bucket-crud.md) and
 [strict authentication](slices/strict-auth.md) and
 [bucket IAM](slices/bucket-iam.md) and
 [public object reads](slices/public-object-reads.md) contracts list supported fields and deviations.
+The resumable journeys below specify the [frozen upload contract](slices/resumable-upload.md)
+and its expected outputs; they await final-source execution and are not verification
+evidence or a released-image claim. Implementation status remains in the
+[feature ledger](../../compatibility/features.json).
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -69,8 +73,9 @@ never used to construct links. The `gcs-mimic url public` helper builds public
 object URLs served by the path-style XML endpoint (see the strict section below).
 Use the published host port for a host browser, and the service name for a peer
 container consuming the URL itself. URL construction does not grant access;
-browser cross-origin fetch still needs CORS, which is unavailable. Resumable
-`Location` handling does not apply until resumable uploads are implemented.
+browser cross-origin fetch still needs CORS, which is unavailable. The resumable
+contract uses this same fixed `api_base_url` for session `Location` responses;
+follow the host/peer configuration steps below before initiating a session.
 
 ## Create, inspect, list and delete buckets
 
@@ -210,7 +215,207 @@ curl --disable --noproxy '*' --fail -X DELETE \
 An optional third JSON part may declare MD5/CRC32C; checksums, all framing and
 transport EOF must pass before publication. Wrong checksums or malformed/truncated
 containers preserve the previous object. The [contract](slices/json-object-multipart.md)
-records MIME limits and local error choices; resumable uploads still return 501.
+records MIME limits and local error choices. Resumable uploads use a separate
+session protocol as described next.
+
+## Resume and finalize an upload from the host
+
+These are acceptance commands for the frozen contract, pending execution against
+the final implementation. Continue in the same Bash session with `demo-bucket`,
+`$work_dir` and the host-advertised `$endpoint` from above. Nonfinal chunks must
+be multiples of 256 KiB; the last chunk may be smaller. This example sends
+262144 zero bytes and a five-byte `done` line, for a total of 262149 bytes.
+
+The session URI is a bearer capability: anyone holding it can write, query or
+cancel this upload without another credential. Keep it and the response headers
+private; disable shell tracing before capturing them. Initiation metadata and
+bytes remain invisible to object GET/list until finalization. An incomplete
+overwrite leaves the old object readable.
+
+```sh
+set +x
+umask 077
+dd if=/dev/zero of="$work_dir/resumable-first.bin" bs=262144 count=1
+printf 'done\n' > "$work_dir/resumable-last.bin"
+cp "$work_dir/resumable-first.bin" "$work_dir/resumable.bin"
+tee -a "$work_dir/resumable.bin" < "$work_dir/resumable-last.bin" > /dev/null
+test "$(wc -c < "$work_dir/resumable.bin")" -eq 262149
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/resumable-init.headers" \
+  --output "$work_dir/resumable-init.body" --write-out '%{http_code}' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Upload-Content-Type: application/octet-stream' \
+  -H 'X-Upload-Content-Length: 262149' \
+  --data '{"metadata":{"source":"resumable-guide"}}' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fhello.bin&ifGenerationMatch=0")
+test "$status" = 200
+test ! -s "$work_dir/resumable-init.body"
+tr -d '\r' < "$work_dir/resumable-init.headers" | grep -qi '^cache-control: no-store$'
+session_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-init.headers")
+[[ "$session_uri" == "$endpoint/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin")
+test "$status" = 404
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --dump-header "$work_dir/resumable-chunk.headers" \
+  --output "$work_dir/resumable-chunk.body" --write-out '%{http_code}' \
+  -H 'Content-Length: 262144' -H 'Content-Range: bytes 0-262143/262149' \
+  --data-binary @"$work_dir/resumable-first.bin" "$session_uri")
+test "$status" = 308
+test ! -s "$work_dir/resumable-chunk.body"
+tr -d '\r' < "$work_dir/resumable-chunk.headers" | grep -qi '^range: bytes=0-262143$'
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o?prefix=resumable%2F" | jq -e 'has("items") | not'
+```
+
+Query the persisted prefix with a zero-body PUT. A 308 response is upload
+progress, not a redirect; do not use curl `--location`. Read the response Range
+before resuming: its last byte plus one is the next offset. An empty prefix
+has no Range header. `bytes */*` queries without declaring the total; `bytes */N`
+can also finalize when exactly N bytes are already persisted, including N=0.
+
+```sh
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --dump-header "$work_dir/resumable-status.headers" \
+  --output "$work_dir/resumable-status.body" --write-out '%{http_code}' \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri")
+test "$status" = 308
+test ! -s "$work_dir/resumable-status.body"
+tr -d '\r' < "$work_dir/resumable-status.headers" | grep -qi '^range: bytes=0-262143$'
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --output "$work_dir/resumable.json" --write-out '%{http_code}' \
+  -H 'Content-Length: 5' -H 'Content-Range: bytes 262144-262148/262149' \
+  --data-binary @"$work_dir/resumable-last.bin" "$session_uri")
+test "$status" = 200
+jq -e '.name == "resumable/hello.bin" and .size == "262149" and
+  .metageneration == "1" and .metadata.source == "resumable-guide" and
+  (.generation | test("^[1-9][0-9]*$")) and
+  (.md5Hash | length > 0) and (.crc32c | length > 0)' "$work_dir/resumable.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin?alt=media" \
+  --output "$work_dir/resumable-download.bin"
+cmp "$work_dir/resumable.bin" "$work_dir/resumable-download.bin"
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  --output "$work_dir/resumable-completed.json" --write-out '%{http_code}' \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */262149' "$session_uri")
+test "$status" = 200
+cmp "$work_dir/resumable.json" "$work_dir/resumable-completed.json"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fhello.bin"
+```
+
+Finalization returns 200 Object JSON and publishes one generation. Whole-object
+MD5/CRC32C declarations are checked before publication; failed checksums,
+preconditions or permission checks preserve an existing destination. Completed
+status returns the original resource until the session's original deadline.
+This session completion record does not implement invocation-token response replay.
+For interrupted requests or retryable 408/429/5xx responses, query status or
+resend the same chunk with bounded backoff; acknowledged bytes cannot be replaced.
+Nonretryable checksum/permission errors require a new initiation.
+
+### Cancel an incomplete session
+
+Initiate another upload and cancel its capability URI, rather than deleting an
+object. JSON resumable cancellation returns 499; omit curl `--fail` when checking
+this expected response. A cancelled session returns local 410 before its original
+deadline. At or after 604800 seconds from initiation it returns 404, as does an
+unknown session. Activity never renews this seven-day lifetime. This guide does
+not wait a week; expiry boundaries belong to injected-clock acceptance tests.
+
+```sh
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --dump-header "$work_dir/resumable-cancel.headers" --output /dev/null \
+  --write-out '%{http_code}' -X POST -H 'Content-Length: 0' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fcancel.bin&ifGenerationMatch=0")
+test "$status" = 200
+cancel_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-cancel.headers")
+[[ "$cancel_uri" == "$endpoint/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
+  -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$cancel_uri")
+test "$status" = 499
+status=$(curl --disable --noproxy '*' --silent --show-error -X PUT \
+  -H 'Content-Length: 0' -H 'Content-Range: bytes */*' \
+  --output /dev/null --write-out '%{http_code}' "$cancel_uri")
+test "$status" = 410
+status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fcancel.bin")
+test "$status" = 404
+unset session_uri cancel_uri
+```
+
+### Follow Location from a Compose peer and choose a browser address
+
+The existing Compose environment override sets the JSON configuration key
+`api_base_url`; no additional Compose file is needed. Recreate the service with
+`http://gcs:4443` advertised for a peer, preserving its data volume. The peer
+must follow the returned Location unchanged from its own network. A host's
+`127.0.0.1` would instead address the peer container itself.
+
+```sh
+export GCS_MIMIC_API_BASE_URL=http://gcs:4443
+docker compose up -d --wait
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --dump-header - \
+  --output /dev/null --write-out '%{http_code}\n' \
+  -H 'Content-Type: application/json' -H 'X-Upload-Content-Length: 9' \
+  --data '{}' \
+  'http://gcs:4443/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fpeer.txt&ifGenerationMatch=0' \
+  > "$work_dir/resumable-peer.headers"
+test "$(tail -n 1 "$work_dir/resumable-peer.headers")" = 200
+peer_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-peer.headers")
+[[ "$peer_uri" == http://gcs:4443/* ]]
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error -X PUT \
+  --write-out '\n%{http_code}' \
+  -H 'Content-Length: 9' -H 'Content-Range: bytes 0-8/9' \
+  --data-binary 'peer data' "$peer_uri" > "$work_dir/resumable-peer.response"
+test "$(tail -n 1 "$work_dir/resumable-peer.response")" = 200
+sed '$d' "$work_dir/resumable-peer.response" | jq -e '.name == "resumable/peer.txt" and .size == "9"'
+docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
+  --disable --noproxy '*' --fail \
+  'http://gcs:4443/storage/v1/b/demo-bucket/o/resumable%2Fpeer.txt?alt=media' \
+  > "$work_dir/resumable-peer.txt"
+printf 'peer data' > "$work_dir/resumable-peer-expected.txt"
+cmp "$work_dir/resumable-peer-expected.txt" "$work_dir/resumable-peer.txt"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/resumable%2Fpeer.txt"
+unset peer_uri
+```
+
+A host browser needs a host-reachable advertised address such as
+`http://localhost:PORT`, using the published port, not `http://gcs:4443`. The next
+commands check that advertised address using host curl. This selects an address
+only: accepting `Origin` does not establish CORS/preflight support, and no browser
+upload is claimed here. Cancel the address-check session and restore the host
+configuration before continuing.
+
+```sh
+export GCS_MIMIC_API_BASE_URL="http://localhost:${GCS_MIMIC_PORT}"
+docker compose up -d --wait
+status=$(curl --disable --noproxy '*' --silent --show-error -X POST \
+  -H 'Content-Length: 0' -H 'Origin: http://localhost:3000' \
+  --dump-header "$work_dir/resumable-browser.headers" --output /dev/null \
+  --write-out '%{http_code}' \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=resumable&name=resumable%2Fbrowser.bin&ifGenerationMatch=0")
+test "$status" = 200
+browser_uri=$(awk 'tolower($1) == "location:" { sub(/\r$/, "", $2); print $2 }' \
+  "$work_dir/resumable-browser.headers")
+[[ "$browser_uri" == "$GCS_MIMIC_API_BASE_URL/"* ]]
+status=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
+  -H 'Content-Length: 0' --output /dev/null --write-out '%{http_code}' "$browser_uri")
+test "$status" = 499
+unset browser_uri
+export GCS_MIMIC_API_BASE_URL="$endpoint"
+docker compose up -d --wait
+```
+
+One fixed base cannot automatically serve both address spaces. Use separate
+configurations as above or a common reachable DNS/proxy endpoint. A configured
+proxy prefix is retained in Location; the proxy must strip it before forwarding.
+Host, Forwarded and X-Forwarded-* never choose the advertised endpoint.
 
 ## List objects and conditionally change metadata
 
@@ -341,8 +546,17 @@ bucket CRUD/paging and object listing/Update/Attrs/NewReader/NewRangeReader/Dele
 conditions, encoded names and nonempty bucket errors. The harness uploads raw media with
 its confined HTTP client. `TestObjectMultipartWriter` also verifies the high-level
 Writer with `ChunkSize=0`, fixed/custom metadata, explicit hashes, create-if-absent
-and conditioned overwrite, followed by Attrs/NewReader. Nonzero chunking beyond
-one chunk exercises resumable rejection (501 without publication). It creates and
+and conditioned overwrite, followed by Attrs/NewReader. The resumable acceptance
+contract requires normal nonzero Writer chunking: the default is 16 MiB, and
+256 KiB is suitable for a small multi-chunk example. Use data larger than the
+selected ChunkSize to force the resumable transport; a small or empty Writer may
+choose multipart instead. The pinned Go transport sends POST to the session URI
+and can represent incomplete progress as HTTP 200 with
+`X-HTTP-Status-Code-Override: 308`; terminal 200 contains Object JSON without that
+override. Check `Write` and `Close` errors, keep automatic checksum validation,
+and do not use `ChunkSize=0` as a resumable workaround. Writer context cancellation
+does not cancel the server session; it remains until explicit cancellation or
+expiry. Resumable SDK results await final-source verification. The harness creates and
 cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK support
 are not claimed. Ruby/Rails remains unverified.
 Default Go SDK XML reads now work for the path-style GET subset, including
@@ -1024,9 +1238,10 @@ add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
-The full guide, including seeded Compose and strict bucket IAM/public/private
+The preceding guide revision, including seeded Compose and strict bucket IAM/public/private
 journeys, passed on 2026-10-22; see the
 [final public-read integration evidence](evidence/public-object-reads.md).
+That evidence does not cover the resumable journeys added here.
 
 ## Verification and troubleshooting
 
@@ -1048,6 +1263,13 @@ For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
 port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
+If initiation succeeds but the returned Location is unreachable, check
+`GCS_MIMIC_API_BASE_URL` / `--api-base-url` / JSON `api_base_url` and recreate the
+service with an origin reachable by the client following that URI. Host clients
+need the published host port; peers need `gcs:4443`; browsers need their own
+reachable hostname. Changing the listener, Host/forwarding headers or public URL
+helper does not fix an advertised base. Start a new session after correcting it,
+and do not expose the old capability URI in diagnostic logs.
 In strict JSON responses, 401 `required` means an anonymous request lacks a
 matching grant, 401
 `authError` means the credential is unregistered or unsupported (including
