@@ -713,7 +713,7 @@ test "$status" = 200
 cmp "$work_dir/strict.txt" "$work_dir/authenticated.txt"
 status=$(curl --disable --noproxy '*' --silent --output "$work_dir/authenticated-invalid.xml" \
   -H 'Authorization: Bearer unregistered-token' --write-out '%{http_code}' "$public_url")
-test "$status" = 401
+test "$status" = 400
 grep -q '<Code>InvalidAuthentication</Code>' "$work_dir/authenticated-invalid.xml"
 ```
 
@@ -750,7 +750,9 @@ Stored Cache-Control takes precedence on XML and publicly readable JSON media.
 Revocation affects new requests; it cannot recall bytes already downloaded or
 cached, and an already-open read may finish. XML GET supports one stored-byte
 range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
-Unsupported XML inputs/operations and signing attempts return 501. ACLs,
+Unsupported XML inputs/operations return 501. Strict signing attempts return
+400 `InvalidAuthentication`; permissive signature query parameters remain
+unsupported queries (501). ACLs,
 UBLA/PAP settings and virtual-host routing remain outside this subset.
 
 ### Strict SDK tests and cleanup
