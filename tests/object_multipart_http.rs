@@ -300,6 +300,101 @@ fn obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary() {
 }
 
 #[test]
+fn obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    for value in [Value::Null, json!("")] {
+        let metadata = json!({"contentType":value});
+        for part_type in [None, Some("text/plain")] {
+            let expected = part_type.unwrap_or("application/octet-stream");
+            let object = server
+                .upload(
+                    "name=fallback",
+                    &wire(metadata.to_string().as_bytes(), part_type, b"hello", None),
+                )
+                .json();
+            assert_eq!(object["contentType"], expected);
+            let media = server.get("fallback?alt=media");
+            assert_eq!(media.headers["content-type"], expected);
+            assert_eq!(media.body, b"hello");
+        }
+    }
+    no_leaks(&dir, 1);
+}
+
+#[test]
+fn obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 16 * 1024 * 1024, 30_000);
+    server.bucket();
+    let original = server
+        .upload("name=existing", &wire(b"{}", None, b"old", None))
+        .json();
+    // Null entries are absent from the fresh metadata set; Unicode counts by UTF-8 bytes.
+    let accepted = json!({"metadata":{"k":"猫".repeat(2730) + "x", "ignored":null}});
+    let object = server
+        .upload(
+            "name=exact",
+            &wire(accepted.to_string().as_bytes(), None, b"", None),
+        )
+        .json();
+    assert!(object["metadata"].get("ignored").is_none());
+    for query in ["name=existing", ""] {
+        let metadata = json!({"name":"existing", "metadata":{"k":"猫".repeat(2731)}});
+        let body = wire(metadata.to_string().as_bytes(), None, b"", None);
+        let media_header = b"\r\n--boundary\r\n\r\n";
+        let end = body
+            .windows(media_header.len())
+            .position(|v| v == media_header)
+            .unwrap()
+            + media_header.len();
+        let mut stream = socket(&server.address);
+        write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&{query} HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", 8 * 1024 * 1024).unwrap();
+        stream.write_all(&body[..end]).unwrap();
+        Reply::read(stream).error(400, "invalidArgument");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+        no_leaks(&dir, 2);
+    }
+}
+
+#[test]
+fn obj_multipart_http_query_name_overrides_only_valid_metadata_names() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    for name in [Value::Null, json!("ignored")] {
+        let metadata = json!({"name":name});
+        assert_eq!(
+            server
+                .upload(
+                    "name=existing",
+                    &wire(metadata.to_string().as_bytes(), None, b"old", None)
+                )
+                .json()["name"],
+            "existing"
+        );
+    }
+    let original = server.get("existing").json();
+    for name in [json!(7), json!(false), json!([]), json!({})] {
+        let metadata = json!({"name":name});
+        server
+            .upload(
+                "name=existing",
+                &wire(metadata.to_string().as_bytes(), None, b"new", None),
+            )
+            .error(400, "invalidArgument");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+    }
+    server
+        .upload("", &wire(br#"{"name":null}"#, None, b"new", None))
+        .error(400, "required");
+    no_leaks(&dir, 1);
+}
+
+#[test]
 fn obj_multipart_http_media_json_and_custom_metadata_caps() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 5, 30_000);

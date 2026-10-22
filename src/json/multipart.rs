@@ -379,10 +379,27 @@ pub fn multipart_metadata(
     expected: ExpectedHashes,
 ) -> Result<(String, ObjectMetadataUpdate, ExpectedHashes), JsonError> {
     let ObjectMetadataRequest {
-        update,
+        mut update,
         mut unchanged,
     } = parse_object_metadata(bytes, false)?;
-    let metadata_name = unchanged.remove("name");
+    update.content_type = update
+        .content_type
+        .filter(|value| value.as_ref().is_some_and(|value| !value.is_empty()));
+    if let Some(Some(metadata)) = &update.metadata
+        && metadata
+            .iter()
+            .filter_map(|(key, value)| value.as_ref().map(|value| key.len() + value.len()))
+            .sum::<usize>()
+            > 8192
+    {
+        return Err(JsonError::invalid_argument(
+            "Custom metadata exceeds 8192 bytes",
+        ));
+    }
+    let metadata_name = unchanged.remove("name").filter(|value| !value.is_null());
+    if metadata_name.as_ref().is_some_and(|name| !name.is_string()) {
+        return Err(JsonError::invalid_argument("name must be a string or null"));
+    }
     let name = match query_name {
         Some(name) => name,
         None => metadata_name
