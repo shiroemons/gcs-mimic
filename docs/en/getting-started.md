@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-The current slice supports JSON bucket create/get/list/delete and metadata PATCH, bucket IAM policy
+The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
@@ -19,7 +19,8 @@ The [bucket contract](slices/json-bucket-crud.md) and
 [metadata](slices/json-object-metadata.md),
 [multipart](slices/json-object-multipart.md) and
 [strict authentication](slices/strict-auth.md) and
-[bucket IAM](slices/bucket-iam.md), [bucket PATCH](slices/bucket-metadata-patch.md) and
+[bucket IAM](slices/bucket-iam.md), [bucket PATCH](slices/bucket-metadata-patch.md),
+[bucket PUT](slices/bucket-metadata-put.md) and
 [public object reads](slices/public-object-reads.md) contracts list supported fields and deviations.
 The resumable journeys below specify the [frozen upload contract](slices/resumable-upload.md)
 and its expected outputs; they await final-source execution and are not verification
@@ -152,14 +153,59 @@ settings reset to false. See the [contract](slices/bucket-metadata-patch.md)
 for profile, input and provider-parity limits. ACLs, nonempty lifecycle rules,
 CORS, retention, predefined ACL queries and `userProject` return 501;
 `projection=full` and `noAcl` return the same modeled subset without ACL/owner.
-Bucket PUT remains unavailable.
+
+## Replace bucket labels and default storage class
+
+PUT replaces the modeled metadata rather than merging it. Omitted or null labels
+clear the map; omitted class becomes STANDARD and omitted versioning/default
+hold settings become false. These defaults are explicit local choices pending
+SPEC-BUCKET-PUT, not provider-verified defaults. Existing objects, retained
+versions, holds, identity and IAM policy survive replacement. Changing a default
+class does not rewrite existing objects or simulate physical placement.
+
+Run this block after the create and PATCH blocks against the same `$endpoint`.
+For a native server, set `endpoint` to its advertised local address and run those
+same create, PATCH and PUT blocks in order.
+
+```sh
+put_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket" > "$put_dir/before.json"
+put_revision=$(jq -er '.metageneration' "$put_dir/before.json")
+curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
+  --data '{"labels":{"stage":"replacement"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}' \
+  "$endpoint/storage/v1/b/demo-bucket?ifMetagenerationMatch=$put_revision" > "$put_dir/replaced.json"
+jq -e --argjson prior "$put_revision" \
+  '.labels == {"stage":"replacement"} and .storageClass == "COLDLINE" and .versioning.enabled and .defaultEventBasedHold and (.metageneration | tonumber) == $prior + 1' \
+  "$put_dir/replaced.json"
+curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' \
+  --data '{}' "$endpoint/storage/v1/b/demo-bucket" > "$put_dir/reset.json"
+jq -e '(.labels // {}) == {} and .storageClass == "STANDARD" and (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false' \
+  "$put_dir/reset.json"
+put_status=$(curl --disable --noproxy '*' --silent --show-error -o "$put_dir/stale.json" \
+  -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' \
+  "$endpoint/storage/v1/b/demo-bucket?ifMetagenerationMatch=$put_revision")
+test "$put_status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$put_dir/stale.json"
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket" > "$put_dir/after.json"
+cmp "$put_dir/reset.json" "$put_dir/after.json"
+rm -r "$put_dir"
+```
+
+Each successful PUT increments metageneration once and changes its ETag; failed
+conditions leave the resource unchanged. Strict mode requires
+`storage.buckets.update`. A supplied labels map replaces all keys, and per-key
+null is invalid. Null/empty class is invalid in both profiles; native null
+boolean settings are invalid, while legacy null settings become false.
+Unsupported settings and ACL/billing queries return 501; projections expose
+the modeled subset without ACL/owner. See the [contract](slices/bucket-metadata-put.md)
+for accepted full-resource round trips and remaining provider questions.
 
 ## Verify bucket versioning and default holds
 
 Create-time `versioning.enabled` retains overwritten or deleted generations.
 `defaultEventBasedHold` protects newly uploaded bytes until explicitly released.
-This native walkthrough also works with the compatibility profile; PATCH can
-change these defaults, while PUT remains unavailable.
+This native walkthrough also works with the compatibility profile; PATCH changes
+supplied defaults and PUT replaces them, including resetting omitted settings.
 
 ```sh
 history_dir=$(mktemp -d)

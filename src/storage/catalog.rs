@@ -961,6 +961,30 @@ mod tests {
             catalog.get_bucket("patch-policy").await.unwrap(),
             Some(record.clone())
         );
+        let invalid = BucketMetadataUpdate {
+            labels: Some(Some(std::collections::BTreeMap::from([(
+                "Bad".into(),
+                Some("value".into()),
+            )]))),
+            ..Default::default()
+        };
+        assert_eq!(
+            catalog
+                .update_bucket(
+                    "patch-policy",
+                    invalid.clone(),
+                    Some(99),
+                    None,
+                    &access,
+                    replace
+                )
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(record.clone())
+        );
         catalog
             .delete_bucket("patch-policy", None, None)
             .await
@@ -971,6 +995,16 @@ mod tests {
         assert_eq!(
             catalog
                 .update_bucket("patch-policy", update, None, None, &access, replace)
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(replacement.clone())
+        );
+        assert_eq!(
+            catalog
+                .update_bucket("patch-policy", invalid, None, None, &access, replace)
                 .await,
             Err(CatalogError::Forbidden)
         );

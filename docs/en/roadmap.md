@@ -109,11 +109,16 @@ success stub does not complete a workflow.
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation slice is **bucket metadata PUT** within order 7:
-reconcile replacement, omitted/null/default and output-only semantics for the
-same labels/default-class subset, preserving objects, identity and IAM with
-atomic conditions, strict permission and restart evidence. Do not infer PUT
-semantics from PATCH.
+The next implementation slice is **Basic JSON contract** within order 8:
+freeze the basic local profile, implement supported response field selection
+and read ETag validators as separate small slices, and close named conditions,
+checksums and error gaps before copy/rewrite/compose. Keep existing broad cases
+and provider questions visible.
+Order 7 replacement/default semantics are frozen in the
+[PUT contract](slices/bucket-metadata-put.md); its Rust cases pass, while final
+SDK/reference/container/native/Docker integration evidence is pending.
+The complete buckets.update row stays PARTIAL for advanced fields,
+ACL/billing/full projection and provider defaults/error parity.
 Order 6 is closed by [final PATCH evidence](evidence/bucket-metadata-patch.md),
 including effective versioning/default-hold changes, label merge/removal,
 clock/revision behavior, native/Docker guide checks and explicit pinned-reference

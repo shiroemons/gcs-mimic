@@ -67,8 +67,17 @@ The [runnable commands](getting-started.md#patch-bucket-labels-and-default-stora
 also describe boolean versioning/default-hold changes, strict update permission
 and rejected advanced fields. The pinned Go `BucketHandle.Update` tests must
 exercise `SetLabel`, `DeleteLabel`, class/settings changes, conditions and strict
-denial without cloud credentials. PUT replacement/defaults remain a separate
-unimplemented contract.
+denial without cloud credentials.
+
+The implemented bucket PUT journey must replace the entire labels map and
+default class, enable versioning/default holds, then send an empty resource and
+verify omitted fields reset to the declared local defaults. Retry a stale
+metageneration and require 412 without mutation; compare the response with GET
+and the Docker resource before and after restart. Execute the shared
+[create/PATCH/PUT blocks](getting-started.md#replace-bucket-labels-and-default-storage-class)
+against the native binary and Docker image. Use the pinned generated Go API
+client's `Buckets.Update` because high-level `BucketHandle.Update` sends PATCH.
+Provider omission/null defaults remain open under SPEC-BUCKET-PUT.
 
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 

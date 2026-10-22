@@ -534,6 +534,13 @@ fn bucket_metadata_generation_query(method: &str) {
         server
             .request(method, &query_path, r#"{"labels":{"lost":"no"}}"#)
             .error(400, "invalidParameter");
+        if method == "PUT" {
+            let query_path = format!("{path}?softDeleted=false");
+            assert_eq!(server.request("GET", &query_path, "").json(), before);
+            server
+                .request(method, &query_path, "{}")
+                .error(400, "invalidParameter");
+        }
         assert_eq!(server.request("GET", path, "").json(), before);
     }
 }
@@ -927,6 +934,11 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
             server.request("GET", &format!("{path}/iam"), "").json(),
             policy
         );
+        let reply = server.request("PUT", path, r#"{"versioning":{"enabled":true,"future":1}}"#);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let after = reply.json();
+        assert_settings(&after, profile, true, false);
+        assert_eq!(server.request("GET", path, "").json(), after);
         for body in [
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"defaultObjectAcl":[]}),
@@ -1031,6 +1043,59 @@ fn bucket_patch_conditions_and_query_contract() {
 #[test]
 fn bucket_put_conditions_and_query_contract() {
     bucket_metadata_conditions("PUT");
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let before = server.insert("put-precedence", "project").json();
+        let path = "/storage/v1/b/put-precedence";
+        let conditioned = format!("{path}?ifMetagenerationMatch=0");
+        server
+            .request("PUT", &conditioned, r#"{"labels":{"Bad":"value"}}"#)
+            .error(
+                400,
+                if profile == "native" {
+                    "invalidArgument"
+                } else {
+                    "invalid"
+                },
+            );
+        server
+            .request("PUT", &conditioned, r#"{"cors":[]}"#)
+            .error(501, "notImplemented");
+        assert_eq!(server.request("GET", path, "").json(), before);
+        let registry = dir.0.join("identities.json");
+        std::fs::write(
+            &registry,
+            json!({"identities":[
+                {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        drop(server);
+        let server = Server::start_options(
+            &dir,
+            &[
+                "--compat-profile",
+                profile,
+                "--auth-mode",
+                "strict",
+                "--identity-file",
+                registry.to_str().unwrap(),
+            ],
+        );
+        server
+            .authorized(
+                "viewer",
+                "PUT",
+                &format!("{path}?ifMetagenerationMatch=bad"),
+                "{",
+            )
+            .error(400, "invalidParameter");
+        server
+            .authorized("viewer", "PUT", path, "{")
+            .error(403, "forbidden");
+    }
 }
 
 fn bucket_metadata_conditions(method: &str) {
@@ -1220,7 +1285,7 @@ fn bucket_metadata_permissions(method: &str) {
                 "viewer",
                 method,
                 &format!("{path}?ifMetagenerationMatch=bad"),
-                "{}",
+                "{",
             )
             .error(400, "invalidParameter");
         server
