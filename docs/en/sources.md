@@ -1,5 +1,7 @@
 # Sources, provenance and unresolved contracts
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 Research cutoff: **2026-10-21**. Implementation and runtime conformance have not begun.
 
 ## Reproducible source snapshots
@@ -86,6 +88,44 @@ and [Distroless registry](https://gcr.io/v2/distroless/cc-debian13/manifests/non
 All checked stable versions/digests matched the pins; the
 [slice-start command output](evidence/public-reads-dependencies.txt) records the
 complete detector result, including Actions and auxiliary container inputs.
+
+## Resumable upload source pins
+
+Fetched and read on **2026-10-22** for the
+[resumable upload contract](slices/resumable-upload.md). SHA-256 identifies the
+complete fetched HTML, JSON or raw source bytes, without normalization. Moving
+documentation URLs are dated snapshots; tagged SDK sources and the protobuf
+commit below pin upstream identities. The legacy how-to redirects to the
+performing guide; its fetched HTML has a distinct digest.
+
+| Source | SHA-256 |
+| --- | --- |
+| [Perform resumable uploads](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads) | `0973619be28577c2e854b4e9cedb2ac3c90c0d74f6b7a71cee0fcbb6be78e630` |
+| [Resumable uploads](https://docs.cloud.google.com/storage/docs/resumable-uploads) | `0e81715be46aaa2352b83e31b45dc18fe5d9b56fded5062c783e315b8f95dc9c` |
+| [Legacy JSON resumable how-to](https://docs.cloud.google.com/storage/docs/json_api/v1/how-tos/resumable-upload) | `aac3ebeee22a64cd1e15fd90dfb4468a838eddfb27c1e50aea81ec5960420c16` |
+| [JSON objects.insert](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert) | `4715ca06e4f5478e8c42ae1e376ed5990e4b3a83161b4d27ad610366e0182447` |
+| [Live Discovery, revision 20261013](https://storage.googleapis.com/$discovery/rest?version=v1) | `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0` |
+| [JSON headers](https://docs.cloud.google.com/storage/docs/json_api/v1/parameters) | `72a6db7b449430c74671be69460e7c1e8121a8e0f7e74005b3b94790d9f6e856` |
+| [Data validation](https://docs.cloud.google.com/storage/docs/data-validation) | `706320d7d4fef670b8edeb2d032b40434937a1e76f830606cc211670fdc01712` |
+| [JSON status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | `d6d1fc92e1c62731043d7fccee326765b09c9cf8853bcd07142437ef6c62e4e9` |
+| [Retry strategy](https://docs.cloud.google.com/storage/docs/retry-strategy) | `4d1d4073f875961884f8084b2c259dbb6ba9691d4e8286b86db852c8c80d26ca` |
+| [JSON IAM permissions](https://docs.cloud.google.com/storage/docs/access-control/iam-json) | `21047651eb43dfbf948c0f13e4b45361b1cc027d7369d801d3c191747f4bbe96` |
+| [Storage v2 proto at d73dfb3c3be52245625b951b9c0bcf65163c549f](https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto) | `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf` |
+| [Go storage/v1.70.0 writer.go](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/writer.go) | `639be4270a948e984c90bb527fd78eb68cf2f2c8b9440bc5faf64d853c38acef` |
+| [Go storage/v1.70.0 http_client.go](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go) | `a74c0157e327096d641d4a8ca8b544ec6b2e4f8c9e64c463f5d8155e1cec50d0` |
+| [API v0.307.0 resumable.go](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/resumable.go) | `f02844474c0dd9aef774c2f6605f93b58caa87845f786c37633cdd543fb43141` |
+| [API v0.307.0 media.go](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/media.go) | `47c81438de78d304c1c2076dddb6a745ac01fe63b6193feee3cb8f8a2bc1003d` |
+| [API v0.307.0 storage-gen.go](https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go) | `a21d6476e9c7a20c1853ce8629e63d10572911488fc457e21e182674b6d3222e` |
+| [fake-gcs-server v1.56.1 upload.go](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go) | `8713b9787c5cf48b22700f332efc847658e3200d6d74e3fd081b7761783e424c` |
+
+The Go sources establish this pinned client's POST, no-308 override and final
+automatic checksum request construction. The fake-gcs-server source is a
+comparison only; its alternate x-goog-upload command handling is not an
+authoritative JSON specification. Storage v2 is a separate protocol and does
+not resolve JSON error ambiguities. No comparison suite or cloud differential
+test was run. SPEC-RSM-* entries in `compatibility/gaps.json` retain unresolved
+path, error/concurrency, permission timing and automatic multi-origin questions;
+SPEC-013 continues to own invocation-token response replay.
 
 ## Important scope boundaries
 
