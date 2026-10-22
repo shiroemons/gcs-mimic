@@ -2,7 +2,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
+The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media/multipart upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
 
 ## Implementation status
 
@@ -15,13 +15,13 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
-| JSON object APIs | 🚧 Partial | Media upload, metadata/whole-media get and delete, prefix/delimiter/offset listing with keyset paging, and metadata patch/update; MD5/CRC32C, atomic generation/metageneration conditions and nonempty bucket protection. Multipart/resumable, ranges, glob/version listing and ACL/hold/retention metadata are unavailable. |
+| JSON object APIs | 🚧 Partial | Media/multipart upload with fixed/custom metadata and MD5/CRC32C, metadata/whole-media get and delete, prefix/delimiter/offset listing with keyset paging, metadata patch/update, atomic generation/metageneration conditions and nonempty bucket protection. Resumable, ranges, glob/version listing and ACL/hold/retention metadata are unavailable. |
 | XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
 | Persistence | 🚧 Partial | Transactional bucket/object catalog, opaque blobs, exclusive directory lock and restart/crash recovery. Individual fsync crash windows, power loss and fixtures remain unverified or unavailable. |
 | Authentication, IAM and ACLs | ❌ Unavailable | Neither permissive nor strict storage authentication is implemented. |
 | Public and signed URLs | ❌ Unavailable | No URL helpers, signing or signature verification. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.307.0 verified for JSON bucket CRUD/paging and, after raw media upload, object Attrs/NewReader/Delete, Objects listing iterators and conditional Update. SDK Writer is rejected; Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.307.0 verified for JSON bucket CRUD/paging, single-request Writer (`ChunkSize=0`), Attrs/NewReader/Delete, Objects iterators and conditional Update. Upload tokens require generation-match; replay and resumable Writer are unsupported. Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -49,7 +49,7 @@ their tests were not run as part of this comparison.
 | Bucket metadata PATCH (`buckets.patch`) | ❌ | 🚧 Versioning/default event-based hold fields | 🚧 Writable metadata subset |
 | Bucket metadata PUT (`buckets.update`) | ❌ | ❌ | ❌ |
 | Raw media upload | 🚧 Single-request media subset | ✅ | ✅ |
-| JSON multipart upload | ❌ | ✅ | ✅ |
+| JSON multipart upload | 🚧 Bounded metadata/media; optional checksum part | ✅ | ✅ |
 | Resumable upload | ❌ | ✅ Sessions and chunk uploads | 🚧 Chunk uploads and status queries |
 | Object metadata GET (`objects.get`) | 🚧 Current live generation only | ✅ | ✅ |
 | Whole-object media download | 🚧 Whole object; direct HTTP 200 | ✅ | ✅ |
@@ -65,8 +65,8 @@ their tests were not run as part of this comparison.
 | Retained object version history | ❌ One live generation | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
 | Generation/metageneration preconditions | 🚧 Atomic object upload/delete/metadata checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
-| MD5 and CRC32C calculation | 🚧 Media upload metadata/headers | ✅ | ✅ |
-| Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
+| MD5 and CRC32C calculation | 🚧 Media/multipart metadata and download headers | ✅ | ✅ |
+| Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; multipart metadata/final JSON; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
 
 ### 🔐 Protocols and access
 
