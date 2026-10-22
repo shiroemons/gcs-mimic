@@ -45,6 +45,571 @@
     "Storage Control v2 REST binding": 7,
     "Storage Control REST": 1
   },
+  "delivery_plan": {
+    "updated_at": "2026-10-22",
+    "semantics": "Planning metadata only. Feature statuses, fidelities, acceptance results and verification records below remain authoritative and unchanged. Existing scope references describe executed subsets, not new IMPLEMENTED claims.",
+    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
+    "progress_rule": "Report completed, evidence-backed deliverables against a frozen selected delivery scope, separately from API/behavior/project counts. Do not assign PARTIAL a fractional weight, double-count overlapping feature references, or infer gate completion from this plan.",
+    "common_completion_gate": [
+      "Freeze the supported protocol, profile, fields, limits and explicit exclusions before implementation; reconcile the affected official sources and gaps.",
+      "Name positive, negative, boundary, authorization and interaction acceptance cases; pass wire and relevant pinned SDK/CLI/container checks.",
+      "Verify applicable atomicity, interruption, restart/recovery, resource bounds and clock behavior; measurements are required for performance claims.",
+      "Resolve every deviation within the declared scope; keep simulations and external-service boundaries explicit. Later scope extensions do not reopen a passed scope unless it regresses.",
+      "Record commands, outcomes, test IDs, evidence and verification date in the existing feature records; regenerate compatibility views. The unchanged IMPLEMENTED policy still applies to whole feature rows.",
+      "Gate closure requires evidence for every completion condition, not only the linked historical cases. These planning entries have no independent implementation status.",
+      "Review the pinned fake-gcs-server migration contract before each slice; add relevant legacy-profile cases without weakening the independent strict/Google-contract corpus. Rename FAKE_GCS_ keys to GCS_MIMIC_ rather than accepting legacy aliases."
+    ],
+    "existing_scopes": [
+      {
+        "id": "runtime-foundation",
+        "title": "Runnable local foundation",
+        "scope": "Source-built HTTP runtime, configuration precedence, probes, non-root container and injected clock. Full platform, seeding, maintenance, TLS and release requirements retain their recorded status.",
+        "feature_ids": [
+          "DESIGN-058",
+          "DESIGN-064",
+          "DESIGN-066",
+          "DESIGN-067",
+          "DESIGN-069"
+        ],
+        "acceptance_case_refs": [
+          "DESIGN-058/DESIGN-058-A1",
+          "DESIGN-064/DESIGN-064-A1",
+          "DESIGN-067/DESIGN-067-A1",
+          "DESIGN-069/DESIGN-069-A1"
+        ],
+        "evidence": [
+          "docs/en/evidence/distroless.md",
+          "docs/en/evidence/object-media.md"
+        ]
+      },
+      {
+        "id": "json-bucket-crud",
+        "title": "Persistent JSON bucket CRUD",
+        "scope": "Documented live-bucket create/get/list/delete subset, naming, conditions and persistence; not full IAM, owner/ACL or advanced bucket settings.",
+        "feature_ids": [
+          "JSON-BUCKETS-001",
+          "JSON-BUCKETS-002",
+          "JSON-BUCKETS-005",
+          "JSON-BUCKETS-006"
+        ],
+        "acceptance_case_refs": [
+          "JSON-BUCKETS-005/BKT-INS-001"
+        ],
+        "evidence": [
+          "docs/en/evidence/bucket-crud.md"
+        ]
+      },
+      {
+        "id": "json-object-media",
+        "title": "Single-request object media",
+        "scope": "Live-generation media upload/download/delete, checksums and atomic conditions, with the existing error, header, token and recovery limits.",
+        "feature_ids": [
+          "JSON-OBJECTS-004",
+          "JSON-OBJECTS-005",
+          "JSON-OBJECTS-007"
+        ],
+        "acceptance_case_refs": [
+          "JSON-OBJECTS-007/JSON-OBJECTS-007-MEDIA"
+        ],
+        "evidence": [
+          "docs/en/evidence/object-media.md"
+        ]
+      },
+      {
+        "id": "json-list-and-metadata",
+        "title": "Object listing and metadata updates",
+        "scope": "Prefix/delimiter/keyset listing and fixed/custom metadata merge/replacement; existing projection, legacy-input, filter, retry and history gaps remain.",
+        "feature_ids": [
+          "JSON-OBJECTS-008",
+          "JSON-OBJECTS-010",
+          "JSON-OBJECTS-015"
+        ],
+        "acceptance_case_refs": [
+          "JSON-OBJECTS-008/OBJECT-LIST-PAGINATION",
+          "JSON-OBJECTS-010/JSON-OBJECTS-010-METADATA",
+          "JSON-OBJECTS-015/JSON-OBJECTS-015-METADATA"
+        ],
+        "evidence": [
+          "docs/en/evidence/object-list-metadata.md"
+        ]
+      },
+      {
+        "id": "json-multipart-upload",
+        "title": "Single-request JSON multipart upload",
+        "scope": "Bounded metadata/media and optional checksum part with pinned Go ChunkSize=0 Writer; MIME parity, replay and advanced semantics remain open.",
+        "feature_ids": [
+          "JSON-OBJECTS-007",
+          "BEHAVIOR-OBJECT-009",
+          "DESIGN-082"
+        ],
+        "acceptance_case_refs": [
+          "JSON-OBJECTS-007/JSON-OBJECTS-007-MULTIPART-GO-SDK"
+        ],
+        "evidence": [
+          "docs/en/evidence/multipart.md"
+        ]
+      },
+      {
+        "id": "local-strict-auth",
+        "title": "Strict local project-role authentication",
+        "scope": "Local bearer principals and project-level predefined storage roles on JSON routes; URL construction grants no access. Full strict authentication remains PARTIAL.",
+        "feature_ids": [
+          "DESIGN-001",
+          "DESIGN-002",
+          "DESIGN-003",
+          "DESIGN-008",
+          "DESIGN-046"
+        ],
+        "acceptance_case_refs": [
+          "DESIGN-003/DESIGN-003-RESOLUTION",
+          "DESIGN-008/DESIGN-008-SNAPSHOT",
+          "DESIGN-046/DESIGN-046-PURE"
+        ],
+        "evidence": [
+          "docs/en/evidence/strict-auth.md"
+        ]
+      },
+      {
+        "id": "json-single-range",
+        "title": "Single untranscoded JSON range download",
+        "scope": "BEHAVIOR-OBJECT-016 is IMPLEMENTED for its declared range subset. If-Range, transcoding and exact fallback/header parity remain on broader rows and gaps.",
+        "feature_ids": [
+          "BEHAVIOR-OBJECT-016",
+          "JSON-OBJECTS-005",
+          "DESIGN-082"
+        ],
+        "acceptance_case_refs": [
+          "BEHAVIOR-OBJECT-016/CLOSED",
+          "BEHAVIOR-OBJECT-016/OPEN-ENDED",
+          "BEHAVIOR-OBJECT-016/SUFFIX",
+          "BEHAVIOR-OBJECT-016/UNSATISFIABLE",
+          "BEHAVIOR-OBJECT-016/GENERATION",
+          "BEHAVIOR-OBJECT-016/AUTHORIZATION",
+          "BEHAVIOR-OBJECT-016/BOUNDED-READ"
+        ],
+        "evidence": [
+          "docs/en/evidence/object-range.md",
+          "docs/en/evidence/seed-range-sdk.txt"
+        ]
+      },
+      {
+        "id": "initial-seed-import",
+        "title": "Initial seed directory import",
+        "scope": "Native fresh-catalog import before readiness without replay over mutations; UX-002 remains PARTIAL until its Linux filename and seeded Compose cases pass.",
+        "feature_ids": [
+          "UX-002"
+        ],
+        "acceptance_case_refs": [
+          "UX-002/seed-once",
+          "UX-002/seed-retry",
+          "UX-002/seed-readiness"
+        ],
+        "evidence": [
+          "docs/en/evidence/seed.md",
+          "docs/en/evidence/seed-range-guide.txt"
+        ]
+      }
+    ],
+    "next_deliverables": [
+      {
+        "id": "seed-platform-verification",
+        "order": 1,
+        "title": "Close seed platform and Compose verification",
+        "depends_on": [
+          "initial-seed-import"
+        ],
+        "feature_ids": [
+          "UX-002",
+          "DESIGN-062",
+          "DESIGN-063",
+          "UX-009"
+        ],
+        "completion_conditions": [
+          "Execute UX-002 seed-utf8 on Linux and seed-compose against the read-only fixture mount; preserve existing native results.",
+          "Verify wait/readiness, stop/start, recreation, deletion of every bucket and fresh-volume reset/reseed without modifying the source fixtures.",
+          "Reconcile the shared fixture/volume rows with this evidence; do not close unrelated power-loss or maintenance conditions."
+        ],
+        "deferred_scope": "Metadata sidecars, continuous fixture synchronization, admin reset and broader platform claims."
+      },
+      {
+        "id": "bucket-iam-policies",
+        "order": 2,
+        "title": "Persist and enforce scoped bucket IAM policies",
+        "depends_on": [
+          "json-bucket-crud",
+          "local-strict-auth"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-003",
+          "JSON-BUCKETS-011",
+          "DESIGN-014",
+          "DESIGN-016",
+          "DESIGN-027"
+        ],
+        "completion_conditions": [
+          "Define the unconditional policy/member/role subset and official get/set request, response, permission and etag cases before implementation.",
+          "Enforce policy read/write permissions, effective project-plus-bucket grants and atomic stale-etag rejection; persist across restart.",
+          "Reject recognized unsupported policy conditions or roles instead of accepting them without effect; retain existing project-role denial and cross-project race tests."
+        ],
+        "deferred_scope": "Custom/basic roles, conditional policies, object/default ACLs and full inherited organization policy fidelity."
+      },
+      {
+        "id": "public-object-reads",
+        "order": 3,
+        "title": "Serve public and private XML object reads",
+        "depends_on": [
+          "bucket-iam-policies",
+          "json-single-range"
+        ],
+        "feature_ids": [
+          "DESIGN-004",
+          "DESIGN-012",
+          "DESIGN-013",
+          "DESIGN-047",
+          "EXT-XML-012",
+          "EXT-XML-017",
+          "UX-005"
+        ],
+        "completion_conditions": [
+          "Serve path-style GET/HEAD for the declared live-object subset with exact encoded names, selected-generation metadata and protocol-specific errors.",
+          "Allow anonymous allUsers reads; require a registered identity for allAuthenticatedUsers; deny private reads and revoked grants.",
+          "Prove URL generation changes no permission, grants survive restart, metadata and bytes refer to one generation, and supported public-access restrictions fail closed.",
+          "Run pinned Go default/XML reads and the host/peer public-private guide; retain SPEC-017 wherever exact auth error evidence is absent."
+        ],
+        "deferred_scope": "Virtual-host routing, XML write/list breadth, full ACL/UBLA/PAP state machines and signature authentication."
+      },
+      {
+        "id": "resumable-upload",
+        "order": 4,
+        "title": "Complete a bounded JSON resumable upload workflow",
+        "depends_on": [
+          "json-object-media",
+          "json-multipart-upload",
+          "local-strict-auth"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-007",
+          "BEHAVIOR-OBJECT-010",
+          "BEHAVIOR-OBJECT-011",
+          "BEHAVIOR-OBJECT-012",
+          "BEHAVIOR-OBJECT-013",
+          "BEHAVIOR-OBJECT-014",
+          "DESIGN-057",
+          "DESIGN-082"
+        ],
+        "completion_conditions": [
+          "Implement initiation and client-reachable Location, chunk offsets and status queries as separately verified steps.",
+          "Verify interrupted/duplicate/out-of-order chunks, unknown length, checksum failure and finalization; incomplete objects stay invisible and failed overwrites preserve old bytes.",
+          "Implement bounded session storage/admission, explicit clock-driven expiry, cancellation and documented restart recovery; clean temporary bytes without busy polling.",
+          "Pass pinned Go resumable Writer workflows without forcing ChunkSize=0; measure object-size-independent server buffering under the declared resource profile.",
+          "Keep invocation-token replay separate: generation conditions or session offsets must not be reported as response replay."
+        ],
+        "deferred_scope": "XML multipart upload, signed initiation, arbitrary SDK transport coverage and unrestricted large-upload claims."
+      },
+      {
+        "id": "v4-signed-download",
+        "order": 5,
+        "title": "Validate V4 RSA signed downloads",
+        "depends_on": [
+          "public-object-reads"
+        ],
+        "feature_ids": [
+          "DESIGN-005",
+          "DESIGN-029",
+          "DESIGN-030",
+          "DESIGN-032",
+          "DESIGN-033",
+          "DESIGN-034",
+          "DESIGN-035",
+          "DESIGN-036",
+          "DESIGN-038",
+          "DESIGN-044",
+          "DESIGN-045",
+          "UX-006"
+        ],
+        "completion_conditions": [
+          "Bind local signing identities/fixture keys to effective read permission and the final XML host, port, method, raw path, query and required headers.",
+          "Pass valid GET plus tampered, wrong-host, wrong-method, expired and insufficient-signer-permission wire cases using the injected clock.",
+          "Verify supported public-access-prevention interactions: public denial must not incorrectly deny an otherwise authorized signed request; do not claim general PAP completion."
+        ],
+        "deferred_scope": "V4 HMAC, V2 URLs, Authorization-header signing and remote IAM Credentials."
+      },
+      {
+        "id": "v4-signed-upload",
+        "order": 6,
+        "title": "Validate V4 RSA signed uploads",
+        "depends_on": [
+          "v4-signed-download"
+        ],
+        "feature_ids": [
+          "EXT-XML-022",
+          "DESIGN-029",
+          "DESIGN-030",
+          "DESIGN-036",
+          "DESIGN-037",
+          "DESIGN-038",
+          "UX-006"
+        ],
+        "completion_conditions": [
+          "Implement scoped bounded XML PUT before claiming signed upload support; enforce create/overwrite permissions and conditions atomically.",
+          "Verify payload/header requirements, checksum failures, tampered and expired URLs, interrupted bodies and failed-overwrite preservation.",
+          "Run pinned official SDK locally generated GET/PUT URLs against the exact final externally visible endpoint."
+        ],
+        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth."
+      },
+      {
+        "id": "object-copy",
+        "order": 7,
+        "title": "Copy one immutable object",
+        "depends_on": [
+          "json-object-media",
+          "bucket-iam-policies"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-003",
+          "BEHAVIOR-OBJECT-023"
+        ],
+        "completion_conditions": [
+          "Freeze supported metadata inheritance/replacement and source/destination permission cases; pin source generation before copying.",
+          "Stream within fixed buffers and atomically enforce source/destination conditions at the defined commit boundaries.",
+          "Verify concurrent source replacement, destination overwrite, failure cleanup, checksum/metadata results and restart persistence."
+        ],
+        "deferred_scope": "Continuation-token rewrite, historical-version storage and encryption infrastructure."
+      },
+      {
+        "id": "object-compose",
+        "order": 8,
+        "title": "Compose immutable objects",
+        "depends_on": [
+          "object-copy"
+        ],
+        "feature_ids": [
+          "JSON-OBJECTS-002",
+          "BEHAVIOR-OBJECT-025",
+          "BEHAVIOR-OBJECT-026",
+          "BEHAVIOR-OBJECT-027"
+        ],
+        "completion_conditions": [
+          "Reconcile the current compose schema, source-count/class rules, generation conditions and deleteSourceObjects semantics before freezing the supported subset.",
+          "Stream source objects in order with fixed buffers; atomically publish only the complete destination and apply any supported source deletion effects.",
+          "Verify source/destination permissions, metadata/component/checksum behavior, missing sources, failed conditions, concurrency and restart.",
+          "Reject recognized unsupported source-deletion or advanced settings explicitly; never silently ignore them."
+        ],
+        "deferred_scope": "General rewrite sessions, cross-bucket composition and undeclared retention/version interactions."
+      },
+      {
+        "id": "browser-cors",
+        "order": 9,
+        "title": "Complete a scoped browser CORS workflow",
+        "depends_on": [
+          "public-object-reads",
+          "v4-signed-upload"
+        ],
+        "feature_ids": [
+          "BEHAVIOR-BUCKET-009",
+          "DESIGN-051",
+          "DESIGN-052",
+          "DESIGN-053",
+          "UX-007"
+        ],
+        "completion_conditions": [
+          "Persist scoped bucket CORS configuration and distinguish JSON defaults from XML origin/method/header rules.",
+          "Use an actual browser to verify allowed/denied origins, preflight, exposed headers and signed upload/download.",
+          "Prove preflight grants no object access and denied permissions stay denied even when CORS matches."
+        ],
+        "deferred_scope": "Website hosting, CDN, DNS/TLS provisioning and authenticated browser UI."
+      },
+      {
+        "id": "ruby-rails-workflows",
+        "order": 10,
+        "title": "Verify Ruby and Rails user workflows",
+        "depends_on": [
+          "resumable-upload",
+          "v4-signed-upload",
+          "browser-cors"
+        ],
+        "feature_ids": [
+          "DESIGN-083",
+          "DESIGN-084",
+          "UX-004",
+          "UX-005",
+          "UX-006",
+          "UX-007"
+        ],
+        "completion_conditions": [
+          "Add pinned Ruby upload/read/list/update/delete coverage as each required capability lands; do not defer all Ruby checks until this final journey.",
+          "Run a minimal Rails Active Storage application through public/private delivery, direct browser upload, signed access and deletion.",
+          "Verify explicit local endpoints/credentials and no metadata-server or Google calls; record exact versions and supported transports."
+        ],
+        "deferred_scope": "Other language SDKs, gRPC and untested Rails configurations."
+      },
+      {
+        "id": "release-verification",
+        "order": 11,
+        "title": "Verify separately authorized native and image distribution",
+        "depends_on": [
+          "public-object-reads"
+        ],
+        "feature_ids": [
+          "DIST-001",
+          "DIST-002",
+          "DIST-003",
+          "DESIGN-059",
+          "DESIGN-099",
+          "DEP-005",
+          "DEP-006",
+          "DEP-009"
+        ],
+        "completion_conditions": [
+          "Verify the actual selected source on all promised native targets and required CI gates; distinguish baseline runs from current-source evidence.",
+          "Complete freshness/release checks, notices, archive checksums, resource evidence and the supported first-release guide scope.",
+          "Publish only after separate authorization; verify registry/release access and immutable identity instead of treating configured workflows as executed."
+        ],
+        "deferred_scope": "A release does not require gRPC, lifecycle, analytics or every row in P0/P1/P2; it does require the explicit release-policy and platform gates."
+      }
+    ],
+    "migration": {
+      "goal": "Complete behavioral superset of fake-gcs-server after the documented environment-key rename and nondestructive data conversion. This is a product target, not an implemented or all-versions compatibility claim.",
+      "baseline": {
+        "product": "fake-gcs-server",
+        "version": "v1.56.1",
+        "checked_at": "2026-10-22"
+      },
+      "environment_contract": {
+        "source_prefix": "FAKE_GCS_",
+        "target_prefix": "GCS_MIMIC_",
+        "legacy_keys": "Reject with a rename diagnostic; do not use as aliases, fallback values or compatibility-mode selection.",
+        "naming_rule": "Replace the prefix, retain each setting's suffix and value semantics, and inventory every source setting rather than only the documented examples.",
+        "precedence": "CLI overrides environment; contradictory renamed/native settings at the same precedence fail deterministically.",
+        "storage_boundary": "DATA is seed input; DATA_DIR is destination persistence. FILESYSTEM_ROOT requires explicit source conversion, not in-place reinterpretation.",
+        "port_boundary": "Existing Compose GCS_MIMIC_PORT means host publication, not the process listener; keep container/server mappings separate."
+      },
+      "storage_contract": "Prefer a transactional metadata catalog plus bounded opaque immutable files; keep foreign seed/filesystem/live-export readers separate from internal persistence. Preserve original data and identities, block lossy import, and validate coherent backup/recovery before cutover. SQLite is the current justified default, not a universal performance winner.",
+      "full_superset_gate": [
+        "Inventory all public source flags/settings, routes, helper/event behavior, backend modes, Go APIs and Storage v1 gRPC; do not silently drop surfaces missing from the current GCS inventory.",
+        "Pass the pinned source corpus, representative unchanged clients and migration-preservation cases; legacy emulation and strict Google-contract behavior have separate expectations.",
+        "Retain names, bytes, headers/metadata, source identities, ACL/bucket settings and archived versions where exposed; unsupported or inconsistent source state blocks a lossless migration claim.",
+        "Verify source immutability, bounded dry-run/import, interruption/retry, resource budgets, endpoint cutover and rollback without losing post-cutover writes.",
+        "Report baseline version, profile, supported platforms and remaining gaps; partial releases cannot advertise full replacement. New versions explicitly extend the baseline."
+      ],
+      "milestones": [
+        {
+          "id": "fake-gcs-server-baseline",
+          "order": 1,
+          "title": "Freeze the complete pinned migration contract",
+          "depends_on": [
+            "runtime-foundation"
+          ],
+          "feature_ids": [
+            "DESIGN-064",
+            "DESIGN-081",
+            "DESIGN-098",
+            "AUDIT-008"
+          ],
+          "completion_conditions": [
+            "Inventory all source routes, flags, FAKE_GCS_ settings, Go APIs, legacy v1 gRPC, source backends and helper/event behavior at the pinned revision.",
+            "Define GCS_MIMIC_ prefix-only replacements, value/default/error behavior, same-precedence conflicts and no legacy-key fallback; test direct-server and Compose port scopes separately.",
+            "Define legacy-compatible versus strict profile expectations for signatures, metadata, errors and seed lifecycle; preserve every known gap and plan missing capabilities as bounded follow-up slices.",
+            "Build the reproducible source/destination wire and representative-client corpus without claiming it has already run."
+          ],
+          "deferred_scope": "No compatibility status promotion, runtime aliases, importer or source test execution is implied by this planning entry."
+        },
+        {
+          "id": "fake-gcs-server-seed-adapter",
+          "order": 2,
+          "title": "Import source seed semantics explicitly",
+          "depends_on": [
+            "fake-gcs-server-baseline",
+            "initial-seed-import"
+          ],
+          "feature_ids": [
+            "DESIGN-062",
+            "UX-002",
+            "DESIGN-064"
+          ],
+          "completion_conditions": [
+            "Differentiate source seed trees from durable filesystem roots; preserve empty buckets, names, bytes and source-derived MIME/default metadata under a pinned source profile.",
+            "Use bounded traversal/body streams and a read-only source. Verify source-compatible reload/reseed only when explicitly selected; keep native one-time seeding unchanged.",
+            "Reject unsupported or inconsistent source attributes with a dry-run report rather than silently dropping them; inventory fields that require later API/ACL implementation."
+          ],
+          "deferred_scope": "This does not import durable xattr/sidecar state, archived memory generations or make native octet-stream seeding a source-compatible importer."
+        },
+        {
+          "id": "fake-gcs-server-filesystem-import",
+          "order": 3,
+          "title": "Convert durable source data without loss",
+          "depends_on": [
+            "fake-gcs-server-baseline",
+            "json-object-media",
+            "json-list-and-metadata"
+          ],
+          "feature_ids": [
+            "DESIGN-072",
+            "DESIGN-073",
+            "DESIGN-074",
+            "AUDIT-014"
+          ],
+          "completion_conditions": [
+            "Read the pinned bucket/object formats and both xattr/sidecar variants from an immutable snapshot into a separate destination; never modify or jointly mount the legacy storage root for writes.",
+            "Preflight every resource and preserve source-visible names, generations, ETags, timestamp precision, metadata, bucket settings and ACL/retention fields. Unsupported or corrupt state is a blocking report.",
+            "Independently verify size/checksums while streaming, checkpoint import progress with source fingerprints, and test interruption, changed input, conflicts and disk-full without overwriting unrelated data.",
+            "Validate old generation-qualified reads/conditions, nonreused future identities, restart readiness and consistent backup/rollback before cutover."
+          ],
+          "deferred_scope": "A declared live-only subset is not lossless full migration; unsupported histories and policy semantics remain blocking findings."
+        },
+        {
+          "id": "fake-gcs-server-go-and-live-export",
+          "order": 4,
+          "title": "Preserve Go integration and export ephemeral state",
+          "depends_on": [
+            "fake-gcs-server-baseline",
+            "fake-gcs-server-filesystem-import",
+            "public-object-reads",
+            "resumable-upload"
+          ],
+          "feature_ids": [
+            "DESIGN-077",
+            "DESIGN-082",
+            "BEHAVIOR-OBJECT-002",
+            "AUDIT-008"
+          ],
+          "completion_conditions": [
+            "Provide a separately tested Go-compatible facade for the inventoried constructors, client/handler/lifecycle and direct object methods; a standalone Rust server is not a Go-library drop-in.",
+            "Quiesce mutations while the memory source remains alive and export active plus archived generations, metadata and required settings using supported APIs or the Go adapter.",
+            "Implement the required version/metadata semantics before accepting such source state. Do not lose archives, truncate identities or stop a memory source before a verified export.",
+            "Verify restoration/cutover and explicit draining or preservation of old upload sessions/page tokens; changing endpoint configuration must not be mistaken for token continuity."
+          ],
+          "deferred_scope": "Transparent hot migration, Go source compatibility and archive preservation remain unclaimed until their own cases pass."
+        },
+        {
+          "id": "fake-gcs-server-parity",
+          "order": 5,
+          "title": "Verify the complete behavioral-superset release claim",
+          "depends_on": [
+          "fake-gcs-server-seed-adapter",
+            "fake-gcs-server-go-and-live-export",
+          "object-compose",
+            "ruby-rails-workflows"
+          ],
+          "feature_ids": [
+            "DESIGN-065",
+            "DESIGN-077",
+            "DESIGN-081",
+            "DESIGN-098",
+            "AUDIT-008",
+            "AUDIT-014"
+          ],
+          "completion_conditions": [
+            "Run all frozen source surfaces on both backends, including TLS/defaults, renamed configuration, JSON/XML, ACL/metadata, batch/rewrite, notifications/helpers, Storage v1 gRPC and representative embedded-Go tests.",
+            "Close each baseline gap through an independently scoped delivery slice; no missing source surface is excluded merely to pass the final gate.",
+            "Run strict signature/permission cases independently of legacy permissive URL cases, and prove added GCS capabilities do not break source-profile clients.",
+            "Publish preserved-data, recovery, platform and resource evidence. Normalize only documented nondeterminism, never missing fields, permissions, imported identities or incorrect bytes."
+          ],
+          "deferred_scope": "Partial developer releases remain allowed with named migration limits, but cannot claim complete replacement or compatibility with unverified upstream versions."
+        }
+      ]
+    }
+  },
   "features": [
     {
       "id": "DIST-003",

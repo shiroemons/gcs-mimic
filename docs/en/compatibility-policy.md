@@ -28,6 +28,50 @@ The initial kit was a planning baseline with every row unstarted. Current status
 
 ## Definition of done
 
+### Capability delivery and broad feature rows
+
+The ledger's optional `delivery_plan` records existing scoped evidence and the
+ordered capability queue. It contains prerequisites, completion conditions and
+exclusions, but no independent implementation statuses. Existing scope/case
+references are navigation aids, not automatic completion of a delivery gate.
+
+P0-P7 are coverage groups. A capability gate covers only its declared scope; a
+clock-injection gate does not depend on later lifecycle scheduling, and a
+single-request upload gate does not depend on resumable or gRPC support.
+Before coding, map the gate to concrete acceptance cases on the affected feature
+records. Keep known differences within that scope visible and unresolved until
+evidence supports their resolution.
+
+A completed narrow behavior does not complete its parent API method. Preserve
+parent status, fidelity, pending cases and historical evidence. New requirements
+extend a capability separately; regressions in an existing scope still require
+repair. Do not narrow an existing feature row merely to remove its deviations.
+
+Report completed scopes with evidence against a fixed selected delivery scope,
+separately from method/behavior/project counts. Do not infer a delivery percentage
+from planning metadata or treat overlapping feature references as independent
+capabilities. README comparisons must use the same named scope for every product.
+
+The JSON schema describes this planning metadata. The current Rust xtask still
+validates feature records and generated views; it does not validate delivery-plan
+references or execute its conditions. Review those references separately until
+dedicated tooling is explicitly implemented.
+
+### Migration and behavioral-superset claims
+
+`delivery_plan.migration` records a target and completion conditions, with no
+second implementation-status system. Legacy emulator parity is not Google
+`EXACT` fidelity. Verify legacy behavior and strict permissions/signatures in
+separate profiles; neither may silently override the other's contract.
+
+Full replacement requires every declared source surface and lossless-data
+case, including renamed configuration, TLS, helpers/events, Go embedding,
+legacy Storage v1 gRPC and both backends. An early subset must name its limits.
+Retain source identities and metadata; unsupported state blocks a lossless
+migration claim. Documentation and source inspection are not passing evidence.
+
+### Feature implementation gate
+
 For the selected feature, record the following before marking it implemented:
 
 1. The exact protocol/version, official source URL/date or source digest, relevant parameters/headers/fields, and supported profile.

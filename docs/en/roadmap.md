@@ -1,89 +1,242 @@
 # Incremental implementation roadmap
 
-Each milestone contains multiple small feature slices. Complete one requested slice per implementation turn; do not interpret a milestone as permission to build every listed feature at once. `phase` in the ledger records the recommended sequence, while `priority` ranks work within that sequence. Reconcile real dependencies before selecting a slice.
+<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-| Phase | Deliverable | Exit evidence |
+## Delivery model
+
+Complete a useful, independently verifiable capability before expanding its
+scope. The execution plan is `delivery_plan` in
+[`compatibility/features.json`](../../compatibility/features.json). It names
+existing evidence, ordered deliverables, prerequisites, completion conditions
+and exclusions. This document explains that plan; it owns no implementation
+status.
+
+The existing P0-P7 assignments remain coverage groups for inventory and
+historical evidence. They are not whole-group execution gates. In particular,
+P0 clock injection does not wait for lifecycle maintenance, and P1 single-request
+upload does not wait for resumable transfer, signing or gRPC. Those extensions
+have their own deliverables. Existing later work is retained even when an
+earlier verification task remains open.
+
+No feature status, fidelity, acceptance result, test ID or existing evidence
+was changed to adopt this plan. A planning entry is neither an implementation
+claim nor permission to start implementation.
+
+## Foundation gate
+
+Before starting another capability, check the existing evidence for the
+declared development profile and run only missing or affected checks:
+
+- Build and start the pinned binary and supported source-built container.
+- Validate configuration precedence, health/readiness and graceful shutdown.
+- Recover persisted catalog/blob state before readiness and retain exclusive
+  data-directory ownership.
+- Use the injected clock, bounded transfer/catalog admission and indexed lookup.
+- Pass ledger/generated-view and relevant Rust checks.
+
+This gate concerns the runnable baseline. Optional TLS, fixture extensions,
+maintenance state machines, all-platform distribution and public publication
+are separately verified deliverables. They do not retroactively extend the
+foundation's completion scope. Selected crash recovery is not power-loss proof.
+
+## Existing capabilities and evidence
+
+These are executed subsets, not newly promoted feature rows. Existing source
+versions, command outputs and limits remain in the named evidence files.
+
+| Capability | Verified scope | Remaining boundary | Evidence |
+| --- | --- | --- | --- |
+| Runtime foundation | HTTP, configuration, probes, non-root container and injected clock | Current-source platform/CI and release claims need their own evidence | [Runtime/container](evidence/distroless.md) |
+| JSON bucket CRUD | Persistent create/get/list/delete, conditions and scoped paging | IAM/ACL, ownership and advanced settings | [Bucket verification](evidence/bucket-crud.md) |
+| Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
+| List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
+| JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
+| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Bucket IAM, public reads, signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
+| Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
+| Initial seed import | Native import before readiness without replay over mutations | Linux invalid-byte filenames and seeded Compose execution | [Seed verification](evidence/seed.md) |
+
+`BEHAVIOR-OBJECT-016` remains IMPLEMENTED for its declared single-range subset;
+`JSON-OBJECTS-005` remains PARTIAL. `UX-002` remains PARTIAL until its recorded
+platform/container cases pass. Range and seeding are existing work, not the next
+features to reimplement. The integrated [native guide](evidence/seed-range-guide.txt)
+and [Go SDK log](evidence/seed-range-sdk.txt) retain their actual execution scope.
+
+## Ordered delivery queue
+
+The order below is the default selection order. Explicit prerequisites in the
+ledger determine readiness; independent verification or Ruby integration may
+run earlier. Finish one bounded slice per implementation turn. Within a
+deliverable, validate each step before adding the next; an initiation route or
+success stub does not complete a workflow.
+
+| Order | Deliverable | Completion boundary | Visible user outcome |
+| ---: | --- | --- | --- |
+| 1 | Seed platform verification | Pass Linux filename and seeded Compose persistence/reset cases | Fixture import has the missing platform evidence |
+| 2 | Bucket IAM policies | Persist and enforce the declared unconditional bindings; authorize get/set and atomically reject stale etags | Policy operations work and affect access |
+| 3 | Public object reads | XML path GET/HEAD; allUsers versus authenticated-only grants; denial, revocation and restart | Public URLs return bytes; private URLs stay protected |
+| 4 | Resumable upload | Initiation, chunks, status/retry, finalization, cancellation/expiry and pinned Go Writer | Normal chunked SDK uploads work |
+| 5 | V4 RSA signed download | Final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
+| 6 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
+| 7 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
+| 8 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
+| 9 | Browser CORS | JSON/XML distinction and real-browser positive/negative/preflight checks | Browser upload/download works under the declared origins |
+| 10 | Ruby/Rails workflows | Pinned Ruby operations and actual Active Storage public/private delivery plus direct uploads | Tested application integration |
+| 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
+
+The next implementation capability is **bucket IAM policies**, followed by
+**public object reads**. Seed verification is the preceding evidence-closure
+task. It is not evidence that bucket IAM or XML already exists.
+
+### Small steps inside the larger workflows
+
+| Deliverable | Step order | Completion evidence |
 | --- | --- | --- |
-| P0 Foundation | Latest stable Rust/dependencies, reproducible pins, daily update checks, CLI/configuration, health/readiness, Docker amd64/arm64, deterministic ledger generator, source lock and clock interface | Container starts/stops correctly; dependency checks run; the English table and any requested companion views are generated from one ledger; no GCS API is falsely marked implemented |
-| P1 Core data path | Bucket/object CRUD, streaming media and JSON multipart upload, metadata, list/pagination, basic ranges, checksums, generations and atomic preconditions, disk persistence | Go/Ruby core workflows; wrong checksum and failed preconditions rejected; restart and concurrent-create tests; object-size-independent buffering |
-| P2 Access and URLs | Local strict identities, IAM/ACL/default ACL, UBLA/PAP, XML object paths, public URL helper, V4 signing, CORS and host/browser configuration | Public, private, expired, tampered and wrong-host cases; public URL generation does not grant access; Rails public and private delivery scenarios |
-| P3 Transfer and HTTP breadth | Resumable sessions, retry/status/expiry, rewrite/copy/compose, HTTP batch, remaining XML operations and multipart, V2/HMAC interoperability, advanced conditional/range/transcoding | Interrupted transfer recovery; metadata and source inheritance; partial batch failures; bounded buffering; equivalent protocol outcomes |
-| P4 Protection and lifecycle | Versioning, soft delete/restore/bulk restore, holds, bucket/object retention, lifecycle, Autoclass local transitions | Virtual-clock cases and cross-feature restrictions; local retention locking; no premature deletion; metadata-only coverage remains explicit |
-| P5 Hierarchy and control | HNS folders/rename, managed folders/inherited access, storage layout, shared LRO behavior and relevant Control operations | Atomic subtree changes, list visibility, permission inheritance, cancellation limits and operation polling |
-| P6 gRPC and Rapid | Storage v2 unary/streaming/bidirectional RPCs; field masks, wire errors, Rapid/appendable states and protocol restrictions | Pinned official SDK gRPC tests; single-writer handoff; read-during-append; rejected unsupported Rapid combinations |
-| P7 Extended capabilities | Cache lifecycle, Insights, Intelligence, batch jobs, contexts/enrichments, MCP, notifications, encryption/infrastructure adapters and extended clients | Exact local wire contracts separated from simulations; reproducible jobs/events/fixtures; external integration boundaries and limitations published |
+| Public reads | Policy get/set and enforcement; then grants and XML GET/HEAD | Wire permission/etag tests, restart, encoded paths and Go default/XML reads |
+| Resumable upload | Initiation/status; then chunk/retry/finalization; then expiry/cancellation/recovery | Interrupted and duplicate chunks, atomic visibility, checksum rejection and pinned Go Writer |
+| Signed access | Signed GET first; XML PUT and signed PUT next | Valid, expired, tampered, wrong-host and insufficient-permission requests |
+| Copy/compose | Finish copy; then implement compose | Source/destination races, failed-overwrite preservation and bounded streaming |
+| Ruby/Rails | Add applicable Ruby cases as capabilities land; finish with the complete Rails/browser journey | Version-pinned SDK and real application/browser execution |
+
+Resumable sessions are bearer capabilities with their own retry/status model.
+They do not require signed URLs to exist. Generation conditions, accepted
+invocation tokens and resumable offsets are not token-keyed response replay;
+SPEC-013 remains open until that behavior is implemented and evidenced.
+
+Before public grants, model the supported access restrictions and reject
+recognized unsupported policy semantics rather than ignoring them. Full
+ACL/default ACL, UBLA/PAP transitions and conditional IAM remain separate
+acceptance work; no public-read slice may bypass a restriction it claims to
+support. Signed access must preserve the supported PAP distinction between
+anonymous public grants and authorized signed requests.
+
+## Migration track and prerequisites
+
+The product target is a complete fake-gcs-server behavioral superset after
+renaming environment keys and explicit data conversion. The acceptance contract
+is [the migration contract](fake-gcs-server-migration.md); its milestones live in
+`delivery_plan.migration`. They add no implementation status.
+
+Before affected capability slices, inventory source behavior and profile
+conflicts. Add each missing source capability as its own bounded slice.
+The existing queue is an early useful release path; completing it alone does
+not establish full replacement. No source surface disappears from the final
+gate because it lacks a current GCS inventory row.
+
+| Order | Migration deliverable | Prerequisite | Completion boundary |
+| ---: | --- | --- | --- |
+| 1 | Source contract baseline | Runtime foundation | Complete flags/routes/Go/backend inventory and executable legacy/strict expectations |
+| 2 | Seed adapter | Baseline and native seed | Preserve source keys, bytes, MIME/default metadata and selected seed lifecycle |
+| 3 | Durable filesystem import | Baseline, object media and metadata | Read xattrs/sidecars without modifying source; preserve identities and verify recovery |
+| 4 | Go and live-state export | Baseline, durable import, public reads and resumable upload | Tested Go facade; export active/archived state before stopping memory source |
+| 5 | Full replacement validation | Seed adapter, Go/live-state, compose and Ruby/Rails | Every baseline capability and preservation case passes; no undisclosed exclusions |
+
+The diagram groups related prerequisites. It shows no execution results;
+the ledger retains the exact dependencies and default selection order.
+
+```mermaid
+flowchart TD
+  E[Existing verified capability subsets] --> B[Source contract baseline]
+  E --> S[Close seed platform evidence]
+  E --> I[Bucket IAM]
+  E --> R[Resumable uploads]
+  I --> P[Public reads]
+  P --> U[Signed GET then PUT]
+  I --> C[Copy then compose]
+  U --> W[CORS and Ruby/Rails workflows]
+  P --> W
+  R --> W
+  B --> A[Source seed adapter]
+  E --> A
+  B --> D[Durable data import]
+  E --> D
+  D --> G[Go adapter and live-state export]
+  B --> G
+  P --> G
+  R --> G
+  A --> V[Full replacement validation]
+  C --> V
+  W --> V
+  G --> V
+```
+
+For settings, replace `FAKE_GCS_` with `GCS_MIMIC_` and retain suffix/value
+semantics; legacy keys produce a rename diagnostic, never aliases or fallback.
+Seed input and persistent destination remain separate. Existing Compose
+`GCS_MIMIC_PORT` publishes a host port; do not silently reinterpret it as the
+container listener. Equivalent settings, importers and compatibility profiles
+have not been implemented.
+
+## Completion and progress reporting
+
+Each deliverable uses the ledger's common completion gate:
+
+1. Freeze protocol/profile, supported fields, limits and exclusions; reconcile
+   current official sources and affected gaps before implementation.
+2. Name success, error, boundary, permission and feature-interaction cases.
+3. Pass wire and applicable pinned SDK/CLI/container checks; verify relevant
+   concurrency, interruption, restart, resource and clock properties.
+4. Resolve deviations inside that scope and attach commands, results, test IDs
+   and durable evidence. Retain explicit simulation/external boundaries.
+5. Update the affected feature records and generated views. Apply the unchanged
+   [IMPLEMENTED policy](compatibility-policy.md) to each whole feature row.
+
+The existing acceptance references are navigation aids, not proof that every
+new completion condition passes. Planning entries have no independent status.
+At a delivery checkpoint, report the named completed scopes and their evidence
+against a scope fixed before work started. State any scope change explicitly.
+Do not derive a completion percentage merely from this planning metadata.
+
+Report API operations, behavior and project requirements separately. Do not
+count overlapping references as independent GCS features or assign PARTIAL a
+50% weight. A broad method can remain PARTIAL while a narrow, independently
+evidenced behavior is IMPLEMENTED. A later extension does not invalidate a
+completed scope unless the existing behavior regresses.
+
+README capability summaries should name the tested operation/profile and its
+limits. Comparison marks must use the same named scope across products; they
+must not be upgraded merely because the roadmap was reorganized.
+
+## Coverage retained for later delivery
+
+These group assignments remain unchanged in the feature ledger. The delivery
+queue above takes precedence over their historical numeric ordering.
+
+| Group | Remaining coverage |
+| --- | --- |
+| P0 Foundation | TLS, maintenance extensions, platform/CI and distribution evidence |
+| P1 Core data path | Broader bucket updates, fields, HTTP conditions, transcoding and resource measurements |
+| P2 Access and URLs | Remaining ACL/default ACL, UBLA/PAP, conditional policies, HMAC/V2 and endpoint breadth |
+| P3 Transfer and HTTP breadth | Rewrite continuations, HTTP batch, remaining XML/multipart and extended SDKs |
+| P4 Protection and lifecycle | Versioning, soft delete/restore, holds, retention, lifecycle and Autoclass |
+| P5 Hierarchy and control | HNS/managed folders, inherited access, storage layout and shared LROs |
+| P6 gRPC and Rapid | Storage v2 RPCs and appendable-object state machines |
+| P7 Extended capabilities | Caches, analytics/jobs/events, contexts, infrastructure adapters and extended clients |
 
 ## First useful release
 
-The first developer release should target P1 plus the essential P2 public/private and URL path. Publish the tested single-request upload subset until resumable P3 support exists; do not claim unrestricted SDK large-upload support early. Explicitly select Go JSON reads for P1, then verify default/XML reads in P2. Do not wait for analytics, caches or ML enrichment before making a useful emulator available. Conversely, do not market the first release as fully GCS-compatible. Publish the tested API/profile/SDK subset.
+The first developer release retains the P1 core plus essential P2 public/private
+and URL target: documented JSON workflows, the supported range/seed subsets,
+strict local identity, effective scoped bucket IAM and public XML reads.
+Include applicable Go and Ruby evidence; any unverified client remains an
+explicit limitation. Signed URLs and resumable uploads can follow as separate
+capabilities; the release must state its single-request upload limitations.
 
-Version increments, immutable release identity and licensing follow the
-[versioning and licensing policy](release-policy.md).
+Do not wait for lifecycle, gRPC, analytics or every row in P0/P1/P2 to complete.
+Do require the release's declared feature/profile/platform tests, dependency
+freshness, relevant resource measurements and the existing
+[release policy](release-policy.md). Native/image workflow configuration is not
+execution evidence. Publishing remains a separately authorized action.
 
-## Suggested first slices
+## Source and storage maintenance
 
-P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Initial seeding and strict/permissive profiles now exist; TLS remains unimplemented. Current progress is recorded only in the ledger.
+Retain the dated source lock, refresh Discovery/protobuf/release restrictions
+before affected slices and releases, and keep new/retired methods visible.
+No real-cloud differential test is implied; unresolved source questions remain
+in `compatibility/gaps.json` until explicitly authorized evidence resolves them.
 
-Bucket create/get/list/delete and streaming object media upload/metadata/download/delete use
-an indexed transactional catalog and opaque immutable blobs. Checksums, atomic generation
-conditions/create-if-absent, nonempty bucket protection and selected SIGKILL recovery points
-pass, with pinned Go JSON Attrs/NewReader/Delete coverage. Publication and SQL commit are
-separate; every instruction-level fsync/deletion window, power loss and performance remain
-unverified. See the [integration evidence](evidence/object-media.md) and
-[executed guide](evidence/object-media-guide.txt); full method rows remain PARTIAL.
-
-Regression tests additionally cover explicit upload EOF, commit waiting beyond body
-inactivity, committed success with deferred reclamation, both storage race outcomes, early
-rejection with eager bodies, advisory checks and OS metadata recovery. Object-free v1 catalogs
-migrate through v3 to v4; unreleased v2 catalogs are rejected. See the
-[verification summary](evidence/object-media.md)
-for current logs and the remaining filesystem, platform and performance limits.
-
-The **list and metadata** slice is complete for its scoped local subset; method rows
-JSON-OBJECTS-008/010/015 remain PARTIAL. Prefix/delimiter/keyset paging and conditional
-PATCH/PUT share v4 metadata with GET, including after restart. Pinned Go listing/Update
-coverage exists. Remaining work includes ACL/IAM, historical/soft-deleted listing,
-glob/context filters, partial response masks, token replay, gzip transcoding and
-unverified legacy metadata input and list-shape edge cases. See the
-[listing contract](slices/json-object-list.md) and [metadata contract](slices/json-object-metadata.md).
-
-The **JSON multipart upload** subset now supports bounded metadata/media containers,
-optional final checksums and the pinned Go `ChunkSize=0` Writer, including conditional
-publication and rejected-overwrite preservation. MIME/error edge parity and token replay
-remain open; see the [contract](slices/json-object-multipart.md) and
-[integration evidence](evidence/multipart.md). Resumable sessions remain separate P3
-work; Ruby/Rails is unverified.
-
-The **JSON byte-range reads** and **initial data seeding** slices are complete for
-their scoped subsets. Closed/open/suffix untranscoded ranges use bounded seeking,
-206/416 responses and generation pinning; If-Range, transcoding and exact fallback/header
-parity remain open. Initial seed directories populate eligible catalogs before readiness
-without replaying over existing data. See the [range contract](slices/json-object-range.md),
-[seed contract](slices/seed.md) and [executed native guide](evidence/seed-range-guide.txt).
-The next slice remains **bucket IAM and public reads / XML GET**.
-
-Item 5 is split. The first part, **strict local authentication**, is done: explicit
-permissive/strict profiles, a JSON local principal registry, project-level enforcement
-of a pinned predefined `roles/storage.*` snapshot on the JSON routes (including the
-overwrite `storage.objects.delete` rule) and the side-effect-free `gcs-mimic url public`
-helper. DESIGN-001/003/008/046 are IMPLEMENTED; DESIGN-002/004 and the JSON method rows
-remain PARTIAL, with SPEC-017 open. See the [contract](slices/strict-auth.md) and
-[evidence](evidence/strict-auth.md). The next slice is **bucket IAM and public reads**:
-bucket IAM policy get/set, `allUsers`/`allAuthenticatedUsers` grants and XML path-style
-GET/HEAD for public object reads, so URLs built by the helper become servable when a
-public grant exists.
-
-1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
-2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.
-3. **One object path:** media upload/download/metadata/delete with streaming, checksum validation, generation and create-if-absent. Include failed and concurrent requests.
-4. **List and metadata:** prefix/delimiter/page tokens, metadata patch vs replacement, conditional requests and official SDK integration.
-5. **Public/private slice:** anonymous access, a minimal strict principal/role model, public grants, denied requests and public URL construction. The principal/role model, denied requests and URL construction are done; bucket IAM policies, public grants and XML public reads are next.
-6. **Signed URL slice:** V4 download/upload using local signing keys, final external host, expiry/tampering and signer permission checks.
-
-The full method row `objects.insert` remains `PARTIAL` with media and the scoped multipart subset. Track multipart and resumable acceptance cases separately. Similarly, `objects.list` is not complete merely because an unfiltered first page works.
-
-## Release and source maintenance
-
-Keep explicit compatibility profiles and a dated source lock. Refresh current Discovery/protobuf/release notes before starting each advanced group and before releases. Add new methods, parameters and preview features as new pending work without silently removing old rows. Retired upstream interfaces remain visible as legacy or not-applicable with an explanation.
-
-Benchmark equivalent supported scenarios after P1 and after resource-sensitive changes. Build both CPU architectures, run the supported SDK matrix, regenerate English docs and requested companion views, and review every completed row's evidence before making a release claim. Publishing images/packages is a separate authorized action.
+Keep SQLite plus opaque immutable files as the recommended durable default.
+The storage comparison in `docs/en/storage-backends.md` evaluates BLOB,
+key/value, filesystem and memory alternatives. Foreign-data migration is a
+planned capability, separate from replacing the internal engine. Implement no
+backend or importer in this documentation change. Reconsider the default after
+a measured requirement justifies its recovery and compatibility cost.

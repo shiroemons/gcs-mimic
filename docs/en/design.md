@@ -8,6 +8,18 @@ P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock 
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
+The product also targets a complete behavioral superset of fake-gcs-server
+after the documented environment-key rename and explicit data conversion.
+This is a product goal, not an achieved replacement claim. The migration
+contract is `docs/en/fake-gcs-server-migration.md`; it includes Go embedding,
+legacy Storage v1 gRPC, TLS/defaults, helpers/events and both backend modes.
+Google strict behavior and permissive source behavior need separate profiles
+and evidence. The existing permissive auth mode is not a complete legacy profile.
+
+P0-P7 group coverage; the ordered capabilities and prerequisites in
+`delivery_plan` determine execution. Complete a bounded useful scope before
+expanding it, retaining broader PARTIAL rows and all existing evidence.
+
 ## Compatibility surfaces
 
 Cover core JSON REST, XML operations, Storage v2 gRPC, Storage Control v2, FeatureConfigs, Storage Intelligence, Storage Insights, Storage Batch Operations, and optional Cloud Storage MCP tools. Keep separate rows for different transports even when they share domain logic. Operation counts are inventory counts, not a count of independent product features.
@@ -148,6 +160,26 @@ Store object data on disk by default. Keep a bounded in-memory backend only for 
 
 Tokio's file operations may use blocking workers; merely using async functions does not cap thread growth. Bound CPU and blocking work explicitly. SQLite WAL allows readers alongside a writer, but still has one writer at a time. Keep writes short and avoid holding a transaction during a transfer. Use one process per data directory and an exclusive process lock. [Tokio](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html), [SQLite WAL](https://www.sqlite.org/wal.html).
 
+### Storage selection and foreign data
+
+The recommended durable model is SQLite metadata plus opaque immutable files.
+Indexed paging and atomic metadata conditions fit a transactional catalog;
+bounded body streams avoid database transactions held for an entire transfer.
+SQLite BLOBs, embedded transactional key/value stores, filesystem metadata and
+memory each have tradeoffs documented in `docs/en/storage-backends.md`.
+No equivalent-workload benchmark or alternative backend has been implemented.
+
+Keep foreign-format readers outside catalog internals and protocol handlers.
+Seed trees, persistent xattr/sidecar roots and live memory exports are different
+inputs. They should yield typed records and bounded streams into the shared
+import path, preserving source names, identities and metadata. Do not require
+the runtime to adopt a foreign directory layout.
+
+Import into a separate destination, report unsupported state before cutover,
+and retain the original source. A coherent backup must include the catalog
+snapshot and its referenced blobs, protected from mutation/reclamation while
+copying. SQLite's backup API alone does not back up external bodies.
+
 ## Persistence and concurrency
 
 Use generated, opaque blob identifiers. Object names such as Unicode strings, repeated slashes, encoded `%2F`, dot segments and trailing delimiters are logical keys, not native filesystem paths.
@@ -241,7 +273,19 @@ JSON CORS follows its documented defaults; XML CORS follows bucket configuration
 
 ## Developer experience
 
-Aim for one command or one Compose service, a default development port of 4443, HTTP/optional HTTPS, environment variables plus CLI flags, fixture import, persisted volumes, health/readiness, structured logs, graceful shutdown and clear error messages. Provide migration examples for fake-gcs-server's data-directory and endpoint patterns. Do not claim drop-in flag compatibility until each alias is tested. fake-gcs-server's README explicitly documents permissive signed URL behavior; this is an ergonomics reference, not the strict security contract. [fake-gcs-server](https://github.com/fsouza/fake-gcs-server/blob/main/README.md).
+Aim for one command or one Compose service, a default development port of
+4443, HTTP/optional HTTPS, environment variables plus CLI flags, fixture import,
+persisted volumes, health/readiness, structured logs, graceful shutdown and
+clear error messages.
+
+Provide migration examples for fake-gcs-server's data-directory and endpoint
+patterns. Replace only the environment prefix with `GCS_MIMIC_`, preserving
+each setting's meaning; never accept `FAKE_GCS_*` aliases or fallback values.
+Reject contradictory native/renamed settings at the same precedence, retaining
+CLI precedence. Distinguish seed `DATA`, durable `DATA_DIR` and Compose
+host-port publication. These migration settings are planned, not currently
+accepted equivalents. The source README's permissive signed URL behavior
+belongs to the legacy profile, separate from strict validation.
 
 Docker targets are `linux/amd64` and `linux/arm64`, supporting both standard CI hosts and Apple Silicon development. Use a multi-stage build, a non-root runtime, explicit writable data/temp mounts, and bounded optional tmpfs. A read-only root must not break SQLite WAL or temporary uploads. Keep seeding input distinct from durable storage so reboots do not silently reimport or overwrite data. Provide native binary installation after the core workflow works.
 
@@ -253,7 +297,7 @@ Build a contract corpus at the wire level, not only unit tests of the internal s
 
 Prioritize Go and Ruby/Rails Active Storage. Verify Ruby SDK usage and browser direct uploads, public and private delivery, signed upload/download, and object deletion; include Node.js, Python and official Rust next. Add Java, C++, .NET, PHP, gcloud and FUSE according to the scope and transport. Record exact versions and endpoint settings. Do not assume one `STORAGE_EMULATOR_HOST` value configures all SDKs or their URL signers.
 
-Use differential tests against an explicitly authorized disposable GCS environment for unresolved behavior. Offline CI remains the default and blocks unintended outbound network access. fake-gcs-server and storage-testbench help find differences, but neither replaces Google documentation or real-service evidence, especially for IAM/ACLs. [storage-testbench](https://github.com/googleapis/storage-testbench).
+Use differential tests against an explicitly authorized disposable GCS environment for unresolved behavior. Offline CI remains the default and blocks unintended outbound network access. fake-gcs-server and storage-testbench help find differences, but neither replaces Google documentation or real-service evidence, especially for IAM/ACLs.
 
 ## Performance plan
 

@@ -25,6 +25,33 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
+### Delivered workflows and next capabilities
+
+The workflows below have executed evidence for their stated scope. They do not
+promote their broader API rows to `IMPLEMENTED`: unresolved fields, permissions
+and protocol differences remain in the same feature ledger.
+
+| Workflow available in the documented scope | Main remaining boundary | Evidence |
+| --- | --- | --- |
+| Persistent JSON bucket/object round trip with checksums and atomic generation conditions | Advanced fields, full IAM/ACL and complete wire parity | [Media](docs/en/evidence/object-media.md) |
+| Prefix/delimiter/keyset listing and metadata PATCH/PUT | History, glob/context filters, full projection and legacy-input parity | [Listing and metadata](docs/en/evidence/object-list-metadata.md) |
+| Bounded JSON multipart upload with Go `ChunkSize=0` Writer | MIME edge parity, response replay and resumable uploads | [Multipart](docs/en/evidence/multipart.md) |
+| Strict local tokens and project-level predefined storage roles | Bucket IAM, public reads and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
+| Single closed/open/suffix stored-byte ranges with pinned generation | If-Range, transcoding and exact fallback/header parity | [Range](docs/en/evidence/object-range.md) |
+| Native initial seed import before readiness without replay over changes | Linux invalid-byte filename and seeded Compose verification | [Seed](docs/en/evidence/seed.md) |
+
+Next, close the pending seed platform evidence, then implement bucket IAM
+policies and public XML GET/HEAD. Continue with resumable uploads, V4 signed GET
+then PUT, copy then compose, browser CORS and Ruby/Rails journeys. Add applicable
+Ruby checks as each capability lands. Distribution verification has separate
+release gates and publication authorization.
+
+[The delivery roadmap](docs/en/roadmap.md) and the ledger's `delivery_plan` define
+the ordered capabilities, prerequisites and completion conditions. P0-P7 remain
+coverage groups; finishing a scope does not require every later extension in its
+broad API row. Planning metadata adds no new implementation claim, and PARTIAL
+is not assigned an arbitrary percentage.
+
 ## Feature comparison
 
 Snapshot reviewed on **2026-10-22**: gcs-mimic's unreleased `0.1.0`
@@ -101,6 +128,20 @@ establish access control.
 Disk persistence does not imply equivalent crash or power-loss guarantees.
 CPU, memory, throughput and image size are not ranked: no equivalent cross-product
 benchmark was run.
+
+gcs-mimic stores metadata in SQLite and object bytes in opaque immutable files.
+The storage investigation in `docs/en/storage-backends.md` compares filesystem,
+xattr/JSON, memory, SQLite BLOB and embedded key/value approaches. Transactional
+metadata plus streamed opaque files is the recommended durable default; this is
+a requirement-based decision, with no comparative benchmark claim.
+
+The product target is a complete behavioral superset of fake-gcs-server after
+renaming `FAKE_GCS_*` to `GCS_MIMIC_*` and explicitly converting existing data.
+Legacy keys will not be aliases or fallback inputs. The migration contract in
+`docs/en/fake-gcs-server-migration.md` includes flags, TLS, endpoints, Go
+embedding, Storage v1 gRPC, helper/event behavior and both source backends.
+Lossless import, equivalent renamed settings and the legacy compatibility
+profile remain planned. Existing comparison marks describe current behavior.
 
 ## Run with Docker
 
