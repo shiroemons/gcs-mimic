@@ -57,18 +57,31 @@ DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 are IMPLEMENTED. DESIGN-004 and
 EXT-XML-012/017 remain PARTIAL for their explicit remaining cases; see the
 [final public-read evidence](docs/en/evidence/public-object-reads.md).
 
-Next, implement bucket metadata PATCH, then PUT for labels and the supported
+Next, reconcile only the contract needed for name-only bucket creation, then
+implement and verify that slice. Follow with basic-resource GET and empty-bucket
+deletion, investigating each operation's contract before implementing it.
+The complete migration inventory does not block these slices. Close required
+settings/effects before completing the three-operation capability baseline.
+Then implement bucket metadata PATCH and PUT for labels and the supported
 default storage class. Close the basic CRUD/list/metadata/download contract
 gaps, then implement copy, bounded continuation rewrite and compose. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
-and native/container journeys before starting signed URLs.
+and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
+and bucket-configured XML-read CORS, with actual-browser verification, before
+starting signed URLs.
 
-Signed GET is now delivery order 12 and explicitly depends on the basic JSON
-verification gate. Signed PUT, browser CORS and full Rails journeys follow.
+Signed GET is delivery order 16 and explicitly depends on the basic API, CORS
+and local HTTPS verification gate. Signed PUT, signed-browser integration and
+full Rails journeys follow; initial CORS/TLS implementation comes before signing.
 The [basic API milestone](docs/en/roadmap.md#basic-json-api-milestone-before-signed-urls)
-defines the six bucket and nine object methods, completion conditions and
-exclusions. Historical versions, retention/lifecycle, advanced IAM/ACL and full
-Google method compatibility are separate work. These priorities have no
+defines the six bucket and nine object methods, CORS/TLS acceptance conditions
+and exclusions. HTTPS uses supplied development certificates and verified local
+client trust; JSON CORS defaults and XML bucket-configured CORS have independent
+rules. Public certificate issuance and DNS provisioning remain separate work.
+Historical versions, retention/lifecycle and advanced IAM/ACL beyond the selected
+source baseline, plus full Google method compatibility, remain separate work.
+Source-required behavior stays required even when its historical phase is later.
+These priorities have no
 calendar delivery dates. Distribution verification has separate release gates
 and publication authorization.
 
@@ -100,12 +113,19 @@ their tests were not run as part of this comparison.
 The four PATCH/PUT rows use the shared
 [metadata update criteria](#metadata-update-comparison-criteria) below.
 
+For bucket create/get/delete, the completion target is the pinned reference
+capability set, with additional gcs-mimic capabilities above it.
+The existing native entry points are available, but equivalent behavior is
+not verified: their response/default/input/error differences are listed in the
+[bucket baseline contract](docs/en/fake-gcs-server-migration.md#bucket-core-baseline-before-further-bucket-extensions).
+These three rows remain partial until the source-compatible corpus passes.
+
 | Operation and comparison scope | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
-| Create a live bucket by name (`buckets.insert`) | ✅ Validated name; modeled metadata also supported | ✅ Create by name | ✅ Create by name |
-| Read basic live-bucket metadata (`buckets.get`; excludes ACL/owner) | ✅ Modeled fields | ✅ Basic resource | ✅ Basic resource |
+| Bucket create (`buckets.insert`) | 🚧 Create by name | ✅ Create by name | ✅ Create by name |
+| Bucket metadata GET (`buckets.get`) | 🚧 Basic resource | ✅ Basic resource | ✅ Basic resource |
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
-| Delete an empty live bucket (`buckets.delete`) | ✅ Metageneration checks also supported | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
+| Bucket delete (`buckets.delete`) | 🚧 Empty-bucket deletion | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
 | Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ❌ Not implemented | ❌ These fields are not updated; other PATCH fields exist | 🚧 Assigns fields; no label-key merge/null removal |
 | Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ❌ Not implemented | ❌ | ❌ |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
@@ -302,7 +322,8 @@ strict mode requires a matching project or bucket grant. Follow the
 to grant `allUsers`, verify restart persistence, restrict access to
 `allAuthenticatedUsers` and revoke it. The base URL must be reachable by the
 consumer: host browsers use the published host port, while Compose peers use
-`http://gcs:4443`. Browser cross-origin fetch still needs the deferred CORS work.
+`http://gcs:4443`. Browser cross-origin fetch still needs the planned CORS work,
+which is scheduled with local HTTPS/TLS before signed URLs.
 
 The container runs as a non-root user on a read-only root, with a writable named data volume. Compose sets limits of 128 MiB memory, one CPU and 64 processes. These are configured limits, not measured resource requirements. Ordinary stop/down preserves the catalog; deliberate volume removal resets it.
 

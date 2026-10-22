@@ -48,9 +48,10 @@
   "delivery_plan": {
     "updated_at": "2026-10-22",
     "semantics": "Planning metadata only. Feature statuses, fidelities, acceptance results and verification records below remain authoritative and unchanged. Existing scope references describe executed subsets, not new IMPLEMENTED claims.",
-    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Complete the basic JSON bucket/object deliverables and their verification gate before signed URLs. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
+    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Complete the basic JSON bucket/object deliverables, local HTTPS/TLS, JSON CORS defaults, scoped bucket/XML CORS and their verification gate before signed URLs. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
     "progress_rule": "Report completed, evidence-backed deliverables against a frozen selected delivery scope, separately from API/behavior/project counts. Do not assign PARTIAL a fractional weight, double-count overlapping feature references, or infer gate completion from this plan.",
     "common_completion_gate": [
+      "Use pinned reference capabilities and representative existing-client workflows as the minimum functional baseline for each affected feature. Preserve source-supported inputs, response information and state effects; narrower native scopes and additional strict checks are not proof of feature parity. Add capabilities above that baseline without breaking the selected compatibility profile.",
       "Freeze the supported protocol, profile, fields, limits and explicit exclusions before implementation; reconcile the affected official sources and gaps.",
       "Name positive, negative, boundary, authorization and interaction acceptance cases; pass wire and relevant pinned SDK/CLI/container checks.",
       "Verify applicable atomicity, interruption, restart/recovery, resource bounds and clock behavior; measurements are required for performance claims.",
@@ -366,10 +367,36 @@
     ],
     "next_deliverables": [
       {
-        "id": "bucket-metadata-patch",
+        "id": "bucket-core-parity",
         "order": 5,
+        "title": "Deliver bucket create, get and delete in bounded steps",
+        "depends_on": [
+          "json-bucket-crud"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-001",
+          "JSON-BUCKETS-002",
+          "JSON-BUCKETS-005",
+          "BEHAVIOR-BUCKET-012",
+          "BEHAVIOR-OBJECT-029"
+        ],
+        "completion_conditions": [
+          "Start with only the create-by-name contract: pin the affected sources at reference release v1.56.1 commit 896ece51e49eed0946089f3089f6343855c0d106, reconcile current official Google sources and affected gaps, and define name-only request parsing, naming, project query behavior, duplicate creation, response fields, authorization, errors and state changes. Resolve conflicts for this operation in an explicit compatibility profile while preserving native/strict behavior; permissive authentication is not compatibility.",
+          "Implement and verify name-only creation immediately after that scoped contract is fixed, including source-valid/native-rejected names, omitted project, malformed requests, duplicates, failed-request state preservation and restart persistence. GET/delete contract research, versioning/hold implementation and the complete migration inventory are not prerequisites for starting or delivering this bounded slice; keep broader feature rows PARTIAL.",
+          "Next, reconcile and implement basic-resource GET, including missing buckets, authorization and source resource fields/defaults such as location/class, project number, metageneration, ETag, timestamps and links. Compare the creation response with GET, and record pending configuration fields without claiming them supported.",
+          "Then reconcile and implement empty-bucket deletion, including success status/body, unknown/nonempty buckets, repeat deletion and delete/recreate. Use existing object-media behavior to verify rejected nonempty deletion preserves every object; its contract research does not block name-only creation.",
+          "Before closing the three-operation baseline, deliver source versioning and defaultEventBasedHold configuration/results and relevant effects as separate small slices, reconciling only their affected contracts and interactions. Accepted-but-ignored settings or stored metadata alone cannot close a capability; these effects are completion requirements, not prerequisites for starting name-only creation.",
+          "Complete equivalent source/destination wire and pinned official SDK workflows for all three operations and their supported options. Review both source backends for these operations and record their differences; normalize only documented nondeterminism, never missing fields or errors. Record per-slice results as work proceeds rather than waiting for the full gate to begin implementation.",
+          "Close source-baseline gaps before marking these rows source-equivalent. Record raw results and remaining differences, preserve broader Google cases and fidelity, and keep the feature rows PARTIAL until their own full completion rules pass. The migration contract records detailed source pins and observed gaps."
+        ],
+        "deferred_scope": "The complete source-contract-baseline inventory is required by replacement-validation, not by this bucket deliverable or its first creation slice. Other source API routes, Go embedding, native memory-backend delivery, import/export, legacy gRPC and infrastructure features retain their migration-track slices and remain mandatory for the full functional-superset target. This bucket gate does not redefine the product target as only three methods."
+      },
+      {
+        "id": "bucket-metadata-patch",
+        "order": 6,
         "title": "Patch basic bucket metadata",
         "depends_on": [
+          "bucket-core-parity",
           "json-bucket-crud",
           "bucket-iam-policies"
         ],
@@ -381,11 +408,11 @@
           "Apply merge/removal semantics with atomic metageneration conditions, strict storage.buckets.update permission, consistent metageneration/updated changes and no mutation on validation or authorization failure.",
           "Pass wire and pinned SDK label-update cases, stale-condition and concurrent-update cases, GET/list consistency and restart persistence; record field-level evidence before changing status."
         ],
-        "deferred_scope": "CORS configuration, ACL/UBLA/PAP, versioning, lifecycle, retention, soft delete, relocation and actual storage placement remain separate scopes; default-class metadata does not simulate physical placement."
+        "deferred_scope": "CORS configuration has its own required pre-signing bucket/XML CORS slice. ACL/UBLA/PAP, versioning, lifecycle, retention, soft delete, relocation and actual storage placement beyond the bucket core baseline remain separate later scopes; source-required core effects must already pass the earlier gate. Default-class metadata does not simulate physical placement."
       },
       {
         "id": "bucket-metadata-update",
-        "order": 6,
+        "order": 7,
         "title": "Replace basic bucket metadata",
         "depends_on": [
           "bucket-metadata-patch"
@@ -402,7 +429,7 @@
       },
       {
         "id": "basic-json-contract",
-        "order": 7,
+        "order": 8,
         "title": "Close the basic bucket and object contract gaps",
         "depends_on": [
           "bucket-metadata-update",
@@ -431,11 +458,11 @@
           "Verify all supported generation/metageneration conditions atomically for mutations, content/custom metadata merge versus replacement, MD5/CRC32C calculation and supplied-checksum rejection, query-bound paging, strict local project/bucket permissions and failed-overwrite preservation.",
           "Map remaining field/header/error gaps to explicit pending cases or named deferred scope. Preserve every broad feature's existing cases and deviations; unknown Google behavior is not proven by a local test or a successful SDK call."
         ],
-        "deferred_scope": "If-Range contract research and any resulting implementation remain separate later work under SPEC-RANGE-VALIDATORS; retain explicit 501 rejection until authoritative sources establish the Google contract. This work does not block the basic JSON milestone, copy/rewrite/compose or signed URLs. Historical versions, soft delete/restore, glob/context filters, transcoding, token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP, retention/lifecycle, billing/encryption infrastructure, XML writes, gRPC and undocumented provider wire-edge parity also remain deferred. These exclusions remain visible on the broad feature rows."
+        "deferred_scope": "If-Range contract research and any resulting implementation remain separate later work under SPEC-RANGE-VALIDATORS; retain explicit 501 rejection until authoritative sources establish the Google contract. This work does not block the basic JSON milestone, copy/rewrite/compose or signed URLs. Historical versions, soft delete/restore, glob/context filters, transcoding, token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP, retention/lifecycle, billing/encryption infrastructure, XML writes, gRPC and undocumented provider wire-edge parity beyond the selected source baseline also remain deferred. Required bucket-core source effects are not excluded by this list. These exclusions remain visible on the broad feature rows."
       },
       {
         "id": "object-copy",
-        "order": 8,
+        "order": 9,
         "title": "Copy one immutable object",
         "depends_on": [
           "basic-json-contract",
@@ -455,7 +482,7 @@
       },
       {
         "id": "object-rewrite",
-        "order": 9,
+        "order": 10,
         "title": "Rewrite objects with bounded continuation",
         "depends_on": [
           "object-copy"
@@ -472,7 +499,7 @@
       },
       {
         "id": "object-compose",
-        "order": 10,
+        "order": 11,
         "title": "Compose immutable objects",
         "depends_on": [
           "object-copy",
@@ -493,14 +520,81 @@
         "deferred_scope": "Cross-bucket composition and undeclared retention/version interactions; rewrite has a separate prerequisite gate before signed URLs."
       },
       {
+        "id": "local-https",
+        "order": 12,
+        "title": "Serve the emulator over local HTTPS/TLS",
+        "depends_on": [
+          "runtime-foundation"
+        ],
+        "feature_ids": [
+          "DESIGN-065",
+          "DESIGN-055"
+        ],
+        "completion_conditions": [
+          "Freeze HTTP-only and HTTPS-only listener modes, supported TLS versions, certificate-chain/private-key input and CLI/environment/config precedence; keep listener and advertised API/public endpoints distinct.",
+          "Load supplied development certificates before readiness and reject missing, unreadable, malformed or mismatched keys/chains without leaking private material. Bound TLS handshakes and connection admission, and preserve streaming, request deadlines, probes and graceful shutdown.",
+          "Use generated throwaway development-CA fixtures with matching host/peer SANs and explicit client trust; verify native/container HTTPS bucket/object and resumable Location flows, official Go/Ruby clients and an actual browser without disabling certificate/hostname verification.",
+          "Pass untrusted-CA, hostname-mismatch, expired-certificate and stalled-handshake failures. Record effective schemes/ports and prove that HTTP mode still works; do not claim HTTPS from an https advertised URL alone."
+        ],
+        "deferred_scope": "Public certificate issuance, ACME, DNS/CDN provisioning, automatic system trust-store changes, mTLS, certificate hot reload and simultaneous HTTP/HTTPS listeners. Full legacy dual-listener parity remains on the migration track."
+      },
+      {
+        "id": "json-cors",
+        "order": 13,
+        "title": "Implement JSON API CORS defaults",
+        "depends_on": [
+          "basic-json-contract"
+        ],
+        "feature_ids": [
+          "DESIGN-051",
+          "DESIGN-053",
+          "UX-007"
+        ],
+        "completion_conditions": [
+          "Pin current official JSON CORS request/response rules, including simple/preflight requests, methods, requested/exposed headers, credentials and max-age; JSON defaults must not depend on bucket CORS configuration or signed URLs.",
+          "Pass wire and real-browser cross-origin JSON bucket/object upload/read/list/metadata/delete flows with the supported local auth profiles, including preflight and exposed response headers.",
+          "Show that changing bucket CORS rules does not impose XML restrictions on JSON endpoints, and that successful preflight never grants access: denied actual requests remain denied with the protocol-appropriate CORS response."
+        ],
+        "deferred_scope": "XML bucket-configured CORS is a separate required pre-signing slice. Signed browser uploads, browser login/cookies and Rails direct uploads have later integration gates."
+      },
+      {
+        "id": "bucket-xml-cors",
+        "order": 14,
+        "title": "Persist bucket CORS and enforce it on XML reads",
+        "depends_on": [
+          "bucket-metadata-update",
+          "public-object-reads",
+          "json-cors"
+        ],
+        "feature_ids": [
+          "JSON-BUCKETS-002",
+          "JSON-BUCKETS-008",
+          "JSON-BUCKETS-013",
+          "BEHAVIOR-BUCKET-009",
+          "DESIGN-052",
+          "DESIGN-053",
+          "UX-007"
+        ],
+        "completion_conditions": [
+          "Freeze and validate the supported origin/method/header/maxAge CORS rule schema and JSON bucket GET/PATCH/PUT round trips, clearing/replacement, metageneration conditions and strict update permission; persist rules across restart.",
+          "Apply the official XML bucket-configured simple/preflight, wildcard, requested/exposed-header and credential rules independently of JSON CORS defaults; malformed input and denied origin/method/header cases must not silently receive a global allow-all policy.",
+          "Use wire tests and an actual browser from a different origin to verify allowed/denied XML GET/HEAD and preflight, including denied object access after allowed preflight and revocation/configuration changes.",
+          "Do not imply XML PUT or signed upload implementation from a successful preflight. Exercise those actual browser transfers only after the corresponding XML-write and signing capabilities exist."
+        ],
+        "deferred_scope": "XML bucket ?cors configuration routes, general XML write/list breadth and signed browser transfers. JSON browser operations and existing XML reads must work before signing; signed PUT is verified in the later browser integration gate."
+      },
+      {
         "id": "basic-json-verification",
-        "order": 11,
-        "title": "Verify the basic JSON API milestone before signed URLs",
+        "order": 15,
+        "title": "Verify basic APIs, CORS and local HTTPS before signed URLs",
         "depends_on": [
           "basic-json-contract",
           "object-copy",
           "object-rewrite",
-          "object-compose"
+          "object-compose",
+          "local-https",
+          "json-cors",
+          "bucket-xml-cors"
         ],
         "feature_ids": [
           "JSON-BUCKETS-008",
@@ -510,20 +604,26 @@
           "JSON-OBJECTS-012",
           "DESIGN-082",
           "DESIGN-083",
+          "DESIGN-065",
+          "DESIGN-051",
+          "DESIGN-052",
+          "DESIGN-053",
           "UX-003",
-          "UX-004"
+          "UX-004",
+          "UX-007"
         ],
         "completion_conditions": [
           "Every preceding basic-JSON deliverable passes its frozen scope with linked wire evidence; do not use whole-row PARTIAL as either automatic failure or automatic completion of this milestone.",
           "Execute pinned Go and Ruby basic bucket/object create/read/list/update/delete plus applicable copy/rewrite/compose workflows with explicit local endpoints and fixture credentials; test the six bucket methods and nine object methods in this milestone over HTTP even when a high-level SDK exposes no corresponding call.",
           "Run final-source regressions and the native/container guide journey, including denied and stale-condition requests, pagination, checksums, concurrent mutation, bounded transfers and restart persistence; reuse unchanged evidence only with a recorded source/input comparison.",
+          "Complete the local HTTPS and independent JSON/XML CORS slices, then verify their interaction in actual browsers over trusted local HTTPS with host/peer endpoints; signed URLs are not prerequisites for this gate.",
           "Reconcile each README comparison row against the same named scope for every product and linked evidence. A scoped checkmark means the named workflow works, never full Google method compatibility; leave pending broad cases, status and fidelity unchanged until their own evidence passes."
         ],
-        "deferred_scope": "Signed URLs, browser CORS, Rails direct-upload journeys and full-method/legacy-emulator parity are separate later gates. The milestone has no independent implementation-status field and does not require every P1/P2 row to be IMPLEMENTED."
+        "deferred_scope": "Signed URLs and their browser transfer integration, Rails direct-upload journeys, public certificate/DNS provisioning and full-method/legacy-emulator parity are separate later gates. Local HTTPS, JSON CORS defaults and scoped bucket/XML-read CORS are required here. The milestone has no independent implementation-status field and does not require every P1/P2 row to be IMPLEMENTED."
       },
       {
         "id": "v4-signed-download",
-        "order": 12,
+        "order": 16,
         "title": "Validate V4 RSA signed downloads",
         "depends_on": [
           "basic-json-verification",
@@ -552,7 +652,7 @@
       },
       {
         "id": "v4-signed-upload",
-        "order": 13,
+        "order": 17,
         "title": "Validate V4 RSA signed uploads",
         "depends_on": [
           "v4-signed-download"
@@ -575,9 +675,12 @@
       },
       {
         "id": "browser-cors",
-        "order": 14,
-        "title": "Complete a scoped browser CORS workflow",
+        "order": 18,
+        "title": "Integrate signed browser transfers with existing CORS and HTTPS",
         "depends_on": [
+          "basic-json-verification",
+          "json-cors",
+          "bucket-xml-cors",
           "public-object-reads",
           "v4-signed-upload"
         ],
@@ -589,15 +692,15 @@
           "UX-007"
         ],
         "completion_conditions": [
-          "Persist scoped bucket CORS configuration and distinguish JSON defaults from XML origin/method/header rules.",
-          "Use an actual browser to verify allowed/denied origins, preflight, exposed headers and signed upload/download.",
+          "Reuse the already verified local HTTPS listener, JSON CORS defaults and persisted XML bucket CORS rules; do not defer their initial implementation to this integration gate.",
+          "Use an actual browser over trusted local HTTPS to verify allowed/denied origins, preflight, exposed headers and real signed upload/download with the final signed host/path unchanged.",
           "Prove preflight grants no object access and denied permissions stay denied even when CORS matches."
         ],
-        "deferred_scope": "Website hosting, CDN, DNS/TLS provisioning and authenticated browser UI."
+        "deferred_scope": "Website hosting, CDN, public DNS/certificate provisioning and authenticated browser UI; the local HTTPS listener is already required before signing."
       },
       {
         "id": "ruby-rails-workflows",
-        "order": 15,
+        "order": 19,
         "title": "Verify Ruby and Rails user workflows",
         "depends_on": [
           "basic-json-verification",
@@ -622,7 +725,7 @@
       },
       {
         "id": "release-verification",
-        "order": 16,
+        "order": 20,
         "title": "Verify separately authorized native and image distribution",
         "depends_on": [
           "basic-json-verification",
@@ -672,7 +775,7 @@
       ],
       "milestones": [
         {
-          "id": "fake-gcs-server-baseline",
+          "id": "source-contract-baseline",
           "order": 1,
           "title": "Freeze the complete pinned migration contract",
           "depends_on": [
@@ -690,14 +793,14 @@
             "Define legacy-compatible versus strict profile expectations for signatures, metadata, errors and seed lifecycle; preserve every known gap and plan missing capabilities as bounded follow-up slices.",
             "Build the reproducible source/destination wire and representative-client corpus without claiming it has already run."
           ],
-          "deferred_scope": "No compatibility status promotion, runtime aliases, importer or source test execution is implied by this planning entry."
+          "deferred_scope": "This complete inventory is a prerequisite for full replacement validation, not for starting bounded bucket create/get/delete slices; those reconcile only their affected contracts before implementation. No compatibility status promotion, runtime aliases, importer or source test execution is implied by this planning entry."
         },
         {
-          "id": "fake-gcs-server-seed-adapter",
+          "id": "seed-format-adapter",
           "order": 2,
           "title": "Import source seed semantics explicitly",
           "depends_on": [
-            "fake-gcs-server-baseline",
+            "source-contract-baseline",
             "initial-seed-import"
           ],
           "feature_ids": [
@@ -713,11 +816,11 @@
           "deferred_scope": "This does not import durable xattr/sidecar state, archived memory generations or make native octet-stream seeding a source-compatible importer."
         },
         {
-          "id": "fake-gcs-server-filesystem-import",
+          "id": "filesystem-state-import",
           "order": 3,
           "title": "Convert durable source data without loss",
           "depends_on": [
-            "fake-gcs-server-baseline",
+            "source-contract-baseline",
             "json-object-media",
             "json-list-and-metadata"
           ],
@@ -736,12 +839,12 @@
           "deferred_scope": "A declared live-only subset is not lossless full migration; unsupported histories and policy semantics remain blocking findings."
         },
         {
-          "id": "fake-gcs-server-go-and-live-export",
+          "id": "go-adapter-live-export",
           "order": 4,
           "title": "Preserve Go integration and export ephemeral state",
           "depends_on": [
-            "fake-gcs-server-baseline",
-            "fake-gcs-server-filesystem-import",
+            "source-contract-baseline",
+            "filesystem-state-import",
             "public-object-reads",
             "resumable-upload"
           ],
@@ -760,13 +863,14 @@
           "deferred_scope": "Transparent hot migration, Go source compatibility and archive preservation remain unclaimed until their own cases pass."
         },
         {
-          "id": "fake-gcs-server-parity",
+          "id": "replacement-validation",
           "order": 5,
           "title": "Verify the complete behavioral-superset release claim",
           "depends_on": [
-          "fake-gcs-server-seed-adapter",
-            "fake-gcs-server-go-and-live-export",
-          "object-compose",
+            "source-contract-baseline",
+            "seed-format-adapter",
+            "go-adapter-live-export",
+            "object-compose",
             "ruby-rails-workflows"
           ],
           "feature_ids": [

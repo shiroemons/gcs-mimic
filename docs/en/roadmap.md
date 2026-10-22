@@ -22,6 +22,15 @@ No feature status, fidelity, acceptance result, test ID or existing evidence
 was changed to adopt this plan. A planning entry is neither an implementation
 claim nor permission to start implementation.
 
+The product's minimum functional target is the complete pinned reference
+capability set, with gcs-mimic additions above it. For each affected feature,
+inventory source-supported inputs, response information, configuration, state
+effects and existing-client workflows before extending the native scope.
+Source-equivalent functionality needs executable evidence; a narrower shared
+happy path or extra strict validation does not establish a superset. Conflicting
+legacy behavior belongs in an explicit compatibility profile, with native and
+strict Google-contract behavior tested separately.
+
 ## Foundation gate
 
 Before starting another capability, check the existing evidence for the
@@ -34,9 +43,10 @@ declared development profile and run only missing or affected checks:
 - Use the injected clock, bounded transfer/catalog admission and indexed lookup.
 - Pass ledger/generated-view and relevant Rust checks.
 
-This gate concerns the runnable baseline. Optional TLS, fixture extensions,
-maintenance state machines, all-platform distribution and public publication
-are separately verified deliverables. They do not retroactively extend the
+This gate concerns the runnable baseline. Local HTTPS/TLS and CORS are separate
+required pre-signing deliverables below. Fixture extensions, maintenance state
+machines, all-platform distribution and public publication also have their own
+verification. These deliverables do not retroactively extend the
 foundation's completion scope. Selected crash recovery is not power-loss proof.
 
 ## Existing capabilities and evidence
@@ -81,22 +91,37 @@ success stub does not complete a workflow.
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | Declared path-style XML GET/HEAD, allUsers versus registered-only grants and final Rust/SDK/container/guide checks passed on 2026-10-22 | Delivered: DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 IMPLEMENTED; DESIGN-004 and broad XML methods PARTIAL; [final verification](evidence/public-object-reads.md) |
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
-| 5 | Bucket metadata PATCH | Label merge/removal and supported default storage class; atomic metageneration conditions, strict permission and persistence | Change basic bucket settings without recreating the bucket |
-| 6 | Bucket metadata PUT | Reconciled replacement/default semantics over the same fields; preserve objects, identity and IAM | Replace basic bucket settings with verified PUT semantics |
-| 7 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
-| 8 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
-| 9 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
-| 10 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
-| 11 | Basic JSON verification | All preceding basic scopes; HTTP coverage, pinned Go/Ruby, failure/concurrency/restart and final native/container journeys; comparison evidence | Evidence-backed basic bucket/object APIs before signed URLs |
-| 12 | V4 RSA signed download | Basic JSON verification gate, final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
-| 13 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
-| 14 | Browser CORS | JSON/XML distinction and real-browser positive/negative/preflight checks | Browser upload/download works under the declared origins |
-| 15 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
-| 16 | Release verification | Basic JSON gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
+| 5 | Bucket create, get and delete | Scoped creation contract → name-only creation → basic-resource GET → empty-bucket deletion; close required settings/effects and wire/SDK gaps before completing the gate | Deliver create by name first, then complete the three-operation capability baseline |
+| 6 | Bucket metadata PATCH | Label merge/removal and supported default storage class; atomic metageneration conditions, strict permission and persistence | Change basic bucket settings without recreating the bucket |
+| 7 | Bucket metadata PUT | Reconciled replacement/default semantics over the same fields; preserve objects, identity and IAM | Replace basic bucket settings with verified PUT semantics |
+| 8 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
+| 9 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
+| 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
+| 11 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
+| 12 | Local HTTPS/TLS | HTTP-only/HTTPS-only modes, supplied certificate/key, bounded handshake, verified client trust, advertised endpoints and native/container/browser checks | Use local HTTPS without disabling certificate or hostname verification |
+| 13 | JSON CORS defaults | Official JSON simple/preflight/default-header rules independent of bucket settings; real-browser JSON CRUD and permission denial | Use basic JSON APIs from a different browser origin before signing |
+| 14 | Bucket/XML CORS | Persistent JSON bucket GET/PATCH/PUT CORS settings; XML GET/HEAD and preflight allow/deny/header rules; real browser and restart | Configure bucket CORS and use existing XML reads from a browser |
+| 15 | Basic API, CORS and HTTPS verification | All preceding scopes; HTTP coverage, pinned Go/Ruby, actual-browser CORS over trusted local HTTPS, failure/concurrency/restart and final native/container journeys | Evidence-backed basic bucket/object APIs, CORS and HTTPS before signed URLs |
+| 16 | V4 RSA signed download | Basic verification gate, final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
+| 17 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
+| 18 | Signed browser transfers | Reuse implemented CORS/TLS; real-browser signed upload/download, allowed/denied origins, preflight and exposed headers | Complete signed browser workflows over HTTPS |
+| 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
+| 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation capability is **bucket metadata PATCH** (order 5),
-followed by bucket metadata PUT. Signed download now depends explicitly on the
-basic JSON verification gate; reordering the table alone is insufficient.
+The next implementation slice is **create a bucket by name** within order 5.
+First reconcile only its request/response, naming, project, duplicate, permission,
+error and state-change contract with current official sources and the pinned
+reference. Then implement and verify that slice immediately. Research for GET,
+delete, versioning/holds and the complete migration inventory does not block it.
+Continue with basic-resource GET, then empty-bucket deletion; investigate each
+operation's contract immediately before its own implementation.
+The [bucket baseline contract](fake-gcs-server-migration.md#bucket-core-baseline-before-further-bucket-extensions)
+pins source files and names the observed input/resource/error differences.
+Complete required configuration/effects in separate small slices before closing
+the three-operation gate and adding bucket metadata PATCH and PUT. Do not claim
+supported versioning/hold settings from stored values without their effects.
+Signed download depends explicitly on the
+basic API, CORS and local HTTPS verification gate.
 These are execution priorities, with no calendar delivery dates assigned.
 The resumable deliverable is closed by [final evidence](evidence/resumable-upload.md),
 including five native process-kill boundaries and their 20 repeated runs;
@@ -120,6 +145,40 @@ The milestone's fixed operation set is:
 | Buckets | `insert`, `get`, `list`, `delete`, `patch`, `update` | Live buckets; modeled identity/metadata, project/prefix paging, labels and supported default storage class; atomic metageneration checks and strict local grants |
 | Objects | `insert`, `get`, `list`, `delete`, `patch`, `update`, `copy`, `rewrite`, `compose` | Live objects; media/multipart/JSON-resumable upload, content/custom metadata, whole/single-range reads, prefix/delimiter/offset paging, checksums, source/destination conditions and bounded transfers |
 
+The bucket core gate additionally covers the pinned source's supported
+configuration and its interactions with these operations. Those required source
+effects are not excluded merely because their historical group is P4. Keep
+broader Google semantics and capabilities outside the selected source baseline
+as separate pending work.
+
+Local HTTPS/TLS, JSON CORS defaults and scoped bucket/XML-read CORS are also
+required before signing. They add transport/browser acceptance scopes, not
+additional API-method counts. Implement each as its own slice and validate the
+combined behavior at the basic verification gate.
+
+For HTTPS, supply a development certificate chain and private key, preserve
+HTTP-only operation and add HTTPS-only operation. Validate configuration before
+readiness and bound handshakes within connection admission. Test trusted local
+CA/SAN fixtures with native, container, SDK and browser clients; untrusted CA,
+wrong hostname, expiry, invalid key/configuration and stalled handshake cases
+must fail safely. Keep listener and advertised endpoints distinct and verify
+HTTPS resumable Locations. Do not disable client certificate verification or
+claim HTTPS merely because generated URLs use that scheme. Public certificate
+issuance, system trust-store changes, mTLS, hot reload and dual listeners remain
+separate work.
+
+JSON CORS uses the documented default response rules regardless of bucket CORS
+configuration. XML CORS follows stored bucket origin/method/header/max-age rules.
+Persist those rules through JSON bucket GET/PATCH/PUT with validation,
+metageneration conditions and strict permission checks. Test actual cross-origin
+JSON upload/read/list/update/delete and existing XML GET/HEAD, preflight and
+exposed headers, denied object access after allowed preflight, and restart.
+The [official CORS contract](https://docs.cloud.google.com/storage/docs/cross-origin)
+defines the protocol distinction. XML bucket `?cors` configuration routes and
+general XML writes remain outside this scoped delivery. A preflight success
+does not prove an XML upload works; real signed PUT transfers are checked after
+the XML-write/signing slice exists, in the later signed-browser gate.
+
 The basic-contract deliverable adds response `fields` selection over supported
 resources, then read ETag validators, as separate small slices. Copy, rewrite and
 compose each have separate completion conditions, including failure preservation
@@ -141,16 +200,19 @@ nine object methods and pinned Go/Ruby workflows exercise the applicable calls.
 Verify denied access, invalid input, stale conditions, checksum rejection,
 paging, concurrent mutations and restart persistence. Use isolated local
 endpoints; signed URLs and browser uploads are not prerequisites for basic SDK
-coverage. Run final-source native/container journeys and relevant regressions;
+coverage. Include trusted local HTTPS and actual-browser JSON/XML CORS checks.
+Run final-source native/container journeys and relevant regressions;
 unchanged evidence requires an explicit source/input comparison.
 
-Excluded work remains visible on the broad feature rows: historical versions,
-soft delete/restore, retention/lifecycle, glob/context filters, transcoding,
+Excluded work beyond the selected source baseline remains visible on the broad
+feature rows: additional history/protection semantics, soft delete/restore,
+retention/lifecycle, glob/context filters, transcoding,
 token-keyed response replay, object IAM/ACL, conditional IAM, full UBLA/PAP,
 billing/encryption infrastructure and undocumented provider edge parity.
 `objects.move`, bucket relocation/storage layout and the IAM/test-permission
-methods retain their separate P2-P7 work. Signed URLs, browser CORS and full
-Rails direct uploads follow this milestone.
+methods retain their separate P2-P7 work. Signed URLs, signed-browser transfer
+integration and full Rails direct uploads follow this milestone. Initial CORS
+and local HTTPS implementation are prerequisites of this milestone.
 
 This gate does not require whole-method `IMPLEMENTED` status and does not shrink
 existing acceptance cases. It requires every case in the declared basic scope
@@ -166,7 +228,8 @@ new milestone or claiming it has passed.
 | --- | --- | --- |
 | Public reads | Policy get/set and enforcement; then grants and XML GET/HEAD | Wire permission/etag tests, restart, encoded paths and Go default/XML reads |
 | Resumable upload | Initiation/status; then chunk/retry/finalization; then expiry/cancellation/recovery | Interrupted and duplicate chunks, atomic visibility, checksum rejection and pinned Go Writer |
-| Basic JSON | Bucket PATCH; bucket PUT; basic-contract gaps; copy; rewrite; compose; integrated Go/Ruby and HTTP gate | Explicit six-bucket/nine-object scope, field/condition/error cases and final-source evidence before signing |
+| Basic APIs and transport | Bucket core source parity; bucket PATCH; bucket PUT; basic-contract gaps; copy; rewrite; compose; HTTPS; JSON CORS; bucket/XML CORS; integrated gate | Source-compatible bucket cases, explicit six-bucket/nine-object scope, trusted local TLS, browser/SDK/wire cases and final-source evidence before signing |
+| CORS and HTTPS | Implement independent TLS, JSON defaults and bucket/XML-read slices; combine them before signing; integrate signed browser transfers later | Trusted-CA and negative certificate tests, real-browser preflight/access tests and persistent CORS configuration |
 | Signed access | Signed GET first; XML PUT and signed PUT next | Valid, expired, tampered, wrong-host and insufficient-permission requests |
 | Copy/rewrite/compose | Finish copy; then rewrite continuation; then compose | Source/destination races, token retry/restart, failed-overwrite preservation and bounded streaming |
 | Ruby/Rails | Verify basic Ruby SDK calls before signing; finish later with the complete Rails/browser journey | Version-pinned SDK and real application/browser execution |
@@ -190,8 +253,10 @@ renaming environment keys and explicit data conversion. The acceptance contract
 is [the migration contract](fake-gcs-server-migration.md); its milestones live in
 `delivery_plan.migration`. They add no implementation status.
 
-Before affected capability slices, inventory source behavior and profile
-conflicts. Add each missing source capability as its own bounded slice.
+Before each capability slice, reconcile only its affected contracts and profile
+conflicts. The complete source inventory is a full-replacement verification
+prerequisite, not a prerequisite for bucket create/get/delete work. Keep it on
+the migration track and add each missing capability as its own bounded slice.
 The existing queue is an early useful release path; completing it alone does
 not establish full replacement. No source surface disappears from the final
 gate because it lacks a current GCS inventory row.
@@ -202,7 +267,7 @@ gate because it lacks a current GCS inventory row.
 | 2 | Seed adapter | Baseline and native seed | Preserve source keys, bytes, MIME/default metadata and selected seed lifecycle |
 | 3 | Durable filesystem import | Baseline, object media and metadata | Read xattrs/sidecars without modifying source; preserve identities and verify recovery |
 | 4 | Go and live-state export | Baseline, durable import, public reads and resumable upload | Tested Go facade; export active/archived state before stopping memory source |
-| 5 | Full replacement validation | Seed adapter, Go/live-state, compose and Ruby/Rails | Every baseline capability and preservation case passes; no undisclosed exclusions |
+| 5 | Full replacement validation | Complete source inventory, seed adapter, Go/live-state, compose and Ruby/Rails | Every baseline capability and preservation case passes; no undisclosed exclusions |
 
 The diagram groups related prerequisites. It shows no execution results;
 the ledger retains the exact dependencies and default selection order.
@@ -214,16 +279,25 @@ flowchart TD
   E --> I[Bucket IAM]
   E --> R[Resumable uploads]
   I --> P[Public reads]
-  E --> M[Bucket PATCH then PUT]
+  E --> F[Scoped contract then create get delete]
+  F --> M[Bucket PATCH then PUT]
   M --> J[Basic JSON contract]
   R --> J
-  J --> Q[Basic JSON verification]
+  J --> Q[Basic API CORS and HTTPS verification]
   P --> U[Signed GET then PUT]
   Q --> U
   I --> C[Copy then rewrite then compose]
   J --> C
   C --> Q
-  U --> W[CORS and Ruby/Rails workflows]
+  E --> T[Local HTTPS/TLS]
+  J --> O[JSON CORS defaults]
+  M --> X[Bucket and XML-read CORS]
+  P --> X
+  O --> X
+  T --> Q
+  O --> Q
+  X --> Q
+  U --> W[Signed browser and Rails workflows]
   P --> W
   R --> W
   B --> A[Source seed adapter]
@@ -235,6 +309,7 @@ flowchart TD
   P --> G
   R --> G
   A --> V[Full replacement validation]
+  B --> V
   C --> V
   W --> V
   G --> V
@@ -284,9 +359,9 @@ queue above takes precedence over their historical numeric ordering.
 
 | Group | Remaining coverage |
 | --- | --- |
-| P0 Foundation | TLS, maintenance extensions, platform/CI and distribution evidence |
+| P0 Foundation | Local HTTPS/TLS is required before signing; maintenance extensions, full legacy dual listeners and platform/distribution evidence retain separate scopes |
 | P1 Core data path | Basic bucket updates, supported fields and HTTP conditions are scheduled before signing; advanced fields, transcoding and broader resource guarantees remain later |
-| P2 Access and URLs | Remaining ACL/default ACL, UBLA/PAP, conditional policies, HMAC/V2 and endpoint breadth |
+| P2 Access and URLs | JSON and bucket/XML-read CORS are required before signing; remaining ACL/default ACL, UBLA/PAP, conditional policies, HMAC/V2 and endpoint breadth retain separate scopes |
 | P3 Transfer and HTTP breadth | Rewrite continuations, HTTP batch, remaining XML/multipart and extended SDKs |
 | P4 Protection and lifecycle | Versioning, soft delete/restore, holds, retention, lifecycle and Autoclass |
 | P5 Hierarchy and control | HNS/managed folders, inherited access, storage layout and shared LROs |
@@ -298,9 +373,10 @@ queue above takes precedence over their historical numeric ordering.
 The first developer release retains the P1 core plus essential P2 public/private
 and URL target: documented JSON workflows, the supported range/seed subsets,
 strict local identity, effective scoped bucket IAM and public XML reads.
-The basic JSON milestone above, including Go and Ruby evidence, is a release
-verification prerequisite. Signed URLs and Rails/browser workflows remain later
-capabilities with their own gates. The scoped JSON resumable workflow has
+The basic milestone above, including Go/Ruby evidence, CORS and trusted local
+HTTPS browser journeys, is a release verification prerequisite. Signed URLs and
+Rails/signed-browser workflows remain later capabilities with their own gates.
+The scoped JSON resumable workflow has
 separate evidence. State supported profiles and resource, recovery and protocol
 limits in the release; unverified clients remain explicit limitations.
 
