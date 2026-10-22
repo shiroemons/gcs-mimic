@@ -73,7 +73,7 @@ identifier to the caller, but provider diagnostic headers are not exact parity.
 | projection and contentEncoding | Preserve the existing scoped Object projection and stored encoding behavior; full does not invent ACL/owner fields or transcoding |
 | Authorization | Strict local principal resolution and permission check at initiation; permissive bypass remains explicit |
 | Origin | Accept and retain the documented client origin where needed; do not reject it as an unknown upload command or treat it as authorization. CORS response/preflight behavior remains deferred |
-| X-Goog-Gcs-Idempotency-Token | Preserve existing initiation rule: one nonempty token requires ifGenerationMatch, otherwise 501; empty/duplicate is 400. No initiation response replay |
+| X-Goog-Gcs-Idempotency-Token | Accept one nonempty token without ifGenerationMatch; empty/duplicate is 400. Retried initiation creates another bounded session without mutating object state. No initiation response replay; media/multipart retain their generation-match requirement |
 | x-goog-api-client, User-Agent and tracing | Accept telemetry without altering object state or permissions |
 | ACL, retention, contexts, encryption, billing, resource restrictions and unsupported metadata | Explicit existing unsupported-semantics errors; never accept a setting and silently ignore its effect |
 
@@ -198,6 +198,8 @@ when there is no work. Tests advance the clock and invoke maintenance without
 waiting a week. Expire in bounded indexed batches, remove staged bytes, and
 reclaim terminal records at their original deadline. A failed unlink is
 journaled/retried and surfaced, never silently marked physically reclaimed.
+Committed cancellation still returns 499 when physical cleanup fails; later
+requests return 410 before the original deadline while maintenance retries cleanup.
 Restart runs due cleanup before readiness and rearms the next deadline.
 
 ## Client-reachable Location
