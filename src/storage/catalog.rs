@@ -18,6 +18,9 @@ pub use resumable::{
     ResumableError, ResumableOptions, ResumableSession, SessionLease, SessionState,
 };
 
+#[path = "resumable_maintenance.rs"]
+mod resumable_maintenance;
+
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
