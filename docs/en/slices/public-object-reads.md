@@ -228,9 +228,10 @@ may finish. Grants persist through restart. Deleting/recreating a bucket removes
 its old policy. No cache or Google propagation delay is simulated.
 
 Linux/Android listeners set `SO_REUSEADDR` before binding for same-port restart.
-Other Unix platforms retry bind for a bounded interval while TIME_WAIT drains,
-and fail promptly when a live listener is detected. This does not permit
-concurrent listeners or change persisted grants; Windows socket parity is not
+Other Unix platforms retry bind every 250 ms for at most 65 seconds while
+TIME_WAIT drains, emit one stderr `bind_wait` event, and fail promptly when a
+connect probe detects a live listener. This does not permit concurrent listeners
+or change persisted grants. Windows binding behavior is unchanged and is not
 established by Unix checks.
 
 Permissive mode preserves the existing authentication bypass, including ignored

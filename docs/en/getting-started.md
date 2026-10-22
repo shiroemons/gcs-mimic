@@ -861,6 +861,11 @@ Compose-only `GCS_MIMIC_IMAGE` and `GCS_MIMIC_PORT` must be unset before native 
 the binary rejects unknown `GCS_MIMIC_` settings. The temporary native catalog above is
 removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
 The native example uses permissive mode, so XML reads bypass authorization.
+On macOS and other Unix systems outside Linux/Android, restarting on the same
+port may wait for TIME_WAIT to drain (about 30 seconds on the verified macOS
+host, at most 65 seconds). A `bind_wait` event explains the bounded wait;
+an existing live listener still causes startup to fail. Linux/Android enables
+address reuse while preserving live-listener exclusivity. Windows is unchanged.
 For private objects, start with `--auth-mode strict --identity-file config/identities.json`
 and follow the public/private policy journey above using the native URL helper.
 The resulting binary needs no Rust, Python, curl or Go installation. CLI overrides
