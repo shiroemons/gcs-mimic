@@ -305,12 +305,12 @@ fn obj_range_http_generation_preconditions_and_overwrite_pin_open_reader() {
         format!("&ifGenerationNotMatch={generation}"),
         "&ifMetagenerationNotMatch=1".into(),
     ] {
-        let reply = server.get(&query, "Range: bytes=0-1\r\n");
+        let reply = server.get(&query, "Range: bytes=999999999-\r\n");
         assert_eq!(reply.status, 304);
         assert!(reply.body.is_empty());
     }
     server
-        .get("&generation=1", "Range: bytes=0-1\r\n")
+        .get("&generation=1", "Range: bytes=999999999-\r\n")
         .error(404, "notFound");
     let mut stream = server.open(
         "GET",

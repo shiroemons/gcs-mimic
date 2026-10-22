@@ -1181,14 +1181,20 @@ mod tests {
     async fn object_range_reader_seeks_sparse_blob_and_bounds_every_chunk() {
         use std::io::{Seek, Write};
 
-        let path =
-            std::env::temp_dir().join(format!("gcs-mimic-range-sparse-{}", std::process::id()));
+        struct SparseBlob(PathBuf);
+        impl Drop for SparseBlob {
+            fn drop(&mut self) {
+                fs::remove_file(&self.0).unwrap();
+            }
+        }
+        let path = temp_catalog_dir("range-sparse");
         let mut file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create_new(true)
             .open(&path)
             .unwrap();
+        let _blob = SparseBlob(path);
         let size = 64_u64 * 1024 * 1024;
         file.set_len(size).unwrap();
         file.seek(io::SeekFrom::Start(size - 3)).unwrap();
@@ -1219,7 +1225,6 @@ mod tests {
             io::ErrorKind::UnexpectedEof
         );
         drop(reader);
-        fs::remove_file(path).unwrap();
     }
 
     #[test]

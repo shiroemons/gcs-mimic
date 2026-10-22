@@ -111,9 +111,11 @@ empty 304. Combined-condition precedence remains the existing SPEC-008 rule.
 Seek operates on that already-open handle, outside the catalog transaction.
 The reader emits at most `min(remaining, 65536)` bytes per chunk, stops at the
 requested length and reports unexpected EOF as an error. It never reads the skipped
-prefix. Existing one-chunk response-channel backpressure and request deadlines
-remain in place. The sparse-file test checks the cursor before the first read,
-chunk lengths, exact stopping position, a two-byte read and premature EOF.
+prefix. Complete (non-Range) downloads also abort with an error when the blob is
+shorter than its recorded size. Existing one-chunk response-channel backpressure
+and request deadlines remain in place. The sparse-file test checks the cursor
+before the first read, chunk lengths, exact stopping position, a two-byte read
+and premature EOF.
 The HTTP overwrite test receives 206 headers before replacing an 8 MiB object,
 then verifies every remaining response byte belongs to the original generation.
 Historical versions are not retained: a fresh request for an overwritten generation

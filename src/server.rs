@@ -520,6 +520,7 @@ async fn object_response(
             params,
         } => {
             if params.media {
+                json::validate_object_get_headers(request.headers(), true)?;
                 let (record, mut reader) = state
                     .catalog
                     .open_object_authorized(
@@ -530,7 +531,6 @@ async fn object_response(
                         &access,
                     )
                     .await?;
-                json::validate_object_get_headers(request.headers(), true)?;
                 let mut headers = json::object_media_headers(&record)?;
                 json::validate_object_media_encoding(request.headers(), &record)?;
                 let range = match json::object_media_range(request.headers(), record.size) {
