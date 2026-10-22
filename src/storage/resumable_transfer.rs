@@ -174,18 +174,37 @@ impl Catalog {
     ) -> Result<(), ResumableError> {
         let id = lease.session.id.clone();
         let blob_id = lease.session.blob_id.clone();
-        let stage = lease.staging_path();
-        let data_dir = self.0.data_dir.clone();
-        let result = self.run_upload(move |connection| {
-            let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let changed=transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'",[id]).map_err(unavailable)?;
-            if changed==1 {transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)",[&blob_id]).map_err(unavailable)?;}
+        let changed = self.run_upload(move |connection| {
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
+            let changed = transaction.execute("UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1 AND state = 'ACTIVE'", [id]).map_err(unavailable)?;
+            if changed == 1 {
+                transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions VALUES (?1)", [&blob_id]).map_err(unavailable)?;
+            }
             transaction.commit().map_err(unavailable)?;
-            if changed==1 {objects::unlink(&stage).map_err(unavailable)?;objects::reclaim(connection,&data_dir,&blob_id)?;}
-            Ok(())
-        }).await.map_err(Into::into);
+            Ok(changed)
+        }).await?;
+        if changed == 1 {
+            let data_dir = self.0.data_dir.clone();
+            let blob_id = lease.session.blob_id.clone();
+            let cleanup = self
+                .run_upload(move |connection| {
+                    super::resumable_maintenance::clean_session_files(
+                        connection, &data_dir, &blob_id,
+                    )
+                    .map_err(unavailable)
+                })
+                .await;
+            if let Err(error) = cleanup {
+                *self
+                    .0
+                    .maintenance_error
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
+                eprintln!("invalid upload cleanup failed; maintenance will retry: {error}");
+            }
+        }
         self.0.maintenance_wake.notify_one();
-        result
+        Ok(())
     }
 
     async fn finalize_resumable(

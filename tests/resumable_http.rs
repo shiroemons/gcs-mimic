@@ -1585,7 +1585,7 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
             h.request("PUT", &path, "X-Goog-Hash: crc32c=invalid\r\n", b"")
                 .await
         };
-        assert_eq!(response.status, if cancel { 499 } else { 503 });
+        assert_eq!(response.status, if cancel { 499 } else { 400 });
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         while h.state.catalog.resumable_maintenance_error().is_none() {
             assert!(
@@ -1936,6 +1936,60 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
             .await
             .body,
         bytes
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried() {
+    let h = Harness::start(1000, false, None).await;
+    let init = h
+        .initiate("name=bad-checksum", "X-Goog-Hash: crc32c=AAAAAA==\r\n", b"")
+        .await;
+    let path = h.path(&init);
+    let id = path.split("upload_id=").nth(1).unwrap();
+    let session = h
+        .state
+        .catalog
+        .resumable_session(id, "bucket")
+        .await
+        .unwrap();
+    let shard = h.dir.0.join("blobs").join(&session.blob_id[..2]);
+    std::fs::write(&shard, b"cleanup failure").unwrap();
+    let response = h.request("PUT", &path, "", b"hello").await;
+    assert_eq!(response.status, 400);
+    assert_eq!(response.json()["error"]["errors"][0]["reason"], "invalid");
+    assert!(h.state.catalog.resumable_maintenance_error().is_some());
+    assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
+    let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pending_blob_deletions WHERE blob_id = ?1",
+                [&session.blob_id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    std::fs::remove_file(shard).unwrap();
+    h.state.catalog.maintain_resumable_sessions().await.unwrap();
+    assert!(h.state.catalog.resumable_maintenance_error().is_none());
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pending_blob_deletions WHERE blob_id = ?1",
+                [&session.blob_id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/bad-checksum", "", b"")
+            .await
+            .status,
+        404
     );
     h.stop().await;
 }

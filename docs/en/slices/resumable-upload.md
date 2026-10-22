@@ -200,6 +200,10 @@ reclaim terminal records at their original deadline. A failed unlink is
 journaled/retried and surfaced, never silently marked physically reclaimed.
 Committed cancellation still returns 499 when physical cleanup fails; later
 requests return 410 before the original deadline while maintenance retries cleanup.
+Likewise, a committed terminal validation failure preserves its original error
+response if cleanup fails; diagnostics and the deletion journal retain that
+cleanup failure for maintenance retry. Successfully cleaned cancelled sessions
+retain their 410 tombstone without repeating physical cleanup before expiry.
 Restart runs due cleanup before readiness and rearms the next deadline.
 
 ## Client-reachable Location
