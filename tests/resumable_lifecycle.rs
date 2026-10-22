@@ -188,7 +188,7 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
                 // Inject a terminal transition after lease lookup and before cancellation's CAS.
                 rusqlite::Connection::open(&self.database)
                     .unwrap()
-                    .execute("UPDATE resumable_sessions SET state = 'CANCELLED'", [])
+                    .execute_batch("BEGIN IMMEDIATE; UPDATE resumable_sessions SET state = 'CANCELLED'; INSERT OR IGNORE INTO pending_blob_deletions SELECT blob_id FROM resumable_sessions WHERE state = 'CANCELLED'; COMMIT;")
                     .unwrap();
             }
             UNIX_EPOCH
