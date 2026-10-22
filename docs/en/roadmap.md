@@ -91,7 +91,7 @@ success stub does not complete a workflow.
 | 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | Declared path-style XML GET/HEAD, allUsers versus registered-only grants and final Rust/SDK/container/guide checks passed on 2026-10-22 | Delivered: DESIGN-012, DESIGN-013, DESIGN-047 and UX-005 IMPLEMENTED; DESIGN-004 and broad XML methods PARTIAL; [final verification](evidence/public-object-reads.md) |
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
-| 5 | Bucket create, get and delete | Scoped creation contract → name-only creation → basic-resource GET → empty-bucket deletion; close required settings/effects and wire/SDK gaps before completing the gate | Deliver create by name first, then complete the three-operation capability baseline |
+| 5 | Bucket create, get and delete | Declared native/compatibility creation, basic GET, empty deletion, versioning/default holds and HTTP/SDK/container/guide checks passed on 2026-10-22; both pinned reference backends compared | Delivered: named baseline with explicit intentional/strict/unsupported differences; broad bucket and versioning/hold rows remain PARTIAL; [final verification](evidence/bucket-core-parity.md) |
 | 6 | Bucket metadata PATCH | Label merge/removal and supported default storage class; atomic metageneration conditions, strict permission and persistence | Change basic bucket settings without recreating the bucket |
 | 7 | Bucket metadata PUT | Reconciled replacement/default semantics over the same fields; preserve objects, identity and IAM | Replace basic bucket settings with verified PUT semantics |
 | 8 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
@@ -108,18 +108,15 @@ success stub does not complete a workflow.
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation slice is **create a bucket by name** within order 5.
-First reconcile only its request/response, naming, project, duplicate, permission,
-error and state-change contract with current official sources and the pinned
-reference. Then implement and verify that slice immediately. Research for GET,
-delete, versioning/holds and the complete migration inventory does not block it.
-Continue with basic-resource GET, then empty-bucket deletion; investigate each
-operation's contract immediately before its own implementation.
-The [bucket baseline contract](fake-gcs-server-migration.md#bucket-core-baseline-before-further-bucket-extensions)
-pins source files and names the observed input/resource/error differences.
-Complete required configuration/effects in separate small slices before closing
-the three-operation gate and adding bucket metadata PATCH and PUT. Do not claim
-supported versioning/hold settings from stored values without their effects.
+The next implementation slice is **bucket metadata PATCH** within order 6:
+label merge/removal and supported default storage class, with atomic
+metageneration conditions, strict permission checks and persistence. Reconcile
+its omitted/null/default and unsupported-field contract before implementation.
+Order 5 is closed by [final bucket evidence](evidence/bucket-core-parity.md),
+including API-created settings that drive actual object effects, source-only
+names across object/session/XML routes and both pinned reference backends.
+Broader method/behavior rows retain their pending Google-contract cases; no
+full replacement or whole-method parity is claimed.
 Signed download depends explicitly on the
 basic API, CORS and local HTTPS verification gate.
 These are execution priorities, with no calendar delivery dates assigned.

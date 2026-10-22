@@ -33,55 +33,51 @@ document adds no passing migration result.
 
 ## Bucket core baseline before further bucket extensions
 
-The first bucket capability gate covers `buckets.insert`, `buckets.get` and
-`buckets.delete`: create by name, read the basic resource and delete an empty
-bucket. The reference implementation's capabilities are the minimum target.
-Additional native metadata, stricter validation or a smaller shared happy path
-do not establish equivalent functionality. Retain the entire source capability
-in the acceptance corpus, including its supported configuration and side effects.
+The create-by-name, basic-resource GET and empty-bucket DELETE baseline is
+delivered on **2026-10-22** with source-supported versioning/default hold
+configuration and real object effects. Select `compat_profile=legacy-emulator`
+for source-specific naming/defaults/input/deletion behavior; native and strict
+authorization retain their independent contracts. This is a named capability
+baseline, not complete migration or full Google-method compatibility.
 
-Start with the contract needed for name-only creation: request/response shape,
-naming, project handling, duplicates, permissions, errors and state changes.
-Implement and verify it as soon as that contract is fixed. Then investigate and
-deliver basic-resource GET, followed by empty-bucket deletion. GET/delete
-research and versioning/hold implementation do not block the initial creation
-slice; complete their required cases before closing the three-operation gate.
-The full routes/settings/backends/Go/gRPC inventory remains a prerequisite for
-full replacement validation, not for starting these bounded bucket slices.
+The [final integrated evidence](evidence/bucket-core-parity.md) records Rust,
+pinned Go, both Linux architectures and the full runnable guide.
+The [executed comparison](evidence/bucket-core-comparison.md) and
+[raw records](evidence/bucket-core-comparison.txt) contain 92 requests each
+against filesystem and memory reference backends plus both local profiles,
+with no skipped profile. The reference is release `v1.56.1`, commit
+`896ece51e49eed0946089f3089f6343855c0d106`.
 
-Source inspected on **2026-10-22**: reference release `v1.56.1`, commit
-`896ece51e49eed0946089f3089f6343855c0d106`. These are Git blob identities:
+| Operation | Executed result | Remaining difference |
+| --- | --- | --- |
+| Create by name | Source-valid names, omitted project, duplicates and failed-state preservation pass; both settings persist and affect HTTP object mutations | Native requires project/Google-oriented names. Profile retains strict project ownership, input bounds and 501 for unsupported protection; fs reference rejects versioning true |
+| Basic resource | Create/GET match in every target; profile emits both booleans and source US-CENTRAL1/project/ETag defaults; list items match profile GET; restart/migration and strict permissions pass | Millisecond timestamps, local parser messages, native list scoping/paging, 666-byte profile name cap and unsupported trailing collection slash |
+| Empty deletion | Profile returns exact 200 JSON null/newline and nonempty 412; native returns 204/409. Repeat/missing, recreate, protected histories and preserved object bytes pass | Atomic/history-aware delete and enforced holds intentionally exceed source live-only/no-hold behavior |
+| Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Bucket settings PATCH/PUT, propagation/provider edge parity, temporary holds, retention and soft delete remain pending |
 
-| Source at that commit | Git blob |
+Source identities inspected at that revision are unchanged:
+
+| Source | Git blob |
 | --- | --- |
 | `fakestorage/bucket.go` | `b1cfdbb9e6100a917888e309660cadf11a2de657` |
 | `fakestorage/response.go` | `1a19a7fafa44bf2f80899c9b1eb70bdc6a75f2ed` |
 | `fakestorage/json_response.go` | `7a10f7160d86fc154d904dc3ca3bd286eafcdaab` |
 | `fakestorage/bucket_test.go` | `517271a4cebf115af54a94211ddedb08b38fef23` |
 
-The source review found concrete gaps; it did not execute either server:
+Every observed difference is classified as intentional, strict or unsupported
+in the [scope contract](slices/bucket-core-parity.md#state-and-remaining-boundaries)
+and comparison report, including object-resource framing/ACL/identity differences
+on preservation probes. Those probes verify exact retained bytes, not complete
+source object wire rendering. Official Google documentation, Discovery and
+googleapis definitions remain the contract authority.
 
-| Operation | Required comparison and implementation cases |
-| --- | --- |
-| Create by name | Source-valid names, malformed names/JSON, duplicate creation and requests without `project`; include source-supported `versioning` and `defaultEventBasedHold` settings, configuration/defaults and applicable backend effects. Native parsing currently requires `project`, rejects additional names and rejects both settings. |
-| Basic resource | Compare create and subsequent GET resource information, including `versioning`, `defaultEventBasedHold`, location/class, project number, metageneration, ETag, timestamps and links; compare missing-bucket behavior. Native responses omit the first two fields and use different defaults/representations. |
-| Empty-bucket deletion | Verify empty success, missing and nonempty errors, repeat deletion and delete/recreate; preserve every object after a rejected deletion. The source handler/wrapper returns 200 with JSON null on success and 412 for a nonempty bucket; native code returns empty 204 and nonempty 409. |
-
-Run the same wire requests and representative pinned SDK workflows against both
-implementations, reviewing both source backends and retaining their actual
-differences. Compare state after success and failure. Normalize only documented
-nondeterminism; do not hide missing resource fields, unsupported settings,
-status/body differences or lost data. Implement source-compatible differences in
-the explicitly selected compatibility profile when they conflict with native
-or strict contracts. Do not change strict authorization to match a permissive
-source, and do not treat its local behavior as Google's contract.
-
-Decompose required versioning/hold behavior into its own small slices before
-claiming that source-supported settings work. A metadata round trip without
-the corresponding effects is insufficient. The gate stays open while required
-source cases fail, even if the native happy path already works. Broader Google
-feature records retain their existing pending cases and completion policy.
-All other source capabilities remain required by the full-superset gate below.
+The three broad JSON bucket rows remain PARTIAL with their original policy,
+ACL/owner and advanced cases. Versioning/default-hold behavior rows also remain
+PARTIAL because changing bucket settings and unresolved provider interactions are
+still open. The next slice is bucket metadata PATCH for labels/default class.
+All other source surfaces, configuration flags, helpers/events, Go embedding,
+legacy gRPC and lossless import/export remain required by the full-superset
+gate below; this delivery does not remove them.
 
 ## Compatibility surfaces
 

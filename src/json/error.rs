@@ -174,6 +174,11 @@ impl From<ObjectError> for JsonError {
                 "Precondition failed",
             ),
             ObjectError::OverwriteForbidden | ObjectError::Forbidden => Self::forbidden(),
+            ObjectError::ActiveHold => Self::new(
+                StatusCode::FORBIDDEN,
+                "objectUnderActiveHold",
+                "Object replacement or deletion is not allowed due to an active hold on the object.",
+            ),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",

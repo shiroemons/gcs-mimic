@@ -75,6 +75,8 @@ impl Harness {
                 location_type: "multi-region".into(),
                 storage_class: "STANDARD".into(),
                 labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,

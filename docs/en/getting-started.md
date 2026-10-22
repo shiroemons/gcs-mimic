@@ -110,6 +110,54 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
   --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
 ```
 
+## Verify bucket versioning and default holds
+
+Create-time `versioning.enabled` retains overwritten or deleted generations.
+`defaultEventBasedHold` protects newly uploaded bytes until explicitly released.
+This native walkthrough also works with the compatibility profile; bucket metadata
+PATCH/PUT for changing the defaults remains unavailable.
+
+```sh
+history_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"history-bucket","versioning":{"enabled":true},"defaultEventBasedHold":true}' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail --data-binary 'first version' \
+  "$endpoint/upload/storage/v1/b/history-bucket/o?uploadType=media&name=example" \
+  > "$history_dir/first.json"
+first_generation=$(jq -er '.generation' "$history_dir/first.json")
+test "$(jq -r '.eventBasedHold' "$history_dir/first.json")" = true
+code=$(curl --disable --noproxy '*' --silent --show-error -X DELETE \
+  -o "$history_dir/held-error.json" -w '%{http_code}' \
+  "$endpoint/storage/v1/b/history-bucket/o/example")
+test "$code" = 403
+jq -e '.error.errors[0].reason == "objectUnderActiveHold"' "$history_dir/held-error.json"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"eventBasedHold":false}' "$endpoint/storage/v1/b/history-bucket/o/example"
+curl --disable --noproxy '*' --fail --data-binary 'second version' \
+  "$endpoint/upload/storage/v1/b/history-bucket/o?uploadType=media&name=example" \
+  > "$history_dir/second.json"
+second_generation=$(jq -er '.generation' "$history_dir/second.json")
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/history-bucket/o?versions=true" > "$history_dir/list.json"
+jq -e '.items | length == 2' "$history_dir/list.json"
+test "$(curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/history-bucket/o/example?generation=$first_generation&alt=media")" = 'first version'
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"eventBasedHold":false}' "$endpoint/storage/v1/b/history-bucket/o/example"
+for generation in "$first_generation" "$second_generation"; do
+  curl --disable --noproxy '*' --fail -X DELETE \
+    "$endpoint/storage/v1/b/history-bucket/o/example?generation=$generation"
+done
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/history-bucket"
+rm -rf "$history_dir"
+```
+
+An ordinary delete in a versioned bucket archives the live version; it does not
+empty the bucket. Delete every retained generation explicitly before deleting
+that bucket. Generation-specific precondition wire parity remains an open
+[contract question](../../compatibility/gaps.json).
+
 ## Upload, inspect, download and conditionally create an object
 
 This exact payload includes its final newline; the supplied base64 MD5 covers all 22 bytes.
@@ -1107,6 +1155,7 @@ readiness. The current configuration is JSON; future TOML settings are unavailab
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 1073741824 (1 GiB) | 1–5497558138880 (5 TiB) |
 | `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
+| `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
 
 The identity file is read once at startup; an invalid registry, `strict` without a
@@ -1238,10 +1287,9 @@ add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
-The preceding guide revision, including seeded Compose and strict bucket IAM/public/private
-journeys, passed on 2026-10-22; see the
-[final public-read integration evidence](evidence/public-object-reads.md).
-That evidence does not cover the resumable journeys added here.
+This complete guide, including bucket versioning/default holds, resumable upload,
+seeded Compose and strict bucket IAM/public/private journeys, passed on 2026-10-22;
+see the [final bucket integration evidence](evidence/bucket-core-parity.md).
 
 ## Verification and troubleshooting
 

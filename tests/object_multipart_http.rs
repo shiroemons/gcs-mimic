@@ -452,7 +452,6 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         .json();
     for field in [
         "acl",
-        "eventBasedHold",
         "temporaryHold",
         "retention",
         "contexts",
@@ -478,6 +477,12 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
             )
             .error(501, "notImplemented");
     }
+    server
+        .upload(
+            "name=existing",
+            &wire(br#"{"eventBasedHold":null}"#, None, b"new", None),
+        )
+        .error(400, "invalidArgument");
     for (metadata, reason) in [
         (b"{".as_slice(), "parseError"),
         (b"[]", "invalidArgument"),

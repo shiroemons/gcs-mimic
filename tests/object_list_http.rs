@@ -306,7 +306,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         "filter=context-filter",
         "fields=items/name",
         "userProject=local",
-        "versions=true",
         "softDeleted=true",
         "includeFoldersAsPrefixes=true",
         "prettyPrint=true",

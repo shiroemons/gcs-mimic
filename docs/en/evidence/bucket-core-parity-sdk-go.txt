@@ -1,0 +1,457 @@
+Local path prefixes were redacted as <checkout>, <home> and <temporary-directory>; reference-product tokens were replaced with <reference-emulator>; all other output is unchanged.
+Command: just check-sdk (native)
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+=== RUN   TestStrictAuthBucketIAM
+--- PASS: TestStrictAuthBucketIAM (0.43s)
+=== RUN   TestBucketIAMPermissive
+    bucket_iam_test.go:96: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestBucketIAMPermissive (0.01s)
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketSettingsRoundTrip
+    buckets_test.go:145: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=true
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=true
+--- PASS: TestBucketSettingsRoundTrip (0.02s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=false (0.01s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=true (0.01s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=false (0.00s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=true (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:189: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestBucketLifecycle (0.08s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.77s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.04s)
+    --- PASS: TestObjectList/Prefix (0.01s)
+    --- PASS: TestObjectList/Delimiter (0.01s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.02s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.00s)
+    --- PASS: TestObjectList/Offsets (0.01s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.01s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectMetadataUpdate (0.09s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.44s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.18s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.19s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.06s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.05s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.01s)
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.09s)
+    --- PASS: TestObjectRangeReader/closed (0.00s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.00s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+=== RUN   TestObjectResumableWriter
+    objects_resumable_test.go:80: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectResumableWriter/default_chunk_size_resumable
+=== RUN   TestObjectResumableWriter/default_chunk_size_small_multipart
+=== RUN   TestObjectResumableWriter/multiple_256_KiB_chunks
+=== RUN   TestObjectResumableWriter/empty_final_chunk
+=== RUN   TestObjectResumableWriter/empty_object
+=== RUN   TestObjectResumableWriter/unknown_length_stream
+--- PASS: TestObjectResumableWriter (3.73s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_resumable (2.71s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_small_multipart (0.24s)
+    --- PASS: TestObjectResumableWriter/multiple_256_KiB_chunks (0.16s)
+    --- PASS: TestObjectResumableWriter/empty_final_chunk (0.24s)
+    --- PASS: TestObjectResumableWriter/empty_object (0.10s)
+    --- PASS: TestObjectResumableWriter/unknown_length_stream (0.29s)
+=== RUN   TestObjectResumableChecksumFailurePreservesObject
+    objects_resumable_test.go:152: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true
+--- PASS: TestObjectResumableChecksumFailurePreservesObject (0.96s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false (0.23s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true (0.24s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false (0.24s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true (0.24s)
+=== RUN   TestObjectResumableConditionsAtFinalization
+    objects_resumable_test.go:228: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=false
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=true
+--- PASS: TestObjectResumableConditionsAtFinalization (0.65s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=false (0.29s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=true (0.34s)
+=== RUN   TestObjectResumableMetagenerationAtFinalization
+    objects_resumable_test.go:278: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectResumableMetagenerationAtFinalization (0.47s)
+=== RUN   TestObjectResumableContextCancellationDoesNotPublish
+    objects_resumable_test.go:318: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectResumableContextCancellationDoesNotPublish (0.12s)
+=== RUN   TestObjectResumableRetriesLostChunkResponse
+    objects_resumable_test.go:438: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectResumableRetriesLostChunkResponse (0.18s)
+=== RUN   TestStrictAuthResumableWriter
+--- PASS: TestStrictAuthResumableWriter (0.11s)
+=== RUN   TestStrictAuthResumableCreatorOverwriteRace
+--- PASS: TestStrictAuthResumableCreatorOverwriteRace (0.24s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:63: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+--- PASS: TestObjectMediaLifecycle (0.21s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.05s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.07s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.05s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.04s)
+=== RUN   TestObjectVersioning
+    objects_versioning_test.go:85: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectVersioning (0.08s)
+=== RUN   TestObjectEventBasedHold
+    objects_versioning_test.go:121: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestObjectEventBasedHold (0.09s)
+=== RUN   TestXMLReadsStrict
+=== RUN   TestXMLReadsStrict/whole
+=== RUN   TestXMLReadsStrict/range
+=== RUN   TestXMLReadsStrict/generation
+=== RUN   TestXMLReadsStrict/matching_conditions
+=== RUN   TestXMLReadsStrict/head
+--- PASS: TestXMLReadsStrict (0.18s)
+    --- PASS: TestXMLReadsStrict/whole (0.00s)
+    --- PASS: TestXMLReadsStrict/range (0.00s)
+    --- PASS: TestXMLReadsStrict/generation (0.00s)
+    --- PASS: TestXMLReadsStrict/matching_conditions (0.00s)
+    --- PASS: TestXMLReadsStrict/head (0.00s)
+=== RUN   TestPublicReadsGrantAndRevoke
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=false
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=true
+--- PASS: TestPublicReadsGrantAndRevoke (0.40s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=false (0.26s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=true (0.14s)
+=== RUN   TestPublicReadsAllAuthenticatedUsers
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered
+--- PASS: TestPublicReadsAllAuthenticatedUsers (0.10s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered (0.00s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered (0.00s)
+=== RUN   TestXMLReadsEncodedNames
+=== RUN   TestXMLReadsEncodedNames/space_name.bin
+=== RUN   TestXMLReadsEncodedNames/plus+name.bin
+=== RUN   TestXMLReadsEncodedNames/percent%2Fname.bin
+=== RUN   TestXMLReadsEncodedNames/日本語/雪.bin
+=== RUN   TestXMLReadsEncodedNames/dir/file.bin
+--- PASS: TestXMLReadsEncodedNames (0.50s)
+    --- PASS: TestXMLReadsEncodedNames/space_name.bin (0.05s)
+    --- PASS: TestXMLReadsEncodedNames/plus+name.bin (0.12s)
+    --- PASS: TestXMLReadsEncodedNames/percent%2Fname.bin (0.06s)
+    --- PASS: TestXMLReadsEncodedNames/日本語/雪.bin (0.05s)
+    --- PASS: TestXMLReadsEncodedNames/dir/file.bin (0.06s)
+=== RUN   TestXMLReadsPermissive
+    public_reads_test.go:267: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58898
+--- PASS: TestXMLReadsPermissive (0.09s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:246: strict endpoint; admin principal from the local fixture registry; project=local-project
+--- PASS: TestStrictAuthAdminLifecycle (0.09s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.09s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous (0.00s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+--- PASS: TestStrictAuthObjectViewer (0.10s)
+=== RUN   TestStrictAuthObjectCreator
+--- PASS: TestStrictAuthObjectCreator (0.11s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	10.925s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+Command: GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+=== RUN   TestStrictAuthBucketIAM
+--- PASS: TestStrictAuthBucketIAM (0.25s)
+=== RUN   TestBucketIAMPermissive
+    bucket_iam_test.go:96: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestBucketIAMPermissive (0.02s)
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketSettingsRoundTrip
+    buckets_test.go:145: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=true
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=true
+--- PASS: TestBucketSettingsRoundTrip (0.08s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=false (0.03s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=true (0.03s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=false (0.01s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=true (0.01s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:189: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestBucketLifecycle (0.15s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.93s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.03s)
+    --- PASS: TestObjectList/Prefix (0.01s)
+    --- PASS: TestObjectList/Delimiter (0.02s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.02s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.02s)
+    --- PASS: TestObjectList/Offsets (0.00s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.01s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectMetadataUpdate (0.05s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.18s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.09s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.08s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.01s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.00s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.00s)
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.07s)
+    --- PASS: TestObjectRangeReader/closed (0.01s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.01s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+=== RUN   TestObjectResumableWriter
+    objects_resumable_test.go:80: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectResumableWriter/default_chunk_size_resumable
+=== RUN   TestObjectResumableWriter/default_chunk_size_small_multipart
+=== RUN   TestObjectResumableWriter/multiple_256_KiB_chunks
+=== RUN   TestObjectResumableWriter/empty_final_chunk
+=== RUN   TestObjectResumableWriter/empty_object
+=== RUN   TestObjectResumableWriter/unknown_length_stream
+--- PASS: TestObjectResumableWriter (3.46s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_resumable (2.48s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_small_multipart (0.30s)
+    --- PASS: TestObjectResumableWriter/multiple_256_KiB_chunks (0.27s)
+    --- PASS: TestObjectResumableWriter/empty_final_chunk (0.19s)
+    --- PASS: TestObjectResumableWriter/empty_object (0.05s)
+    --- PASS: TestObjectResumableWriter/unknown_length_stream (0.17s)
+=== RUN   TestObjectResumableChecksumFailurePreservesObject
+    objects_resumable_test.go:152: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true
+--- PASS: TestObjectResumableChecksumFailurePreservesObject (0.77s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false (0.17s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true (0.13s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false (0.10s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true (0.35s)
+=== RUN   TestObjectResumableConditionsAtFinalization
+    objects_resumable_test.go:228: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=false
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=true
+--- PASS: TestObjectResumableConditionsAtFinalization (0.53s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=false (0.29s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=true (0.23s)
+=== RUN   TestObjectResumableMetagenerationAtFinalization
+    objects_resumable_test.go:278: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectResumableMetagenerationAtFinalization (0.27s)
+=== RUN   TestObjectResumableContextCancellationDoesNotPublish
+    objects_resumable_test.go:318: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectResumableContextCancellationDoesNotPublish (0.05s)
+=== RUN   TestObjectResumableRetriesLostChunkResponse
+    objects_resumable_test.go:438: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectResumableRetriesLostChunkResponse (0.24s)
+=== RUN   TestStrictAuthResumableWriter
+--- PASS: TestStrictAuthResumableWriter (0.50s)
+=== RUN   TestStrictAuthResumableCreatorOverwriteRace
+--- PASS: TestStrictAuthResumableCreatorOverwriteRace (0.75s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:63: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+--- PASS: TestObjectMediaLifecycle (0.39s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.09s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.08s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.14s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.07s)
+=== RUN   TestObjectVersioning
+    objects_versioning_test.go:85: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectVersioning (0.13s)
+=== RUN   TestObjectEventBasedHold
+    objects_versioning_test.go:121: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestObjectEventBasedHold (0.04s)
+=== RUN   TestXMLReadsStrict
+=== RUN   TestXMLReadsStrict/whole
+=== RUN   TestXMLReadsStrict/range
+=== RUN   TestXMLReadsStrict/generation
+=== RUN   TestXMLReadsStrict/matching_conditions
+=== RUN   TestXMLReadsStrict/head
+--- PASS: TestXMLReadsStrict (0.06s)
+    --- PASS: TestXMLReadsStrict/whole (0.00s)
+    --- PASS: TestXMLReadsStrict/range (0.00s)
+    --- PASS: TestXMLReadsStrict/generation (0.00s)
+    --- PASS: TestXMLReadsStrict/matching_conditions (0.00s)
+    --- PASS: TestXMLReadsStrict/head (0.00s)
+=== RUN   TestPublicReadsGrantAndRevoke
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=false
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=true
+--- PASS: TestPublicReadsGrantAndRevoke (0.08s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=false (0.04s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=true (0.04s)
+=== RUN   TestPublicReadsAllAuthenticatedUsers
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered
+--- PASS: TestPublicReadsAllAuthenticatedUsers (0.03s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered (0.00s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered (0.00s)
+=== RUN   TestXMLReadsEncodedNames
+=== RUN   TestXMLReadsEncodedNames/space_name.bin
+=== RUN   TestXMLReadsEncodedNames/plus+name.bin
+=== RUN   TestXMLReadsEncodedNames/percent%2Fname.bin
+=== RUN   TestXMLReadsEncodedNames/日本語/雪.bin
+=== RUN   TestXMLReadsEncodedNames/dir/file.bin
+--- PASS: TestXMLReadsEncodedNames (0.26s)
+    --- PASS: TestXMLReadsEncodedNames/space_name.bin (0.03s)
+    --- PASS: TestXMLReadsEncodedNames/plus+name.bin (0.04s)
+    --- PASS: TestXMLReadsEncodedNames/percent%2Fname.bin (0.05s)
+    --- PASS: TestXMLReadsEncodedNames/日本語/雪.bin (0.02s)
+    --- PASS: TestXMLReadsEncodedNames/dir/file.bin (0.02s)
+=== RUN   TestXMLReadsPermissive
+    public_reads_test.go:267: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:58913
+--- PASS: TestXMLReadsPermissive (0.07s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:246: strict endpoint; admin principal from the local fixture registry; project=local-project
+--- PASS: TestStrictAuthAdminLifecycle (0.07s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.06s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous (0.00s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+--- PASS: TestStrictAuthObjectViewer (0.06s)
+=== RUN   TestStrictAuthObjectCreator
+--- PASS: TestStrictAuthObjectCreator (0.13s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	9.959s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

@@ -3,6 +3,7 @@ use super::{
 };
 use crate::{
     bucket::BucketAccess,
+    config::CompatProfile,
     object::{ExpectedHashes, ObjectError},
     storage::ResumableOptions,
 };
@@ -11,6 +12,7 @@ use hyper::{HeaderMap, Method, StatusCode, Uri};
 pub(crate) fn session_route(
     method: &Method,
     uri: &Uri,
+    profile: CompatProfile,
 ) -> Option<Result<(String, String), JsonError>> {
     let path = uri.path().strip_prefix("/upload/storage/v1/b/")?;
     let (bucket, rest) = path.split_once('/')?;
@@ -31,7 +33,7 @@ pub(crate) fn session_route(
             ));
         }
         let bucket = super::decode(bucket, false)?;
-        super::validate_bucket_name(&bucket)?;
+        super::validate_bucket_name_for_profile(&bucket, profile)?;
         let mut query = super::parse_query(uri.query().unwrap_or_default())?;
         let id = query
             .remove("upload_id")

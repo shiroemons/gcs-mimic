@@ -1,10 +1,12 @@
 use super::{
     JsonError, Projection,
-    buckets::{encode_segment, timestamp},
+    buckets::{encode_segment, timestamp, validate_bucket_name_for_profile},
     query::{decode, finish, parse_query, projection},
-    validate_bucket_name,
 };
-use crate::object::{ExpectedHashes, ObjectConditions, ObjectRecord};
+use crate::{
+    config::CompatProfile,
+    object::{ExpectedHashes, ObjectConditions, ObjectRecord},
+};
 use hyper::{HeaderMap, Method, StatusCode, Uri, header::HeaderValue};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -63,6 +65,14 @@ pub enum ObjectRequest {
 
 /// Match raw path segments before decoding object names exactly once.
 pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, JsonError>> {
+    route_object_with_profile(method, uri, CompatProfile::Native)
+}
+
+pub fn route_object_with_profile(
+    method: &Method,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Option<Result<ObjectRequest, JsonError>> {
     let (path, upload, download) =
         if let Some(path) = uri.path().strip_prefix("/upload/storage/v1/b/") {
             (path, true, false)
@@ -119,7 +129,7 @@ pub fn route_object(method: &Method, uri: &Uri) -> Option<Result<ObjectRequest, 
             return Err(JsonError::invalid_parameter("Invalid bucket name"));
         }
         let bucket = decode(bucket, false)?;
-        validate_bucket_name(&bucket)?;
+        validate_bucket_name_for_profile(&bucket, profile)?;
         if !upload && object.is_none() {
             return super::object_list::parse_list(bucket, uri.query().unwrap_or_default())
                 .map(ObjectRequest::List);
@@ -589,6 +599,12 @@ pub fn object_resource(
     }
     if !object.metadata.is_empty() {
         value["metadata"] = json!(object.metadata);
+    }
+    if object.event_based_hold {
+        value["eventBasedHold"] = json!(true);
+    }
+    if let Some(deleted) = object.time_deleted {
+        value["timeDeleted"] = json!(timestamp(deleted)?);
     }
     Ok(value)
 }

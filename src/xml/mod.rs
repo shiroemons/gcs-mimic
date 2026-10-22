@@ -1,6 +1,7 @@
 //! Path-style XML object reads. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
+    config::CompatProfile,
     json::{self, JsonError},
     object::{ObjectConditions, ObjectRecord},
 };
@@ -108,14 +109,18 @@ pub(crate) fn reserved_path(path: &str) -> bool {
 }
 
 /// Match reserved Google and emulator namespaces before interpreting a bucket path.
-pub(crate) fn route(method: &Method, uri: &Uri) -> Option<Result<ReadRequest, Error>> {
+pub(crate) fn route(
+    method: &Method,
+    uri: &Uri,
+    profile: CompatProfile,
+) -> Option<Result<ReadRequest, Error>> {
     let path = uri.path();
     if reserved_path(path) {
         return None;
     }
     let path = path.strip_prefix('/')?;
     let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
-    if json::validate_bucket_name(bucket).is_err() {
+    if json::validate_bucket_name_for_profile(bucket, profile).is_err() {
         return None;
     }
     Some((|| {

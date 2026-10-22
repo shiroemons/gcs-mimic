@@ -28,6 +28,8 @@ async fn setup(dir: &TestDir, clock: Arc<TestClock>) -> Catalog {
             location_type: "multi-region".into(),
             storage_class: "STANDARD".into(),
             labels: Default::default(),
+            versioning_enabled: false,
+            default_event_based_hold: false,
             metageneration: 1,
             time_created: UNIX_EPOCH,
             updated: UNIX_EPOCH,
@@ -205,7 +207,10 @@ async fn previous_schema_migrates_and_invalid_session_options_are_rejected_read_
     let catalog = setup(&dir, clock.clone()).await;
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
-    rusqlite::Connection::open(&path).unwrap().execute_batch("DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; PRAGMA user_version = 6;").unwrap();
+    let legacy = rusqlite::Connection::open(&path).unwrap();
+    common::downgrade_object_schema(&legacy);
+    legacy.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; PRAGMA user_version = 6;").unwrap();
+    drop(legacy);
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
     let session = catalog

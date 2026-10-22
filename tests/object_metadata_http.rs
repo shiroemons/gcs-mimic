@@ -430,6 +430,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             ("[]", "invalidArgument"),
             ("null", "invalidArgument"),
             (r#"{"contentType":7}"#, "invalidArgument"),
+            (r#"{"eventBasedHold":null}"#, "invalidArgument"),
             (r#"{"metadata":[]}"#, "invalidArgument"),
             (r#"{"metadata":{"a":false}}"#, "invalidArgument"),
             (
@@ -449,7 +450,6 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "acl",
             "predefinedAcl",
             "temporaryHold",
-            "eventBasedHold",
             "retention",
             "contexts",
             "customTime",

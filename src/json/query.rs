@@ -1,4 +1,6 @@
-use super::{JsonError, decode_page_token, page_token::hex, validate_bucket_name};
+use super::buckets::validate_bucket_name_for_profile;
+use super::{JsonError, decode_page_token, page_token::hex};
+use crate::config::CompatProfile;
 use hyper::{Method, StatusCode, Uri};
 use std::collections::BTreeMap;
 
@@ -59,6 +61,15 @@ pub enum BucketRequest {
 
 /// Match the raw URI before decoding any bucket path segment.
 pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonError>> {
+    route_with_profile(method, uri, CompatProfile::Native, "local-project")
+}
+
+pub fn route_with_profile(
+    method: &Method,
+    uri: &Uri,
+    profile: CompatProfile,
+    seed_project: &str,
+) -> Option<Result<BucketRequest, JsonError>> {
     const COLLECTION: &str = "/storage/v1/b";
     if let Some(segment) = uri
         .path()
@@ -69,7 +80,12 @@ pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonErr
     {
         return Some((|| {
             let bucket = decode(segment, false)?;
-            validate_bucket_name(&bucket)?;
+            if segment.len() > 222 * 3 {
+                return Err(JsonError::invalid_parameter("Invalid bucket name"));
+            }
+            if profile == CompatProfile::Native {
+                validate_bucket_name_for_profile(&bucket, profile)?;
+            }
             if !matches!(*method, Method::GET | Method::PUT) {
                 let mut error = JsonError::new(
                     StatusCode::METHOD_NOT_ALLOWED,
@@ -108,7 +124,9 @@ pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonErr
             return Some(Err(JsonError::invalid_parameter("Invalid bucket name")));
         }
         match decode(segment, false).and_then(|name| {
-            validate_bucket_name(&name)?;
+            if profile == CompatProfile::Native {
+                validate_bucket_name_for_profile(&name, profile)?;
+            }
             Ok(name)
         }) {
             Ok(name) => Some(name),
@@ -137,10 +155,22 @@ pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonErr
         });
         return Some(Err(error));
     }
-    Some(parse(method, bucket, uri.query().unwrap_or_default()))
+    Some(parse(
+        method,
+        bucket,
+        uri.query().unwrap_or_default(),
+        profile,
+        seed_project,
+    ))
 }
 
-fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketRequest, JsonError> {
+fn parse(
+    method: &Method,
+    bucket: Option<String>,
+    raw: &str,
+    profile: CompatProfile,
+    seed_project: &str,
+) -> Result<BucketRequest, JsonError> {
     let mut query = parse_query(raw)?;
     common(&mut query)?;
     match (method, bucket) {
@@ -153,6 +183,11 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
                     "enableObjectRetention",
                 ],
             )?;
+            if profile == CompatProfile::LegacyEmulator {
+                query
+                    .entry("project".into())
+                    .or_insert_with(|| seed_project.into());
+            }
             let project = project(&mut query)?;
             let projection = projection(&mut query)?;
             finish(query)?;

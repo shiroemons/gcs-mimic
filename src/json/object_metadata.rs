@@ -47,7 +47,6 @@ pub fn parse_object_metadata(
     for field in [
         "acl",
         "predefinedAcl",
-        "eventBasedHold",
         "temporaryHold",
         "retention",
         "contexts",
@@ -100,6 +99,7 @@ pub fn parse_object_metadata(
                 | "contentLanguage"
                 | "cacheControl"
                 | "metadata"
+                | "eventBasedHold"
         ) {
             return Err(JsonError::unsupported_object(key));
         }
@@ -154,6 +154,14 @@ pub fn parse_object_metadata(
             content_language: string(body, "contentLanguage")?,
             cache_control: string(body, "cacheControl")?,
             metadata,
+            event_based_hold: body
+                .get("eventBasedHold")
+                .map(|value| {
+                    value.as_bool().ok_or_else(|| {
+                        JsonError::invalid_argument("eventBasedHold must be a boolean")
+                    })
+                })
+                .transpose()?,
         },
     })
 }

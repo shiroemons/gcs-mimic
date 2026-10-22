@@ -5,6 +5,15 @@ implementation; it does not change the implementation-status ledger. The affecte
 JSON-BUCKETS-001/002/005/006, BEHAVIOR-COMMON-001/007/013 and BEHAVIOR-BUCKET-001.
 Catalog atomicity, persistence, HTTP integration and official Go SDK evidence are now integrated.
 
+The [bucket core profile contract](bucket-core-parity.md), checked on 2026-10-22,
+extends create/get/delete with the explicit compatibility profile and persisted
+`versioning.enabled` / `defaultEventBasedHold` configuration and results.
+Its decisions supersede the original rejection of those two fields and document
+profile-specific naming, project defaults, resource fields and delete responses.
+Object-side effects are implemented by the
+[versioning and holds slice](bucket-versioning-holds.md), integrated separately
+from this branch's bucket configuration and response changes.
+
 ## Sources and provenance
 
 All sources below were checked on 2026-10-21:
@@ -54,6 +63,10 @@ Unknown body fields are ignored for forward compatibility;
 the checked bucket sources do not establish exact unknown-field behavior, so this remains an
 unverified local rule, distinct from recognizing and rejecting unsupported fields.
 
+Creation accepts the exact empty `lifecycle:{"rule":[]}` emitted by the pinned
+Go SDK for nonnil BucketAttrs. It adds no lifecycle rules; all other lifecycle
+shapes remain rejected in native mode. The source profile ignores that field.
+
 The local project has no registry: a nonempty project identifier is stored verbatim (at most
 256 UTF-8 bytes); a decimal unsigned 64-bit identifier becomes its normalized decimal
 `projectNumber`; other identifiers (including decimal overflow) yield string `"0"`.
@@ -69,7 +82,7 @@ as unsupported. Storage classes are the Discovery values `STANDARD`, `NEARLINE`,
 501 because their required region/zone locations are outside this subset. This slice records
 bucket defaults only and implements no object placement or class transitions.
 
-Soft delete, retention, lifecycle, versioning, default ACLs and organization policy defaults are
+Soft delete, retention, lifecycle, default ACLs and organization policy defaults are
 not simulated. In particular, Google's default soft-delete retention is not applied: deleting
 an empty local bucket removes it immediately. Responses omit these unsupported configurations.
 ETags are opaque deterministic local identifiers, not Google's encoding. Dotted-name ownership

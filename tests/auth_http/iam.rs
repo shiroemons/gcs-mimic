@@ -135,9 +135,10 @@ fn iam_migrates_v5_catalog() {
     server.stop();
     let path = data.0.join("catalog.sqlite3");
     let connection = rusqlite::Connection::open(&path).unwrap();
+    common::downgrade_object_schema(&connection);
     connection
         .execute_batch(
-            "DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
+            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; PRAGMA user_version = 5;",
         )
         .unwrap();
     drop(connection);
@@ -165,7 +166,7 @@ fn iam_migrates_v5_catalog() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     drop(connection);
     let server = Server::strict(&data, &config.0.join("identities.json"));
