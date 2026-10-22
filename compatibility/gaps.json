@@ -298,6 +298,25 @@
       "required_resolution": "Keep multipart and affected method/behavior rows PARTIAL while deviations remain. Obtain an explicitly authorized direct-service fixture for MIME boundaries/caps, empty-part CRLF, transfer encodings, contentType conflicts/null/empty values, third-part MD5/unknown/conflicting fields and exact malformed/transport error reasons. Preserve bounded streaming, early metadata validation and failed-overwrite resource snapshots. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
     },
     {
+      "id": "SPEC-IAM-WIRE",
+      "title": "Bucket IAM normalization parity and missing-allocator startup fixture remain unverified",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-BUCKETS-003",
+        "JSON-BUCKETS-011"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The official policy references define bindings and bytes etags but do not establish duplicate-binding/member normalization or mixed-alphabet/non-zero-trailing-bit behavior. Locally duplicate members and repeated role bindings retain submitted order, standard/URL-safe padded/unpadded bytes compare equivalently, mixed alphabets are accepted and non-zero trailing bits return 400 invalid. Existing Rust/Go/Compose logs prove the declared local subset, not cloud normalization parity. Startup enforces the policy_revision singleton invariant but lacks a dedicated missing-row fixture; tested stale allocators and missing/orphan bucket policies do not establish that distinct fixture.",
+      "required_resolution": "Keep policy API rows PARTIAL. With explicit cloud-project/budget/cleanup authorization, compare duplicate members/repeated roles for preservation/order/merge/deduplication and set/get round trips with mixed-alphabet and non-zero-trailing-bit etags; record exact status/reason and unchanged-state behavior on rejection. Add a dedicated missing policy_revision-row startup fixture that proves rejection without persistent-byte changes. Do not infer cloud behavior or fixture execution from source inspection; retain the passing grant-enforcement and atomic-CAS evidence separately. See docs/en/slices/bucket-iam.md and docs/en/evidence/bucket-iam.md."
+    },
+    {
       "id": "SPEC-017",
       "title": "Strict authentication error wire details and missing-bucket authorization need real-service evidence",
       "status": "OPEN",
@@ -306,6 +325,8 @@
         "DESIGN-004",
         "JSON-BUCKETS-001",
         "JSON-BUCKETS-002",
+        "JSON-BUCKETS-003",
+        "JSON-BUCKETS-011",
         "JSON-BUCKETS-005",
         "JSON-BUCKETS-006",
         "JSON-OBJECTS-004",
@@ -322,8 +343,8 @@
       ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "The status-code reference (last updated 2026-10-21) documents the 401 required example with locationType header and location Authorization, the authError reason and the 403 forbidden example. It does not document the authError message or location fields, the longer principal/permission 403 message often returned by the service, or whether WWW-Authenticate is sent. Locally, invalid or unsupported credentials return 401 authError with message Invalid Credentials, locationType header and location Authorization; permission failures return the short documented Forbidden example; no WWW-Authenticate header is sent. The missing-bucket rule is local: an authenticated caller receives 404 only when it holds the required permission in at least one project, otherwise 403; anonymous callers always receive 401 required because no allUsers grants are modeled. projection=full requires no extra permission because ACL/owner fields are not rendered. Authentication precedes route syntax validation, so an invalid token wins over a 400 while an anonymous malformed request still returns 400. For an objects.insert that would overwrite a live object, generation/metageneration preconditions are evaluated before the storage.objects.delete overwrite check, so a caller lacking that permission can distinguish a matching from a mismatching generation through 403 versus 412; the real-service order is unverified. Strict operations recheck the authorized bucket project inside their catalog transaction (a bucket recreated in another project returns 403 without mutation).",
-      "required_resolution": "Keep DESIGN-002, DESIGN-004 and the affected JSON method rows PARTIAL. Obtain explicitly authorized real-service differential evidence for authError message/location fields, 403 message text, WWW-Authenticate presence, missing-bucket status for callers with and without permissions, anonymous access to missing buckets, projection=full permission requirements, the relative order of credential and syntax errors, and the order of overwrite preconditions (412) versus the overwrite permission check (403). Preserve the documented required/forbidden examples and fail-closed credential handling. See docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md."
+      "observed_evidence": "The status-code reference (last updated 2026-10-21) documents the 401 required example with locationType header and location Authorization, the authError reason and the 403 forbidden example. It does not document the authError message or location fields, the longer principal/permission 403 message often returned by the service, or whether WWW-Authenticate is sent. Locally, invalid or unsupported credentials return 401 authError with message Invalid Credentials, locationType header and location Authorization; permission failures return the short documented Forbidden example; no WWW-Authenticate header is sent. The missing-bucket rule is local: an authenticated caller receives 404 only when it holds the required permission in at least one project, otherwise 403; anonymous callers always receive 401 required because no allUsers grants are modeled. projection=full requires no extra permission because ACL/owner fields are not rendered. Authentication precedes route syntax validation, so an invalid token wins over a 400 while an anonymous malformed request still returns 400. For an objects.insert that would overwrite a live object, generation/metageneration preconditions are evaluated before the storage.objects.delete overwrite check, so a caller lacking that permission can distinguish a matching from a mismatching generation through 403 versus 412; the real-service order is unverified. Strict operations recheck the authorized bucket project inside their catalog transaction (a bucket recreated in another project returns 403 without mutation). Bucket IAM now grants permissions through the union of the selected owning project's roles and matching unconditional bucket bindings inside the operation transaction. A bucket-only caller can access a granted existing bucket but still receives 403 for a missing bucket when it lacks the permission in every project. IAM get/set use storage.buckets.getIamPolicy/setIamPolicy and retain the same anonymous, missing-bucket and local check-order rules; transaction-time authorization precedes etag comparison. Final Rust, Go and source-built strict Compose evidence is in docs/en/evidence/bucket-iam.md; it is not real-service differential evidence.",
+      "required_resolution": "Keep DESIGN-002, DESIGN-004 and the affected JSON method rows PARTIAL. Obtain explicitly authorized real-service differential evidence for authError message/location fields, 403 message text, WWW-Authenticate presence, missing-bucket status for callers with and without permissions, anonymous access to missing buckets, projection=full permission requirements, the relative order of credential and syntax errors, and the order of overwrite preconditions (412) versus the overwrite permission check (403). Preserve the documented required/forbidden examples and fail-closed credential handling. See docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md. Include get/set IAM in opted-in missing-bucket and error-order observations, comparing callers with only a bucket grant, with a project grant, and without either. Conditional/public/custom/basic policy semantics are separately pending on the policy API rows. The local grant-enforcement and atomic-etag rows do not claim those missing wire details."
     }
   ],
   "resolved_research_items": [

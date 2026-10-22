@@ -249,6 +249,7 @@
         "depends_on": { "$ref": "#/$defs/nonempty_strings" },
         "feature_ids": { "$ref": "#/$defs/nonempty_strings" },
         "completion_conditions": { "$ref": "#/$defs/nonempty_strings" },
+        "evidence": { "$ref": "#/$defs/nonempty_strings" },
         "deferred_scope": { "type": "string", "minLength": 1 }
       }
     },

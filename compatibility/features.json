@@ -211,6 +211,35 @@
           "docs/en/evidence/seed-range-guide.txt",
           "docs/en/evidence/seed-platform.md"
         ]
+      },
+      {
+        "id": "bucket-iam-policies",
+        "title": "Persistent unconditional bucket IAM policies",
+        "scope": "Verified get/set and enforcement for unconditional bucket-grantable predefined roles, local user/serviceAccount principals, stored convenience defaults, project-plus-bucket grants and atomic etags in strict/permissive profiles. DESIGN-014 and DESIGN-027 are IMPLEMENTED; policy API and inherited-hierarchy rows remain PARTIAL with explicit missing cases. Public grants, conditions, custom/basic roles, ACL/UBLA/PAP, XML and signatures remain separate work.",
+        "feature_ids": [
+          "JSON-BUCKETS-003",
+          "JSON-BUCKETS-011",
+          "DESIGN-014",
+          "DESIGN-016",
+          "DESIGN-027"
+        ],
+        "acceptance_case_refs": [
+          "JSON-BUCKETS-003/DEFAULT-AND-VERSIONS",
+          "JSON-BUCKETS-011/REPLACEMENT",
+          "DESIGN-014/EXISTING-ROUTES",
+          "DESIGN-014/REVOCATION",
+          "DESIGN-016/LOCAL-HIERARCHY",
+          "DESIGN-027/ATOMIC-CAS",
+          "DESIGN-027/DURABLE-NO-REUSE"
+        ],
+        "evidence": [
+          "docs/en/evidence/bucket-iam.md",
+          "docs/en/evidence/bucket-iam-checks.txt",
+          "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "docs/en/evidence/bucket-iam-containers.txt",
+          "docs/en/evidence/bucket-iam-dependencies.txt",
+          "docs/en/evidence/bucket-iam-guide.txt"
+        ]
       }
     ],
     "next_deliverables": [
@@ -254,7 +283,15 @@
           "Enforce policy read/write permissions, effective project-plus-bucket grants and atomic stale-etag rejection; persist across restart.",
           "Reject recognized unsupported policy conditions or roles instead of accepting them without effect; retain existing project-role denial and cross-project race tests."
         ],
-        "deferred_scope": "Custom/basic roles, conditional policies, object/default ACLs and full inherited organization policy fidelity."
+        "evidence": [
+          "docs/en/evidence/bucket-iam.md",
+          "docs/en/evidence/bucket-iam-checks.txt",
+          "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "docs/en/evidence/bucket-iam-containers.txt",
+          "docs/en/evidence/bucket-iam-dependencies.txt",
+          "docs/en/evidence/bucket-iam-guide.txt"
+        ],
+        "deferred_scope": "Custom/basic roles, conditional policies, object/default ACLs and full inherited organization policy fidelity. The declared unconditional capability passed final verification on 2026-10-22; whole policy-method and hierarchy rows retain their pending cases and open parity gaps."
       },
       {
         "id": "public-object-reads",
@@ -1366,7 +1403,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Empty deletion and atomic metageneration checks now include real nonempty live-object protection. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Empty deletion and atomic metageneration checks now include real nonempty live-object protection. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -1420,9 +1457,19 @@
         },
         {
           "id": "JSON-BUCKETS-001-PENDING",
-          "description": "Enforce bucket IAM policies/ACLs beyond project-level predefined roles, and soft-delete/retention interactions.",
+          "description": "Implement remaining conditional/public/custom/basic bucket policies and ACLs, and soft-delete/retention interactions; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "test_ids": [
@@ -1432,7 +1479,10 @@
         "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -1466,6 +1516,17 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1486,11 +1547,11 @@
         }
       ],
       "known_deviations": [
-        "Strict mode enforces storage.buckets.delete through project-level predefined roles only; bucket IAM policies, ACLs and soft-delete/retention are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
+        "Strict mode enforces storage.buckets.delete through project-plus-bucket predefined roles; broader bucket policies, ACLs and soft-delete/retention are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "DELETE not-match failure uses the local 412 rule; exact Google precedence remains unverified."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "DELETE",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -1530,7 +1591,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412.",
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -1566,16 +1627,29 @@
         },
         {
           "id": "JSON-BUCKETS-002-PENDING",
-          "description": "Enforce bucket IAM policies/ACLs beyond project-level predefined roles, complete ACL/owner metadata and soft-deleted generations.",
+          "description": "Implement remaining conditional/public/custom/basic bucket policies and ACLs, complete ACL/owner metadata and soft-deleted generations; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "test_ids": [
         "bkt_http_crud_metadata_conditions_and_errors",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -1597,6 +1671,17 @@
             "auth_http_project_roles_gate_each_route",
             "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1617,13 +1702,13 @@
         }
       ],
       "known_deviations": [
-        "Strict mode enforces storage.buckets.get through project-level predefined roles only; bucket IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
+        "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Recognized unsupported field selection/generation/billing semantics return 501."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "GET",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -1666,26 +1751,186 @@
       "interface": "storage.buckets.getIamPolicy",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: optionsRequestedPolicyVersion, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending.",
+      "dependencies": [
+        "DESIGN-003",
+        "DESIGN-008",
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DEFAULT-AND-VERSIONS",
+          "description": "GET returns kind/resourceId/version 1/opaque etag and non-UBLA convenience defaults; requested versions omitted/1/3 return unconditional version 1.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_default_policy_and_versions"
+          ]
+        },
+        {
+          "id": "QUERY-BODY-METHOD",
+          "description": "Validate path, version, unknown/duplicate/common queries, empty GET body and allowed methods; reject userProject explicitly.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_rejects_queries_paths_and_bodies"
+          ]
+        },
+        {
+          "id": "AUTHORIZATION",
+          "description": "Require effective getIamPolicy permission; reject anonymous and insufficient project/bucket callers; permissive mode bypasses permission checks.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_permissive_policy_and_cas"
+          ]
+        },
+        {
+          "id": "PERSISTENCE-MIGRATION",
+          "description": "Persist across restart, migrate v5 without losing objects, roll back late migration failures and reset defaults on recreation; reject tested invalid catalog invariants.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_policy_survives_restart",
+            "iam::iam_migrates_v5_catalog",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "policy_migration_visits_every_bucket_in_binary_name_order",
+            "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
+        },
+        {
+          "id": "LOCAL-DUPLICATES",
+          "description": "Preserve duplicate members/repeated bindings in submitted order locally; cloud normalization parity is not established.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_preserves_duplicate_members_and_role_bindings"
+          ]
+        },
+        {
+          "id": "GO-AND-COMPOSE",
+          "description": "Pinned Go Policy/SetPolicy pass in strict and permissive modes; source-built strict Compose verifies grant/revoke, isolation, stale etag and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "guide-compose-bucket-iam"
+          ]
+        },
+        {
+          "id": "FULL-POLICY-AND-BILLING",
+          "description": "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "WIRE-PARITY",
+          "description": "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "NORMALIZATION-PARITY",
+          "description": "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "iam::iam_default_policy_and_versions",
+        "iam::iam_rejects_queries_paths_and_bodies",
+        "iam::iam_requires_effective_get_and_set_permissions",
+        "iam::iam_permissive_policy_and_cas",
+        "iam::iam_policy_survives_restart",
+        "iam::iam_migrates_v5_catalog",
+        "iam::iam_recreated_bucket_has_fresh_policy",
+        "policy_migration_visits_every_bucket_in_binary_name_order",
+        "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "iam::iam_preserves_duplicate_members_and_role_bindings",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "guide-compose-bucket-iam"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_default_policy_and_versions",
+            "iam::iam_rejects_queries_paths_and_bodies",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_permissive_policy_and_cas",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_migrates_v5_catalog",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "policy_migration_visits_every_bucket_in_binary_name_order",
+            "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "iam::iam_preserves_duplicate_members_and_role_bindings"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "command": "All sh blocks in docs/en/getting-started.md, extracted with awk and executed in order with bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-guide.txt",
+          "test_ids": [
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit local permissive/strict endpoints; fixture bearer tokens; Policy/SetPolicy and JSON object reads",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
+        "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified."
+      ],
+      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
+      "last_verified": "2026-10-22",
       "http_method": "GET",
       "path": "b/{bucket}/iam",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -2280,26 +2525,204 @@
       "interface": "storage.buckets.setIamPolicy",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending.",
+      "dependencies": [
+        "DESIGN-003",
+        "DESIGN-008",
+        "DESIGN-014",
+        "DESIGN-027"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "REPLACEMENT",
+          "description": "Replace whole bindings, ignore unknown JSON/kind/resourceId, normalize versions omitted/0/1/3, clear explicit [] and leave bucket metageneration unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_policy_round_trip_and_unconditional_versions"
+          ]
+        },
+        {
+          "id": "VALIDATION",
+          "description": "Reject malformed JSON/policy/version/binding/member/role/etag and project-only roles with 400; recognized unsupported conditions/auditConfigs/principals/basic/custom roles return 501 without mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_rejects_unsupported_policy_semantics"
+          ]
+        },
+        {
+          "id": "BOUNDS-AND-QUERY",
+          "description": "Enforce 1500 occurrences including duplicates and 64 KiB body limits; validate methods/paths/query and reject userProject explicitly.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_principal_and_body_limits",
+            "iam::iam_rejects_queries_paths_and_bodies"
+          ]
+        },
+        {
+          "id": "CAS-AND-ENCODING",
+          "description": "Atomic decoded-byte CAS preserves policy on stale 412, serializes concurrent sets, accepts omitted/empty unconditional overwrites and changes etag every success.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_stale_and_concurrent_etags",
+            "iam::iam_permissive_policy_and_cas",
+            "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison"
+          ]
+        },
+        {
+          "id": "PERMISSIONS-PERSISTENCE",
+          "description": "Recheck effective set permission in the mutation transaction; retain permissive validation, restart state and recreated-bucket reset.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_recreated_bucket_has_fresh_policy"
+          ]
+        },
+        {
+          "id": "LOCAL-DUPLICATES",
+          "description": "Preserve duplicate members/repeated roles and order locally; cloud normalization remains pending.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_preserves_duplicate_members_and_role_bindings"
+          ]
+        },
+        {
+          "id": "GO-AND-COMPOSE",
+          "description": "Pinned Go Policy/SetPolicy pass in strict and permissive modes; source-built strict Compose verifies grant/revoke, isolation, stale etag and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "guide-compose-bucket-iam"
+          ]
+        },
+        {
+          "id": "FULL-POLICY-AND-BILLING",
+          "description": "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "WIRE-PARITY",
+          "description": "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "NORMALIZATION-PARITY",
+          "description": "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "MISSING-ALLOCATOR-FIXTURE",
+          "description": "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "iam::iam_policy_round_trip_and_unconditional_versions",
+        "iam::iam_rejects_invalid_policy_shapes",
+        "iam::iam_rejects_unsupported_policy_semantics",
+        "iam::iam_principal_and_body_limits",
+        "iam::iam_rejects_queries_paths_and_bodies",
+        "iam::iam_stale_and_concurrent_etags",
+        "iam::iam_permissive_policy_and_cas",
+        "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+        "iam::iam_requires_effective_get_and_set_permissions",
+        "iam::iam_policy_survives_restart",
+        "iam::iam_recreated_bucket_has_fresh_policy",
+        "iam::iam_preserves_duplicate_members_and_role_bindings",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "guide-compose-bucket-iam"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_policy_round_trip_and_unconditional_versions",
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_rejects_unsupported_policy_semantics",
+            "iam::iam_principal_and_body_limits",
+            "iam::iam_rejects_queries_paths_and_bodies",
+            "iam::iam_stale_and_concurrent_etags",
+            "iam::iam_permissive_policy_and_cas",
+            "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "iam::iam_preserves_duplicate_members_and_role_bindings"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "command": "All sh blocks in docs/en/getting-started.md, extracted with awk and executed in order with bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-guide.txt",
+          "test_ids": [
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit local permissive/strict endpoints; fixture bearer tokens; Policy/SetPolicy and JSON object reads",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Implement and verify positive conditional/public/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
+        "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
+        "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran."
+      ],
+      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
+      "last_verified": "2026-10-22",
       "http_method": "PUT",
       "path": "b/{bucket}/iam",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -4109,7 +4532,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON live-object DELETE supports generation selection, all four atomic conditions and empty 204; repeated deletion is 404. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "JSON live-object DELETE supports generation selection, all four atomic conditions and empty 204; repeated deletion is 404. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4148,7 +4571,7 @@
         },
         {
           "id": "JSON-OBJECTS-004-PENDING",
-          "description": "Enforce bucket/object IAM policies and ACLs beyond project-level predefined roles, retention/holds/versioning/soft-delete, userProject and production token replay.",
+          "description": "Implement broader bucket policy semantics, object IAM/ACLs, retention/holds/versioning/soft-delete, userProject and production token replay; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4158,6 +4581,16 @@
           "result": "PASS",
           "test_ids": [
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+          ]
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -4172,7 +4605,10 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -4218,6 +4654,17 @@
             "auth_http_project_roles_gate_each_route",
             "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4238,13 +4685,13 @@
         }
       ],
       "known_deviations": [
-        "Strict mode enforces storage.objects.delete through project-level predefined roles only; bucket/object IAM policies and ACLs are not enforced and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule. No retention, hold, version-history or soft-delete semantics.",
+        "Strict mode enforces storage.objects.delete through project-plus-bucket predefined roles; broader bucket policies and object IAM policies and ACLs are not enforced and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule. No retention, hold, version-history or soft-delete semantics.",
         "SPEC-008: mutation not-match returns 412 and mixed/missing condition precedence is a local rule.",
         "SPEC-013: GET/DELETE tokens are accepted without replay; same-token repeated DELETE returns 404 after 204.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "DELETE",
       "path": "b/{bucket}/o/{object}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -4300,7 +4747,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4343,11 +4790,17 @@
           "id": "JSON-OBJECTS-005-RANGES",
           "description": "Closed/open/suffix/clamped ranges, 206 representation identity, 416/empty/fallback rules, generation/preconditions, strict authorization and stored gzip bytes.",
           "result": "PASS",
-          "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"]
+          "test_ids": [
+            "obj_range_http_single_ranges_and_representation_headers",
+            "obj_range_http_unsatisfiable_empty_and_ignored_ranges",
+            "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader",
+            "obj_range_http_strict_authorization_precedes_range_evaluation",
+            "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"
+          ]
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, bucket/object IAM policies, ACLs and allUsers reads, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
+          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, broader bucket policies, object IAM/ACLs and allUsers reads, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4357,6 +4810,16 @@
           "result": "PASS",
           "test_ids": [
             "obj_http_trickle_download_stops_at_absolute_deadline"
+          ]
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -4379,10 +4842,25 @@
         "auth_http_project_roles_gate_each_route",
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "TestStrictAuthObjectViewer",
-        "TestStrictAuthRejectsMissingAndInvalidCredentials"
+        "TestStrictAuthRejectsMissingAndInvalidCredentials",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
-        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["obj_range_http_single_ranges_and_representation_headers", "obj_range_http_unsatisfiable_empty_and_ignored_ranges", "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader", "obj_range_http_strict_authorization_precedes_range_evaluation", "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"]},
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-range-checks.txt",
+          "test_ids": [
+            "obj_range_http_single_ranges_and_representation_headers",
+            "obj_range_http_unsatisfiable_empty_and_ignored_ranges",
+            "obj_range_http_generation_preconditions_and_overwrite_pin_open_reader",
+            "obj_range_http_strict_authorization_precedes_range_evaluation",
+            "obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -4428,6 +4906,17 @@
             "TestStrictAuthObjectViewer",
             "TestStrictAuthRejectsMissingAndInvalidCredentials"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4467,7 +4956,7 @@
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
         "Single untranscoded JSON byte ranges work. If-Range, transcoding, ETag conditions, fields and userProject remain unsupported; full omits ACL/owner; no historical versions. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
-        "Strict mode enforces storage.objects.get through project-level predefined roles only; bucket/object IAM policies, ACLs and allUsers public reads are not modeled and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
+        "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; broader bucket policies and object IAM policies, ACLs and allUsers public reads are not modeled and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
@@ -4592,7 +5081,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media and bounded multipart metadata/media upload with MD5/CRC32C, optional final checksum JSON, custom metadata, atomic conditions, persistent Object resources and conditioned invocation-token acceptance. Resumable and full method/permission/replay fidelity remain incomplete. Scope: docs/en/slices/json-object-media.md and docs/en/slices/json-object-multipart.md; integration: docs/en/evidence/multipart.md.",
+      "notes": "Media and bounded multipart metadata/media upload with MD5/CRC32C, optional final checksum JSON, custom metadata, atomic conditions, persistent Object resources and conditioned invocation-token acceptance. Resumable and full method/permission/replay fidelity remain incomplete. Scope: docs/en/slices/json-object-media.md and docs/en/slices/json-object-multipart.md; integration: docs/en/evidence/multipart.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4649,7 +5138,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-PENDING",
-          "description": "Implement resumable sessions, bucket/object IAM policies and ACLs beyond project-level predefined roles, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay.",
+          "description": "Implement resumable sessions, broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4785,6 +5274,16 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "test_ids": [
@@ -4848,7 +5347,10 @@
         "auth_http_concurrent_creates_without_delete_have_one_winner",
         "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
         "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
-        "TestStrictAuthObjectCreator"
+        "TestStrictAuthObjectCreator",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -4971,6 +5473,17 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5023,7 +5536,7 @@
         }
       ],
       "known_deviations": [
-        "Media and scoped multipart are supported; resumable, ACL/IAM policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-level predefined roles only; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
+        "Media and scoped multipart are supported; resumable, ACL/object IAM and broader bucket policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
@@ -5113,7 +5626,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md. Integrated v4 metadata parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
+      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md. Integrated v4 metadata parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -5188,9 +5701,19 @@
         },
         {
           "id": "OBJECT-LIST-PENDING",
-          "description": "Add IAM policies/ACLs beyond project-level predefined roles, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "description": "Add broader bucket policies, object IAM/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "test_ids": [
@@ -5205,7 +5728,10 @@
         "TestObjectList",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -5260,6 +5786,17 @@
           "test_ids": [
             "TestObjectList"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5289,11 +5826,13 @@
           "result": "PASS",
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/object-list-metadata-checks.txt",
-          "test_ids": ["TestObjectList"]
+          "test_ids": [
+            "TestObjectList"
+          ]
         }
       ],
       "known_deviations": [
-        "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
+        "Strict mode enforces storage.objects.list through project-plus-bucket predefined roles; broader bucket policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
@@ -5472,7 +6011,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
+      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -5500,7 +6039,7 @@
         },
         {
           "id": "JSON-OBJECTS-010-PENDING",
-          "description": "Implement bucket/object IAM policies and ACLs beyond project-level predefined roles, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5512,6 +6051,16 @@
             "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -5525,7 +6074,10 @@
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -5567,6 +6119,17 @@
             "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -5972,7 +6535,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md.",
+      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -6000,7 +6563,7 @@
         },
         {
           "id": "JSON-OBJECTS-015-PENDING",
-          "description": "Implement bucket/object IAM policies and ACLs beyond project-level predefined roles, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity; unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -6012,6 +6575,16 @@
             "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
+          "id": "BUCKET-POLICY-GRANTS",
+          "description": "Matching unconditional bucket grants authorize this route and revoked grants are rechecked in its operation transaction; scope isolation, project grants and original overwrite/recreation restrictions remain enforced.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -6025,7 +6598,10 @@
         "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
       ],
       "verification": [
         {
@@ -6067,6 +6643,17 @@
             "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
         }
       ],
@@ -20214,25 +20801,175 @@
       "interface": "buckets IAM methods and data access",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/iam"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Stored bindings must control read/write/list/delete operations, not merely round-trip.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017.",
+      "dependencies": [
+        "DESIGN-003",
+        "DESIGN-008"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "SCOPED-UNION",
+          "description": "Combine project and bucket grants; restrict bucket-only principals to the target bucket and permissions; bucket grants do not authorize project-scoped bucket insert/list.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "auth_http_project_roles_gate_each_route"
+          ]
+        },
+        {
+          "id": "EXISTING-ROUTES",
+          "description": "Effective grants authorize bucket get/delete, IAM get/set, object get/list/media/download/insert/multipart/patch/update/delete, and require delete permission for overwrite.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket"
+          ]
+        },
+        {
+          "id": "REVOCATION",
+          "description": "Recheck current binding in each operation transaction and prepared upload; post-revocation HTTP reads fail, already selected immutable downloads may finish.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "iam::iam_revocation_races_object_reads"
+          ]
+        },
+        {
+          "id": "RECREATION-AND-OVERWRITE",
+          "description": "Retain observed owner across recreation, reauthorize a previously missing bucket and atomically enforce overwrite-delete with original precondition order.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+            "storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body"
+          ]
+        },
+        {
+          "id": "VALIDATED-PROFILES",
+          "description": "Unsupported/malformed policies cannot silently grant access; permissive persistence/CAS remains independent of strict authorization.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_rejects_unsupported_policy_semantics",
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_permissive_policy_and_cas"
+          ]
+        },
+        {
+          "id": "GO-AND-COMPOSE",
+          "description": "Pinned Go Policy/SetPolicy pass in strict and permissive modes; source-built strict Compose verifies grant/revoke, isolation, stale etag and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "test_ids": [
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "auth_http_project_roles_gate_each_route",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_requires_effective_get_and_set_permissions",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "iam::iam_revocation_races_object_reads",
+        "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+        "storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+        "storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+        "auth_http_concurrent_creates_without_delete_have_one_winner",
+        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "iam::iam_rejects_unsupported_policy_semantics",
+        "iam::iam_rejects_invalid_policy_shapes",
+        "iam::iam_permissive_policy_and_cas",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "guide-compose-bucket-iam"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "auth_http_project_roles_gate_each_route",
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "iam::iam_revocation_races_object_reads",
+            "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+            "storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "iam::iam_rejects_unsupported_policy_semantics",
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_permissive_policy_and_cas"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "command": "All sh blocks in docs/en/getting-started.md, extracted with awk and executed in order with bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-guide.txt",
+          "test_ids": [
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit local permissive/strict endpoints; fixture bearer tokens; Policy/SetPolicy and JSON object reads",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-015",
@@ -20271,25 +21008,162 @@
       "interface": "IAM authorization",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/iam"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Apply effective grants across the configured hierarchy using sourced IAM semantics.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. Local project-plus-bucket union is verified; the original inherited/configured hierarchy scope is not narrowed. Organization/folder inheritance, actual basic-role convenience membership and broader policy evaluation remain pending.",
+      "dependencies": [
+        "DESIGN-003",
+        "DESIGN-008",
+        "DESIGN-014"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "LOCAL-HIERARCHY",
+          "description": "The additive union of local project roles and matching user/serviceAccount bucket grants authorizes only the owning project/selected bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_bucket_grants_cover_existing_routes"
+          ]
+        },
+        {
+          "id": "CONVENIENCE-DEFAULTS",
+          "description": "Convenience bindings round-trip but match no current local identity because the registry has no basic project roles.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_default_policy_and_versions",
+            "iam::iam_policy_round_trip_and_unconditional_versions"
+          ]
+        },
+        {
+          "id": "TRANSACTION-REEVALUATION",
+          "description": "Recheck current grants and observed owner in the same operation transaction, including revocation and recreation races.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "iam::iam_revocation_races_object_reads"
+          ]
+        },
+        {
+          "id": "GO-AND-COMPOSE",
+          "description": "Pinned Go Policy/SetPolicy pass in strict and permissive modes; source-built strict Compose verifies grant/revoke, isolation, stale etag and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "guide-compose-bucket-iam"
+          ]
+        },
+        {
+          "id": "ORGANIZATION-AND-FOLDER",
+          "description": "Implement organization/folder inherited allow policies alongside project/bucket policies; verify additive propagation, scope isolation, revocation and resource moves with wire/SDK evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BASIC-CONVENIENCE-MEMBERSHIP",
+          "description": "Model real basic-role membership for projectOwner/projectEditor/projectViewer and test matching/nonmatching projects and revocation; no current local principal can join these sets.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BROADER-POLICY-EVALUATION",
+          "description": "Implement conditional, custom/basic-role and broader-principal evaluation plus ACL/UBLA/PAP/deny interactions in explicit follow-up slices with grant/denial evidence; unsupported semantics remain rejected.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "iam::iam_requires_effective_get_and_set_permissions",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "iam::iam_default_policy_and_versions",
+        "iam::iam_policy_round_trip_and_unconditional_versions",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+        "iam::iam_revocation_races_object_reads",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "guide-compose-bucket-iam"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "iam::iam_default_policy_and_versions",
+            "iam::iam_policy_round_trip_and_unconditional_versions",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "iam::iam_revocation_races_object_reads"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "command": "All sh blocks in docs/en/getting-started.md, extracted with awk and executed in order with bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-guide.txt",
+          "test_ids": [
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit local permissive/strict endpoints; fixture bearer tokens; Policy/SetPolicy and JSON object reads",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Implement organization/folder inherited allow policies alongside project/bucket policies; verify additive propagation, scope isolation, revocation and resource moves with wire/SDK evidence.",
+        "Model real basic-role membership for projectOwner/projectEditor/projectViewer and test matching/nonmatching projects and revocation; no current local principal can join these sets.",
+        "Implement conditional, custom/basic-role and broader-principal evaluation plus ACL/UBLA/PAP/deny interactions in explicit follow-up slices with grant/denial evidence; unsupported semantics remain rejected."
+      ],
+      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-017",
@@ -20581,25 +21455,156 @@
       "interface": "setIamPolicy semantics",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/iam"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/getIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/setIamPolicy",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
+        "https://protobuf.dev/programming-guides/json/"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Prevent lost policy updates with atomic etag checks and correct failure behavior.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Public/group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML and signatures remain excluded from this capability, not removed from broader rows. EXACT covers atomic etag concurrency in the unconditional policy scope. Mixed-alphabet/non-zero-trailing-bit cloud parity remains unverified (SPEC-IAM-WIRE); missing policy_revision-row rejection is enforced but lacks a dedicated fixture. Neither is claimed as passing cloud/startup-fixture evidence or invalidates the proven atomic-CAS, persistence and no-reuse cases.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "ATOMIC-CAS",
+          "description": "Concurrent updates with one etag have exactly one winner; stale 412 leaves bindings/etag unchanged and permission checks precede CAS.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_stale_and_concurrent_etags",
+            "iam::iam_requires_effective_get_and_set_permissions"
+          ]
+        },
+        {
+          "id": "UNCONDITIONAL-FRESHNESS",
+          "description": "Omitted/empty etags overwrite; every successful set including an identical policy changes etag without changing bucket metageneration.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_policy_round_trip_and_unconditional_versions",
+            "iam::iam_stale_and_concurrent_etags",
+            "iam::iam_permissive_policy_and_cas"
+          ]
+        },
+        {
+          "id": "BYTE-EQUIVALENCE",
+          "description": "Standard/URL-safe padded/unpadded encodings of valid etag bytes compare equally; malformed base64 is rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+            "iam::iam_rejects_invalid_policy_shapes"
+          ]
+        },
+        {
+          "id": "DURABLE-NO-REUSE",
+          "description": "Global revisions survive restart/migration, never reuse a deleted incarnation's etag and roll back failed migration; tested catalog invariant failures reject startup.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::iam_policy_survives_restart",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "iam::iam_migrates_v5_catalog",
+            "policy_migration_visits_every_bucket_in_binary_name_order",
+            "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
+        },
+        {
+          "id": "GO-AND-COMPOSE",
+          "description": "Pinned Go Policy/SetPolicy pass in strict and permissive modes; source-built strict Compose verifies grant/revoke, isolation, stale etag and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "test_ids": [
+        "iam::iam_stale_and_concurrent_etags",
+        "iam::iam_requires_effective_get_and_set_permissions",
+        "iam::iam_policy_round_trip_and_unconditional_versions",
+        "iam::iam_permissive_policy_and_cas",
+        "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+        "iam::iam_rejects_invalid_policy_shapes",
+        "iam::iam_policy_survives_restart",
+        "iam::iam_recreated_bucket_has_fresh_policy",
+        "iam::iam_migrates_v5_catalog",
+        "policy_migration_visits_every_bucket_in_binary_name_order",
+        "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "guide-compose-bucket-iam"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-checks.txt",
+          "test_ids": [
+            "iam::iam_stale_and_concurrent_etags",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_policy_round_trip_and_unconditional_versions",
+            "iam::iam_permissive_policy_and_cas",
+            "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "iam::iam_migrates_v5_catalog",
+            "policy_migration_visits_every_bucket_in_binary_name_order",
+            "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+            "rejects_future_schema_unversioned_data_and_corruption"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "command": "All sh blocks in docs/en/getting-started.md, extracted with awk and executed in order with bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-iam-guide.txt",
+          "test_ids": [
+            "guide-compose-bucket-iam"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit local permissive/strict endpoints; fixture bearer tokens; Policy/SetPolicy and JSON object reads",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-iam-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "7fadac2d5c15fd2534f915d90295f5d314486cb1",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-028",

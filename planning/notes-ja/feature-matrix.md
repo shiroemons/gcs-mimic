@@ -8,14 +8,14 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 201 | 173 | 0 | 26 | 2 | 0 | 0 |
+| api_operation | 298 | 286 | 0 | 12 | 0 | 0 | 0 |
+| behavior | 201 | 170 | 0 | 27 | 4 | 0 | 0 |
 | project_requirement | 92 | 44 | 0 | 27 | 21 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 173 | 2 | 24 | 2 | 0 | 0 |
+| api_operation | 286 | 2 | 10 | 0 | 0 | 0 |
+| behavior | 170 | 5 | 24 | 2 | 0 | 0 |
 | project_requirement | 44 | 0 | 0 | 0 | 0 | 48 |
 
 ## api_operation
@@ -73,7 +73,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-BUCKETS-003 | buckets.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 1 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
@@ -81,7 +81,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-BUCKETS-008 | buckets.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-BUCKETS-011 | buckets.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 1 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-BUCKETS-013 | buckets.update | NOT_STARTED | P1 | EXACT | NONE | 0 |
 
@@ -611,8 +611,8 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-012 | allUsersによる匿名アクセス許可 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-013 | allAuthenticatedUsersによる認証済みユーザーへの許可 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-014 | バケットIAMの実アクセス制御 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-014 | バケットIAMの実アクセス制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-019 | 定義済みACLの権限への反映 | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -623,7 +623,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-024 | 公開アクセス防止時の公開権限追加エラー | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-025 | 公開アクセス防止下の有効な署名付きアクセス | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-027 | IAMポリシーetagによる競合制御 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-027 | IAMポリシーetagによる競合制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissionsの実効権限結果 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-029 | 署名付きリクエストに対する署名者権限の確認 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 
