@@ -846,7 +846,8 @@ add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
 emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
-The Compose seed journey remains unverified in this integration session.
+The full guide, including seeded Compose and the strict bucket IAM journey,
+passed on 2026-10-22; see the [final integration evidence](evidence/bucket-iam.md).
 
 ## Verification and troubleshooting
 
@@ -871,7 +872,7 @@ ownership, disk space, another owner process and config overrides. Unknown route
 In strict mode, 401 `required` means no `Authorization` header was sent, 401
 `authError` means the credential is unregistered or unsupported (including
 `access_token` or signature query parameters), and 403 `forbidden` means the
-principal lacks the permission in the bucket's project. Check the ready event's
+principal lacks the permission through the effective project or bucket grants. Check the ready event's
 `auth_mode`: running `docker compose up` without `compose.strict.yaml` recreates the
 service in permissive mode.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual

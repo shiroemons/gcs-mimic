@@ -52,7 +52,8 @@ remain in the named evidence files.
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
-| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Bucket IAM, public reads, signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
+| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Public reads, signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
+| Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, public grants, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
 
@@ -75,7 +76,7 @@ success stub does not complete a workflow.
 | Order | Deliverable | Completion boundary | Visible user outcome |
 | ---: | --- | --- | --- |
 | 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED |
-| 2 | Bucket IAM policies | Persist and enforce the declared unconditional bindings; authorize get/set and atomically reject stale etags | Policy operations work and affect access |
+| 2 | Bucket IAM policies | Declared unconditional policy scope passed final Rust, Go, both Linux container architectures and full guide verification on 2026-10-22 | Delivered: policy operations affect access; DESIGN-014 and DESIGN-027 IMPLEMENTED, policy methods and hierarchy PARTIAL |
 | 3 | Public object reads | XML path GET/HEAD; allUsers versus authenticated-only grants; denial, revocation and restart | Public URLs return bytes; private URLs stay protected |
 | 4 | Resumable upload | Initiation, chunks, status/retry, finalization, cancellation/expiry and pinned Go Writer | Normal chunked SDK uploads work |
 | 5 | V4 RSA signed download | Final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
@@ -86,10 +87,11 @@ success stub does not complete a workflow.
 | 10 | Ruby/Rails workflows | Pinned Ruby operations and actual Active Storage public/private delivery plus direct uploads | Tested application integration |
 | 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation capability is **bucket IAM policies**, followed by
-**public object reads**. The preceding seed verification gate is closed by the
-[Linux and Compose evidence](evidence/seed-platform.md). This does not imply
-bucket IAM or XML is implemented.
+The next implementation capability is **public object reads**. The scoped bucket
+IAM deliverable is closed by the [final integration evidence](evidence/bucket-iam.md),
+while the whole policy-method and hierarchy rows retain their explicit missing
+cases. The preceding seed gate is closed by the
+[Linux and Compose evidence](evidence/seed-platform.md). XML remains unavailable.
 
 ### Small steps inside the larger workflows
 

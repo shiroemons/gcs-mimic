@@ -37,7 +37,7 @@ and protocol differences remain in the same feature ledger.
 | Prefix/delimiter/keyset listing and metadata PATCH/PUT | History, glob/context filters, full projection and legacy-input parity | [Listing and metadata](docs/en/evidence/object-list-metadata.md) |
 | Bounded JSON multipart upload with Go `ChunkSize=0` Writer | MIME edge parity, response replay and resumable uploads | [Multipart](docs/en/evidence/multipart.md) |
 | Strict local tokens and project-level predefined storage roles | Public reads and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
-| Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Conditions, public grants, custom/basic roles, ACLs and testIamPermissions | [Runnable guide](docs/en/getting-started.md#grant-and-revoke-bucket-only-access) and [Go verification](sdk-tests/go/verification.md#bucket-iam-integration-2026-10-22) |
+| Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Policy methods remain PARTIAL; conditions, public grants, custom/basic roles, ACLs, testIamPermissions and unresolved wire parity | [Final IAM verification](docs/en/evidence/bucket-iam.md) |
 | Single closed/open/suffix stored-byte ranges with pinned generation | If-Range, transcoding and exact fallback/header parity | [Range](docs/en/evidence/object-range.md) |
 | Native initial seed import before readiness without replay over changes | Fixed octet-stream MIME; manifest metadata and legacy seed defaults remain separate work | [Seed](docs/en/evidence/seed-platform.md) |
 
@@ -111,7 +111,7 @@ their tests were not run as part of this comparison.
 | TLS listener | ❌ HTTP only | ✅ HTTPS, HTTP or both | ❌ HTTP only |
 | Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
 | ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
-| Bucket IAM policy get/set and enforcement | ✅ Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etag checks; no conditions, public grants, ACLs or testIamPermissions | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; supplied etags kept without checking; no enforcement |
+| Bucket IAM policy get/set and enforcement | 🚧 Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etags; policy methods remain PARTIAL for unsupported semantics and wire parity | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; supplied etags kept without checking; no enforcement |
 | Authentication / permission enforcement | 🚧 Strict profile: local bearer tokens and project-plus-bucket predefined storage roles on JSON routes | ❌ | ❌ |
 | Public URL helper | 🚧 CLI builds encoded URLs; not served yet | ❌ | ❌ |
 | Signed-URL GET/PUT requests | ❌ | 🚧 Accepted without signature/expiry checks | 🚧 Accepted without signature/expiry checks |
