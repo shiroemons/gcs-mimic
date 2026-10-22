@@ -39,6 +39,12 @@ const (
 // attempting Application Default Credentials or metadata-server discovery.
 func newStrictClient(t *testing.T, token string) (context.Context, *storage.Client) {
 	t.Helper()
+	ctx, client, _ := newStrictClientWithReadMode(t, token, true)
+	return ctx, client
+}
+
+func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool) (context.Context, *storage.Client, *http.Client) {
+	t.Helper()
 	raw := os.Getenv("GCS_MIMIC_STRICT_ENDPOINT")
 	if raw == "" {
 		t.Skip("GCS_MIMIC_STRICT_ENDPOINT is unset; strict suite requires an explicit local emulator started with --auth-mode strict")
@@ -69,8 +75,11 @@ func newStrictClient(t *testing.T, token string) (context.Context, *storage.Clie
 	t.Cleanup(transport.CloseIdleConnections)
 	var roundTripper http.RoundTripper = emulatorTransport{endpoint: u, base: transport}
 	opts := []option.ClientOption{
-		storage.WithJSONReads(), storage.WithDisabledClientMetrics(),
+		storage.WithDisabledClientMetrics(),
 		option.WithEndpoint(strings.TrimSuffix(u.String(), "/") + "/storage/v1/"),
+	}
+	if jsonReads {
+		opts = append(opts, storage.WithJSONReads())
 	}
 	if token == "" {
 		opts = append(opts, option.WithoutAuthentication())
@@ -79,11 +88,12 @@ func newStrictClient(t *testing.T, token string) (context.Context, *storage.Clie
 		roundTripper = &oauth2.Transport{Source: source, Base: roundTripper}
 		opts = append(opts, option.WithTokenSource(source))
 	}
-	opts = append(opts, option.WithHTTPClient(&http.Client{
+	httpClient := &http.Client{
 		Transport:     roundTripper,
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}))
+	}
+	opts = append(opts, option.WithHTTPClient(httpClient))
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 	client, err := storage.NewClient(ctx, opts...)
@@ -95,7 +105,7 @@ func newStrictClient(t *testing.T, token string) (context.Context, *storage.Clie
 			t.Errorf("close client: %v", err)
 		}
 	})
-	return ctx, client
+	return ctx, client, httpClient
 }
 
 // requireStrictError checks the status code and the first error reason. JSON media reads return

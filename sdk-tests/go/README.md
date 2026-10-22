@@ -1,4 +1,4 @@
-# Official Go JSON SDK tests
+# Official Go SDK tests
 
 This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and
 `google.golang.org/api` v0.307.0, verified on 2026-10-22. `go.sum` records module
@@ -81,8 +81,9 @@ unchanged. Nonempty bucket deletion fails with 409, missing metadata/reads map t
 `storage.ErrObjectNotExist`, and the empty bucket can be deleted. Names include
 slashes, a literal `%2F`, spaces, Unicode and reserved URI characters.
 
-The pinned SDK's `NewReader` defaults to XML, so the shared client explicitly uses
-`storage.WithJSONReads()`. Its Writer uses `Objects.Insert(...).Media(...)`:
+The pinned SDK's `NewReader` defaults to XML, so the shared JSON client explicitly
+uses `storage.WithJSONReads()`. The public/XML suite omits that option. Its Writer
+uses `Objects.Insert(...).Media(...)`:
 single-request uploads are multipart and chunked uploads can be resumable; neither
 is a media upload. Raw media coverage uses the same guarded HTTP client directly.
 `TestObjectMultipartWriter` uses `ChunkSize=0` to exercise single-request multipart,
@@ -173,8 +174,54 @@ See the [listing](../../docs/en/slices/json-object-list.md),
 [metadata](../../docs/en/slices/json-object-metadata.md) and
 [multipart](../../docs/en/slices/json-object-multipart.md) contracts for limits.
 
-Object IAM, `testIamPermissions`, conditional policies, ACLs, `allUsers` grants,
-XML, gRPC, signing and resumable transfers are outside this harness's scope.
+## Public and default XML reads
+
+`public_reads_test.go` uses the same isolated fixtures and guarded transports.
+`TestXMLReadsStrict` checks exact bytes, reader generation/metageneration, full
+size, content type and cache control, a single range, selected generation,
+matching and rejected generation/metageneration conditions, and a zero-length
+`NewRangeReader` (HEAD). `TestXMLReadsEncodedNames` covers spaces, plus, literal
+percent escapes, Unicode and slashes. `TestXMLReadsPermissive` reads without
+credentials using the SDK's default XML transport.
+
+`TestPublicReadsGrantAndRevoke` checks anonymous denial, an `allUsers` bucket
+viewer grant, exact bytes and `public, max-age=3600`, then denial after revocation
+through both XML and JSON reads. `TestPublicReadsAllAuthenticatedUsers` grants
+the distinct authenticated principal set: the registered bucket-reader with no
+project roles succeeds, while anonymous and unregistered bearer clients receive
+401 through both protocols. These status checks describe the local strict
+profile, not independently verified Google authentication error parity.
+
+The pinned upstream [http_client.go at storage/v1.70.0](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go)
+and [reader.go at the same tag](https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/reader.go)
+were inspected in the checksum-verified Go module cache. `newHTTPStorageClient`
+takes the scheme and host from `option.WithEndpoint`; `newRangeReaderXML`
+discards the endpoint's path and builds `/<bucket>/<url.PathEscape(object)>`.
+`NewReader` delegates to `NewRangeReader(0, -1)`; zero length selects HEAD,
+generation is a query parameter, and match conditions use
+`x-goog-if-generation-match` and `x-goog-if-metageneration-match` headers.
+The request recorder asserts the escaped path and HTTP method, preventing a
+passing JSON download from masquerading as an XML read.
+
+`parseReadResponse` takes full size from Content-Length for 200/HEAD and requires
+a parseable `Content-Range: bytes start-end/total` for 206. Reader attributes use
+Content-Type, Content-Encoding, Cache-Control, Last-Modified,
+x-goog-generation and x-goog-metageneration. Invalid numeric generation headers
+or Last-Modified fail reader construction. When present, x-goog-hash CRC32C is
+validated for full, non-transcoded GETs; ranges and HEAD skip that checksum.
+Stored-content-encoding informs gzip/transcoding handling. Absent optional
+headers can yield zero/empty attributes, so the tests explicitly compare the
+supported attributes instead of relying only on reader construction.
+
+Run just this suite with both isolated profiles:
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='TestPublicReads|TestXMLReads' bash scripts/sdk-go.sh
+```
+
+Object IAM, `testIamPermissions`, conditional policies, ACLs, XML writes/listing,
+virtual-host routing, gRPC, signing and resumable transfers remain outside this
+harness's scope.
 A clean skip or `-run XXX` is compilation evidence only;
 successful object execution is recorded in the
 [object media verification summary](../../docs/en/evidence/object-media.md) and
