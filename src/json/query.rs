@@ -246,12 +246,11 @@ fn parse(
             }))
         }
         (&Method::GET | &Method::PATCH, Some(bucket)) => {
-            unsupported(
-                &query,
-                &["generation", "predefinedAcl", "predefinedDefaultObjectAcl"],
-            )?;
+            unsupported(&query, &["generation"])?;
             if *method == Method::GET {
                 false_only(&mut query, "softDeleted")?;
+            } else {
+                unsupported(&query, &["predefinedAcl", "predefinedDefaultObjectAcl"])?;
             }
             let conditions = conditions(&mut query)?;
             let projection = projection(&mut query)?;

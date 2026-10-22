@@ -121,6 +121,185 @@ fn raw(address: &str, request: &str) -> Reply {
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
 #[test]
+fn bucket_patch_full_resource_round_trip_preserves_unchanged_fields() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        assert_eq!(server.insert("patch-round-trip", "project").status, 200);
+        let path = "/storage/v1/b/patch-round-trip";
+        for label in ["first", "second"] {
+            let before = server.request("GET", path, "").json();
+            let mut body = before.clone();
+            body["labels"] = json!({"roundtrip":label});
+            let reply = server.request("PATCH", path, &body.to_string());
+            assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
+            let after = reply.json();
+            assert_eq!(after["labels"], body["labels"]);
+            let revision = before["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            assert_eq!(after["metageneration"], (revision + 1).to_string());
+            assert_ne!(after["etag"], before["etag"]);
+            let mut unchanged_before = before;
+            let mut unchanged_after = after.clone();
+            for field in ["labels", "metageneration", "updated", "etag"] {
+                unchanged_before.as_object_mut().unwrap().remove(field);
+                unchanged_after.as_object_mut().unwrap().remove(field);
+            }
+            assert_eq!(unchanged_after, unchanged_before);
+            assert_eq!(server.request("GET", path, "").json(), after);
+        }
+    }
+}
+
+#[test]
+fn bucket_patch_location_comparison_is_case_insensitive() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("patch-location", "project");
+        let path = "/storage/v1/b/patch-location";
+        for location in if profile == "native" {
+            ["us", "Us", "US"]
+        } else {
+            ["us-central1", "Us-Central1", "US-CENTRAL1"]
+        } {
+            let before = server.request("GET", path, "").json();
+            let reply = server.request("PATCH", path, &json!({"location":location}).to_string());
+            assert_eq!(reply.status, 200, "{profile}: {}", reply.body);
+            assert_eq!(reply.json()["location"], before["location"]);
+        }
+        let before = server.request("GET", path, "").json();
+        server
+            .request("PATCH", path, r#"{"location":"EU","labels":{"lost":"no"}}"#)
+            .error(501, "notImplemented");
+        assert_eq!(server.request("GET", path, "").json(), before);
+    }
+}
+
+#[test]
+fn bucket_get_rejects_patch_only_acl_query_parameters() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let before = server.insert("patch-query", "project").json();
+        for query in [
+            "predefinedAcl=private",
+            "predefinedDefaultObjectAcl=private",
+        ] {
+            let path = format!("/storage/v1/b/patch-query?{query}");
+            server
+                .request("GET", &path, "")
+                .error(400, "invalidParameter");
+            server
+                .request("PATCH", &path, "{}")
+                .error(501, "notImplemented");
+        }
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/patch-query", "")
+                .json(),
+            before
+        );
+    }
+}
+
+#[test]
+fn bucket_patch_null_settings_follow_profile_defaults() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("patch-null-settings", "project");
+        let path = "/storage/v1/b/patch-null-settings";
+        for body in [
+            r#"{"versioning":null}"#,
+            r#"{"versioning":{"enabled":null}}"#,
+            r#"{"defaultEventBasedHold":null}"#,
+        ] {
+            let before = server.request("PATCH", path, r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true,"labels":{"keep":"yes"},"storageClass":"ARCHIVE"}"#).json();
+            let reply = server.request("PATCH", path, body);
+            if profile == "native" {
+                reply.error(400, "invalidArgument");
+                assert_eq!(server.request("GET", path, "").json(), before);
+            } else {
+                assert_eq!(reply.status, 200, "{}", reply.body);
+                let after = reply.json();
+                let clears_hold = body.contains("defaultEventBasedHold");
+                assert_settings(&after, profile, clears_hold, !clears_hold);
+                for field in ["labels", "storageClass", "timeCreated", "location"] {
+                    assert_eq!(after[field], before[field]);
+                }
+                assert_eq!(server.request("GET", path, "").json(), after);
+            }
+        }
+    }
+}
+
+#[test]
+fn bucket_patch_accepts_only_empty_lifecycle_rules() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        server.insert("patch-lifecycle", "project");
+        let path = "/storage/v1/b/patch-lifecycle";
+        let before = server.request("PATCH", path, r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true,"labels":{"keep":"yes"}}"#).json();
+        let reply = server.request("PATCH", path, r#"{"lifecycle":{"rule":[]}}"#);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let after = reply.json();
+        assert_eq!(after["metageneration"], "3");
+        for field in [
+            "versioning",
+            "defaultEventBasedHold",
+            "labels",
+            "timeCreated",
+            "storageClass",
+        ] {
+            assert_eq!(after[field], before[field]);
+        }
+        for lifecycle in [
+            json!({"rule":[],"extra":null}),
+            json!({"rule":null}),
+            json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}),
+        ] {
+            server
+                .request(
+                    "PATCH",
+                    path,
+                    &json!({"lifecycle":lifecycle,"labels":null}).to_string(),
+                )
+                .error(501, "notImplemented");
+            assert_eq!(server.request("GET", path, "").json(), after);
+        }
+    }
+}
+
+#[test]
+fn bucket_patch_missing_bucket_validates_body_before_lookup() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let path = "/storage/v1/b/missing-bucket";
+        for body in ["", "{", "[]", r#"{"storageClass":null}"#] {
+            assert_eq!(
+                server.request("PATCH", path, body).status,
+                400,
+                "{profile}: {body}"
+            );
+        }
+        server.request("PATCH", path, "{}").error(404, "notFound");
+        assert!(
+            server
+                .request("GET", "/storage/v1/b?project=project", "")
+                .json()
+                .get("items")
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn bucket_patch_merges_labels_class_and_preserves_resources() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
@@ -240,10 +419,7 @@ fn bucket_patch_empty_null_and_invalid_inputs() {
             r#"{"labels":{"key":1}}"#,
             r#"{"storageClass":null}"#,
             r#"{"storageClass":""}"#,
-            r#"{"versioning":null}"#,
             r#"{"versioning":true}"#,
-            r#"{"versioning":{"enabled":null}}"#,
-            r#"{"defaultEventBasedHold":null}"#,
             r#"{"defaultEventBasedHold":"true"}"#,
         ] {
             let reply = server.request("PATCH", path, body);

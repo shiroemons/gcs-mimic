@@ -946,7 +946,7 @@ async fn bucket_response(
     let value = match operation {
         BucketRequest::Patch { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
-            let update = json::parse_bucket_patch(&bytes)?;
+            let update = json::parse_bucket_patch(&bytes, profile)?;
             let record = state
                 .catalog
                 .patch_bucket(

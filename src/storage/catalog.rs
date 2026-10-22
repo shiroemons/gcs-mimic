@@ -539,48 +539,95 @@ impl Catalog {
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run(move |connection| {
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
-            let mut record = transaction.query_row(
-                &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"), [&name], read_bucket,
-            ).optional().map_err(unavailable)?.ok_or(CatalogError::NotFound)?;
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(unavailable)?;
+            let mut record = transaction
+                .query_row(
+                    &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
+                    [&name],
+                    read_bucket,
+                )
+                .optional()
+                .map_err(unavailable)?
+                .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
             if if_metageneration_match.is_some_and(|value| value != record.metageneration)
-                || if_metageneration_not_match == Some(record.metageneration) {
+                || if_metageneration_not_match == Some(record.metageneration)
+            {
                 return Err(CatalogError::PreconditionFailed);
             }
-            if update.location.as_ref().is_some_and(|location| *location != record.location) {
+            if update
+                .location
+                .as_ref()
+                .is_some_and(|location| !location.eq_ignore_ascii_case(&record.location))
+            {
                 return Err(CatalogError::UnsupportedMetadata("location".into()));
             }
             if let Some(labels) = update.labels {
                 if let Some(labels) = labels {
                     for (key, value) in labels {
-                        if !valid_label(&key, true) || value.as_deref().is_some_and(|value| !valid_label(value, false)) {
-                            return Err(CatalogError::InvalidMetadata("Invalid bucket label".into()));
+                        // Library callers can bypass adapter validation.
+                        if !valid_label(&key, true)
+                            || value
+                                .as_deref()
+                                .is_some_and(|value| !valid_label(value, false))
+                        {
+                            return Err(CatalogError::InvalidMetadata(
+                                "Invalid bucket label".into(),
+                            ));
                         }
-                        if let Some(value) = value { record.labels.insert(key, value); }
-                        else { record.labels.remove(&key); }
+                        if let Some(value) = value {
+                            record.labels.insert(key, value);
+                        } else {
+                            record.labels.remove(&key);
+                        }
                     }
-                } else { record.labels.clear(); }
+                } else {
+                    record.labels.clear();
+                }
             }
             if record.labels.len() > 64 {
-                return Err(CatalogError::InvalidMetadata("A bucket can have at most 64 labels".into()));
+                return Err(CatalogError::InvalidMetadata(
+                    "A bucket can have at most 64 labels".into(),
+                ));
             }
             if let Some(class) = update.storage_class {
                 validate_storage_class(&class)?;
                 record.storage_class = class;
             }
-            if let Some(enabled) = update.versioning_enabled { record.versioning_enabled = enabled; }
-            if let Some(hold) = update.default_event_based_hold { record.default_event_based_hold = hold; }
-            record.metageneration = record.metageneration.checked_add(1).ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
+            if let Some(enabled) = update.versioning_enabled {
+                record.versioning_enabled = enabled;
+            }
+            if let Some(hold) = update.default_event_based_hold {
+                record.default_event_based_hold = hold;
+            }
+            record.metageneration = record
+                .metageneration
+                .checked_add(1)
+                .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
             let updated = unix_millis(clock.now())?;
             record.updated = system_time(updated).map_err(unavailable)?;
-            transaction.execute(
-                "UPDATE buckets SET labels = ?2, storage_class = ?3, versioning_enabled = ?4, default_event_based_hold = ?5, metageneration = ?6, updated = ?7 WHERE name = ?1",
-                params![name, serde_json::to_string(&record.labels).map_err(unavailable)?, record.storage_class, record.versioning_enabled, record.default_event_based_hold, record.metageneration, updated],
-            ).map_err(unavailable)?;
+            transaction
+                .execute(
+                    "UPDATE buckets SET labels = ?2, storage_class = ?3,
+                     versioning_enabled = ?4, default_event_based_hold = ?5,
+                     metageneration = ?6, updated = ?7 WHERE name = ?1",
+                    params![
+                        name,
+                        serde_json::to_string(&record.labels).map_err(unavailable)?,
+                        record.storage_class,
+                        record.versioning_enabled,
+                        record.default_event_based_hold,
+                        record.metageneration,
+                        updated,
+                    ],
+                )
+                .map_err(unavailable)?;
             transaction.commit().map_err(unavailable)?;
             Ok(record)
-        }).await
+        })
+        .await
     }
 
     /// Reads (versioning, default event-based hold) in the caller's mutation transaction.

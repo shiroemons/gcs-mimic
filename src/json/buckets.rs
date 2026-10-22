@@ -8,6 +8,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+const LEGACY_LOCATION: &str = "US-CENTRAL1";
+
 pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "acl",
     "autoclass",
@@ -236,7 +238,10 @@ pub fn parse_insert_with_profile(
     })
 }
 
-pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonError> {
+pub fn parse_bucket_patch(
+    bytes: &[u8],
+    profile: CompatProfile,
+) -> Result<BucketMetadataUpdate, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -249,6 +254,9 @@ pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonErro
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
+                continue;
+            }
             return Err(JsonError::unsupported(field));
         }
     }
@@ -266,6 +274,9 @@ pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonErro
     let boolean = |value: Option<&Value>, field: &str| {
         value
             .map(|value| {
+                if value.is_null() && profile == CompatProfile::LegacyEmulator {
+                    return Ok(false);
+                }
                 value.as_bool().ok_or_else(|| {
                     JsonError::invalid_argument(format!("{field} must be a boolean"))
                 })
@@ -318,6 +329,9 @@ pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonErro
     let versioning_enabled = body
         .get("versioning")
         .map(|value| {
+            if value.is_null() && profile == CompatProfile::LegacyEmulator {
+                return Ok(Some(false));
+            }
             let versioning = value
                 .as_object()
                 .ok_or_else(|| JsonError::invalid_argument("versioning must be an object"))?;
@@ -325,6 +339,17 @@ pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonErro
         })
         .transpose()?
         .flatten();
+    let mut location = string("location")?;
+    if profile == CompatProfile::LegacyEmulator {
+        if location
+            .as_ref()
+            .is_some_and(|location| !location.eq_ignore_ascii_case(LEGACY_LOCATION))
+        {
+            return Err(JsonError::unsupported("location"));
+        }
+        // The profile exposes a fixed location independently of the stored placement.
+        location = None;
+    }
     Ok(BucketMetadataUpdate {
         labels,
         storage_class,
@@ -333,7 +358,7 @@ pub fn parse_bucket_patch(bytes: &[u8]) -> Result<BucketMetadataUpdate, JsonErro
             body.get("defaultEventBasedHold"),
             "defaultEventBasedHold",
         )?,
-        location: string("location")?,
+        location,
     })
 }
 
@@ -377,7 +402,7 @@ pub fn bucket_resource_with_profile(
         value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();
     }
     if profile == CompatProfile::LegacyEmulator {
-        value["location"] = "US-CENTRAL1".into();
+        value["location"] = LEGACY_LOCATION.into();
         value["locationType"] = "region".into();
         value["projectNumber"] = "0".into();
         if bucket.metageneration == 1 {
