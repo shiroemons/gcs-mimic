@@ -2,7 +2,7 @@
 
 A Google Cloud Storage emulator in Rust for local development and CI.
 
-The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media/multipart upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. Authentication and permissions are not enforced; use an isolated local development environment.
+The current implementation provides persistent JSON bucket create/get/list/delete and streaming object media/multipart upload, metadata get/patch/update, prefix/delimiter listing with keyset paging, whole-object download and delete, with a bounded SQLite catalog, opaque disk blobs, health/readiness checks and graceful shutdown. The default permissive profile enforces no authentication; use an isolated local development environment. An optional strict profile checks local bearer tokens against project-level predefined storage roles.
 
 ## Implementation status
 
@@ -11,17 +11,17 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Standalone binary | ✅ Available | Build and run from source; no Rust installation is needed at runtime. |
 | Prebuilt binary distribution | 🚧 Partial | CI is configured for macOS/Windows ARM64 and x86-64, plus Linux GNU/musl on both CPUs. All-platform execution and public release are pending. |
 | Docker and Compose | 🚧 Partial | Non-root runtime; native amd64/arm64 Foundation CI passed. GHCR publication is configured but has not run. |
-| CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. |
+| CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery completes before readiness; SIGINT/SIGTERM drain works. Fixture initialization is unavailable. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart upload with fixed/custom metadata and MD5/CRC32C, metadata/whole-media get and delete, prefix/delimiter/offset listing with keyset paging, metadata patch/update, atomic generation/metageneration conditions and nonempty bucket protection. Resumable, ranges, glob/version listing and ACL/hold/retention metadata are unavailable. |
 | XML and gRPC APIs | ❌ Unavailable | Unsupported routes return 404 without reading request bodies. |
 | Persistence | 🚧 Partial | Transactional bucket/object catalog, opaque blobs, exclusive directory lock and restart/crash recovery. Individual fsync crash windows, power loss and fixtures remain unverified or unavailable. |
-| Authentication, IAM and ACLs | ❌ Unavailable | Neither permissive nor strict storage authentication is implemented. |
-| Public and signed URLs | ❌ Unavailable | No URL helpers, signing or signature verification. |
+| Authentication, IAM and ACLs | 🚧 Partial | Explicit permissive (default) and strict profiles. Strict mode resolves local bearer tokens from a JSON identity registry and enforces a pinned snapshot of predefined `roles/storage.*` roles granted per project on JSON bucket/object routes. Bucket/object IAM policies, ACLs and `allUsers`/`allAuthenticatedUsers` are unavailable. |
+| Public and signed URLs | 🚧 Partial | `gcs-mimic url public` builds encoded path-style URLs without changing permissions. The server does not serve them yet (404); public grants, XML reads and signed URLs are unavailable. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.307.0 verified for JSON bucket CRUD/paging, single-request Writer (`ChunkSize=0`), Attrs/NewReader/Delete, Objects iterators and conditional Update. Upload tokens require generation-match; replay and resumable Writer are unsupported. Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.69.0 and API v0.307.0 verified for JSON bucket CRUD/paging, single-request Writer (`ChunkSize=0`), Attrs/NewReader/Delete, Objects iterators and conditional Update, plus strict-mode static bearer tokens for admin, viewer and creator roles. Upload tokens require generation-match; replay and resumable Writer are unsupported. Ruby and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -78,7 +78,8 @@ their tests were not run as part of this comparison.
 | Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
 | ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
 | IAM policy operations | ❌ | ❌ | 🚧 Stored policies and permissive stubs |
-| Authentication / permission enforcement | ❌ | ❌ | ❌ |
+| Authentication / permission enforcement | 🚧 Strict profile: local bearer tokens and project-level predefined storage roles on JSON routes | ❌ | ❌ |
+| Public URL helper | 🚧 CLI builds encoded URLs; not served yet | ❌ | ❌ |
 | Signed-URL GET/PUT requests | ❌ | 🚧 Accepted without signature/expiry checks | 🚧 Accepted without signature/expiry checks |
 | Signed-URL signature / expiry validation | ❌ | ❌ | ❌ |
 
@@ -119,6 +120,22 @@ The service is exposed only on host loopback. Follow the [runnable guide](docs/e
 ```sh
 COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose stop
 ```
+
+To require authentication, add `compose.strict.yaml`. It selects
+`auth_mode=strict` and mounts the local fixture registry `config/identities.json`,
+whose admin, object-viewer and object-creator tokens are public emulator test
+values, not Google credentials. Send them as `Authorization: Bearer <token>`;
+anonymous requests return 401 and missing permissions return 403. Only
+project-level predefined storage roles are enforced.
+
+```sh
+COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo GCS_MIMIC_PORT=0 \
+  docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
+```
+
+`gcs-mimic url public --base-url URL --bucket NAME --object NAME` prints an encoded
+path-style object URL and changes no permission. The emulator does not serve that
+URL yet; public grants and XML reads are planned for the next slice.
 
 The container runs as a non-root user on a read-only root, with a writable named data volume. Compose sets limits of 128 MiB memory, one CPU and 64 processes. These are configured limits, not measured resource requirements. Ordinary stop/down preserves the catalog; deliberate volume removal resets it.
 
@@ -166,7 +183,7 @@ Object APIs support only the documented [media](docs/en/slices/json-object-media
 
 [Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; advisory and post-EOF waits default to 30 seconds and return 503 on expiry. After a post-EOF timeout the mutation outcome is unknown: re-read state or retry with preconditions, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and v3 catalogs migrate to v4, which adds stored object metadata.
 
-Fixture loading, authentication, signed URLs, CORS and TLS are not available. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
+Fixture loading, bucket/object IAM policies, ACLs, public grants, signed URLs, CORS and TLS are not available. Strict mode covers only project-level predefined storage roles; see the [strict authentication contract](docs/en/slices/strict-auth.md) and SPEC-017 for local error and missing-bucket rules. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
 
 For contributors, install [just](https://github.com/casey/just#installation) and
 run `just check` while editing, then `just pre-push` before pushing to run the

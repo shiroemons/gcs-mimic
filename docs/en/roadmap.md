@@ -22,7 +22,7 @@ Version increments, immutable release identity and licensing follow the
 
 ## Suggested first slices
 
-P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Seeding, strict/permissive profiles and TLS remain unimplemented. Current progress is recorded only in the ledger.
+P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Seeding and TLS remain unimplemented; strict/permissive profiles now exist. Current progress is recorded only in the ledger.
 
 Bucket create/get/list/delete and streaming object media upload/metadata/download/delete use
 an indexed transactional catalog and opaque immutable blobs. Checksums, atomic generation
@@ -51,14 +51,25 @@ The **JSON multipart upload** subset now supports bounded metadata/media contain
 optional final checksums and the pinned Go `ChunkSize=0` Writer, including conditional
 publication and rejected-overwrite preservation. MIME/error edge parity and token replay
 remain open; see the [contract](slices/json-object-multipart.md) and
-[integration evidence](evidence/multipart.md). The next slice is **public/private access**,
-item 5 below. Resumable sessions remain separate P3 work; Ruby/Rails is unverified.
+[integration evidence](evidence/multipart.md). Resumable sessions remain separate P3
+work; Ruby/Rails is unverified.
+
+Item 5 is split. The first part, **strict local authentication**, is done: explicit
+permissive/strict profiles, a JSON local principal registry, project-level enforcement
+of a pinned predefined `roles/storage.*` snapshot on the JSON routes (including the
+overwrite `storage.objects.delete` rule) and the side-effect-free `gcs-mimic url public`
+helper. DESIGN-001/003/008/046 are IMPLEMENTED; DESIGN-002/004 and the JSON method rows
+remain PARTIAL, with SPEC-017 open. See the [contract](slices/strict-auth.md) and
+[evidence](evidence/strict-auth.md). The next slice is **bucket IAM and public reads**:
+bucket IAM policy get/set, `allUsers`/`allAuthenticatedUsers` grants and XML path-style
+GET/HEAD for public object reads, so URLs built by the helper become servable when a
+public grant exists.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.
 3. **One object path:** media upload/download/metadata/delete with streaming, checksum validation, generation and create-if-absent. Include failed and concurrent requests.
 4. **List and metadata:** prefix/delimiter/page tokens, metadata patch vs replacement, conditional requests and official SDK integration.
-5. **Public/private slice:** anonymous access, a minimal strict principal/role model, public grants, denied requests and public URL construction.
+5. **Public/private slice:** anonymous access, a minimal strict principal/role model, public grants, denied requests and public URL construction. The principal/role model, denied requests and URL construction are done; bucket IAM policies, public grants and XML public reads are next.
 6. **Signed URL slice:** V4 download/upload using local signing keys, final external host, expiry/tampering and signer permission checks.
 
 The full method row `objects.insert` remains `PARTIAL` with media and the scoped multipart subset. Track multipart and resumable acceptance cases separately. Similarly, `objects.list` is not complete merely because an unfiltered first page works.

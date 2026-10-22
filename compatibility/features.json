@@ -841,8 +841,18 @@
           ]
         },
         {
+          "id": "JSON-BUCKETS-001-STRICT-ROLES",
+          "description": "Strict mode: anonymous delete returns 401 required, invalid credentials 401 authError, callers without storage.buckets.delete on the owning project 403 forbidden with the bucket retained; an admin deletes an empty bucket after restart.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-BUCKETS-001-PENDING",
-          "description": "Enforce delete permission and soft-delete/retention interactions.",
+          "description": "Enforce bucket IAM policies/ACLs beyond project-level predefined roles, and soft-delete/retention interactions.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -851,9 +861,23 @@
         "bkt_http_crud_metadata_conditions_and_errors",
         "delete_preconditions_are_atomic_and_preserve_failed_records",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
+        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -894,7 +918,7 @@
         }
       ],
       "known_deviations": [
-        "Authentication/IAM/ACL and soft-delete/retention are not enforced.",
+        "Strict mode enforces storage.buckets.delete through project-level predefined roles only; bucket IAM policies, ACLs and soft-delete/retention are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "DELETE not-match failure uses the local 412 rule; exact Google precedence remains unverified."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
@@ -963,14 +987,27 @@
           ]
         },
         {
+          "id": "JSON-BUCKETS-002-STRICT-ROLES",
+          "description": "Strict mode: anonymous get returns 401 required (including missing buckets), invalid credentials 401 authError, callers without storage.buckets.get on the owning project (object viewer, storage.editor, other projects) 403 forbidden; a missing bucket is 404 only for callers holding storage.buckets.get in some project.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-BUCKETS-002-PENDING",
-          "description": "Enforce get permission, complete ACL/owner metadata and soft-deleted generations.",
+          "description": "Enforce bucket IAM policies/ACLs beyond project-level predefined roles, complete ACL/owner metadata and soft-deleted generations.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
       "test_ids": [
-        "bkt_http_crud_metadata_conditions_and_errors"
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
         {
@@ -980,6 +1017,17 @@
           "artifact": "docs/en/evidence/bucket-tests.txt",
           "test_ids": [
             "bkt_http_crud_metadata_conditions_and_errors"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
         }
       ],
@@ -1001,7 +1049,7 @@
         }
       ],
       "known_deviations": [
-        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "Strict mode enforces storage.buckets.get through project-level predefined roles only; bucket IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Recognized unsupported field selection/generation/billing semantics return 501."
@@ -1181,8 +1229,18 @@
           ]
         },
         {
+          "id": "JSON-BUCKETS-005-STRICT-ROLES",
+          "description": "Strict mode: anonymous insert returns 401 required, invalid credentials 401 authError, callers without storage.buckets.create on the ?project= project (object viewer, storage.editor elsewhere) 403 forbidden; admin and storage.editor create buckets in their project.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-BUCKETS-005-PENDING",
-          "description": "Enforce create permissions, project/domain ownership and advanced bucket settings/default policies.",
+          "description": "Enforce organization/IAM policies beyond project-level predefined roles, project/domain ownership and advanced bucket settings/default policies.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -1200,7 +1258,10 @@
         "bkt_ins_001_defaults_and_server_owned_values",
         "bkt_http_query_body_name_and_route_boundaries",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-        "bkt_ins_002_output_only_fields_do_not_override_server_state"
+        "bkt_ins_002_output_only_fields_do_not_override_server_state",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
         {
@@ -1214,6 +1275,17 @@
             "bkt_http_query_body_name_and_route_boundaries",
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
             "bkt_ins_002_output_only_fields_do_not_override_server_state"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
         }
       ],
@@ -1235,7 +1307,7 @@
         }
       ],
       "known_deviations": [
-        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "Strict mode enforces storage.buckets.create on the ?project= project through project-level predefined roles only; IAM/organization policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
@@ -1325,8 +1397,18 @@
           ]
         },
         {
+          "id": "JSON-BUCKETS-006-STRICT-ROLES",
+          "description": "Strict mode: anonymous list returns 401 required, invalid credentials or credential query parameters 401 authError, callers without storage.buckets.list on the ?project= project (object viewer, other projects) 403 forbidden; admin and storage.editor list their project.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-BUCKETS-006-PENDING",
-          "description": "Enforce list permissions, complete full projection, soft-deleted listing and regional partial failures.",
+          "description": "Enforce IAM policies beyond project-level predefined roles, complete full projection, soft-deleted listing and regional partial failures.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -1334,7 +1416,10 @@
       "test_ids": [
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "bkt_http_sorted_scoped_pagination_and_limits",
-        "bkt_lst_002_token_tampering_and_invalid_shapes"
+        "bkt_lst_002_token_tampering_and_invalid_shapes",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
         {
@@ -1346,6 +1431,17 @@
             "bkt_http_list_clamps_to_1000_with_lookahead",
             "bkt_http_sorted_scoped_pagination_and_limits",
             "bkt_lst_002_token_tampering_and_invalid_shapes"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
         }
       ],
@@ -1367,7 +1463,7 @@
         }
       ],
       "known_deviations": [
-        "Authentication, storage.buckets permissions, IAM and ACL/ownership are not enforced.",
+        "Strict mode enforces storage.buckets.list on the ?project= project through project-level predefined roles only; IAM policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose."
@@ -3473,8 +3569,18 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-004-STRICT-ROLES",
+          "description": "Strict mode: anonymous delete returns 401 required, invalid credentials 401 authError, callers without storage.objects.delete on the bucket's project (object viewer, other projects) 403 forbidden with the object retained; admin deletes after restart.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-004-PENDING",
-          "description": "Enforce IAM/ACL, retention/holds/versioning/soft-delete, userProject and production token replay.",
+          "description": "Enforce bucket/object IAM policies and ACLs beyond project-level predefined roles, retention/holds/versioning/soft-delete, userProject and production token replay.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -3495,7 +3601,10 @@
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
         "TestObjectMediaLifecycle",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
         {
@@ -3530,6 +3639,17 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3550,7 +3670,7 @@
         }
       ],
       "known_deviations": [
-        "Unauthenticated local deletion; no permission, retention, hold, version-history or soft-delete semantics.",
+        "Strict mode enforces storage.objects.delete through project-level predefined roles only; bucket/object IAM policies and ACLs are not enforced and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule. No retention, hold, version-history or soft-delete semantics.",
         "SPEC-008: mutation not-match returns 412 and mixed/missing condition precedence is a local rule.",
         "SPEC-013: GET/DELETE tokens are accepted without replay; same-token repeated DELETE returns 404 after 204.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
@@ -3640,8 +3760,20 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-005-STRICT-ROLES",
+          "description": "Strict mode: anonymous metadata/media/download GET returns 401 required, invalid credentials 401 authError, callers without storage.objects.get on the bucket's project (object creator, storage.editor, other projects) 403 forbidden; object viewers read metadata and exact bytes, including with the pinned Go SDK.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry",
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement Range/If-Range, ETag conditions, fields/full ACL projection, version/soft-delete selection, IAM, download redirect/header parity and token replay.",
+          "description": "Implement Range/If-Range, ETag conditions, fields/full ACL projection, version/soft-delete selection, bucket/object IAM policies, ACLs and allUsers reads, download redirect/header parity and token replay.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -3663,7 +3795,12 @@
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
         "TestObjectMediaLifecycle",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "obj_http_trickle_download_stops_at_absolute_deadline"
+        "obj_http_trickle_download_stops_at_absolute_deadline",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "TestStrictAuthObjectViewer",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials"
       ],
       "verification": [
         {
@@ -3690,6 +3827,27 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3707,12 +3865,29 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; strict local bearer tokens; viewer Attrs/NewReader succeed, anonymous and unregistered callers fail 401",
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Range/If-Range, ETag conditions, fields, userProject and unsupported semantics return local 501; full omits ACL/owner; no strict auth or historical versions.",
+        "Range/If-Range, ETag conditions, fields, userProject and unsupported semantics return local 501; full omits ACL/owner; no historical versions.",
+        "Strict mode enforces storage.objects.get through project-level predefined roles only; bucket/object IAM policies, ACLs and allUsers public reads are not modeled and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
@@ -3878,8 +4053,23 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-007-STRICT-ROLES",
+          "description": "Strict mode: anonymous media/multipart uploads return 401 required, invalid credentials 401 authError and callers without storage.objects.create 403 forbidden, all before the body is read or staged; overwriting a live object also needs storage.objects.delete (object creator: new object 200, overwrite 403, 412 precondition first), rechecked in the publication transaction so concurrent creates have one winner; an upload into a bucket recreated in another project returns 403 without publication.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "TestStrictAuthObjectCreator"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-007-PENDING",
-          "description": "Implement resumable sessions, ACL/IAM permissions, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay.",
+          "description": "Implement resumable sessions, bucket/object IAM policies and ACLs beyond project-level predefined roles, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4070,9 +4260,41 @@
         "obj_multipart_http_media_json_and_custom_metadata_caps",
         "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
-        "TestObjectMultipartWriter"
+        "TestObjectMultipartWriter",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "auth_http_concurrent_creates_without_delete_have_one_winner",
+        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+        "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+        "TestStrictAuthObjectCreator"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthObjectCreator"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -4221,7 +4443,7 @@
         }
       ],
       "known_deviations": [
-        "Media and scoped multipart are supported; resumable, ACL/IAM, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. No permission enforcement.",
+        "Media and scoped multipart are supported; resumable, ACL/IAM policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-level predefined roles only; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
@@ -4375,8 +4597,18 @@
           ]
         },
         {
+          "id": "OBJECT-LIST-STRICT-ROLES",
+          "description": "Strict mode: anonymous listing returns 401 required, invalid credentials 401 authError, callers without storage.objects.list on the bucket's project (object creator, other projects) 403 forbidden; object viewers and admins list; a missing bucket is 404 only for callers holding storage.objects.list in some project.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "OBJECT-LIST-PENDING",
-          "description": "Add production permissions/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "description": "Add IAM policies/ACLs beyond project-level predefined roles, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -4390,9 +4622,23 @@
         "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
         "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
         "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
-        "TestObjectList"
+        "TestObjectList",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
         {
           "command": "just pre-push",
           "result": "PASS",
@@ -4467,7 +4713,7 @@
         }
       ],
       "known_deviations": [
-        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
@@ -4663,8 +4909,18 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-010-STRICT-ROLES",
+          "description": "Strict mode: anonymous PATCH returns 401 required, invalid credentials 401 authError, callers without storage.objects.update on the bucket's project (object viewer, other projects) 403 forbidden before the body is parsed, leaving metadata unchanged; admins patch.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-010-PENDING",
-          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "description": "Implement bucket/object IAM policies and ACLs beyond project-level predefined roles, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4686,9 +4942,23 @@
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
         {
           "command": "just pre-push",
           "result": "PASS",
@@ -5139,8 +5409,18 @@
           ]
         },
         {
+          "id": "JSON-OBJECTS-015-STRICT-ROLES",
+          "description": "Strict mode: anonymous PUT returns 401 required, invalid credentials 401 authError, callers without storage.objects.update on the bucket's project (object viewer, other projects) 403 forbidden before the body is parsed, leaving metadata unchanged; admins replace metadata.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "JSON-OBJECTS-015-PENDING",
-          "description": "Implement strict permissions, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
+          "description": "Implement bucket/object IAM policies and ACLs beyond project-level predefined roles, ACL/owner/holds/retention/contexts/customTime, historical versions, remaining transports and independent legacy JSON input/token negotiation fidelity.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5162,9 +5442,23 @@
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
         {
           "command": "just pre-push",
           "result": "PASS",
@@ -8100,7 +8394,7 @@
         "Other-resource pagination is unimplemented; tokens are not authenticated snapshots.",
         "Bucket maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
         "The empty-token rule is local; full projection omits ACL/owner.",
-        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
@@ -10646,8 +10940,18 @@
           ]
         },
         {
+          "id": "OBJECT-LIST-STRICT-ROLES",
+          "description": "Strict mode: anonymous listing returns 401 required, invalid credentials 401 authError, callers without storage.objects.list on the bucket's project (object creator, other projects) 403 forbidden; object viewers and admins list; a missing bucket is 404 only for callers holding storage.objects.list in some project.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
           "id": "OBJECT-LIST-PENDING",
-          "description": "Add production permissions/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
+          "description": "Add IAM policies/ACLs beyond project-level predefined roles, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -10661,9 +10965,23 @@
         "object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors",
         "object_list_default_and_upper_page_limit_are_1000_for_both_projections",
         "storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work",
-        "TestObjectList"
+        "TestObjectList",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry"
       ],
       "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline -- --skip obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
           "result": "PASS",
@@ -10708,7 +11026,7 @@
         }
       ],
       "known_deviations": [
-        "Production authentication, storage.objects.list/getIamPolicy checks and ACL/owner projection are unimplemented; full returns the existing metadata GET subset.",
+        "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
@@ -18540,25 +18858,62 @@
       "interface": "Emulator extension",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Skip authentication only in the named profile; never count this as strict authentication coverage.",
+      "notes": "auth_mode=permissive is the default and is selected explicitly by CLI --auth-mode, GCS_MIMIC_AUTH_MODE or JSON auth_mode with the existing precedence. It ignores every Authorization header and credential query parameter and performs no permission checks; the ready event reports auth_mode. Permissive results are never counted as strict coverage. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-001-DEFAULT",
+          "description": "Without auth settings the ready event reports auth_mode permissive without an identity count; anonymous, unknown bearer, Basic, GOOG4 and duplicate Authorization headers all create, read and upload successfully, and credential query parameters are ignored.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_permissive_ignores_any_authorization",
+            "auth::tests::strict_caller_resolution"
+          ]
+        },
+        {
+          "id": "DESIGN-001-SELECTION",
+          "description": "auth_mode follows CLI > environment > JSON file > default precedence; unknown or miscased modes, an empty identity_file, strict without identity_file and identity_file with permissive fail before readiness, catalog creation or listener binding.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::authentication_profile_precedence_and_validation",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth_http_permissive_ignores_any_authorization",
+        "auth::tests::strict_caller_resolution",
+        "config::tests::authentication_profile_precedence_and_validation",
+        "auth_http_startup_rejects_invalid_profiles_and_registries"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_permissive_ignores_any_authorization",
+            "auth::tests::strict_caller_resolution",
+            "config::tests::authentication_profile_precedence_and_validation",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-002",
@@ -18568,25 +18923,145 @@
       "interface": "Authorization semantics",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control"
+        "https://docs.cloud.google.com/storage/docs/access-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate supported credentials and permissions; unsupported schemes must not silently grant access.",
+      "notes": "auth_mode=strict resolves callers from a local bearer-token registry and enforces project-level predefined storage roles on the JSON bucket/object routes, using the iam-json permission per method and storage.objects.delete for an objects.insert overwrite (rechecked in the publication transaction). Unsupported credential schemes and credential query parameters fail with 401 authError and never grant or fall back to anonymous. Local principals simulate Google identity; bucket/object IAM policies, ACLs, allUsers/allAuthenticatedUsers, signed URLs and HMAC remain unimplemented. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-002-FAIL-CLOSED",
+          "description": "Unknown, empty, malformed, duplicate and non-UTF-8 bearer values, Basic/GOOG4/AWS4/bare-token schemes and access_token, oauth_token, X-Goog-Signature, X-Goog-Credential, X-Goog-Algorithm, Signature and GoogleAccessId query parameters (including percent-encoded keys) return 401 authError before body reads or catalog access.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::strict_caller_resolution",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials"
+          ]
+        },
+        {
+          "id": "DESIGN-002-PROJECT-ROLES",
+          "description": "Each supported bucket/object route requires its iam-json permission on the bucket's owning project; viewer, creator, editor, cross-project and role-less callers receive 403 forbidden while permitted calls succeed and rejected mutations leave state unchanged.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
+          "id": "DESIGN-002-OVERWRITE",
+          "description": "objects.insert replacing a live object needs storage.objects.delete: the advisory check rejects it with 403 before the body is read or staged, the publication transaction rechecks it so concurrent creates have one winner, and failing preconditions return 412 first.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body"
+          ]
+        },
+        {
+          "id": "DESIGN-002-GO-SDK",
+          "description": "Pinned Go SDK clients with static local bearer tokens: object viewer reads/lists but cannot upload, update, delete or get bucket metadata; object creator creates but cannot overwrite or read.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator"
+          ]
+        },
+        {
+          "id": "DESIGN-002-PROJECT-RECHECK",
+          "description": "Every strict bucket/object catalog operation (advisory upload checks, publication, media opens, metadata/list/delete) rechecks the authorized bucket project inside its own transaction: a bucket deleted and recreated in another project between authorization and the operation returns 403 without mutation or staging residue; a bucket still missing returns 404 for a caller holding the permission somewhere; a bucket that appears later is re-authorized against its actual project and overwrites still need storage.objects.delete there.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden"
+          ]
+        },
+        {
+          "id": "DESIGN-002-PENDING",
+          "description": "Implement bucket/object IAM policies and conditions, ACLs/default ACLs, allUsers/allAuthenticatedUsers, uniform bucket-level access, public access prevention, V2/V4 signed URLs, HMAC and service-account signing, custom/basic roles and XML/gRPC enforcement; obtain real-service evidence for SPEC-017 error details.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "auth::tests::strict_caller_resolution",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+        "auth_http_concurrent_creates_without_delete_have_one_winner",
+        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+        "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+        "TestStrictAuthObjectViewer",
+        "TestStrictAuthObjectCreator"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth::tests::strict_caller_resolution",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_admin_full_crud_and_restart_with_same_registry",
+            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
+            "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit endpoint with oauth2.StaticTokenSource local bearer tokens; viewer and creator project-role restrictions",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only project-level predefined storage roles are enforced; bucket/object IAM policies, IAM conditions, custom and basic roles, ACLs, allUsers/allAuthenticatedUsers, UBLA, public access prevention, signed URLs, HMAC and service-account signing are unimplemented.",
+        "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
+        "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-003",
@@ -18596,25 +19071,127 @@
       "interface": "Emulator extension",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Map local fixture credentials to identities without contacting Google identity services.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Strict mode loads a bounded (64 KiB) JSON identity registry once at startup: 1..=256 identities with a unique visible-ASCII id, 1..=16 registry-unique bearer tokens and optional project_roles (0..=64 validated project IDs, 1..=32 snapshot roles each). Unknown keys, unknown/basic roles and invalid limits fail startup without a partial load and without echoing tokens. The JSON format replaces the TOML proposal (gaps.json resolved item). The ready event reports the identity count. config/identities.json is a public local fixture mounted by compose.strict.yaml. Nothing contacts Google or the metadata server. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
+      "dependencies": [
+        "DESIGN-001"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-003-VALIDATION",
+          "description": "Malformed, non-object, oversized, empty or over-limit registries, unknown top-level/identity keys, invalid/duplicate ids, invalid/duplicate tokens, invalid projects, empty/duplicate/over-limit role lists and unknown or basic roles fail startup with an identity_file message, no readiness output and no catalog files; token values are never echoed; a file at exactly 64 KiB loads.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth::tests::registry_file_read_is_bounded",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        },
+        {
+          "id": "DESIGN-003-RESOLUTION",
+          "description": "Every registered token resolves its identity with a case-insensitive Bearer scheme and one or more spaces; unregistered tokens never become principals; GCS_MIMIC_AUTH_MODE/GCS_MIMIC_IDENTITY_FILE select the registry and the ready event reports the identity count.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::strict_caller_resolution",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        },
+        {
+          "id": "DESIGN-003-RESTART",
+          "description": "The same registry authorizes persisted buckets and objects after restart; anonymous access remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
+          "id": "DESIGN-003-FIXTURE",
+          "description": "The repository fixture registry drives the pinned Go SDK with static local tokens against an isolated native strict server, and the runnable guide against Compose with compose.strict.yaml, without Google or metadata-server requests.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "guide-compose-strict-auth"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+        "auth::tests::registry_file_read_is_bounded",
+        "auth_http_startup_rejects_invalid_profiles_and_registries",
+        "auth::tests::strict_caller_resolution",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "TestStrictAuthAdminLifecycle",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials",
+        "guide-compose-strict-auth"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth::tests::registry_file_read_is_bounded",
+            "auth_http_startup_rejects_invalid_profiles_and_registries",
+            "auth::tests::strict_caller_resolution",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-guide.txt",
+          "test_ids": [
+            "guide-compose-strict-auth"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; explicit endpoint with oauth2.StaticTokenSource local bearer tokens from config/identities.json; anonymous client with WithoutAuthentication",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        }
+      ],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-004",
@@ -18624,25 +19201,106 @@
       "interface": "Authorization semantics",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control"
+        "https://docs.cloud.google.com/storage/docs/access-control",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "A supplied arbitrary Bearer string must not become an authenticated principal in strict mode.",
+      "notes": "In strict mode a request without Authorization is anonymous and receives the documented 401 required example on every supported JSON route, including missing buckets, because no anonymous grants are modeled. An arbitrary or unregistered Bearer string never becomes a principal and receives 401 authError. Probes and unknown routes are not authenticated. Exact wire parity is not claimed: SPEC-017 keeps the authError details and missing-bucket rule open, and allUsers/allAuthenticatedUsers access is the next slice. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-004-ANONYMOUS",
+          "description": "Anonymous bucket insert/list/get/delete and object get/media/download/list/insert/multipart/patch/update/delete, including missing buckets, return 401 required with the exact documented body and no WWW-Authenticate header; anonymous route syntax errors still return 400.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        },
+        {
+          "id": "DESIGN-004-ARBITRARY-BEARER",
+          "description": "Unregistered, empty, malformed and duplicate bearer values and unsupported schemes return 401 authError and never resolve to a principal or to anonymous; registered tokens resolve their identity.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::strict_caller_resolution",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        },
+        {
+          "id": "DESIGN-004-UNAUTHENTICATED-SURFACES",
+          "description": "Unknown routes return 404 and /_internal probes return 200 for anonymous, invalid and registered credentials.",
+          "result": "PASS",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials"
+          ]
+        },
+        {
+          "id": "DESIGN-004-PENDING",
+          "description": "Model allUsers/allAuthenticatedUsers and public access prevention for anonymous versus authenticated callers, XML public reads, and obtain authorized real-service evidence for SPEC-017 authError details and missing-bucket status.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "auth::tests::strict_caller_resolution",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "auth::tests::strict_caller_resolution"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; anonymous WithoutAuthentication client and unregistered static bearer token; Attrs, NewReader and Objects iterator",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthRejectsMissingAndInvalidCredentials"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "allUsers/allAuthenticatedUsers grants and public access prevention are not modeled, so anonymous callers always receive 401 required.",
+        "SPEC-017: the authError message and locationType/location, the absent WWW-Authenticate header and the anonymous/missing-bucket statuses are local choices pending real-service evidence."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-005",
@@ -18736,25 +19394,83 @@
       "interface": "IAM authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/iam"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pin a sourced role-to-permission snapshot and evaluate permissions instead of special-casing role names.",
+      "notes": "Scope: the storage.* permissions of the 20 predefined roles/storage.* roles (including the Beta bucketViewer, annotationGeneratorService and expressMode* roles) as published on the IAM roles page last updated 2026-10-21 UTC and checked 2026-10-22. src/auth/roles.rs stores them as sorted unique permission data beside the source URL/date; evaluation is a permission lookup with no role-name special cases. EXACT applies to this dated snapshot only: non-storage permissions and basic roles are outside the row scope (basic roles are rejected at startup), and later upstream role changes require a refreshed snapshot. The transcription was reviewed against the page; no automated comparison with a pinned source artifact exists. Which grants apply where (project-only today) belongs to DESIGN-002. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-008-SNAPSHOT",
+          "description": "The snapshot is role-sorted data; every role is roles/storage.* with a nonempty, sorted, unique list of storage.<resource>.<verb> permissions; basic and malformed role names have no expansion.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::role_snapshot_is_sorted_unique_storage_permission_data"
+          ]
+        },
+        {
+          "id": "DESIGN-008-DATA-DRIVEN",
+          "description": "Granting each of the 20 roles in its own project allows exactly the permissions in that role's data for every permission in the snapshot, and nothing in unlisted projects.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::evaluation_is_driven_by_snapshot_data"
+          ]
+        },
+        {
+          "id": "DESIGN-008-CONSEQUENCES",
+          "description": "objectViewer lacks storage.buckets.get, objectCreator lacks storage.objects.delete/get, storage.editor creates/lists buckets without storage.buckets.get and objectAdmin cannot create buckets, both in data and over HTTP.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::notable_role_consequences_follow_the_snapshot",
+            "auth_http_project_roles_gate_each_route"
+          ]
+        },
+        {
+          "id": "DESIGN-008-UNKNOWN-ROLES",
+          "description": "Unknown storage roles and the basic roles/owner, roles/editor and roles/viewer fail registry loading instead of being guessed.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::tests::role_snapshot_is_sorted_unique_storage_permission_data",
+        "auth::tests::evaluation_is_driven_by_snapshot_data",
+        "auth::tests::notable_role_consequences_follow_the_snapshot",
+        "auth_http_project_roles_gate_each_route",
+        "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+        "auth_http_startup_rejects_invalid_profiles_and_registries"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "auth::tests::role_snapshot_is_sorted_unique_storage_permission_data",
+            "auth::tests::evaluation_is_driven_by_snapshot_data",
+            "auth::tests::notable_role_consequences_follow_the_snapshot",
+            "auth_http_project_roles_gate_each_route",
+            "auth::tests::registry_validation_rejects_invalid_files_without_partial_load",
+            "auth_http_startup_rejects_invalid_profiles_and_registries"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-009",
@@ -19813,26 +20529,110 @@
       "interface": "Emulator extension",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
         "https://docs.cloud.google.com/storage/docs/request-endpoints"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. A helper returns the address only; private objects stay private.",
+      "notes": "gcs-mimic url public --base-url URL --bucket NAME --object NAME prints one <base>/<bucket>/<encoded object> line for the XML-style path endpoint. The base URL follows api_base_url validation with trailing slashes trimmed; bucket/object names use the existing validators. Every byte except RFC 3986 unreserved characters and / is percent-encoded with uppercase hex; if any segment is . or .., / is also encoded as %2F. The helper is pure: no config, environment, data directory or network access and no permission change. The URL is not served yet (unknown route 404) until allUsers grants and XML GET exist. Contract: docs/en/slices/strict-auth.md; evidence: docs/en/evidence/strict-auth.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-046-ENCODING",
+          "description": "Reserved, percent, plus and non-ASCII bytes are uppercase percent-encoded; unreserved characters and / are kept; dot segments force %2F for every slash while empty and dotted-name segments are preserved.",
+          "result": "PASS",
+          "test_ids": [
+            "url::tests::encodes_reserved_and_non_ascii_bytes",
+            "url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment",
+            "prints_one_encoded_url_for_options_in_any_order"
+          ]
+        },
+        {
+          "id": "DESIGN-046-VALIDATION",
+          "description": "Base URLs keep an optional path prefix and trim trailing slashes; relative, non-HTTP(S), credential, query, fragment and control-character base URLs and invalid bucket/object names fail with stderr only and no stdout.",
+          "result": "PASS",
+          "test_ids": [
+            "url::tests::normalizes_base_urls",
+            "url::tests::rejects_invalid_base_urls",
+            "url::tests::rejects_invalid_bucket_names",
+            "url::tests::rejects_invalid_object_names",
+            "rejects_invalid_inputs_without_stdout"
+          ]
+        },
+        {
+          "id": "DESIGN-046-CLI",
+          "description": "Options are accepted in any order exactly once; missing, duplicate, unknown and unpaired options fail; url public --help prints usage.",
+          "result": "PASS",
+          "test_ids": [
+            "prints_one_encoded_url_for_options_in_any_order",
+            "prints_usage_for_help",
+            "rejects_missing_duplicate_unknown_and_unpaired_options"
+          ]
+        },
+        {
+          "id": "DESIGN-046-PURE",
+          "description": "The helper ignores GCS_MIMIC_ configuration files, environment and data directories and creates no state; in the strict Compose guide the URL of a private object is built inside the container, matches the expected encoding, is not served (404) and leaves the object private.",
+          "result": "PASS",
+          "test_ids": [
+            "ignores_config_file_environment_and_data_directory",
+            "guide-compose-strict-auth"
+          ]
+        }
+      ],
+      "test_ids": [
+        "url::tests::encodes_reserved_and_non_ascii_bytes",
+        "url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment",
+        "url::tests::normalizes_base_urls",
+        "url::tests::rejects_invalid_base_urls",
+        "url::tests::rejects_invalid_bucket_names",
+        "url::tests::rejects_invalid_object_names",
+        "prints_one_encoded_url_for_options_in_any_order",
+        "prints_usage_for_help",
+        "rejects_missing_duplicate_unknown_and_unpaired_options",
+        "rejects_invalid_inputs_without_stdout",
+        "ignores_config_file_environment_and_data_directory",
+        "guide-compose-strict-auth"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-tests.txt",
+          "test_ids": [
+            "url::tests::encodes_reserved_and_non_ascii_bytes",
+            "url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment",
+            "url::tests::normalizes_base_urls",
+            "url::tests::rejects_invalid_base_urls",
+            "url::tests::rejects_invalid_bucket_names",
+            "url::tests::rejects_invalid_object_names",
+            "prints_one_encoded_url_for_options_in_any_order",
+            "prints_usage_for_help",
+            "rejects_missing_duplicate_unknown_and_unpaired_options",
+            "rejects_invalid_inputs_without_stdout",
+            "ignores_config_file_environment_and_data_directory"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-guide.txt",
+          "test_ids": [
+            "guide-compose-strict-auth"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-047",
@@ -22088,7 +22888,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned official Go HTTP JSON bucket lifecycle plus object Attrs/NewReader/Delete pass natively and against Compose after raw media upload. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
+      "notes": "Pinned official Go HTTP JSON bucket lifecycle plus object Attrs/NewReader/Delete pass natively and against Compose after raw media upload. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Strict local bearer-token clients (no ADC or metadata-server discovery) run natively via scripts/sdk-go.sh and against Compose with compose.strict.yaml: docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -22128,8 +22928,20 @@
           ]
         },
         {
+          "id": "DESIGN-082-STRICT-AUTH",
+          "description": "Strict suite with the fixture registry: explicit endpoint, cleared STORAGE_EMULATOR_HOST and oauth2.StaticTokenSource bearer tokens (no ADC or metadata server); admin bucket/object lifecycle, anonymous 401 required and unregistered 401 authError, object viewer read-only and object creator create-without-overwrite pass against an isolated native strict server and against Compose with compose.strict.yaml.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator",
+            "guide-compose-go-strict-suite"
+          ]
+        },
+        {
           "id": "DESIGN-082-PENDING",
-          "description": "Implement resumable SDK Writer, signing, permissions, XML/gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
+          "description": "Implement resumable SDK Writer, signing, bucket/object IAM and ACL permissions, XML/gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -22159,7 +22971,12 @@
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "TestObjectMultipartWriter"
+        "TestObjectMultipartWriter",
+        "TestStrictAuthAdminLifecycle",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials",
+        "TestStrictAuthObjectViewer",
+        "TestStrictAuthObjectCreator",
+        "guide-compose-go-strict-suite"
       ],
       "verification": [
         {
@@ -22170,6 +22987,27 @@
           "test_ids": [
             "TestBucketLifecycle",
             "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/strict-auth-guide.txt",
+          "test_ids": [
+            "guide-compose-go-strict-suite"
           ]
         },
         {
@@ -22223,6 +23061,24 @@
         }
       ],
       "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; strict mode with explicit endpoint and oauth2.StaticTokenSource local bearer tokens; admin lifecycle, anonymous/unregistered 401, viewer and creator project-role restrictions",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/strict-auth-sdk-go.txt",
+          "test_ids": [
+            "TestStrictAuthAdminLifecycle",
+            "TestStrictAuthRejectsMissingAndInvalidCredentials",
+            "TestStrictAuthObjectViewer",
+            "TestStrictAuthObjectCreator"
+          ]
+        },
         {
           "language": "Go",
           "toolchain": "1.27.3",
