@@ -1,5 +1,42 @@
 # Go SDK harness verification
 
+## Resumable Writer contract tests: 2026-10-22
+
+The official Go download feed and module-proxy `@latest` endpoints confirm the
+existing pins: Go 1.27.3, Storage v1.70.0 and API v0.307.0. No dependency files
+changed. Storage resolves to upstream revision
+`9a2913189e552da51b0fd60aa635027426f04d71`; API resolves to
+`fbb4c3c103847f35323cf2261403643400b22062`.
+
+Eight top-level acceptance tests now cover default and explicit chunk sizes,
+unknown-length streaming, supplied-checksum rejection and old-generation
+preservation, atomic conditions, context cancellation, one lost chunk response,
+strict-admin upload, metadata-only condition races and strict creator overwrite
+races. The obsolete resumable 501 assertion was removed from
+the media lifecycle test. The new journeys are defined against official SDK
+behavior; no emulator integration pass is claimed.
+
+Harness-only checks passed with Go 1.27.3:
+
+- `GOTOOLCHAIN=auto go vet ./...`.
+- `GOTOOLCHAIN=auto go test -run XXX_none ./...` compiles all packages.
+- With both emulator endpoint variables unset, the eight new top-level tests skip
+  explicitly; endpoint validation passes without contacting a server.
+- `git diff --check` and the repository local-path scan pass.
+
+The guarded transport is retained for every request, including session URLs.
+The interruption wrapper records at most 16 chunk requests and discards at most
+64 KiB of one acknowledgement body. The largest payload is 16 MiB plus 37 bytes,
+which exercises actual resumable requests with untouched default `ChunkSize`;
+the remaining payloads stay below 1 MiB. These do not measure server resource
+use. The retry journey checks actual POST ranges, same-session retries,
+invocation token preservation and final automatic CRC32C.
+Context cancellation is followed by a raw guarded status query confirming the
+persisted prefix, then an explicit session DELETE expecting 499. This verifies
+session retention independently of the Writer's own cancellation. No new test
+sets `ChunkSize=0` or disables automatic checksums. Server execution, containers,
+expiry, permit-release measurement and recovery remain pending.
+
 ## Public and default XML reads: 2026-10-22
 
 After server retry-telemetry support in `ccecff8`, `just check-sdk` passed Go vet,
