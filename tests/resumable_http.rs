@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, atomic::AtomicBool},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -1398,5 +1398,155 @@ async fn session_deadline_during_transfer_returns_not_found_without_acknowledgin
             .status,
         404
     );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline() {
+    let h = Harness::start(1000, true, None).await;
+    let init = h
+        .initiate("name=cancelled", "Authorization: Bearer admin\r\n", b"")
+        .await;
+    let path = h.path(&init);
+    let id = path.split("upload_id=").nth(1).unwrap();
+    let session = h
+        .state
+        .catalog
+        .resumable_session(id, "bucket")
+        .await
+        .unwrap();
+    assert_eq!(h.request("DELETE", &path, "", b"bad").await.status, 400);
+    assert_eq!(
+        h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+            .await
+            .status,
+        308
+    );
+    let cancelled = h.request("DELETE", &path, "", b"").await;
+    assert_eq!(cancelled.status, 499);
+    assert!(cancelled.body.is_empty());
+    assert_eq!(cancelled.headers["cache-control"], "no-store");
+    assert!(!h.dir.0.join("staging").join(session.blob_id).exists());
+    for method in ["PUT", "POST", "DELETE"] {
+        assert_eq!(
+            h.request(method, &path, "Content-Range: bytes */*\r\n", b"")
+                .await
+                .status,
+            410
+        );
+    }
+    *h.clock.0.lock().unwrap() = session.deadline;
+    for method in ["PUT", "POST", "DELETE"] {
+        assert_eq!(
+            h.request(method, &path, "Content-Range: bytes */*\r\n", b"")
+                .await
+                .status,
+            404
+        );
+    }
+    let unknown = format!(
+        "/upload/storage/v1/b/bucket/o?uploadType=resumable&upload_id={}",
+        "0".repeat(64)
+    );
+    assert_eq!(h.request("DELETE", &unknown, "", b"").await.status, 404);
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn cancellation_racing_append_respects_writer_and_prevents_later_publication() {
+    let h = Harness::start(1024 * 1024, false, None).await;
+    let init = h.initiate("name=append", "", b"").await;
+    let path = h.path(&init);
+    let id = path.split("upload_id=").nth(1).unwrap();
+    let session = h
+        .state
+        .catalog
+        .resumable_session(id, "bucket")
+        .await
+        .unwrap();
+    let stage = h.dir.0.join("staging").join(session.blob_id);
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 262144\r\nContent-Range: bytes 0-262143/*\r\n\r\n").as_bytes()).await.unwrap();
+    stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while tokio::fs::metadata(&stage).await.unwrap().len() == 0 {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(h.request("DELETE", &path, "", b"").await.status, 503);
+    for _ in 0..3 {
+        stream.write_all(&[b'a'; 64 * 1024]).await.unwrap();
+    }
+    assert_eq!(Harness::read_response(stream).await.status, 308);
+    assert_eq!(h.request("DELETE", &path, "", b"").await.status, 499);
+    assert_eq!(
+        h.request(
+            "PUT",
+            &path,
+            "Content-Range: bytes 262144-262144/262145\r\n",
+            b"b"
+        )
+        .await
+        .status,
+        410
+    );
+    assert!(!stage.exists());
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/append", "", b"")
+            .await
+            .status,
+        404
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes() {
+    let h = Harness::start(1024 * 1024, false, None).await;
+    for index in 0..8 {
+        let name = format!("race-{index}");
+        let init = h.initiate(&format!("name={name}"), "", b"").await;
+        let path = h.path(&init);
+        let (finalized, cancelled) = tokio::join!(
+            h.request("PUT", &path, "", b"completed bytes"),
+            h.request("DELETE", &path, "", b""),
+        );
+        assert_ne!(finalized.status == 200, cancelled.status == 499);
+        if finalized.status == 200 {
+            assert!(matches!(cancelled.status, 410 | 503));
+            assert_eq!(h.request("DELETE", &path, "", b"").await.status, 410);
+        } else {
+            assert_eq!(cancelled.status, 499);
+            assert!(matches!(finalized.status, 410 | 503));
+        }
+        let id = path.split("upload_id=").nth(1).unwrap();
+        // Expiring a completed capability must not delete the published object.
+        if finalized.status == 200 {
+            let session = h
+                .state
+                .catalog
+                .resumable_session(id, "bucket")
+                .await
+                .unwrap();
+            *h.clock.0.lock().unwrap() = session.deadline;
+        } else {
+            *h.clock.0.lock().unwrap() += Duration::from_secs(604800);
+        }
+        h.state.catalog.maintain_resumable_sessions().await.unwrap();
+        let object = h
+            .request(
+                "GET",
+                &format!("/storage/v1/b/bucket/o/{name}?alt=media"),
+                "",
+                b"",
+            )
+            .await;
+        if finalized.status == 200 {
+            assert_eq!(object.status, 200);
+            assert_eq!(object.body, b"completed bytes");
+        } else {
+            assert_eq!(object.status, 404);
+        }
+    }
     h.stop().await;
 }

@@ -137,7 +137,9 @@ pub(super) async fn session_response(
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     if request.method() == hyper::Method::DELETE {
-        return Err(JsonError::unsupported_object("Session cancellation"));
+        return json::resumable_cancel::cancel_response(request, bucket, id, &state.catalog)
+            .await
+            .map(boxed);
     }
     let range = resumable::range(request.headers())?;
     let headers = request.headers().clone();

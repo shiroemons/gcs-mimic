@@ -1,8 +1,8 @@
 use super::{JsonError, read_body};
-use crate::storage::{Catalog, ResumableError};
+use crate::storage::Catalog;
 use http_body_util::Full;
 use hyper::{
-    Request, Response, StatusCode,
+    Request, Response,
     body::{Body, Bytes},
 };
 
@@ -18,27 +18,10 @@ pub async fn cancel_response<B: Body + Unpin>(
     catalog
         .cancel_resumable_session(id, bucket)
         .await
-        .map_err(error)?;
+        .map_err(JsonError::from)?;
     Ok(Response::builder()
         .status(499)
         .header("cache-control", "no-store")
         .body(Full::new(Bytes::new()))
         .unwrap())
-}
-
-pub(crate) fn error(error: ResumableError) -> JsonError {
-    match error {
-        ResumableError::NotFound => JsonError::new(
-            StatusCode::NOT_FOUND,
-            "notFound",
-            "Upload session not found",
-        ),
-        ResumableError::Gone => JsonError::new(
-            StatusCode::GONE,
-            "gone",
-            "Upload session is no longer active",
-        ),
-        ResumableError::Invalid(message) => JsonError::invalid_parameter(&message),
-        ResumableError::Object(error) => error.into(),
-    }
 }
