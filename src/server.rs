@@ -52,6 +52,9 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[path = "server/resumable.rs"]
+mod resumable;
+
 #[derive(Clone, Copy, Default)]
 struct ObjectActivity {
     awaiting_catalog: bool,
@@ -178,6 +181,29 @@ async fn respond(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
+    if let Some(parsed) = json::resumable::session_route(request.method(), request.uri()) {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match parsed {
+            Ok((bucket, id)) => {
+                resumable::session_response(
+                    request, &bucket, &id, state, config, activity, deadline,
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
+        activity.send_replace(ObjectActivity::default());
+        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     if let Some(parsed) = json::route_object(request.method(), request.uri()) {
         let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
         let media = matches!(&parsed, Ok((ObjectRequest::Get { params, .. }, _)) if params.media);
@@ -185,7 +211,9 @@ async fn respond(
             || matches!(
                 &parsed,
                 Ok((
-                    ObjectRequest::Insert { .. } | ObjectRequest::Multipart { .. },
+                    ObjectRequest::Insert { .. }
+                        | ObjectRequest::Multipart { .. }
+                        | ObjectRequest::Resumable { .. },
                     _
                 ))
             );
@@ -315,9 +343,9 @@ async fn object_response(
     let (permission, bucket) = match &operation {
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
-        ObjectRequest::Insert { bucket, .. } | ObjectRequest::Multipart { bucket, .. } => {
-            (auth::OBJECTS_CREATE, bucket)
-        }
+        ObjectRequest::Insert { bucket, .. }
+        | ObjectRequest::Multipart { bucket, .. }
+        | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
         ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
         ObjectRequest::Delete { bucket, .. } => (auth::OBJECTS_DELETE, bucket),
     };
@@ -330,6 +358,7 @@ async fn object_response(
         operation,
         ObjectRequest::Insert { .. }
             | ObjectRequest::Multipart { .. }
+            | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
     ) && (request.headers().contains_key("transfer-encoding")
         || request
@@ -342,6 +371,24 @@ async fn object_response(
         ));
     }
     let value = match operation {
+        ObjectRequest::Resumable {
+            bucket,
+            name,
+            params,
+            content_encoding,
+        } => {
+            return resumable::initiate(
+                request,
+                &bucket,
+                name,
+                params,
+                content_encoding,
+                access,
+                state,
+                max_bytes,
+            )
+            .await;
+        }
         ObjectRequest::List(params) => {
             json::validate_object_get_headers(request.headers(), false)?;
             let page = state
@@ -791,12 +838,12 @@ async fn stream_upload(
     Ok(())
 }
 
-async fn await_upload_catalog<T>(
-    operation: impl Future<Output = Result<T, ObjectError>>,
+async fn await_upload_catalog<T, E: From<ObjectError>>(
+    operation: impl Future<Output = Result<T, E>>,
     timeout: Duration,
     request_deadline: tokio::time::Instant,
     activity: &watch::Sender<ObjectActivity>,
-) -> Result<T, ObjectError> {
+) -> Result<T, E> {
     activity.send_modify(|progress| progress.awaiting_catalog = true);
     // A completed body may commit after this wait expires; only an observed commit is success.
     let result = tokio::time::timeout_at(
@@ -805,9 +852,7 @@ async fn await_upload_catalog<T>(
     )
     .await
     .unwrap_or_else(|_| {
-        Err(ObjectError::Unavailable(
-            "upload catalog wait timed out".into(),
-        ))
+        Err(ObjectError::Unavailable("upload catalog wait timed out".into()).into())
     });
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     result

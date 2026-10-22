@@ -134,6 +134,26 @@ impl From<CatalogError> for JsonError {
     }
 }
 
+impl From<crate::storage::ResumableError> for JsonError {
+    fn from(error: crate::storage::ResumableError) -> Self {
+        use crate::storage::ResumableError;
+        match error {
+            ResumableError::NotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                "Upload session not found",
+            ),
+            ResumableError::Gone => Self::new(
+                StatusCode::GONE,
+                "gone",
+                "Upload session is no longer active",
+            ),
+            ResumableError::Invalid(message) => Self::invalid_parameter(message),
+            ResumableError::Object(error) => error.into(),
+        }
+    }
+}
+
 impl From<ObjectError> for JsonError {
     fn from(error: ObjectError) -> Self {
         match error {

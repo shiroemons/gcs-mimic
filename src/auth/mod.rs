@@ -113,6 +113,38 @@ pub struct Identity {
 }
 
 impl Identity {
+    pub(crate) fn upload_snapshot(&self) -> Value {
+        serde_json::json!({"id": self.id, "projects": self.permissions.iter().map(|(project, permissions)| {
+            (project.clone(), permissions.iter().filter(|p| matches!(**p, OBJECTS_CREATE | OBJECTS_DELETE)).copied().collect::<Vec<_>>())
+        }).collect::<BTreeMap<_, _>>()})
+    }
+
+    pub(crate) fn from_upload_snapshot(value: &Value) -> Result<Self, String> {
+        let invalid = || "invalid upload identity snapshot".to_owned();
+        let id = value["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && id.len() <= MAX_ID_BYTES)
+            .ok_or_else(invalid)?
+            .to_owned();
+        let projects = value["projects"]
+            .as_object()
+            .filter(|p| p.len() <= MAX_PROJECTS)
+            .ok_or_else(invalid)?;
+        let mut permissions = BTreeMap::new();
+        for (project, entries) in projects {
+            let mut set = BTreeSet::new();
+            for entry in entries.as_array().ok_or_else(invalid)? {
+                set.insert(match entry.as_str() {
+                    Some(OBJECTS_CREATE) => OBJECTS_CREATE,
+                    Some(OBJECTS_DELETE) => OBJECTS_DELETE,
+                    _ => return Err(invalid()),
+                });
+            }
+            permissions.insert(project.clone(), set);
+        }
+        Ok(Self { id, permissions })
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }

@@ -326,13 +326,8 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             .error(400, "invalid");
         server.get("bad").error(404, "notFound");
     }
-    for (kind, status, reason) in [
-        ("multipart", 400, "invalidParameter"),
-        ("resumable", 501, "notImplemented"),
-    ] {
-        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType={kind}&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").as_bytes()).error(status, reason);
-        server.get("unsupported").error(404, "notFound");
-    }
+    server.raw(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=unsupported HTTP/1.1\r\nHost: local\r\nContent-Length: 999\r\n\r\n").error(400, "invalidParameter");
+    server.get("unsupported").error(404, "notFound");
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
