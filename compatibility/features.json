@@ -18912,7 +18912,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
       "last_verified": "2026-10-22"
     },
     {
@@ -19190,7 +19190,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
       "last_verified": "2026-10-22"
     },
     {
@@ -19469,7 +19469,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "1153d399dfb858d59e7c815150a02a6ae3c92ea7",
       "last_verified": "2026-10-22"
     },
     {
@@ -20631,7 +20631,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
+      "implemented_in": "4aea4984eaf91894b417be0438433fc396ad37b6",
       "last_verified": "2026-10-22"
     },
     {

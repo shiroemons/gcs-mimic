@@ -39,21 +39,28 @@ DESIGN-004 targets EXACT, and IMPLEMENTED requires achieved fidelity equal to th
 target with no deviations. Its open SPEC-017 deviations therefore keep it PARTIAL.
 DESIGN-008's EXACT claim covers only the dated snapshot: the transcription was
 reviewed against the source page, and no automated comparison with a pinned source
-artifact exists. `implemented_in` remains null until the final commit is known.
+artifact exists. Implemented rows record commit
+`1153d399dfb858d59e7c815150a02a6ae3c92ea7`; DESIGN-046 records the helper commit
+`4aea4984eaf91894b417be0438433fc396ad37b6`.
 
 ## Final verification
 
-**Pending: the orchestrator records these results from the final source.** Each
-log below is produced once from the final source; until then this section lists
-the planned commands and artifacts only, not results.
+Each log below was produced once on 2026-10-22 from the final implementation
+source, commit `1153d399dfb858d59e7c815150a02a6ae3c92ea7`. Later commits change
+only documentation, the ledger and evidence. The guide transcript ran on the
+documentation that contains the strict section. Local path prefixes in the logs
+were redacted; all other output is unchanged.
 
 | Command or workflow | Result | Evidence |
 | --- | --- | --- |
-| `cargo +1.99.1 test --workspace --locked --offline` | Pending | [Test log](strict-auth-tests.txt) |
-| `cargo +1.99.1 fmt --all --check`, `cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings`, `cargo +1.99.1 xtask compatibility check` | Pending | [Checks log](strict-auth-checks.txt) |
-| `bash scripts/sdk-go.sh` (permissive and strict native servers) | Pending | [Go SDK log](strict-auth-sdk-go.txt) |
-| Every `sh` block in `docs/en/getting-started.md`, in order under Bash `-euxo pipefail` | Pending | [Guide transcript](strict-auth-guide.txt) |
-| Slice-start `just check-dependencies` | Recorded separately | [Freshness log](strict-auth-dependencies.txt) |
+| `cargo +1.99.1 test --workspace --locked --offline` | PASS: 223 tests, 0 failed | [Test log](strict-auth-tests.txt) |
+| `cargo +1.99.1 fmt --all --check`, `cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings`, `bash scripts/test-check.sh`, `cargo +1.99.1 xtask compatibility check` | PASS | [Checks log](strict-auth-checks.txt) |
+| `bash scripts/sdk-go.sh` (permissive and strict native servers) | PASS: 43 Go test/subtest results, 0 failed | [Go SDK log](strict-auth-sdk-go.txt) |
+| Every `sh` block in `docs/en/getting-started.md`, in order under Bash `-euxo pipefail` | PASS (exit 0) | [Guide transcript](strict-auth-guide.txt) |
+| `bash scripts/smoke-containers.sh` (linux/arm64 native, linux/amd64 emulated) | PASS | [Container log](strict-auth-containers.txt) |
+| Slice-start `just check-dependencies` | CURRENT after adopting the updated Rust builder index | [Freshness log](strict-auth-dependencies.txt) |
+
+Native amd64 hosts, remote CI and other SDKs were not run for this slice.
 
 The guide's strict section runs the Compose service with `compose.strict.yaml`,
 checks the ready event, exercises anonymous, unregistered, admin, viewer and
