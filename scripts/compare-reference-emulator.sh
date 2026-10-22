@@ -6,11 +6,13 @@ repository=${GCS_MIMIC_REFERENCE_REPO:?Set GCS_MIMIC_REFERENCE_REPO to the pinne
 revision=896ece51e49eed0946089f3089f6343855c0d106
 archive_sha256=13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc
 go_toolchain=$(awk '$1 == "toolchain" {print $2}' sdk-tests/go/go.mod)
+reference_only=${GCS_MIMIC_REFERENCE_ONLY:-0}
+[[ $reference_only == 0 || $reference_only == 1 ]]
 for command in curl jq go cargo tar shasum git; do
   if ! command -v "$command" >/dev/null; then echo "Missing command: $command" >&2; exit 1; fi
 done
 [[ $go_toolchain =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]]
-work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-compare.XXXXXX")
+work=$(mktemp -d -t gcs-mimic-compare.XXXXXX)
 pids=()
 targets=()
 origins=()
@@ -39,7 +41,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo 'Building pinned reference and local gcs-mimic in a temporary directory' >&2
+echo 'Building selected comparison targets in a temporary directory' >&2
 curl --fail --location --silent --show-error --connect-timeout 20 --max-time 180 \
   "${repository%.git}/archive/$revision.tar.gz" -o "$work/source.tar.gz"
 actual_sha256=$(shasum -a 256 "$work/source.tar.gz")
@@ -57,8 +59,10 @@ export GOCACHE="$work/go-build"
   cd sdk-tests/go
   go build -mod=readonly -o "$work/free-port" ./cmd/free-port
 )
-env -u RUSTUP_TOOLCHAIN CARGO_TARGET_DIR="$work/rust-target" cargo build --locked --offline
 server="$work/rust-target/debug/gcs-mimic"
+if [[ $reference_only == 0 ]]; then
+  env -u RUSTUP_TOOLCHAIN CARGO_TARGET_DIR="$work/rust-target" cargo build --locked --offline
+fi
 
 start_target() {
   local target=$1 address origin pid ready=false
@@ -91,7 +95,7 @@ start_target() {
 
 printf 'pinned reference emulator v1.56.1 commit %s\narchive SHA256 %s\n' "$revision" "$archive_sha256"
 go version
-printf 'gcs-mimic source commit %s (local source build)\n' "$(git rev-parse HEAD)"
+printf 'checkout source commit %s (reference-only=%s)\n' "$(git rev-parse HEAD)" "$reference_only"
 printf '%s\n' \
   'Raw records preserve status, selected header values, and the exact response body as a JSON string.' \
   'Selected headers: content-type, content-length, etag, location, x-goog-*, www-authenticate.' \
@@ -103,21 +107,23 @@ printf '%s\n' \
 
 start_target reference-filesystem filesystem
 start_target reference-memory memory
-help=$("$server" serve --help)
-profile_args=()
-if [[ $help == *--compat-profile* ]]; then profile_args=(--compat-profile native); fi
-start_target mimic-native ${profile_args[@]+"${profile_args[@]}"}
-if [[ $help == *--compat-profile* ]]; then
-  start_target mimic-legacy-emulator --compat-profile legacy-emulator
-else
-  echo 'SKIPPED mimic-legacy-emulator: binary does not support --compat-profile'
+if [[ $reference_only == 0 ]]; then
+  help=$("$server" serve --help)
+  profile_args=()
+  if [[ $help == *--compat-profile* ]]; then profile_args=(--compat-profile native); fi
+  start_target mimic-native ${profile_args[@]+"${profile_args[@]}"}
+  if [[ $help == *--compat-profile* ]]; then
+    start_target mimic-legacy-emulator --compat-profile legacy-emulator
+  else
+    echo 'SKIPPED mimic-legacy-emulator: binary does not support --compat-profile'
+  fi
 fi
 
 request() {
   local label=$1 method=$2 path=$3 body=${4-} content_type=${5:-application/json}
   local index target origin status result
   local args=()
-  if [[ $method == POST ]]; then args=(--data-binary "$body" --header "Content-Type: $content_type"); fi
+  if [[ $method == POST || $method == PATCH ]]; then args=(--data-binary "$body" --header "Content-Type: $content_type"); fi
   for index in "${!targets[@]}"; do
     target=${targets[$index]}
     origin=${origins[$index]}
@@ -202,6 +208,128 @@ request delete-nonempty DELETE /storage/v1/b/compare-nonempty
 state delete-nonempty compare-nonempty
 request nonempty-objects GET /storage/v1/b/compare-nonempty/o
 request nonempty-object-bytes GET '/storage/v1/b/compare-nonempty/o/kept.txt?alt=media'
+
+patch_bucket() {
+  local label=$1 body=$2 query=${3:-} name=${4:-compare-patch}
+  request "$label" PATCH "/storage/v1/b/$name$query" "$body"
+  state "$label" "$name"
+}
+
+create patch-create compare-patch
+patch_bucket patch-label-add '{"labels":{"keep":"one","remove":"two"}}'
+patch_bucket patch-label-merge '{"labels":{"add":"three"}}'
+patch_bucket patch-label-remove '{"labels":{"remove":null}}'
+patch_bucket patch-label-empty '{"labels":{}}'
+patch_bucket patch-label-null '{"labels":null}'
+patch_bucket patch-label-restore '{"labels":{"keep":"one"}}'
+patch_bucket patch-label-empty-value '{"labels":{"empty":""}}'
+patch_bucket patch-storage-class '{"storageClass":"NEARLINE"}'
+patch_bucket patch-settings-enable '{"versioning":{"enabled":true},"defaultEventBasedHold":true}'
+patch_bucket patch-settings-omitted '{}'
+patch_bucket patch-settings-disable '{"versioning":{"enabled":false},"defaultEventBasedHold":false}'
+patch_bucket patch-hold-enable '{"defaultEventBasedHold":true}'
+patch_bucket patch-hold-disable '{"defaultEventBasedHold":false}'
+patch_bucket patch-unknown '{"futureUnknownField":{"enabled":true}}'
+for field in cors lifecycle retentionPolicy iamConfiguration; do
+  patch_bucket "patch-unsupported-$field" "{\"$field\":null}"
+done
+patch_bucket patch-malformed '{"labels":'
+patch_bucket patch-missing '{}' '' compare-patch-missing
+patch_bucket patch-projection-full '{}' '?projection=full'
+patch_bucket patch-projection-noacl '{}' '?projection=noAcl'
+patch_bucket patch-predefined-acl '{}' '?predefinedAcl=private'
+patch_bucket patch-predefined-default-acl '{}' '?predefinedDefaultObjectAcl=private'
+patch_bucket patch-user-project '{}' '?userProject=compare-project'
+create patch-conditions-create compare-patch-conditions
+patch_bucket patch-match-success '{"labels":{"condition":"match"}}' '?ifMetagenerationMatch=1' compare-patch-conditions
+patch_bucket patch-match-stale '{"labels":{"condition":"stale"}}' '?ifMetagenerationMatch=1' compare-patch-conditions
+patch_bucket patch-notmatch-success '{"labels":{"condition":"notmatch"}}' '?ifMetagenerationNotMatch=1' compare-patch-conditions
+patch_bucket patch-notmatch-failure '{"labels":{"condition":"denied"}}' '?ifMetagenerationNotMatch=3' compare-patch-conditions
+
+jq -es '
+  [.[] | select(.target | startswith("reference-"))] as $rows
+  | [$rows[] | select(.request.method == "PATCH")] as $patches
+  | ($patches | length == 58)
+    and all($patches[];
+      .status == (if .case == "patch-malformed" then 400
+        elif .case == "patch-missing" then (if .target == "reference-filesystem" then 500 else 404 end)
+        elif .case == "patch-settings-enable" and .target == "reference-filesystem" then 500
+        else 200 end))
+    and all($patches[] | select(.status == 200) | .body | fromjson;
+      (has("labels") | not) and .storageClass == "STANDARD" and .metageneration == "1"
+      and .etag == "RVRhZw==" and .updated == .timeCreated)
+    and all($rows[] | select(.case == "patch-settings-enable-get-state");
+      (.body | fromjson) as $body
+      | $body.versioning.enabled == (.target == "reference-memory")
+        and $body.defaultEventBasedHold == (.target == "reference-memory"))
+    and all($rows[] | select(.case == "patch-settings-omitted-get-state") | .body | fromjson;
+      .versioning.enabled == false and .defaultEventBasedHold == false)
+    and all($rows[] | select(.case == "patch-hold-enable-get-state") | .body | fromjson;
+      .defaultEventBasedHold == true)
+    and all($rows[] | select(.case == "patch-hold-disable-get-state") | .body | fromjson;
+      .defaultEventBasedHold == false)
+' "$work/results.jsonl" >/dev/null
+echo 'PATCH-ASSERT reference status, ignored fields, settings and revision behavior: PASS'
+
+if [[ $reference_only == 0 ]]; then
+  jq -es '
+    def resource($rows; $case): $rows[$case].body | fromjson;
+    [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
+    | ($targets | length == 2) and all($targets[];
+      (map({key:.case,value:.}) | from_entries) as $rows
+      | [.[] | select(.request.method == "PATCH")] as $patches
+      | ($patches | length == 29)
+        and all($patches[];
+          .status == (if .case == "patch-malformed" then 400
+            elif .case == "patch-missing" then 404
+            elif (.case | startswith("patch-unsupported-")) or .case == "patch-predefined-acl"
+              or .case == "patch-predefined-default-acl" or .case == "patch-user-project" then 501
+            elif .case == "patch-match-stale" or .case == "patch-notmatch-failure" then 412
+            else 200 end))
+        and (resource($rows; "patch-label-add").labels == {keep:"one",remove:"two"})
+        and (resource($rows; "patch-label-merge").labels == {keep:"one",remove:"two",add:"three"})
+        and (resource($rows; "patch-label-remove").labels == {keep:"one",add:"three"})
+        and (resource($rows; "patch-label-empty").labels == {keep:"one",add:"three"})
+        and ((resource($rows; "patch-label-null").labels // {}) == {})
+        and (resource($rows; "patch-label-empty-value").labels == {keep:"one",empty:""})
+        and (resource($rows; "patch-storage-class").storageClass == "NEARLINE")
+        and all(["patch-settings-enable","patch-settings-omitted"][];
+          resource($rows; .) | .versioning.enabled == true and .defaultEventBasedHold == true)
+        and all(["patch-settings-disable","patch-hold-disable"][];
+          resource($rows; .) | (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false)
+        and (resource($rows; "patch-hold-enable").defaultEventBasedHold == true)
+        and (resource($rows; "patch-notmatch-failure-get-state").labels == {condition:"notmatch"})
+        and (reduce $patches[] as $patch (
+          {ok:true, previous:{
+            "compare-patch":resource($rows; "patch-create"),
+            "compare-patch-conditions":resource($rows; "patch-conditions-create")}};
+          ($patch.request.path | split("?")[0] | split("/")[-1]) as $name
+          | resource($rows; $patch.case + "-get-state") as $after
+          | .previous[$name] as $before
+          | if $name == "compare-patch-missing" then
+              .ok = (.ok and $rows[$patch.case + "-get-state"].status == 404)
+            else
+              .ok = (.ok and
+                (resource($rows; $patch.case + "-list-state").items | map(select(.name == $name))) == [$after]
+                and (if $patch.status == 200 then
+                  ($patch.request.body | fromjson) as $input
+                  | ($patch.body | fromjson) == $after
+                  and ($after.metageneration | tonumber) == (($before.metageneration | tonumber) + 1)
+                  and $after.updated >= $before.updated and $after.updated >= $after.timeCreated and $after.etag != $before.etag
+                  and $after.timeCreated == $before.timeCreated and $after.name == $before.name
+                  and $after.location == $before.location and $after.projectNumber == $before.projectNumber
+                  and $after.storageClass == ($input.storageClass // $before.storageClass)
+                  and (if $input | has("labels") then true else ($after.labels // {}) == ($before.labels // {}) end)
+                  and (($after.versioning.enabled // false) ==
+                    (if $input | has("versioning") then $input.versioning.enabled else ($before.versioning.enabled // false) end))
+                  and (($after.defaultEventBasedHold // false) ==
+                    (if $input | has("defaultEventBasedHold") then $input.defaultEventBasedHold else ($before.defaultEventBasedHold // false) end))
+                else $after == $before end))
+              | .previous[$name] = $after
+            end) | .ok))
+  ' "$work/results.jsonl" >/dev/null
+  echo 'PATCH-ASSERT mimic profiles status, merge/removal, settings, revision and failure preservation: PASS'
+fi
 
 echo
 echo 'Comparison table (HTTP statuses; equality includes selected headers and normalized bodies):'
