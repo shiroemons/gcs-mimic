@@ -1703,3 +1703,102 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
     );
     h.stop().await;
 }
+
+#[tokio::test]
+async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation() {
+    for fail_commit in [false, true] {
+        let h = Harness::start(1024 * 1024, false, None).await;
+        let init = h.initiate("name=retry", "", b"").await;
+        let path = h.path(&init);
+        let id = path.split("upload_id=").nth(1).unwrap();
+        let chunk = vec![b'x'; 256 * 1024];
+        assert_eq!(
+            h.request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &chunk)
+                .await
+                .status,
+            308
+        );
+        let session = h
+            .state
+            .catalog
+            .resumable_session(id, "bucket")
+            .await
+            .unwrap();
+        let shard = h.dir.0.join("blobs").join(&session.blob_id[..2]);
+        let connection = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+        let previous_generation: i64 = connection
+            .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        if fail_commit {
+            connection.execute_batch("CREATE TRIGGER fail_publication BEFORE INSERT ON objects BEGIN SELECT RAISE(FAIL, 'injected publication failure'); END;").unwrap();
+        } else {
+            std::fs::write(&shard, b"injected shard creation failure").unwrap();
+        }
+        assert_eq!(
+            h.request("PUT", &path, "Content-Range: bytes */262144\r\n", b"")
+                .await
+                .status,
+            503
+        );
+        let status = h
+            .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+            .await;
+        assert_eq!(status.status, 308);
+        assert_eq!(status.headers["range"], "bytes=0-262143");
+        assert_eq!(
+            connection
+                .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            previous_generation
+        );
+        assert_eq!(
+            h.request("GET", "/storage/v1/b/bucket/o/retry", "", b"")
+                .await
+                .status,
+            404
+        );
+        if fail_commit {
+            connection
+                .execute_batch("DROP TRIGGER fail_publication;")
+                .unwrap();
+        } else {
+            std::fs::remove_file(&shard).unwrap();
+        }
+        let completed = h
+            .request(
+                "PUT",
+                &path,
+                "Content-Range: bytes 0-262143/262144\r\n",
+                &chunk,
+            )
+            .await;
+        assert_eq!(completed.status, 200);
+        let resource = completed.json();
+        let generation: i64 = resource["generation"].as_str().unwrap().parse().unwrap();
+        assert!(generation > previous_generation);
+        let repeated = h
+            .request("PUT", &path, "Content-Range: bytes */262144\r\n", b"")
+            .await;
+        assert_eq!(repeated.status, 200);
+        assert_eq!(repeated.json(), resource);
+        assert_eq!(
+            connection
+                .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            generation
+        );
+        assert_eq!(
+            h.request("GET", "/storage/v1/b/bucket/o/retry?alt=media", "", b"")
+                .await
+                .body,
+            chunk
+        );
+        h.stop().await;
+    }
+}

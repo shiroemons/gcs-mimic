@@ -79,7 +79,17 @@ impl Catalog {
                 let id=lease.session.id.clone();
                 let committed=catalog.run_upload(move |connection|connection.query_row("SELECT * FROM resumable_sessions WHERE id = ?1",[id],read_session).optional().map_err(unavailable)).await?;
                 if let Some(session)=committed && session.state==SessionState::Complete {return Ok(session.completion);}
-                catalog.invalidate_resumable_session(&lease).await?;
+                if matches!(result, Err(ResumableError::Object(ObjectError::Unavailable(_)))) {
+                    let data_dir = catalog.0.data_dir.clone();
+                    let blob_id = lease.session.blob_id.clone();
+                    let offset = lease.session.offset;
+                    catalog.run_upload(move |connection| {
+                        super::resumable_recovery::recover_prefix(connection, &data_dir, &blob_id, offset)
+                            .map_err(unavailable)
+                    }).await?;
+                } else {
+                    catalog.invalidate_resumable_session(&lease).await?;
+                }
             }
             result.map(Some)
         }).await.map_err(unavailable)?

@@ -24,7 +24,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
     }
 }
 
-fn recover_prefix(
+pub(super) fn recover_prefix(
     connection: &Connection,
     data_dir: &Path,
     blob_id: &str,
