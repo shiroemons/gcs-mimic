@@ -2,13 +2,14 @@
 //!
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
-//! the pinned predefined-role snapshot in [`roles`]. Only project-level role grants are modeled;
-//! bucket/object IAM policies, ACLs, `allUsers`/`allAuthenticatedUsers` and signed URLs are not.
+//! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
+//! ACLs, public principals and signed URLs are not modeled.
 //! Nothing here contacts Google or the metadata server.
 
-mod roles;
+mod policy;
+pub(crate) mod roles;
+pub use policy::{Binding, Policy};
 
-use crate::bucket::BucketAccess;
 use hyper::{HeaderMap, header::AUTHORIZATION};
 use serde_json::Value;
 use std::{
@@ -24,6 +25,8 @@ pub const BUCKETS_CREATE: &str = "storage.buckets.create";
 pub const BUCKETS_DELETE: &str = "storage.buckets.delete";
 pub const BUCKETS_GET: &str = "storage.buckets.get";
 pub const BUCKETS_LIST: &str = "storage.buckets.list";
+pub const BUCKETS_GET_IAM: &str = "storage.buckets.getIamPolicy";
+pub const BUCKETS_SET_IAM: &str = "storage.buckets.setIamPolicy";
 pub const OBJECTS_CREATE: &str = "storage.objects.create";
 pub const OBJECTS_DELETE: &str = "storage.objects.delete";
 pub const OBJECTS_GET: &str = "storage.objects.get";
@@ -103,7 +106,7 @@ impl fmt::Display for AuthFailure {
 impl std::error::Error for AuthFailure {}
 
 /// A registered local principal with its project-scoped permissions expanded at load time.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     id: String,
     permissions: BTreeMap<String, BTreeSet<&'static str>>,
@@ -125,15 +128,6 @@ impl Identity {
         self.permissions
             .values()
             .any(|permissions| permissions.contains(permission))
-    }
-
-    /// Projects where a granted role contains `permission`; bounded by the registry limits.
-    pub fn projects_allowing(&self, permission: &str) -> Vec<String> {
-        self.permissions
-            .iter()
-            .filter(|(_, permissions)| permissions.contains(permission))
-            .map(|(project, _)| project.clone())
-            .collect()
     }
 }
 
@@ -168,27 +162,6 @@ impl<'a> Caller<'a> {
         } else {
             Err(AuthFailure::Forbidden)
         }
-    }
-
-    /// Authorize `permission` on a bucket owned by `project` (`None` when it was missing) and
-    /// return the access the catalog must re-validate inside the operation's transaction.
-    pub fn bucket_access(
-        self,
-        permission: &str,
-        project: Option<String>,
-    ) -> Result<BucketAccess, AuthFailure> {
-        self.authorize(permission, project.as_deref())?;
-        let identity = self.principal()?;
-        Ok(match project {
-            Some(project) => BucketAccess::Project {
-                overwrite: identity.allows(OBJECTS_DELETE, &project),
-                project,
-            },
-            None => BucketAccess::Missing {
-                permitted: identity.projects_allowing(permission),
-                overwrite: identity.projects_allowing(OBJECTS_DELETE),
-            },
-        })
     }
 }
 
@@ -462,10 +435,10 @@ mod tests {
     fn role_snapshot_is_sorted_unique_storage_permission_data() {
         let names: Vec<_> = roles::PREDEFINED_ROLES
             .iter()
-            .map(|(name, _)| *name)
+            .map(|(name, _, _)| *name)
             .collect();
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]), "{names:?}");
-        for (role, permissions) in roles::PREDEFINED_ROLES {
+        for (role, _, permissions) in roles::PREDEFINED_ROLES {
             assert!(role.starts_with("roles/storage."), "{role}");
             assert!(!permissions.is_empty(), "{role}");
             assert!(
@@ -499,7 +472,7 @@ mod tests {
             let project_roles: serde_json::Map<_, _> = chunk
                 .iter()
                 .enumerate()
-                .map(|(offset, (role, _))| {
+                .map(|(offset, (role, _, _))| {
                     (
                         projects[chunk_index * MAX_PROJECTS + offset].clone(),
                         serde_json::json!([role]),
@@ -521,9 +494,9 @@ mod tests {
         let identity = &registry.identities[0];
         let all: BTreeSet<_> = roles::PREDEFINED_ROLES
             .iter()
-            .flat_map(|(_, permissions)| permissions.iter().copied())
+            .flat_map(|(_, _, permissions)| permissions.iter().copied())
             .collect();
-        for (index, (_, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
+        for (index, (_, _, permissions)) in roles::PREDEFINED_ROLES.iter().enumerate() {
             for permission in &all {
                 assert_eq!(
                     identity.allows(permission, &projects[index]),

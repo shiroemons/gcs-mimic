@@ -4,7 +4,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. The first P2 slice adds explicit permissive/strict authentication profiles, a local principal registry, project-level predefined-role enforcement and a public URL helper. Bucket/object IAM policies, ACLs, public grants, signed URLs and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Object ACLs, public grants, signed URLs and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -30,7 +30,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes four bucket operations, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -42,12 +42,12 @@ One application crate contains `config`, `clock`, `auth`, `url`, `server`, `buck
 | Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
 | Clock | Inject business wall time through `Clock::now`; production uses `SystemClock`, tests supply deterministic time. Socket/drain deadlines use Tokio monotonic time independently. |
 
-The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. The transport-independent `auth` module resolves strict-mode callers and evaluates permissions from a pinned role snapshot; the JSON adapter maps routes to permissions and renders 401/403 errors, and catalog transactions recheck the authorized bucket project and the overwrite permission. Only project-level grants are modeled, and whole bucket/object API rows remain PARTIAL. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
+The bucket/object catalog is concrete; no generic persistence trait is frozen for future work. Recovery gates readiness. The transport-independent `auth` module resolves strict-mode callers and evaluates permissions from a pinned role snapshot; the JSON adapter maps routes to permissions and renders 401/403 errors. Catalog transactions recheck the observed bucket owner, effective project/bucket grants and overwrite-delete permission against the policy current in that transaction. Bucket insert/list remain project scoped. Whole bucket/object CRUD rows retain their existing limitations. Existing SPEC-001/002/003/004/006/007 gaps do not add bucket CRUD semantics. SPEC-008..013 record object condition precedence, direct-200 downloads, checksum/header/MIME choices and retry-token deviations; they remain open for their affected features.
 
 The server caps connections (default 32), headers (64 and 16 KiB), shutdown drain
 (5 seconds), async workers (2) and blocking workers (2). Connection admission stops
 when full; the requested kernel backlog is 128. Every response closes its connection.
-Bucket insert JSON is capped at 64 KiB; probe and other bucket methods reject bodies.
+Bucket insert and IAM PUT JSON are capped at 64 KiB; probe and other bucket methods reject bodies.
 Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
@@ -96,15 +96,18 @@ so committed frames remain visible. Immutable preflight does not consider a hot 
 `-journal`: gcs-mimic never creates one in WAL mode, but a foreign DELETE-mode catalog could.
 The preflight closes before a single operational
 connection owns `catalog.sqlite3`, with WAL, synchronous FULL, a 2 MiB cache, mmap disabled,
-file-backed temporary storage and a 256-page auto-checkpoint. Schema version 4
-stores buckets, live objects, unique opaque blob references, pending blob deletions
-and a persistent generation high-water mark. It retains the bucket `(project, name)`
+file-backed temporary storage and a 256-page auto-checkpoint. Schema version 6
+stores buckets, live objects, unique opaque blob references, pending blob deletions,
+seed initialization, bucket IAM policies and persistent object/policy revision
+high-water marks. It retains the bucket `(project, name)`
 index; object keys use `(bucket, name)` with indexed blob lookup. Valid v1 catalogs
 contain no objects and first migrate to v3 transactionally. A separate atomic v3-to-v4
 migration adds content encoding/disposition/language, cache control and custom metadata;
 both metadata reads and bounded object lists select these columns. PATCH merges and PUT
 replaces the supported fields under atomic generation/metageneration conditions without
-changing the blob or generation. Unreleased v2 catalogs
+changing the blob or generation. The v4-to-v5 migration records seed initialization;
+v5-to-v6 atomically adds one bounded default IAM policy per existing bucket and a
+persistent policy revision allocator. Unreleased v2 catalogs
 are rejected before journal-mode changes because deleted generation history is unavailable.
 New/empty version 0 catalogs are initialized transactionally; future versions,
 nonempty unversioned catalogs, failed quick_check or incompatible versioned DDL
@@ -140,6 +143,32 @@ JSON, default `http://127.0.0.1:4443`). Listener and advertised origin are indep
 Host and forwarded headers do not influence it. No public URL or permissions follow
 from this setting. See the [slice contract](slices/json-bucket-crud.md) for local
 projectNumber, projection and unsupported-semantics deviations.
+
+### Bucket IAM policies
+
+`bucket_policies` stores one row per bucket, with bindings bounded to 64 KiB and
+a catalog-wide monotonically allocated revision encoded as an opaque base64 etag.
+Creation commits the bucket and its default policy together. Deletion removes
+both in one transaction; the allocator survives deletion, so recreation cannot
+reuse an etag. Policy PUT checks the supplied etag and updates the bindings and
+revision in one immediate transaction; a mismatch returns 412 without mutation.
+Unconditional requests may omit the etag. Successful updates leave bucket
+metageneration unchanged.
+
+Strict bucket operations use the union of project grants and matching bucket
+bindings from the pinned predefined-role snapshot. Policy grants are evaluated
+inside the same transaction as metadata selection, listing, blob open, mutation
+or upload publication. This prevents an earlier advisory check from authorizing
+an operation after revocation. A reader whose immutable blob is already open
+may finish. Bucket insert/list remain project scoped. Get/set IAM require their
+own permissions, including when those permissions come from a bucket binding.
+
+Defaults use the documented non-UBLA convenience bindings: project owners and
+editors receive legacy bucket owner, and project viewers receive legacy bucket
+reader. The local identity registry models no basic project roles, so convenience
+sets have no local members. Public principals, conditions, ACLs and hierarchy
+above the local project remain excluded. The [bucket IAM contract](slices/bucket-iam.md)
+defines fields, errors, limits, acceptance functions and verification.
 
 ## Planned storage architecture
 
@@ -267,7 +296,7 @@ V4 includes the host in the signed request. Sign the actual browser-facing emula
 
 Use an explicit `permissive` profile for easy smoke tests and `strict` for permission/signature conformance. Strict mode can use local credentials and a local principal map; it must not silently contact Google to mint tokens. Passing permissive tests does not establish strict compatibility.
 
-Implemented so far: `auth_mode` selects `permissive` (default) or `strict`; strict mode loads a bounded JSON identity registry once at startup, resolves `Authorization: Bearer` tokens, rejects every other credential form with 401 `authError`, and authorizes the iam-json permission of each JSON route against project-level grants of a pinned predefined-role snapshot. Authentication precedes route syntax validation; authorization precedes body reads, conditions and existence checks. `gcs-mimic url public` is a pure URL builder. See the [strict authentication contract](slices/strict-auth.md).
+Implemented so far: `auth_mode` selects `permissive` (default) or `strict`; strict mode loads a bounded JSON identity registry once at startup, resolves `Authorization: Bearer` tokens, rejects every other credential form with 401 `authError`, and authorizes each JSON route through effective project and scoped bucket bindings from a pinned predefined-role snapshot. Authentication precedes route syntax validation; advisory authorization precedes body reads, conditions and existence checks, and the catalog transaction repeats authorization against the current policy. Permissive mode applies the same policy validation, persistence and etag rules without permission checks. `gcs-mimic url public` is a pure URL builder. See the [strict authentication contract](slices/strict-auth.md) and [bucket IAM contract](slices/bucket-iam.md).
 
 JSON CORS follows its documented defaults; XML CORS follows bucket configuration. A CORS response never authorizes an object read. Website index/not-found behavior is endpoint-dependent and must not be added to every object-download route. Authenticated browser download UX, DNS, TLS certificates, load balancers and CDN are distinct integration boundaries. [CORS](https://docs.cloud.google.com/storage/docs/cross-origin), [Request endpoints](https://docs.cloud.google.com/storage/docs/request-endpoints), [Website metadata](https://docs.cloud.google.com/storage/docs/xml-api/put-bucket-metadata).
 

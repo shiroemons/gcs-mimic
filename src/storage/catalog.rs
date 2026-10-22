@@ -1,4 +1,5 @@
 use super::lock;
+use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{BucketAccess, BucketRecord, CatalogError};
 use crate::clock::{Clock, SystemClock};
 use rusqlite::{
@@ -14,6 +15,10 @@ use tokio::sync::Semaphore;
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
+
+#[path = "policies.rs"]
+mod policies;
+use policies::{check_access, insert_policy};
 
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
@@ -93,6 +98,12 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         if !valid {
             return Err(unavailable("invalid startup seed state"));
         }
+    }
+    if version >= 6 {
+        expected
+            .execute_batch(policies::SCHEMA)
+            .map_err(unavailable)?;
+        policies::validate(connection)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -178,9 +189,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=5).contains(&version) {
+            if !(0..=6).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 5"
+                    "unsupported catalog schema version {version}; supported version is 6"
                 )));
             }
             if version == 2 {
@@ -269,6 +280,9 @@ impl Catalog {
                 // Older catalogs have already served user mutations, even if now empty.
                 transaction.execute("INSERT INTO startup_seed VALUES (1, 1)", []).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
+            }
+            if version < 6 {
+                policies::migrate(&mut connection)?;
             }
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
@@ -393,12 +407,15 @@ impl Catalog {
         mut record: BucketRecord,
     ) -> Result<BucketRecord, CatalogError> {
         self.run(move |connection| {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(unavailable)?;
             let created = unix_millis(record.time_created)?;
             let updated = unix_millis(record.updated)?;
             record.time_created = system_time(created).map_err(unavailable)?;
             record.updated = system_time(updated).map_err(unavailable)?;
             let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
-            let changed = connection
+            let changed = transaction
                 .execute(
                     "INSERT INTO buckets VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(name) DO NOTHING",
@@ -418,6 +435,12 @@ impl Catalog {
             if changed == 0 {
                 return Err(CatalogError::AlreadyExists);
             }
+            insert_policy(
+                &transaction,
+                &record.name,
+                &Policy::default_for(&record.project),
+            )?;
+            transaction.commit().map_err(unavailable)?;
             Ok(record)
         })
         .await
@@ -437,18 +460,17 @@ impl Catalog {
         let name = name.to_owned();
         let access = access.clone();
         self.run(move |connection| {
-            let record = connection
+            let transaction = connection.transaction().map_err(unavailable)?;
+            let record = transaction
                 .query_row(
                     &format!("SELECT {COLUMNS} FROM buckets WHERE name = ?1"),
-                    [name],
+                    [&name],
                     read_bucket,
                 )
                 .optional()
                 .map_err(unavailable)?;
             if let Some(record) = &record {
-                access
-                    .check(&record.project)
-                    .ok_or(CatalogError::Forbidden)?;
+                check_access(&transaction, &name, &record.project, &access)?;
             }
             Ok(record)
         })
@@ -548,7 +570,7 @@ impl Catalog {
                 .optional()
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
-            access.check(&project).ok_or(CatalogError::Forbidden)?;
+            check_access(&transaction, &name, &project, &access)?;
             if if_metageneration_match.is_some_and(|value| value != metageneration)
                 || if_metageneration_not_match == Some(metageneration)
             {
@@ -564,6 +586,9 @@ impl Catalog {
             if nonempty {
                 return Err(CatalogError::NotEmpty);
             }
+            transaction
+                .execute("DELETE FROM bucket_policies WHERE bucket = ?1", [&name])
+                .map_err(unavailable)?;
             transaction
                 .execute("DELETE FROM buckets WHERE name = ?1", [name])
                 .map_err(unavailable)?;
@@ -801,7 +826,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 5),
+                    ("user_version", 6),
                 ] {
                     assert_eq!(
                         connection

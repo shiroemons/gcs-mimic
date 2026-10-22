@@ -6,11 +6,20 @@
 //! (`roles/owner`, `roles/editor`, `roles/viewer`) are intentionally absent: their storage
 //! expansion is not part of the pinned storage role reference.
 //!
-//! Each permission list is sorted and unique so lookups can binary search; a unit test enforces it.
+//! Grant levels record each role's lowest grantable resource; managed-folder roles also apply
+//! to buckets. Each permission list is sorted and unique so lookups can binary search.
 
-pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GrantLevel {
+    Project,
+    Bucket,
+    ManagedFolder,
+}
+
+pub(crate) const PREDEFINED_ROLES: &[(&str, GrantLevel, &[&str])] = &[
     (
         "roles/storage.admin",
+        GrantLevel::Bucket,
         &[
             "storage.anywhereCaches.create",
             "storage.anywhereCaches.disable",
@@ -82,6 +91,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.annotationGeneratorService",
+        GrantLevel::ManagedFolder,
         &[
             "storage.objects.createContext",
             "storage.objects.deleteContext",
@@ -93,10 +103,12 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.bucketViewer",
+        GrantLevel::Bucket,
         &["storage.buckets.get", "storage.buckets.list"],
     ),
     (
         "roles/storage.editor",
+        GrantLevel::ManagedFolder,
         &[
             "storage.buckets.create",
             "storage.buckets.delete",
@@ -125,6 +137,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.expressModeServiceInput",
+        GrantLevel::ManagedFolder,
         &[
             "storage.objects.create",
             "storage.objects.delete",
@@ -134,6 +147,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.expressModeServiceOutput",
+        GrantLevel::ManagedFolder,
         &[
             "storage.objects.delete",
             "storage.objects.get",
@@ -142,6 +156,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.expressModeUserAccess",
+        GrantLevel::Project,
         &[
             "storage.buckets.get",
             "storage.buckets.list",
@@ -159,6 +174,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.folderAdmin",
+        GrantLevel::ManagedFolder,
         &[
             "storage.folders.create",
             "storage.folders.delete",
@@ -194,6 +210,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.hmacKeyAdmin",
+        GrantLevel::Project,
         &[
             "storage.hmacKeys.create",
             "storage.hmacKeys.delete",
@@ -204,10 +221,12 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.insightsCollectorService",
+        GrantLevel::Bucket,
         &["storage.buckets.get", "storage.buckets.getObjectInsights"],
     ),
     (
         "roles/storage.legacyBucketOwner",
+        GrantLevel::Bucket,
         &[
             "storage.anywhereCaches.create",
             "storage.anywhereCaches.disable",
@@ -260,6 +279,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.legacyBucketReader",
+        GrantLevel::Bucket,
         &[
             "storage.buckets.get",
             "storage.folders.get",
@@ -272,6 +292,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.legacyBucketWriter",
+        GrantLevel::Bucket,
         &[
             "storage.buckets.get",
             "storage.folders.create",
@@ -298,6 +319,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.legacyObjectOwner",
+        GrantLevel::ManagedFolder,
         &[
             "storage.objects.createContext",
             "storage.objects.deleteContext",
@@ -310,9 +332,14 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
             "storage.objects.updateContext",
         ],
     ),
-    ("roles/storage.legacyObjectReader", &["storage.objects.get"]),
+    (
+        "roles/storage.legacyObjectReader",
+        GrantLevel::ManagedFolder,
+        &["storage.objects.get"],
+    ),
     (
         "roles/storage.objectAdmin",
+        GrantLevel::ManagedFolder,
         &[
             "storage.folders.create",
             "storage.folders.delete",
@@ -346,6 +373,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.objectCreator",
+        GrantLevel::ManagedFolder,
         &[
             "storage.folders.create",
             "storage.managedFolders.create",
@@ -358,6 +386,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.objectUser",
+        GrantLevel::ManagedFolder,
         &[
             "storage.folders.create",
             "storage.folders.delete",
@@ -387,6 +416,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.objectViewer",
+        GrantLevel::ManagedFolder,
         &[
             "storage.folders.get",
             "storage.folders.list",
@@ -398,6 +428,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
     ),
     (
         "roles/storage.viewer",
+        GrantLevel::ManagedFolder,
         &[
             "storage.buckets.list",
             "storage.buckets.listEffectiveTags",
@@ -418,7 +449,7 @@ pub(crate) const PREDEFINED_ROLES: &[(&str, &[&str])] = &[
 /// Look up a role by exact name; unknown roles, including basic roles, return `None`.
 pub(crate) fn permissions(role: &str) -> Option<&'static [&'static str]> {
     PREDEFINED_ROLES
-        .binary_search_by(|(name, _)| name.cmp(&role))
+        .binary_search_by(|(name, _, _)| name.cmp(&role))
         .ok()
-        .map(|index| PREDEFINED_ROLES[index].1)
+        .map(|index| PREDEFINED_ROLES[index].2)
 }
