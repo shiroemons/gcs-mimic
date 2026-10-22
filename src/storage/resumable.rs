@@ -1,4 +1,5 @@
 use super::{Catalog, CatalogError, system_time, unavailable, unix_millis};
+
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
     bucket::BucketAccess,
@@ -176,11 +177,14 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let catalog = self.clone();
-        self.run(move |connection| {
+        self.run(move |connection| Ok((|| -> Result<_,ResumableError> {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
+            let (_,allow_overwrite)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
+            let previous=super::objects::lookup(&transaction,&bucket,&name)?;
+            super::objects::check_publication(previous.as_ref(),options.conditions,allow_overwrite)?;
             let count: i64 = transaction.query_row("SELECT count(*) FROM resumable_sessions", [], |r| r.get(0)).map_err(unavailable)?;
-            if count >= MAX_SESSIONS as i64 { return Err(unavailable("retained upload session limit reached")); }
-            let incarnation: String = transaction.query_row("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1", [&bucket], |r| r.get(0)).map_err(unavailable)?;
+            if count >= MAX_SESSIONS as i64 { return Err(unavailable("retained upload session limit reached").into()); }
+            let incarnation: String = transaction.query_row("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1", [&bucket], |r| r.get(0)).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
             let blob_id = random_id::<16>()?;
             let now = unix_millis(catalog.0.clock.now())?;
@@ -189,15 +193,17 @@ impl Catalog {
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
             let path = catalog.0.data_dir.join("staging").join(&blob_id);
             let file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(unavailable)?;
-            file.sync_all().map_err(unavailable)?;
+            let synced=(|| -> std::io::Result<()> {file.sync_all()?;
             #[cfg(unix)]
-            fs::File::open(catalog.0.data_dir.join("staging")).and_then(|f| f.sync_all()).map_err(unavailable)?;
+            fs::File::open(catalog.0.data_dir.join("staging"))?.sync_all()?;
+            Ok(())})();
+            if let Err(error)=synced {drop(file);fs::remove_file(&path).map_err(unavailable)?;return Err(unavailable(error).into());}
             let inserted = transaction.execute("INSERT INTO resumable_sessions VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9,'ACTIVE',NULL)", params![id, blob_id, bucket, name, incarnation, encoded, total, now, deadline]);
-            if let Err(error) = inserted { fs::remove_file(path).map_err(unavailable)?; return Err(unavailable(error)); }
+            if let Err(error) = inserted { drop(file);fs::remove_file(path).map_err(unavailable)?; return Err(unavailable(error).into()); }
             // A failed commit can be ambiguous; retain its file for reference-aware recovery.
             transaction.commit().map_err(unavailable)?;
-            connection.query_row("SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(unavailable)
-        }).await.map_err(Into::into)
+            connection.query_row("SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
+        })())).await?
     }
 
     pub async fn resumable_session(
@@ -258,6 +264,17 @@ impl Catalog {
         offset: u64,
         total: Option<u64>,
     ) -> Result<(), ResumableError> {
+        if !std::sync::Arc::ptr_eq(&self.0, &lease.guard.catalog.0) {
+            return Err(ResumableError::Invalid(
+                "Session belongs to another catalog".into(),
+            ));
+        }
+        if self.0.clock.now() >= lease.session.deadline {
+            return Err(ResumableError::NotFound);
+        }
+        if lease.session.state != SessionState::Active {
+            return Err(ResumableError::Gone);
+        }
         if offset < lease.session.offset
             || total.is_some_and(|n| offset > n)
             || lease.session.total.is_some_and(|n| Some(n) != total)
@@ -271,6 +288,8 @@ impl Catalog {
         let now = unix_millis(self.0.clock.now())?;
         let changed = self.run(move |connection| connection.execute("UPDATE resumable_sessions SET offset = ?1, total = ?2 WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![i64::try_from(offset).map_err(unavailable)?, total.map(i64::try_from).transpose().map_err(unavailable)?, id, i64::try_from(old).map_err(unavailable)?, now]).map_err(unavailable)).await?;
         if changed != 1 {
+            self.resumable_session(&lease.session.id, &lease.session.bucket)
+                .await?;
             return Err(ResumableError::Gone);
         }
         lease.session.offset = offset;
@@ -291,12 +310,22 @@ fn encode_options(o: &ResumableOptions) -> Value {
             json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission, "project": project})
         }
     };
-    json!({"content_type":o.content_type,"metadata":{"contentType":m.content_type,"contentEncoding":m.content_encoding,"contentDisposition":m.content_disposition,"contentLanguage":m.content_language,"cacheControl":m.cache_control,"metadata":m.metadata},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full})
+    json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v}))},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full})
 }
 
 fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
     let invalid = || "invalid resumable options".to_owned();
     let field = |key: &str| -> Result<Option<Option<String>>, String> {
+        if v["version"] == 2 {
+            let value = &v["metadata"][key];
+            if value.is_null() {
+                return Ok(None);
+            }
+            return Ok(Some(
+                serde_json::from_value(value.get("value").ok_or_else(invalid)?.clone())
+                    .map_err(|_| invalid())?,
+            ));
+        }
         match &v["metadata"][key] {
             Value::Null => Ok(None),
             Value::String(s) => Ok(Some(Some(s.clone()))),
@@ -317,8 +346,23 @@ fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
     }
     let md5: Option<Vec<u8>> = serde_json::from_value(v["md5"].clone()).map_err(|_| invalid())?;
     let crc32c = serde_json::from_value(v["crc32c"].clone()).map_err(|_| invalid())?;
-    let custom =
-        serde_json::from_value(v["metadata"]["metadata"].clone()).map_err(|_| invalid())?;
+    let custom = if v["version"] == 2 {
+        if v["metadata"]["metadata"].is_null() {
+            None
+        } else {
+            Some(
+                serde_json::from_value(
+                    v["metadata"]["metadata"]
+                        .get("value")
+                        .ok_or_else(invalid)?
+                        .clone(),
+                )
+                .map_err(|_| invalid())?,
+            )
+        }
+    } else {
+        serde_json::from_value(v["metadata"]["metadata"].clone()).map_err(|_| invalid())?
+    };
     let access = if v["access"].is_null() {
         BucketAccess::Unchecked
     } else {
@@ -339,13 +383,17 @@ fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
     Ok(ResumableOptions {
         content_type: v["content_type"].as_str().ok_or_else(invalid)?.into(),
         metadata: ObjectMetadataUpdate {
+            replace: if v["version"] == 2 {
+                v["metadata"]["replace"].as_bool().ok_or_else(invalid)?
+            } else {
+                false
+            },
             content_type: field("contentType")?,
             content_encoding: field("contentEncoding")?,
             content_disposition: field("contentDisposition")?,
             content_language: field("contentLanguage")?,
             cache_control: field("cacheControl")?,
             metadata: custom,
-            ..Default::default()
         },
         expected: ExpectedHashes {
             md5: md5
@@ -410,4 +458,22 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             .map(|v| serde_json::from_str(&v).map_err(|e| invalid(e.to_string())))
             .transpose()?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn failed_session_migration_rolls_back_tables_indexes_and_version() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE buckets(name TEXT); CREATE TABLE resumable_sessions(sentinel TEXT); PRAGMA user_version = 6;").unwrap();
+        assert!(migrate(&mut connection).is_err());
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            6
+        );
+        assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('bucket_incarnations','resumable_sessions_deadline')",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
 }

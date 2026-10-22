@@ -102,7 +102,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
+pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     if id.len() != 32
         || !id
             .bytes()
@@ -118,7 +118,7 @@ fn sync_dir(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
-fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
+pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
     let shard = destination.parent().expect("blob parent");
     fs::create_dir_all(shard)?;
     #[cfg(unix)]
@@ -167,7 +167,7 @@ fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-fn unlink(path: &Path) -> io::Result<()> {
+pub(super) fn unlink(path: &Path) -> io::Result<()> {
     // Windows may defer removal until the final reader closes. Recovery also
     // scans unreferenced blobs, so a deferred deletion cannot become live data.
     match fs::remove_file(path) {
@@ -182,7 +182,11 @@ fn os_metadata(entry: &fs::DirEntry) -> bool {
     name == ".DS_Store" || name.starts_with("._")
 }
 
-fn reclaim(connection: &Connection, data_dir: &Path, id: &str) -> Result<(), ObjectError> {
+pub(super) fn reclaim(
+    connection: &Connection,
+    data_dir: &Path,
+    id: &str,
+) -> Result<(), ObjectError> {
     let referenced: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
@@ -392,7 +396,7 @@ impl Catalog {
         .await
     }
 
-    async fn run_upload<T: Send + 'static>(
+    pub(super) async fn run_upload<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
@@ -1066,7 +1070,7 @@ fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {
 ///
 /// Returns the storage class and whether replacing a live object is allowed. A missing bucket
 /// is reported before authorization, matching the adapter's missing-bucket rule.
-fn authorized_bucket(
+pub(super) fn authorized_bucket(
     connection: &Connection,
     bucket: &str,
     access: &BucketAccess,
@@ -1088,7 +1092,7 @@ fn authorized_bucket(
     Ok((storage_class, allow_overwrite))
 }
 
-fn lookup(
+pub(super) fn lookup(
     connection: &Connection,
     bucket: &str,
     name: &str,
@@ -1122,7 +1126,7 @@ fn selected(
 }
 
 /// Preconditions are evaluated first: a failing precondition means nothing would be replaced.
-fn check_publication(
+pub(super) fn check_publication(
     previous: Option<&(ObjectRecord, String)>,
     conditions: ObjectConditions,
     allow_overwrite: bool,

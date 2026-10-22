@@ -47,6 +47,14 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
     let options = ResumableOptions {
         content_type: "application/test".into(),
         origin: Some("https://client.invalid".into()),
+        metadata: gcs_mimic::object::ObjectMetadataUpdate {
+            replace: true,
+            content_type: Some(None),
+            content_encoding: Some(None),
+            content_disposition: Some(Some("inline".into())),
+            metadata: Some(None),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let session = catalog
@@ -116,6 +124,10 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
         catalog.create_resumable_session("bucket", "b", Default::default(), None)
     );
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    assert!(matches!(
+        a.err().or_else(|| b.err()).unwrap(),
+        ResumableError::Object(gcs_mimic::object::ObjectError::Unavailable(_))
+    ));
     assert_eq!(
         std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
         128
@@ -130,6 +142,59 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
         std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
         128
     );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired_sessions() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let session = catalog
+        .create_resumable_session("bucket", "name", Default::default(), Some(4))
+        .await
+        .unwrap();
+    let mut lease = catalog
+        .lock_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    std::fs::write(lease.staging_path(), b"ab").unwrap();
+    catalog
+        .checkpoint_resumable_session(&mut lease, 2, Some(4))
+        .await
+        .unwrap();
+    for (offset, total) in [(1, Some(4)), (3, Some(5)), (2, None), (5, Some(4))] {
+        assert!(matches!(
+            catalog
+                .checkpoint_resumable_session(&mut lease, offset, total)
+                .await,
+            Err(ResumableError::Invalid(_))
+        ));
+    }
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute(
+            "UPDATE resumable_sessions SET state = 'CANCELLED' WHERE id = ?1",
+            [&session.id],
+        )
+        .unwrap();
+    assert_eq!(
+        catalog
+            .checkpoint_resumable_session(&mut lease, 2, Some(4))
+            .await
+            .unwrap_err(),
+        ResumableError::Gone
+    );
+    *clock.0.lock().unwrap() = session.deadline;
+    assert_eq!(
+        catalog
+            .checkpoint_resumable_session(&mut lease, 2, Some(4))
+            .await
+            .unwrap_err(),
+        ResumableError::NotFound
+    );
+    drop(lease);
+    drop(connection);
     catalog.close().await.unwrap();
 }
 
