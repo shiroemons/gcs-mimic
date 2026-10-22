@@ -7,10 +7,10 @@ use rusqlite::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
@@ -20,6 +20,12 @@ pub use resumable::{
     ResumableError, ResumableOptions, ResumableSession, SessionLease, SessionState,
 };
 pub(crate) use resumable_transfer::ResumableChunk;
+
+#[path = "resumable_maintenance.rs"]
+mod resumable_maintenance;
+
+#[path = "resumable_recovery.rs"]
+mod resumable_recovery;
 
 #[path = "objects.rs"]
 mod objects;
@@ -149,6 +155,9 @@ struct Inner {
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
+    maintenance_wake: Arc<Notify>,
+    maintenance_error: Mutex<Option<String>>,
+    maintenance_started: AtomicBool,
 }
 
 struct Resources {
@@ -173,7 +182,7 @@ impl Catalog {
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
-        tokio::task::spawn_blocking(move || {
+        let catalog = tokio::task::spawn_blocking(move || {
             let lock = lock::acquire(&data_dir)?;
             let path = data_dir.join("catalog.sqlite3");
             // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
@@ -303,6 +312,7 @@ impl Catalog {
             if version < 7 {
                 resumable::migrate(&mut connection)?;
             }
+            resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
@@ -312,10 +322,14 @@ impl Catalog {
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
+                maintenance_wake: Arc::new(Notify::new()),
+                maintenance_error: Mutex::new(None),
+                maintenance_started: AtomicBool::new(false),
             })))
         })
         .await
-        .map_err(unavailable)?
+        .map_err(unavailable)??;
+        Ok(catalog)
     }
 
     pub fn is_healthy(&self) -> bool {
@@ -355,6 +369,7 @@ impl Catalog {
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
         self.0.admission.close();
+        self.0.maintenance_wake.notify_one();
         let _uploads = self
             .0
             .uploads

@@ -106,7 +106,7 @@ pub struct SessionLease {
     pub session: ResumableSession,
     guard: WriterGuard,
 }
-struct WriterGuard {
+pub(super) struct WriterGuard {
     catalog: Catalog,
     id: String,
 }
@@ -177,7 +177,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let catalog = self.clone();
-        self.run(move |connection| Ok((|| -> Result<_,ResumableError> {
+        let session = self.run(move |connection| Ok((|| -> Result<_,ResumableError> {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
             let (_,allow_overwrite)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
@@ -203,7 +203,9 @@ impl Catalog {
             // A failed commit can be ambiguous; retain its file for reference-aware recovery.
             transaction.commit().map_err(unavailable)?;
             connection.query_row("SELECT * FROM resumable_sessions WHERE id = ?1", [&id], read_session).map_err(|e|unavailable(e).into())
-        })())).await?
+        })())).await??;
+        self.0.maintenance_wake.notify_one();
+        Ok(session)
     }
 
     pub async fn resumable_session(
@@ -243,18 +245,20 @@ impl Catalog {
         id: &str,
         bucket: &str,
     ) -> Result<SessionLease, ResumableError> {
-        {
-            let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
-            if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
-                return Err(CatalogError::Unavailable("upload session is busy".into()).into());
-            }
-        }
-        let guard = WriterGuard {
-            catalog: self.clone(),
-            id: id.to_owned(),
-        };
+        let guard = self.try_resumable_writer(id)?;
         let session = self.resumable_session(id, bucket).await?;
         Ok(SessionLease { session, guard })
+    }
+
+    pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
+        let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
+        if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
+            return Err(unavailable("upload session is busy"));
+        }
+        Ok(WriterGuard {
+            catalog: self.clone(),
+            id: id.to_owned(),
+        })
     }
 
     /// Called only with an exclusive lease after file sync; it never transfers body bytes.
