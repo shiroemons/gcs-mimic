@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-22T01:38:33Z",
-  "scope": "JSON multipart upload slice: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
+  "checked_at_utc": "2026-10-22T02:30:30Z",
+  "scope": "Strict authentication slice: eleven direct Rust crates, Rust/Go toolchains, SDK graph, container inputs, pinned BuildKit and SBOM generator, and release Actions. Platform and registry execution evidence is tracked separately from workflow configuration.",
   "freshness_check": {
     "command": "just check-dependencies",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/multipart-dependencies.txt",
-    "follow_up": "Tokio 1.54.1 and the current Rust builder index were adopted. Every freshness input reports CURRENT; there are no freshness exceptions. Container rebuild/smoke verification is deferred to final slice integration. Remote CI, native amd64 and release-platform execution remain pending."
+    "artifact": "docs/en/evidence/strict-auth-dependencies.txt",
+    "follow_up": "The updated Rust builder index (new arm64 manifest, unchanged amd64) was adopted. Every freshness input reports CURRENT; there are no freshness exceptions. Container rebuild/smoke verification is deferred to final slice integration. Remote CI, native amd64 and release-platform execution remain pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -132,13 +132,13 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3",
-        "latest_verified_digest": "sha256:f938561c139ff3f8b4449fe5064ede0ea526229b0fc8ea58a5031c3bf40e72d3",
+        "digest": "sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec",
+        "latest_verified_digest": "sha256:d5928c68f8909c141df1bef47ac2c99c025fc9480d09870e08c3783b270eedec",
         "verification_status": "ADOPTED",
-        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. The amd64 manifest changed; arm64 is unchanged. Dockerfile now pins the updated index; container execution is deferred to final slice integration.",
+        "update_scope": "Both 1.99.1-slim-trixie and slim-trixie resolve to this index. The arm64 manifest changed; amd64 is unchanged. Dockerfile pins the updated index; container execution is deferred to final slice integration.",
         "platforms": {
           "linux/amd64": "sha256:d7d8fd94f01c80a355b86fe8691abc26be051daa44fa021a8b5ece5c8cbcb469",
-          "linux/arm64": "sha256:4584869b7bc580d3a49023d29cac84a41d51ed5e26960c235d4fc0cd40a3e008"
+          "linux/arm64": "sha256:73b81f338853a11a828adeb6fc31ba5d53e3cbc435fb6ae71752473242f6f88b"
         },
         "source_url": "https://hub.docker.com/v2/repositories/library/rust/tags/1.99.1-slim-trixie"
       },
