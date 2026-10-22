@@ -1,13 +1,17 @@
-# Bucket metadata PATCH reference comparison
+# Bucket metadata PATCH comparison and SDK verification
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Checked and executed on **2026-10-23**, macOS ARM64. Scope: the bucket PATCH
+Checked and executed on **2026-10-23**, macOS ARM64, against reviewed application
+source `2b4441cef21370f95cfb3506da1cbf1ebda09787`, merged into verification checkout
+`3035d23f7b3a9c85a786441fc07c961d037c8eca`. Scope: the bucket PATCH
 corpus for `JSON-BUCKETS-008`, separate from whole-method Google compatibility.
 The [raw output](bucket-metadata-patch-comparison.txt) records the PATCH-related
 requests, status, selected headers, exact response bodies and subsequent GET/list
-probes. Only local temporary-path prefixes in reference filesystem error messages
-are replaced with `<comparison-work>`; the file declares this replacement.
+probes, followed by the complete final Go SDK output. Local temporary-path prefixes
+in reference filesystem error messages are replaced with `<comparison-work>` and
+the checkout path in SDK build output with `<checkout>`; the file declares these
+replacements. Subsequent changes only update verification prose and raw evidence.
 
 ## Inputs and reproduction
 
@@ -27,40 +31,49 @@ CURRENT, including the existing Go/SDK pins. No dependency files changed.
 
 ```sh
 : "${GCS_MIMIC_REFERENCE_REPO:?Set the pinned reference repository from README comparison sources}"
-GCS_MIMIC_REFERENCE_ONLY=1 bash scripts/compare-reference-emulator.sh
+bash scripts/compare-reference-emulator.sh
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
 ```
 
-Reference-only mode skips the local Rust build and local targets. Unset
-`GCS_MIMIC_REFERENCE_ONLY` to build/run both gcs-mimic profiles as well.
+Optional `GCS_MIMIC_REFERENCE_ONLY=1` skips the local Rust build and local targets;
+the final run above used all four targets with that option unset.
 The script verifies the archive digest, builds below `$TMPDIR`, binds loopback,
 bypasses proxies, clears inherited server configuration and cleans up all children
 and data. This run contacted upstream source/module registries, never real
 Google buckets or the metadata server. Upstream emulator test suites were not run.
 
-The complete corpus has 179 requests per target: the prior 92 CRUD probes plus
-87 PATCH-related requests (27 PATCH operations, two create operations and
-GET/list state probes). Reference-only execution completed with 358 raw records;
-174 PATCH-related records are retained here. Reference assertions pass for
-statuses, ignored label/class input, unchanged revisions, both backends' settings
-and default hold toggles. Equality columns are descriptive: a documented
-difference does not fail the run.
+The complete corpus has 185 requests per target: the prior 92 CRUD probes plus
+93 PATCH-related requests (29 PATCH operations, two create operations and
+GET/list state probes). Final execution completed with 740 raw records;
+372 PATCH-related records are retained here. Both reference and local assertions
+pass. All four create/get normalized-body comparisons also pass. Equality columns
+are descriptive: documented cross-product differences do not fail the run.
 
-## Executed reference behavior
+## Executed behavior
 
-| Request/case | Filesystem backend | Memory backend |
-| --- | --- | --- |
-| Label add, merge, key:null removal, empty object and whole-map null | 200; labels absent in response and GET | Same |
-| `storageClass:"NEARLINE"` | 200; class stays STANDARD | Same |
-| Enable versioning and default hold together | 500 internalError; GET retains both false | 200; both true in response/GET |
-| Disable both settings | 200; both false | Same |
-| Default hold true, then false without versioning | 200; true then false in GET | Same |
-| Metageneration match success/stale, not-match success/equal | All 200; conditions ignored | Same |
-| Missing bucket PATCH | 500 internalError with filesystem stat diagnostic; subsequent GET 404 | 404 notFound; subsequent GET 404 |
-| Truncated JSON `{"labels":` | 400 invalid, `unexpected EOF`; state unchanged | Same |
-| Unknown field | 200; ignored | Same |
-| `cors`, `lifecycle`, `retentionPolicy`, `iamConfiguration` set to null | 200; no modeled effect | Same |
-| projection full/noAcl | 200; same modeled resource | Same |
-| predefinedAcl, predefinedDefaultObjectAcl and userProject | 200; no modeled effect | Same |
+| Request/case | Reference filesystem | Reference memory | gcs-mimic native and legacy-emulator |
+| --- | --- | --- | --- |
+| Label add, merge and key:null removal | 200; labels absent in response and GET | Same | 200; merge retains other keys; null removes only the selected key |
+| Empty label map, whole-map null and empty string value | 200; labels absent | Same | Empty map preserves; null clears; empty string persists |
+| `storageClass:"NEARLINE"` | 200; class stays STANDARD | Same | 200; NEARLINE persists through subsequent updates |
+| Enable versioning and default hold together | 500 internalError; GET retains both false | 200; both true in response/GET | 200; both true in response/GET |
+| Empty PATCH after enabling settings | 200; both false | 200; resets both false | 200; preserves both true |
+| Disable both settings | 200; both false | Same | 200; both false |
+| Default hold true, then false without versioning | 200; true then false in GET | Same | 200; true then false in GET |
+| Metageneration match success/stale, not-match success/equal | All 200; conditions ignored | Same | Successes 200; stale match and equal not-match 412, unchanged state |
+| Missing bucket PATCH | 500 internalError with filesystem stat diagnostic; subsequent GET 404 | 404 notFound; subsequent GET 404 | 404; subsequent GET 404 |
+| Truncated JSON `{"labels":` | 400 invalid, `unexpected EOF`; state unchanged | Same | Native 400 parseError; legacy 400 invalid; state unchanged |
+| Unknown field | 200; ignored | Same | 200; ignored, stored metadata preserved and revision advances |
+| `cors`, `lifecycle`, `retentionPolicy`, `iamConfiguration` set to null | 200; no modeled effect | Same | 501; unchanged state |
+| projection full/noAcl | 200; same modeled resource | Same | 200; same modeled resource |
+| predefinedAcl, predefinedDefaultObjectAcl and userProject | 200; no modeled effect | Same | 501; unchanged state |
+
+For every local successful PATCH, the script asserts response/GET/list equality,
+exactly one metageneration increment, changed ETag, non-decreasing update time,
+stable identity/creation time/location/project, and preservation of omitted class,
+labels and boolean settings. Every failed local mutation is followed by GET/list
+and compared with the complete previous resource. The missing bucket stays absent.
+The error statuses above are expected observations, not harness failures.
 
 Successful reference PATCH leaves metageneration `"1"`, ETag `"RVRhZw=="`
 and `updated == timeCreated`, including real settings changes. Label/class inputs
@@ -73,8 +86,8 @@ The pinned [reference bucket handler](https://github.com/fsouza/fake-gcs-server/
 has SHA-256 `73ac2fded764470f13b451d281c61089704f48e79a0234cfdf164657d443cf96`.
 `getBucketAttrsToUpdate` models only the two settings as non-pointer booleans:
 omission resets them to false. The local contract deliberately preserves omitted
-settings in both profiles. The final corpus adds an empty PATCH after enablement
-to expose this difference, plus an empty-string label value case.
+settings in both profiles. The executed empty PATCH after enablement exposes this
+difference; the empty-string label value is independently preserved locally.
 
 ## Official Go SDK wire mapping
 
@@ -120,16 +133,31 @@ remain authoritative over emulator observations. Unknown/output-only/null/query
 edge behavior must follow the separately frozen slice contract and recorded gaps;
 no real-service differential parity is inferred from SDK serialization.
 
-## Local verification status
+## Final local verification
 
-`GOTOOLCHAIN=auto go vet ./...` passes. The two new SDK tests compile and skip
-explicitly when emulator endpoints are unset. Against application source
-`406bd7185c86c27f74480d8d87ecde31a43fb6a9`, the narrow PATCH SDK runner passes
-both new tests with no skips (package time 0.474s), including strict read-only
-denial and admin success. Final complete Go execution and native/legacy-profile
-comparison await the reviewed application source.
+The final `env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh` exits 0: Go vet,
+31 top-level tests and 73 subtests pass, with zero failures or skips (package time
+3.239s). This includes `TestBucketMetadataUpdate` and
+`TestStrictAuthBucketMetadataUpdate`: high-level label additions/merge/removal,
+delete-only/absent-key updates, class changes, explicit true/false settings,
+both condition successes and 412 failures, subsequent Attrs consistency,
+read-only bucket principal 403 with unchanged revision, admin success and
+unchanged object bytes. With endpoints unset, the two tests compile and skip
+explicitly; that harness-only check is separate from the successful server run.
+
+`bash scripts/compare-reference-emulator.sh` exits 0 with all four targets and
+both PATCH assertion groups passing. `bash -n`, `git diff --check` and the
+local-path scan pass. Markdownlint passes on the three changed Markdown files;
+MD013 alone is disabled for existing long tables and reproduction commands.
 
 Local `updated` uses the injected clock and millisecond JSON precision. The
 tests require non-decreasing time, no time before creation, metageneration +1,
 a changed ETag and actual metadata changes. Consecutive successful updates can
 share `updated`; timestamp inequality is not used as the mutation identifier.
+
+The [slice contract](../slices/bucket-metadata-patch.md) retains unverified
+Google-service behavior and profile carry-over limits. The corpus covers the
+listed fields/queries; it does not claim whole-method parity, cloud IAM error
+parity, physical storage placement, restart coverage from this comparison,
+container validation or upstream test-suite execution. Rust wire/restart tests,
+ledger updates and final container/guide evidence belong to the integrated slice.
