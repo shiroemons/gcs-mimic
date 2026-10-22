@@ -55,6 +55,21 @@ CLI > environment > file > default precedence. It never changes strict permissio
 The broader public and signing sequences in section 8 remain future acceptance
 targets beyond the [implemented read subset](slices/public-object-reads.md).
 
+The implemented bucket PATCH journey must merge a new label while preserving
+an existing key, remove the new key with a null value, and change the supported
+default `storageClass` to NEARLINE. Use curl with `ifMetagenerationMatch`, verify
+one revision increment, then retry the stale condition and require 412 with no
+mutation; compare the returned resource with GET. Run the updated steps against
+the built native binary and Docker image. `labels:{}` preserves keys and
+`labels:null` clears the map under the declared local contract; whole-map null,
+scalar deletion/default and other provider edge parity remain explicit gaps.
+The [runnable commands](getting-started.md#patch-bucket-labels-and-default-storage-class)
+also describe boolean versioning/default-hold changes, strict update permission
+and rejected advanced fields. The pinned Go `BucketHandle.Update` tests must
+exercise `SetLabel`, `DeleteLabel`, class/settings changes, conditions and strict
+denial without cloud credentials. PUT replacement/defaults remain a separate
+unimplemented contract.
+
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build

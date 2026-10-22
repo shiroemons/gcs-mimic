@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-The current slice supports JSON bucket create/get/list/delete, bucket IAM policy
+The current slice supports JSON bucket create/get/list/delete and metadata PATCH, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
@@ -19,7 +19,7 @@ The [bucket contract](slices/json-bucket-crud.md) and
 [metadata](slices/json-object-metadata.md),
 [multipart](slices/json-object-multipart.md) and
 [strict authentication](slices/strict-auth.md) and
-[bucket IAM](slices/bucket-iam.md) and
+[bucket IAM](slices/bucket-iam.md), [bucket PATCH](slices/bucket-metadata-patch.md) and
 [public object reads](slices/public-object-reads.md) contracts list supported fields and deviations.
 The resumable journeys below specify the [frozen upload contract](slices/resumable-upload.md)
 and its expected outputs; they await final-source execution and are not verification
@@ -110,12 +110,56 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
   --disable --noproxy '*' --fail -X DELETE http://gcs:4443/storage/v1/b/peer-bucket
 ```
 
+## Patch bucket labels and default storage class
+
+PATCH merges supplied label keys and preserves omitted keys. A key set to null
+removes that label; `labels:{}` preserves the map and `labels:null` clears it.
+The supported default class is metadata only; changing it does not rewrite
+existing objects or simulate physical placement. This sequence works against
+the Compose endpoint and the native binary.
+
+```sh
+patch_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket" > "$patch_dir/before.json"
+patch_revision=$(jq -er '.metageneration' "$patch_dir/before.json")
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' \
+  "$endpoint/storage/v1/b/demo-bucket?ifMetagenerationMatch=$patch_revision" > "$patch_dir/merged.json"
+jq -e --argjson prior "$patch_revision" \
+  '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' \
+  "$patch_dir/merged.json"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"labels":{"stage":null}}' "$endpoint/storage/v1/b/demo-bucket" > "$patch_dir/removed.json"
+jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' "$patch_dir/removed.json"
+patch_status=$(curl --disable --noproxy '*' --silent --show-error -o "$patch_dir/stale.json" \
+  -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' \
+  "$endpoint/storage/v1/b/demo-bucket?ifMetagenerationMatch=$patch_revision")
+test "$patch_status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$patch_dir/stale.json"
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b/demo-bucket" > "$patch_dir/after.json"
+cmp "$patch_dir/removed.json" "$patch_dir/after.json"
+rm -r "$patch_dir"
+```
+
+Each successful PATCH increments metageneration once and changes its ETag.
+`updated` uses millisecond clock precision and can equal the preceding value.
+`ifMetagenerationMatch` and `ifMetagenerationNotMatch` are checked atomically;
+failed conditions leave state unchanged. Strict mode requires
+`storage.buckets.update`. PATCH also accepts boolean `versioning.enabled` and
+`defaultEventBasedHold`; changes affect future uploads while prior holds and
+retained versions survive. Native null settings are rejected; legacy null
+settings reset to false. See the [contract](slices/bucket-metadata-patch.md)
+for profile, input and provider-parity limits. ACLs, nonempty lifecycle rules,
+CORS, retention, predefined ACL queries and `userProject` return 501;
+`projection=full` and `noAcl` return the same modeled subset without ACL/owner.
+Bucket PUT remains unavailable.
+
 ## Verify bucket versioning and default holds
 
 Create-time `versioning.enabled` retains overwritten or deleted generations.
 `defaultEventBasedHold` protects newly uploaded bytes until explicitly released.
-This native walkthrough also works with the compatibility profile; bucket metadata
-PATCH/PUT for changing the defaults remains unavailable.
+This native walkthrough also works with the compatibility profile; PATCH can
+change these defaults, while PUT remains unavailable.
 
 ```sh
 history_dir=$(mktemp -d)
@@ -590,7 +634,9 @@ endpoint from the repository root:
 The harness pins `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
 v0.307.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
-bucket CRUD/paging and object listing/Update/Attrs/NewReader/NewRangeReader/Delete, exact bytes/hashes, generation
+bucket CRUD/paging and BucketHandle.Update with SetLabel/DeleteLabel, default
+class/settings, metageneration conditions and strict update denial, plus object
+listing/Update/Attrs/NewReader/NewRangeReader/Delete, exact bytes/hashes, generation
 conditions, encoded names and nonempty bucket errors. The harness uploads raw media with
 its confined HTTP client. `TestObjectMultipartWriter` also verifies the high-level
 Writer with `ChunkSize=0`, fixed/custom metadata, explicit hashes, create-if-absent
@@ -1112,6 +1158,16 @@ status=$(curl --disable --noproxy '*' --silent --show-error --output "$native_di
   --write-out '%{http_code}' "$native_public_url")
 test "$status" = 200
 printf 'native data' | cmp - "$native_dir/xml.txt"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"labels":{"team":"local","stage":"dev"},"storageClass":"NEARLINE"}' \
+  "$native_endpoint/storage/v1/b/native-bucket?ifMetagenerationMatch=1" > "$native_dir/patched.json"
+jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and .metageneration == "2"' \
+  "$native_dir/patched.json"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"labels":{"stage":null}}' "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/removed.json"
+jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' "$native_dir/removed.json"
+curl --disable --noproxy '*' --fail "$native_endpoint/storage/v1/b/native-bucket" > "$native_dir/after.json"
+cmp "$native_dir/removed.json" "$native_dir/after.json"
 kill -TERM "$native_pid"
 wait "$native_pid"
 trap - EXIT

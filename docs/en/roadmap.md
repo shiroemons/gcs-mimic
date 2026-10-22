@@ -59,6 +59,7 @@ remain in the named evidence files.
 | --- | --- | --- | --- |
 | Runtime foundation | HTTP, configuration, probes, non-root container and injected clock | Current-source platform/CI and release claims need their own evidence | [Runtime/container](evidence/distroless.md) |
 | JSON bucket CRUD | Persistent create/get/list/delete, conditions and scoped paging | IAM/ACL, ownership and advanced settings | [Bucket verification](evidence/bucket-crud.md) |
+| Bucket metadata PATCH | Label merge/removal, supported default class, versioning/default holds, atomic conditions and strict update permission | Final integration checks pending; whole method and provider edge parity remain PARTIAL | [PATCH integration](evidence/bucket-metadata-patch.md) |
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
