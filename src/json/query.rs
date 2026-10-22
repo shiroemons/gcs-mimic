@@ -246,8 +246,8 @@ fn parse(
             }))
         }
         (&Method::GET | &Method::PATCH, Some(bucket)) => {
-            unsupported(&query, &["generation"])?;
             if *method == Method::GET {
+                unsupported(&query, &["generation"])?;
                 false_only(&mut query, "softDeleted")?;
             } else {
                 unsupported(&query, &["predefinedAcl", "predefinedDefaultObjectAcl"])?;

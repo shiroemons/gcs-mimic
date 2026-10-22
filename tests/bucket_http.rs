@@ -176,6 +176,12 @@ fn bucket_patch_location_comparison_is_case_insensitive() {
             .request("PATCH", path, r#"{"location":"EU","labels":{"lost":"no"}}"#)
             .error(501, "notImplemented");
         assert_eq!(server.request("GET", path, "").json(), before);
+        if profile == "legacy-emulator" {
+            server
+                .request("PATCH", path, r#"{"location":"US","labels":{"lost":"no"}}"#)
+                .error(501, "notImplemented");
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
     }
 }
 
@@ -203,6 +209,24 @@ fn bucket_get_rejects_patch_only_acl_query_parameters() {
                 .json(),
             before
         );
+    }
+}
+
+#[test]
+fn bucket_patch_rejects_get_only_generation_query_parameter() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let before = server.insert("patch-generation-query", "project").json();
+        let path = "/storage/v1/b/patch-generation-query";
+        let query_path = format!("{path}?generation=1");
+        server
+            .request("GET", &query_path, "")
+            .error(501, "notImplemented");
+        server
+            .request("PATCH", &query_path, r#"{"labels":{"lost":"no"}}"#)
+            .error(400, "invalidParameter");
+        assert_eq!(server.request("GET", path, "").json(), before);
     }
 }
 
