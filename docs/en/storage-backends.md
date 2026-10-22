@@ -43,7 +43,7 @@ does not establish lower total complexity once these guarantees are included.
 `src/storage/catalog.rs` uses one operational SQLite connection, WAL,
 synchronous FULL, a 2 MiB configured cache, mmap disabled and bounded admission
 with one execution permit. Indexed queries and recovery pages avoid loading the
-whole catalog. Schema v5 includes the seed initialization marker.
+whole catalog. Schema v6 includes seed initialization and bucket IAM policy state.
 
 `src/storage/objects.rs` streams into opaque files, publishes immutable blobs,
 then checks conditions and changes references in a short SQL transaction.
@@ -57,6 +57,33 @@ startup reconciliation bridge that boundary. Database atomicity alone does not
 make both stores one atomic transaction. Selected process-crash cases pass;
 every fsync window, host power loss and all-platform behavior remain unverified.
 Existing results remain in `docs/en/evidence/object-media.md`.
+
+#### Resumable session storage contract
+
+The [frozen resumable contract](slices/resumable-upload.md) extends this model
+with an indexed persistent session table and opaque staging files on the same
+data volume as immutable blobs. This is a required design, not executed backend
+or migration evidence. The table must retain capability identity, bucket
+incarnation and initiating authorization context, bounded metadata/conditions,
+optional total, committed offset, fixed seven-day deadline, terminal state and
+a bounded completion resource. Sessions are not ordinary listable objects.
+
+Each complete chunk must sync its appended bytes before committing its offset;
+an interrupted request's uncommitted tail must be truncated. Finalization must
+publish the immutable file before committing the Object and completion snapshot
+together with atomic authorization/preconditions and the deletion journal.
+Recovery must retain active unexpired staging, restore a precommit rename,
+resolve ambiguous commits through references, and reject missing/truncated
+acknowledged prefixes before readiness. A blanket staging purge would destroy
+resumable progress and must be replaced with reference-aware bounded recovery.
+See the [session engine design](design.md#resumable-session-engine-contract).
+
+The planned 128 retained-session limit and existing object-size cap bound staging
+growth, with at most eight in-progress tails; they do not reserve free disk space.
+Disk-full/write/sync failures must surface. Deadline-indexed maintenance must
+reclaim expired staging and terminal records in bounded batches without busy
+polling, and journal/retry failed unlinks. No whole-body buffering, new backend
+dependency, comparative speed or additional durability result is implied.
 
 ### fake-gcs-server: files, xattrs or sidecars, and memory
 
@@ -128,6 +155,10 @@ Copying a live database file alone is also insufficient in WAL mode.
 A coherent application backup must freeze mutations and reclamation, or pin
 every immutable blob referenced by the chosen catalog snapshot until copying
 and validation complete. Restore must verify the complete referenced set.
+For a backup that includes resumable progress, the set also includes session
+records and their acknowledged staging prefixes. Freeze session mutations while
+capturing/copying that state: pinning immutable object blobs alone cannot protect
+mutable staging. Resumable backup/restore execution is not established here.
 
 For migration, read a stable source into a separate destination. Preserve
 xattrs when the source uses them. Verify names, generations, timestamps,

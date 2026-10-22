@@ -6,7 +6,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs, signed URLs and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs and signed URLs remain unimplemented. The resumable session contract below awaits execution evidence; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -238,7 +238,7 @@ Unix directory-fsync equivalent or a power-loss namespace guarantee; see the
 Resumable sessions and Windows
 unlink behavior are outside the verified scope.
 
-Recovery holds the exclusive directory lock before bind/readiness. It removes staging,
+Single-request recovery holds the exclusive directory lock before bind/readiness. It removes abandoned staging,
 replays deletion entries and validates live references in pages of 128. Directory
 iterators plus indexed single-ID checks remove orphan blobs without collecting the
 object catalog. Missing/truncated/non-file referenced data prevents readiness. Actual
@@ -249,6 +249,8 @@ deletion-journal insertion, unlink and journal-removal windows have not each bee
 barrier-killed; host power loss is untested. See the
 [integration evidence](evidence/object-media.md). This is a local recovery
 protocol, not an atomic SQLite/filesystem transaction or a production durability claim.
+Persistent resumable sessions require reference-aware staging recovery instead of
+that blanket purge, as specified in the session contract below.
 
 The [regression evidence](evidence/object-media.md)
 covers explicit body-completion markers, commit waiting beyond inactivity, both storage
@@ -277,6 +279,115 @@ Make generation/metageneration compare-and-swap part of the committing mutation.
 
 Inject a deterministic clock from the beginning. Lifecycle evaluation, retention expiry, soft deletion, upload expiry, signed URL validity, UBLA locking and optional propagation delays should be testable without sleeping. Use explicit maintenance ticks or scheduled deadlines, not busy polling.
 
+## Resumable session engine contract
+
+This section describes the [frozen JSON resumable contract](slices/resumable-upload.md),
+not verified implementation or release availability. Its acceptance cases and
+pinned official sources define the boundary; execution evidence and feature
+status remain in the ledger. XML uploads, signed initiation, gRPC, browser CORS
+and invocation-token response replay are outside this slice.
+
+The JSON adapter must parse initiation metadata and ranges, render the session
+headers and distinguish POST initiation from PUT/SDK POST writes by `upload_id`.
+The shared session engine must own offsets, serialization, authorization context
+and terminal transitions, using the existing bounded blob/catalog mechanisms.
+Sessions bind one bucket incarnation and logical object name; later request
+queries cannot retarget them or relax persisted preconditions. Their opaque,
+unguessable capability URI authorizes writes, status and cancellation without
+re-authenticating the delegate. Never log the URI or token.
+
+One session may have at most one active writer; competing writes return local
+retryable 503 without an unbounded waiter queue. Repeated/overlapping writes
+must discard the acknowledged prefix with bounded buffers and append only the
+unseen tail. Persisted bytes remain immutable. A chunk checkpoint requires
+complete transport EOF, file sync and a short offset transaction; interruption
+or a disappearing producer must not acknowledge a partial request. Status must
+report the durable offset after truncating any uncommitted tail.
+
+Finalization must validate complete length and whole-object hashes before
+publication. Its transaction must re-evaluate the initiating identity's current
+bucket/project grants, require overwrite-delete permission for a live destination,
+check bucket incarnation and all four generation/metageneration conditions,
+allocate one generation, set metageneration to 1, publish metadata, record the
+completed-session resource and journal a replaced blob. Creation/update times
+come from completion-time `Clock::now()`. GET/list must expose no partial new
+object; failures preserve the old object. Completed status/repeated final
+requests must return the original bounded resource snapshot until the original
+deadline, without allocating another generation even after a later overwrite.
+This session state is separate from invocation-token response replay.
+
+### Catalog, admission and staging
+
+The contract requires a transactional migration from the validated catalog to
+an indexed persistent session table. Store the random capability ID, opaque
+staging/blob ID, bucket incarnation/owner, logical name, initiating authorization
+context, bounded metadata/checksums/conditions, optional total, committed offset,
+creation/deadline timestamps, state and bounded completion resource. Index
+deadlines and blob references; exclude session fields from ordinary object lists.
+Validate schema and session invariants before readiness, rejecting future or
+corrupt schemas read-only. No body transfer may hold a SQL transaction.
+
+The planned admission cap is 128 retained sessions, including active, completed
+and invalid terminal records until their deadline. Count/insert must be atomic;
+a full table returns immediate 503 `backendError` without files or object changes.
+Reuse eight body-transfer slots, releasing them between session requests,
+32 catalog admission slots and one executing SQLite job. At most two copied
+64 KiB channel chunks per admitted body plus bounded hash/parser state are
+allowed; neither chunks nor whole objects may be collected in a byte vector.
+Apply `max_object_bytes` to declared total, offsets and streamed bytes using
+checked arithmetic, including unknown-length requests. Retained staging can use
+session-count times the object cap plus at most eight in-progress tails and live
+blobs; this is a disk bound, not a free-space reservation. Disk-full/write/sync
+failures must remain explicit.
+
+### Checkpoints and crash recovery
+
+SQLite commit and filesystem rename remain separate operations. Under the
+exclusive data-directory lock, the required protocol is:
+
+1. Create and durably record an opaque staging file on the data volume before
+   inserting the session. A crash leaving an unreferenced file creates an orphan.
+2. Append beyond the committed offset, sync after complete request EOF, then
+   commit the offset/total. Before that commit, a crash may leave a tail to
+   truncate; afterward, all acknowledged bytes must survive restart.
+3. Rebuild hashes by bounded disk reads when resumed state requires it. Sync
+   and publish the file under its recorded immutable blob ID using the existing
+   same-filesystem rename/directory-sync protocol, then commit Object state and
+   the COMPLETE resource snapshot together with conditions and deletion journal.
+4. Before Object commit, an ACTIVE session with missing staging but its recorded
+   immutable blob present must recover that blob to staging. The durable offset,
+   metadata and total remain authoritative. Resolve an ambiguous SQL commit by
+   session/object reference lookup before moving or deleting bytes.
+5. After commit, preserve live references and the completion snapshot. Never
+   reclaim committed data as abandoned staging; replaced blobs use the existing
+   deletion journal, and failed reclamation cannot undo publication.
+
+Startup must page session/blob references, retain active unexpired staging,
+truncate excess tails, restore precommit renames and reclaim unreferenced or
+expired files. Missing/truncated acknowledged prefixes must block readiness
+with a diagnostic instead of resetting offsets. Recovery must avoid collecting
+the catalog or reading whole bodies. Selected restart/process-crash barriers
+are acceptance requirements; individual fsync windows, host power loss and
+all-platform durability remain separate unverified boundaries.
+
+### Cancellation and expiry scheduling
+
+DELETE of an incomplete session must serialize with append/finalize so exactly
+one terminal transition wins. JSON cancellation returns 499 and changes no live
+object; deleting a completed session must not delete its object. Invalid terminal
+sessions return local 410 before their original deadline, then 404 at or after
+it; unknown sessions return 404.
+
+The persisted deadline is initiation time plus 604800 seconds, never renewed by
+activity. Requests must reject a session at `Clock::now() >= deadline` even if
+physical cleanup is pending. An explicit maintenance entry point and one
+next-deadline scheduler must expire indexed bounded batches, reclaim staging
+and terminal records, and retry journaled unlink failures visibly. Wake when an
+earlier deadline is inserted or shutdown begins; sleep until due work, with no
+periodic polling and no timer when no work exists. Startup must run due cleanup
+before readiness and rearm the next deadline. Tests advance the injected clock
+and invoke maintenance without waiting a week.
+
 ## Access and URL contract
 
 | Mechanism | Expected local behavior |
@@ -294,7 +405,22 @@ Inject a deterministic clock from the beginning. Lifecycle evaluation, retention
 
 Public URLs normally address an XML-compatible path such as `http://localhost:4443/bucket/key`. JSON `mediaLink` and `selfLink` are resource links, not permission grants. A signing helper is a local tool or SDK example; Cloud Storage has no general storage-server `generateSignedUrl` endpoint. Remote IAM Credentials `signBlob` belongs to a separate service. [Public data](https://docs.cloud.google.com/storage/docs/access-public-data), [Signed URLs](https://docs.cloud.google.com/storage/docs/access-control/signed-urls).
 
-V4 includes the host in the signed request. Sign the actual browser-facing emulator hostname from the start. Replacing the hostname after signing is incompatible with strict validation. Separate binding (`0.0.0.0:4443`), peer connectivity (`http://gcs:4443` inside Compose), API advertised URLs, and the browser/public endpoint (`http://localhost:4443`). Resumable `Location` responses must be reachable by the initiating client, which may use a different network than the browser. Use the listener scheme and an explicitly allowed request authority for the default development mapping, with a fixed advertised-base override for proxies. Do not trust arbitrary forwarded headers. See the [onboarding contract](getting-started-spec.md). [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests).
+V4 includes the host in the signed request. Sign the actual browser-facing emulator hostname from the start. Replacing the hostname after signing is incompatible with strict validation. Separate binding (`0.0.0.0:4443`), peer connectivity (`http://gcs:4443` inside Compose), API advertised URLs, and the browser/public endpoint (`http://localhost:4443`). [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests).
+
+The resumable contract requires absolute `Location` values from configured
+`api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON), preserving a
+normalized proxy prefix. The proxy must strip that prefix before forwarding.
+Never derive it from bind, Host, Forwarded or X-Forwarded-*; public-object URL
+configuration does not choose this capability endpoint or grant permissions.
+Use `http://127.0.0.1:PORT` for a host, `http://gcs:4443` for a Compose peer,
+and a host-reachable address such as `http://localhost:PORT` for a host browser.
+An address check does not establish CORS support. One fixed base cannot
+automatically cover both address spaces: use separate configurations or a common
+reachable DNS/proxy endpoint. The validated-request-origin/allowed-authority
+proposal in the [onboarding contract](getting-started-spec.md) remains deferred;
+this slice freezes the existing fixed override. The
+[guide](getting-started.md#resume-and-finalize-an-upload-from-the-host) supplies
+the host/peer/address acceptance commands.
 
 Use an explicit `permissive` profile for easy smoke tests and `strict` for permission/signature conformance. Strict mode can use local credentials and a local principal map; it must not silently contact Google to mint tokens. Passing permissive tests does not establish strict compatibility.
 
