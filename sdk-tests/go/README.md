@@ -112,6 +112,37 @@ conditioned overwrites, followed by Attrs and NewReader verification.
 Single-request upload invocation tokens require `ifGenerationMatch` and have no replay support;
 retrying a committed conditioned upload fails 412 instead of writing again.
 
+## Bucket metadata PUT
+
+`TestBucketMetadataReplace` uses the pinned `google.golang.org/api/storage/v1`
+`Service.Buckets.Update` JSON client, which sends PUT. The high-level
+`cloud.google.com/go/storage` `BucketHandle.Update` sends PATCH and is retained
+as the merge contrast. No modules or checksums change.
+
+The PUT journey replaces labels, sets the supported class/versioning/default
+hold fields, then verifies that omitted labels clear and omitted settings reset
+to STANDARD/false. Both metageneration conditions have success and 412 cases;
+failed requests preserve metadata. PUT responses agree with high-level Attrs,
+advance one metageneration, change the etag and preserve identity and existing
+object generations/bytes. `TestStrictAuthBucketMetadataReplace` verifies viewer
+403, admin success and unchanged IAM policy etag and object bytes. Both clients
+reuse the origin-guarded HTTP harness and explicit emulator endpoints; strict
+tokens come only from the checked-in local fixture registry.
+
+Run only these journeys with:
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh
+```
+
+The raw comparison script additionally covers both compatibility profiles and
+both pinned reference backends, including null/empty fields, unsupported inputs,
+GET/list consistency and unchanged object bytes. The pinned reference has no
+bucket PUT route: every PUT in this corpus returns JSON 404 without changing the
+bucket, unlike its PATCH handler. This is a reference difference, not evidence
+of Google service behavior. Exact pins and execution results are recorded in
+[verification](verification.md).
+
 ## Resumable Writer journeys
 
 `objects_resumable_test.go` defines the next upload acceptance journeys using the

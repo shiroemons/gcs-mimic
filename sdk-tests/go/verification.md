@@ -2,6 +2,59 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## Bucket metadata PUT contract tests: 2026-10-23
+
+`TestBucketMetadataReplace` and `TestStrictAuthBucketMetadataReplace` exercise
+`google.golang.org/api/storage/v1` `Service.Buckets.Update`. The pinned generated
+client constructs HTTP PUT, whereas high-level `BucketHandle.Update` constructs
+PATCH. The tests contrast replacement with merge, verify modeled omission
+defaults, successful and failed match/not-match conditions, response/Attrs
+consistency, revisions, existing object bytes/generation, strict viewer denial,
+admin success and IAM policy etag preservation.
+
+Pins remain Go 1.27.3, Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0.
+The raw API client was already required; `go.mod` and `go.sum` are unchanged.
+`go vet ./...` and `go test -run '^$' ./...` passed before server integration.
+The existing guarded transport, explicit emulator origin, static local tokens
+and redirect rejection apply to every raw client request; no ADC or Google
+metadata-server discovery is used.
+
+Against application source `ab7f410`,
+`GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`
+passed vet and both top-level tests with zero failures or skips (package time
+0.517s). The runner starts isolated native permissive and strict servers and
+cleans up both. No change to `scripts/sdk-go.sh` was needed: its existing
+test-name selector includes the new tests automatically.
+
+The comparison source is fake-gcs-server v1.56.1, commit
+`896ece51e49eed0946089f3089f6343855c0d106`, archive SHA-256
+`13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc`.
+The pinned [router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go#L244-L253)
+registers bucket PATCH and POST with PATCH override, but no bucket PUT.
+The [bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/bucket.go#L35-L68)
+parses only versioning/default hold and is not reached by PUT.
+
+Observed reference differences in both backends:
+
+- All 32 PUT cases return HTTP 404 with the same JSON envelope: code 404,
+  message `Not Found`, domain `global`, reason `notFound`. This includes an
+  existing bucket, malformed JSON, null/empty metadata, unsupported settings,
+  projection, billing/ACL queries and passing/failing metageneration conditions.
+  No PUT replacement, input validation or condition enforcement is inferred.
+- Every PUT preserves the post-upload GET/list bucket resource and object bytes.
+  The reference retains fixed metageneration `1` and etag `RVRhZw==`; local
+  successful replacements increment metageneration and change the etag.
+- The fixture upload itself resets the filesystem backend bucket default hold
+  from true to false and replaces its creation/updated timestamps. Memory
+  preserves those fields. An explicit post-upload baseline isolates this
+  preexisting backend behavior from PUT; local profiles preserve bucket metadata
+  during object upload.
+
+This comparison is not a Google-service differential test. Google omitted/null
+defaults remain limited to the separately frozen local contract. No container
+build, getting-started run, upstream test suite or real Google bucket is used
+by these checks.
+
 ## Bucket metadata PATCH contract tests: 2026-10-23
 
 `TestBucketMetadataUpdate` and `TestStrictAuthBucketMetadataUpdate` add official
