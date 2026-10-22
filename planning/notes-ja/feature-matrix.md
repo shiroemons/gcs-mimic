@@ -9,14 +9,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 284 | 0 | 14 | 0 | 0 | 0 |
-| behavior | 201 | 167 | 0 | 27 | 7 | 0 | 0 |
-| project_requirement | 92 | 43 | 0 | 27 | 22 | 0 | 0 |
+| behavior | 201 | 162 | 0 | 27 | 12 | 0 | 0 |
+| project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 284 | 2 | 12 | 0 | 0 | 0 |
-| behavior | 167 | 8 | 24 | 2 | 0 | 0 |
-| project_requirement | 43 | 0 | 0 | 0 | 0 | 49 |
+| behavior | 162 | 13 | 24 | 2 | 0 | 0 |
+| project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
 
@@ -150,7 +150,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
@@ -670,11 +670,11 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-OBJECT-007 | mediaLink・selfLinkの生成 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | 単純メディアアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | JSON multipartアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| BEHAVIOR-OBJECT-010 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-011 | 再開可能アップロードのチャンク送信 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-012 | アップロード進捗照会 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-013 | アップロード中止と期限切れ | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-014 | アップロード確定時の可視性 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-010 | 再開可能アップロード開始 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-011 | 再開可能アップロードのチャンク送信 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-012 | アップロード進捗照会 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-013 | アップロード中止と期限切れ | IMPLEMENTED | P3 | EXACT | EXACT | 0 |
+| BEHAVIOR-OBJECT-014 | アップロード確定時の可視性 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-015 | データ取得とメタデータ取得 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-016 | 範囲取得 | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-017 | コンテンツエンコードと変換 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 7 |
+| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 8 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
@@ -943,4 +943,4 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-046 | 権限を変えない公開URLの組み立て | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| DESIGN-057 | クライアントから到達できる再開用Location | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-057 | クライアントから到達できる再開用Location | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |

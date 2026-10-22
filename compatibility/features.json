@@ -291,18 +291,11 @@
         "evidence": [
           "docs/en/evidence/seed-platform.md"
         ]
-      }
-    ],
-    "next_deliverables": [
+      },
       {
         "id": "resumable-upload",
-        "order": 4,
-        "title": "Complete a bounded JSON resumable upload workflow",
-        "depends_on": [
-          "json-object-media",
-          "json-multipart-upload",
-          "local-strict-auth"
-        ],
+        "title": "Stream and resume bounded JSON object uploads",
+        "scope": "Verified JSON initiation, sequential PUT/SDK POST chunks, durable status/resume and completion snapshots, atomic checksum/metadata/permission/condition finalization, cancellation, fixed seven-day expiry, indexed maintenance, selected native process-kill/restart recovery and configured host/peer/browser-address Location. Normal pinned Go Writer and native large/slow/eight-session buffering measurements pass. BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 are IMPLEMENTED / EXACT for the frozen local subset; DESIGN-057 is IMPLEMENTED / PROJECT. JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL. XML/signed initiation, gRPC, invocation-token replay, full provider edge parity and unrestricted durability/resource guarantees remain deferred.",
         "feature_ids": [
           "JSON-OBJECTS-007",
           "BEHAVIOR-OBJECT-010",
@@ -313,15 +306,65 @@
           "DESIGN-057",
           "DESIGN-082"
         ],
-        "completion_conditions": [
-          "Implement initiation and client-reachable Location, chunk offsets and status queries as separately verified steps.",
-          "Verify interrupted/duplicate/out-of-order chunks, unknown length, checksum failure and finalization; incomplete objects stay invisible and failed overwrites preserve old bytes.",
-          "Implement bounded session storage/admission, explicit clock-driven expiry, cancellation and documented restart recovery; clean temporary bytes without busy polling.",
-          "Pass pinned Go resumable Writer workflows without forcing ChunkSize=0; measure object-size-independent server buffering under the declared resource profile.",
-          "Keep invocation-token replay separate: generation conditions or session offsets must not be reported as response replay."
+        "acceptance_case_refs": [
+          "JSON-OBJECTS-007/RSM-INSERT-001",
+          "BEHAVIOR-OBJECT-010/RSM-INIT-001",
+          "BEHAVIOR-OBJECT-010/RSM-INIT-002",
+          "BEHAVIOR-OBJECT-010/RSM-INIT-003",
+          "BEHAVIOR-OBJECT-010/RSM-INIT-004",
+          "BEHAVIOR-OBJECT-010/RSM-INIT-005",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-001",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-002",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-003",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-004",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-005",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-006",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-007",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-008",
+          "BEHAVIOR-OBJECT-011/RSM-CHUNK-009",
+          "BEHAVIOR-OBJECT-012/RSM-STATUS-001",
+          "BEHAVIOR-OBJECT-012/RSM-STATUS-002",
+          "BEHAVIOR-OBJECT-012/RSM-STATUS-003",
+          "BEHAVIOR-OBJECT-012/RSM-STATUS-004",
+          "BEHAVIOR-OBJECT-013/RSM-CANCEL-001",
+          "BEHAVIOR-OBJECT-013/RSM-CANCEL-002",
+          "BEHAVIOR-OBJECT-013/RSM-CANCEL-003",
+          "BEHAVIOR-OBJECT-013/RSM-EXPIRY-001",
+          "BEHAVIOR-OBJECT-013/RSM-EXPIRY-002",
+          "BEHAVIOR-OBJECT-013/RSM-EXPIRY-003",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-001",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-002",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-003",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-004",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-005",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-006",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-007",
+          "BEHAVIOR-OBJECT-014/RSM-FINAL-008",
+          "BEHAVIOR-OBJECT-014/RSM-RECOVERY-001",
+          "BEHAVIOR-OBJECT-014/RSM-RECOVERY-002",
+          "BEHAVIOR-OBJECT-014/RSM-RECOVERY-003",
+          "DESIGN-057/RSM-LOC-001",
+          "DESIGN-057/RSM-LOC-002",
+          "DESIGN-057/RSM-LOC-003",
+          "DESIGN-082/RSM-SDK-GO-001",
+          "DESIGN-082/RSM-SDK-GO-002",
+          "DESIGN-082/RSM-SDK-GO-003",
+          "DESIGN-082/RSM-SDK-GO-004",
+          "DESIGN-082/RSM-SDK-GO-005"
         ],
-        "deferred_scope": "XML multipart upload, signed initiation, arbitrary SDK transport coverage and unrestricted large-upload claims."
-      },
+        "evidence": [
+          "docs/en/evidence/resumable-upload.md",
+          "docs/en/evidence/resumable-upload-checks.txt",
+          "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "docs/en/evidence/resumable-upload-containers.txt",
+          "docs/en/evidence/resumable-upload-guide.txt",
+          "docs/en/evidence/resumable-upload-resources.txt",
+          "docs/en/evidence/resumable-upload-freshness.txt",
+          "docs/en/evidence/resumable-upload-dependencies.txt"
+        ]
+      }
+    ],
+    "next_deliverables": [
       {
         "id": "v4-signed-download",
         "order": 5,
@@ -5157,7 +5200,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media and bounded multipart metadata/media upload with MD5/CRC32C, optional final checksum JSON, custom metadata, atomic conditions, persistent Object resources and conditioned invocation-token acceptance. Resumable and full method/permission/replay fidelity remain incomplete. Scope: docs/en/slices/json-object-media.md and docs/en/slices/json-object-multipart.md; integration: docs/en/evidence/multipart.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -5165,8 +5208,16 @@
         {
           "id": "RSM-INSERT-001",
           "description": "positive/negative: Initiation/chunk/status/cancel/finalization subset passes with existing media/multipart regression coverage; advanced fields and replay remain pending. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+            "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
+            "TestObjectResumableWriter",
+            "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart"
+          ]
         },
         {
           "id": "JSON-OBJECTS-007-MEDIA",
@@ -5220,7 +5271,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-PENDING",
-          "description": "Implement resumable sessions, broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay; unconditional bucket grants now pass.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, encryption and encoding/transcoding effects, full field/common parameter semantics, the unresolved Discovery upload alias and bounded upload-token response replay; the scoped JSON resumable subset and unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5350,7 +5401,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-MULTIPART-GO-SDK",
-          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; historical multipart evidence is retained, with normal nonzero resumable Writer covered separately by RSM-INSERT-001.",
           "result": "PASS",
           "test_ids": [
             "TestObjectMultipartWriter",
@@ -5432,7 +5483,12 @@
         "TestStrictAuthObjectCreator",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "initiation_returns_opaque_fixed_location_and_status_without_publication",
+        "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+        "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+        "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
+        "TestObjectResumableWriter"
       ],
       "verification": [
         {
@@ -5566,6 +5622,29 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+            "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
+            "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5615,20 +5694,36 @@
             "TestObjectMultipartWriter",
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
         }
       ],
       "known_deviations": [
-        "Media and scoped multipart are supported; resumable, ACL/object IAM and broader bucket policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
+        "Media, scoped multipart and JSON resumable are supported; ACL/object IAM and broader bucket policies, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. Strict mode enforces storage.objects.create plus storage.objects.delete for overwrites through project-plus-bucket predefined roles; permissive mode (default) checks nothing. SPEC-017 records local authentication error details, the missing-bucket rule and the 412-before-403 overwrite order.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
-        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
+        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Ordinary object reclamation retains its startup retry; resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
-        "SPEC-013/SPEC-016: upload tokens require ifGenerationMatch with no replay; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence."
+        "SPEC-013/SPEC-016: media/multipart upload tokens require ifGenerationMatch with no replay; resumable initiation accepts one nonempty token without it and creates another bounded session; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence.",
+        "SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS: JSON resumable has explicit local edge/error/terminal-retention and permission-recheck choices. XML/signed initiation, gRPC and invocation-token replay are excluded. Selected native resumable process-kill boundaries pass; final hash reread and prepublication error-resolution timing limits are recorded in docs/en/evidence/resumable-upload.md."
       ],
-      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
       "last_verified": "2026-10-22",
       "http_method": "POST",
       "path": "b/{bucket}/o",
@@ -11822,57 +11917,132 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Session Location, declared length/type, origin, metadata and preconditions.",
+      "notes": "All five initiation cases pass for the frozen JSON upload path, bounded metadata/length validation, encoded names, strict local create/overwrite permissions, 128 retained sessions and configured absolute Location. One nonempty initiation retry token is accepted without ifGenerationMatch; another initiation creates a distinct bounded session, with no replay. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-DISCOVERY-PATH/EDGES/AUTH-CONDITIONS retain provider alias, precedence/error and permission-timing questions outside this declared local subset; full objects.insert parity remains on JSON-OBJECTS-007.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-INIT-001",
           "description": "positive: POST metadata or empty initiation returns 200, empty body, no-store and opaque absolute Location; no Object yet. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "TestObjectResumableWriter"
+          ]
         },
         {
           "id": "RSM-INIT-002",
           "description": "positive/boundary: Query/path name precedence and encoded Unicode/slash/percent names; fixed/custom metadata and content type survive finalization. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_preserves_encoded_names_metadata_and_query_precedence",
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion"
+          ]
         },
         {
           "id": "RSM-INIT-003",
           "description": "negative/boundary: Malformed/duplicate fields, metadata/custom cap and known oversized/overflow total fail without session/file mutation. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "invalid_initiation_and_status_leave_no_session_or_file",
+            "sdk_initiation_accepts_one_retry_token_without_generation_conditions"
+          ]
         },
         {
           "id": "RSM-INIT-004",
           "description": "permission: Strict anonymous/invalid/insufficient permission denial; creator can initiate new object but cannot overwrite; no body staging on rejection. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_checks_strict_create_and_overwrite_permissions_before_staging",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
         },
         {
           "id": "RSM-INIT-005",
           "description": "resource/concurrency: 128 retained session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_session_cap_and_status_prefix_are_bounded",
+            "retained_session_cap_is_atomic_and_rejection_creates_no_file"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "test_ids": [
+        "initiation_returns_opaque_fixed_location_and_status_without_publication",
+        "initiation_preserves_encoded_names_metadata_and_query_precedence",
+        "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+        "invalid_initiation_and_status_leave_no_session_or_file",
+        "sdk_initiation_accepts_one_retry_token_without_generation_conditions",
+        "initiation_checks_strict_create_and_overwrite_permissions_before_staging",
+        "initiation_session_cap_and_status_prefix_are_bounded",
+        "retained_session_cap_is_atomic_and_rejection_creates_no_file",
+        "TestObjectResumableWriter",
+        "TestStrictAuthResumableWriter",
+        "TestStrictAuthResumableCreatorOverwriteRace"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "initiation_preserves_encoded_names_metadata_and_query_precedence",
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "invalid_initiation_and_status_leave_no_session_or_file",
+            "sdk_initiation_accepts_one_retry_token_without_generation_conditions",
+            "initiation_checks_strict_create_and_overwrite_permissions_before_staging",
+            "initiation_session_cap_and_status_prefix_are_bounded",
+            "retained_session_cap_is_atomic_and_rejection_creates_no_file"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-011",
@@ -11882,81 +12052,187 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Content-Range offsets, partial acceptance, retries, unknown total size and finalization.",
+      "notes": "All nine scoped sequential PUT/SDK POST chunk cases pass: numeric/unknown totals, overlap preserving acknowledged bytes, zero/exact-multiple completion, no-308 override, invalid ranges/lengths, interruption, bounded admission and object caps. Native 16 MiB through 1 GiB, slow and eight-session runs measure bounded server RSS in one declared profile; no cgroup or constrained-container memory claim. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider malformed/concurrent error and chunk-checkpoint parity; alternate upload commands and invocation-token replay are excluded.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-CHUNK-001",
           "description": "positive/boundary: PUT sequential 256 KiB-multiple chunks and smaller last chunk produce exact binary bytes and whole hashes. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "TestObjectResumableWriter"
+          ]
         },
         {
           "id": "RSM-CHUNK-002",
           "description": "positive/boundary: Unknown total uses bytes start-end/*, learns total only consistently and completes with numeric final total. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix"
+          ]
         },
         {
           "id": "RSM-CHUNK-003",
           "description": "positive/boundary: Single no-range upload, empty object and exact-multiple empty final request finish correctly. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite"
+          ]
         },
         {
           "id": "RSM-CHUNK-004",
           "description": "negative: Gaps, reversed/overflow/duplicate ranges, inconsistent totals and invalid nonfinal size are rejected without corrupting prefix. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
+            "contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session"
+          ]
         },
         {
           "id": "RSM-CHUNK-005",
           "description": "positive/boundary: Complete duplicate and partial overlap ignore persisted bytes, append only tail and never change already acknowledged bytes. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+            "TestObjectResumableRetriesLostChunkResponse"
+          ]
         },
         {
           "id": "RSM-CHUNK-006",
           "description": "negative/restart: Interrupted/wrong-length body never acknowledges uncommitted bytes; truncate tail and resend/status recover exact prefix. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
+            "interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail"
+          ]
         },
         {
           "id": "RSM-CHUNK-007",
           "description": "concurrency: Two writers on one session serialize/reject safely; separate sessions progress; all permits released after timeout/disconnect. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "busy_session_rejects_competing_writer_while_other_sessions_progress",
+            "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
+            "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail",
+            "TestObjectResumableContextCancellationDoesNotPublish"
+          ]
         },
         {
           "id": "RSM-CHUNK-008",
           "description": "positive: SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix"
+          ]
         },
         {
           "id": "RSM-CHUNK-009",
           "description": "resource/boundary: Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "object_caps_apply_to_known_unknown_and_streamed_lengths",
+            "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
+            "host_follows_returned_location_and_streams_large_body_in_small_buffers",
+            "measure-resumable-native"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "test_ids": [
+        "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+        "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+        "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+        "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
+        "contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session",
+        "interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes",
+        "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+        "busy_session_rejects_competing_writer_while_other_sessions_progress",
+        "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
+        "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail",
+        "object_caps_apply_to_known_unknown_and_streamed_lengths",
+        "host_follows_returned_location_and_streams_large_body_in_small_buffers",
+        "measure-resumable-native",
+        "TestObjectResumableWriter",
+        "TestObjectResumableRetriesLostChunkResponse",
+        "TestObjectResumableContextCancellationDoesNotPublish"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
+            "contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session",
+            "interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+            "busy_session_rejects_competing_writer_while_other_sessions_progress",
+            "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
+            "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail",
+            "object_caps_apply_to_known_unknown_and_streamed_lengths",
+            "host_follows_returned_location_and_streams_large_body_in_small_buffers"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableRetriesLostChunkResponse",
+            "TestObjectResumableContextCancellationDoesNotPublish"
+          ]
+        },
+        {
+          "command": "bash scripts/measure-resumable.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-resources.txt",
+          "test_ids": [
+            "measure-resumable-native"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableRetriesLostChunkResponse",
+            "TestObjectResumableContextCancellationDoesNotPublish"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-012",
@@ -11966,51 +12242,119 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "308/Range and zero-byte status requests including no persisted bytes.",
+      "notes": "All four local status cases pass: zero-body numeric/unknown query, absent Range at zero prefix, durable Range across restart, invalid-input rejection and completed original-resource snapshots without another generation after overwrite. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. Failed/completed-session retention and empty-final/error edge parity remain explicit local choices under SPEC-RSM-EDGES, not invocation-token response replay or complete objects.insert parity.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-STATUS-001",
           "description": "positive/boundary: Empty PUT bytes */N (N>0) and */* before data return 308 with no Range and no object; */0 completes the empty object. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite"
+          ]
         },
         {
           "id": "RSM-STATUS-002",
           "description": "positive: Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_session_cap_and_status_prefix_are_bounded",
+            "sessions_persist_options_offsets_deadline_and_exclusive_admission",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+            "TestObjectResumableRetriesLostChunkResponse"
+          ]
         },
         {
           "id": "RSM-STATUS-003",
           "description": "positive: Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "TestObjectResumableWriter"
+          ]
         },
         {
           "id": "RSM-STATUS-004",
           "description": "negative: Invalid token/total/range or nonempty status body cannot mutate destination or report false completion. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "invalid_initiation_and_status_leave_no_session_or_file",
+            "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "test_ids": [
+        "initiation_returns_opaque_fixed_location_and_status_without_publication",
+        "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+        "initiation_session_cap_and_status_prefix_are_bounded",
+        "sessions_persist_options_offsets_deadline_and_exclusive_admission",
+        "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+        "invalid_initiation_and_status_leave_no_session_or_file",
+        "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix",
+        "TestObjectResumableWriter",
+        "TestObjectResumableRetriesLostChunkResponse"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "initiation_session_cap_and_status_prefix_are_bounded",
+            "sessions_persist_options_offsets_deadline_and_exclusive_admission",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+            "invalid_initiation_and_status_leave_no_session_or_file",
+            "malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableRetriesLostChunkResponse"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableRetriesLostChunkResponse"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-013",
@@ -12020,63 +12364,133 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/resumable-uploads",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Cancellation response, future rejection, session expiration and temporary-byte cleanup.",
+      "notes": "All six scoped cancellation/expiry cases pass: capability-authorized DELETE 499, local terminal 410 then 404, writer/finalization races, fixed 604800-second deadline, indexed startup/due cleanup, idle deadline scheduler and visible durable cleanup retry. Injected Clock changes test time; production uses the same persisted deadline against SystemClock. The original cancellation/checksum response survives postcommit unlink failure, and successfully cleaned tombstones are not physically reclaimed again before expiry. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES retains provider equality, error-body and terminal-retention parity beyond the frozen local rules.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-CANCEL-001",
           "description": "positive/permission: Anonymous delegate DELETE cancels active session with 499, removes staging and preserves old object. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
+            "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline"
+          ]
         },
         {
           "id": "RSM-CANCEL-002",
           "description": "negative/boundary: Cancelled URI gives 410 before original deadline, 404 at/after deadline; unknown URI is 404. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
+            "cancel_reloads_terminal_state_when_transition_no_longer_matches",
+            "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline"
+          ]
         },
         {
           "id": "RSM-CANCEL-003",
           "description": "concurrency: Cancel racing append/finalize has one terminal winner; completed-object bytes are never deleted. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "cancel_obeys_writer_lease_and_only_one_cancellation_wins",
+            "completed_session_cannot_be_cancelled_or_have_its_bytes_removed",
+            "cancellation_racing_append_respects_writer_and_prevents_later_publication",
+            "cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes"
+          ]
         },
         {
           "id": "RSM-EXPIRY-001",
           "description": "boundary: Injected clock at deadline-1, deadline, deadline+1 verifies fixed 604800-second lifetime without sliding renewal. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it",
+            "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail"
+          ]
         },
         {
           "id": "RSM-EXPIRY-002",
           "description": "resource/restart: Explicit due maintenance and startup cleanup release staged bytes/records; idle scheduler has no polling loop. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots",
+            "idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup",
+            "expiry_waits_for_writer_and_retries_after_lease_release"
+          ]
         },
         {
           "id": "RSM-EXPIRY-003",
           "description": "negative/resource: Failed cleanup remains visible/retryable; no leaked slot or falsely reported physical reclamation. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot",
+            "scheduler_retries_failed_cleanup_and_clears_its_error_after_repair",
+            "failed_finalization_and_cancel_cleanup_retry_before_session_deadline",
+            "cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline",
+            "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
+      "test_ids": [
+        "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
+        "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
+        "cancel_reloads_terminal_state_when_transition_no_longer_matches",
+        "cancel_obeys_writer_lease_and_only_one_cancellation_wins",
+        "completed_session_cannot_be_cancelled_or_have_its_bytes_removed",
+        "cancellation_racing_append_respects_writer_and_prevents_later_publication",
+        "cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes",
+        "expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it",
+        "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail",
+        "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots",
+        "idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup",
+        "expiry_waits_for_writer_and_retries_after_lease_release",
+        "cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot",
+        "scheduler_retries_failed_cleanup_and_clears_its_error_after_repair",
+        "failed_finalization_and_cancel_cleanup_retry_before_session_deadline",
+        "cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline",
+        "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline",
+            "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
+            "cancel_reloads_terminal_state_when_transition_no_longer_matches",
+            "cancel_obeys_writer_lease_and_only_one_cancellation_wins",
+            "completed_session_cannot_be_cancelled_or_have_its_bytes_removed",
+            "cancellation_racing_append_respects_writer_and_prevents_later_publication",
+            "cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes",
+            "expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it",
+            "session_deadline_during_transfer_returns_not_found_without_acknowledging_tail",
+            "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots",
+            "idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup",
+            "expiry_waits_for_writer_and_retries_after_lease_release",
+            "cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot",
+            "scheduler_retries_failed_cleanup_and_clears_its_error_after_repair",
+            "failed_finalization_and_cancel_cleanup_retry_before_session_deadline",
+            "cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline",
+            "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-014",
@@ -12086,93 +12500,252 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/resumable-uploads",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Ordinary uploads remain invisible until complete; correct overwrite atomicity and metadata application.",
+      "notes": "Finalization, checksums, metadata, all four atomic conditions, local initiator-grant rechecks, one-winner publication and original completion snapshots pass; retryable publication/commit failure preserves the acknowledged prefix and allocates one generation on eventual completion. All eleven cases pass, including native process kills before offset commit, after acknowledgment, after final checkpoint, after rename and after Object/COMPLETE commit; 20 repeated five-test crash runs pass. Finalization hashes the full object under the request deadline, so latency grows with object size; prepublication error-resolution SQL uses that remaining budget rather than the catalog-wait timeout. These measured/inspected limits and test timing caveats are retained in the evidence; complete provider timeout/error parity is not claimed. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. SPEC-RSM-EDGES/AUTH-CONDITIONS retain provider edge and permission-timing questions; no full-provider durability or wire-parity claim.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-FINAL-001",
           "description": "positive: Final 200 Object has exact bytes, hashes, metadata, size and new generation; timestamps reflect completion. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "TestObjectResumableWriter",
+            "final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget"
+          ]
         },
         {
           "id": "RSM-FINAL-002",
           "description": "positive/negative: Before completion GET/list show no new object and retain the old overwrite; final EOF changes visibility atomically. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion"
+          ]
         },
         {
           "id": "RSM-FINAL-003",
           "description": "negative/boundary: Metadata/final X-Goog-Hash MD5/CRC32C success, malformed/conflicting/wrong whole hash and final metadata cap preserve old full resource. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "checksum_and_final_metadata_failures_preserve_the_previous_full_resource",
+            "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried",
+            "TestObjectResumableChecksumFailurePreservesObject"
+          ]
         },
         {
           "id": "RSM-FINAL-004",
           "description": "positive/negative: All four initiation conditions persist; changes during upload fail atomic finalization with 412; chunk query cannot relax them. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization"
+          ]
         },
         {
           "id": "RSM-FINAL-005",
           "description": "concurrency: Two create-if-absent sessions have exactly one winner; overwrite/metadata/delete races obey selected final conditions. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "two_create_if_absent_sessions_have_one_finalization_winner",
+            "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
+            "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
+          ]
         },
         {
           "id": "RSM-FINAL-006",
           "description": "permission/concurrency: URI delegate needs no re-auth; revoked initiator grant, new overwrite without delete and bucket recreation cannot bypass final permission checks. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
         },
         {
           "id": "RSM-FINAL-007",
           "description": "positive/concurrency: Repeated final request after lost response returns same completed resource without second generation; independent of invocation-token replay. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
+            "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout"
+          ]
         },
         {
           "id": "RSM-FINAL-008",
           "description": "positive/boundary: Final X-Goog-Meta-* augments/overrides initiation custom metadata and survives restart with final byte/hash metadata. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "final_metadata_and_completion_snapshot_survive_catalog_restart"
+          ]
         },
         {
           "id": "RSM-RECOVERY-001",
           "description": "restart: Kill after file write/before offset commit: truncate tail; after offset commit: preserve acknowledged prefix and resume. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "restart_discards_write_before_offset_commit_and_preserves_committed_prefix",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+            "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes"
+          ]
         },
         {
           "id": "RSM-RECOVERY-002",
           "description": "restart: Kill after rename/before Object commit: restore active staging; kill after commit: preserve completed object/snapshot. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes",
+            "restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry",
+            "resumable_sigkill_after_final_checkpoint_restores_active_staging",
+            "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
+            "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+          ]
         },
         {
           "id": "RSM-RECOVERY-003",
           "description": "negative/restart: Missing/truncated referenced prefix blocks readiness; orphan, expired, deferred-delete and multi-page recovery stay bounded. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "missing_short_and_nonfile_acknowledged_prefixes_block_readiness",
+            "recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs",
+            "recovery_rejects_ambiguous_active_publication_without_deleting_either_copy",
+            "recovery_rejects_symlink_prefix_without_changing_its_target",
+            "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "test_ids": [
+        "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+        "checksum_and_final_metadata_failures_preserve_the_previous_full_resource",
+        "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried",
+        "TestObjectResumableChecksumFailurePreservesObject",
+        "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
+        "two_create_if_absent_sessions_have_one_finalization_winner",
+        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+        "capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation",
+        "TestStrictAuthResumableCreatorOverwriteRace",
+        "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+        "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
+        "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout",
+        "final_metadata_and_completion_snapshot_survive_catalog_restart",
+        "restart_discards_write_before_offset_commit_and_preserves_committed_prefix",
+        "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+        "restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes",
+        "restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry",
+        "missing_short_and_nonfile_acknowledged_prefixes_block_readiness",
+        "recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs",
+        "recovery_rejects_ambiguous_active_publication_without_deleting_either_copy",
+        "recovery_rejects_symlink_prefix_without_changing_its_target",
+        "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots",
+        "TestObjectResumableWriter",
+        "TestObjectResumableConditionsAtFinalization",
+        "TestObjectResumableMetagenerationAtFinalization",
+        "final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget",
+        "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+        "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+        "resumable_sigkill_after_final_checkpoint_restores_active_staging",
+        "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
+        "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
+            "checksum_and_final_metadata_failures_preserve_the_previous_full_resource",
+            "checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried",
+            "all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed",
+            "two_create_if_absent_sessions_have_one_finalization_winner",
+            "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+            "capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation",
+            "single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite",
+            "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation",
+            "finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout",
+            "final_metadata_and_completion_snapshot_survive_catalog_restart",
+            "restart_discards_write_before_offset_commit_and_preserves_committed_prefix",
+            "acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail",
+            "restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes",
+            "restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry",
+            "missing_short_and_nonfile_acknowledged_prefixes_block_readiness",
+            "recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs",
+            "recovery_rejects_ambiguous_active_publication_without_deleting_either_copy",
+            "recovery_rejects_symlink_prefix_without_changing_its_target",
+            "expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots",
+            "final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget",
+            "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+            "resumable_sigkill_after_final_checkpoint_restores_active_staging",
+            "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
+            "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableChecksumFailurePreservesObject",
+            "TestStrictAuthResumableCreatorOverwriteRace",
+            "TestObjectResumableWriter",
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --locked --offline --test object_http resumable_sigkill -- --nocapture (20 consecutive runs)",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail",
+            "resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes",
+            "resumable_sigkill_after_final_checkpoint_restores_active_staging",
+            "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
+            "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableChecksumFailurePreservesObject",
+            "TestStrictAuthResumableCreatorOverwriteRace",
+            "TestObjectResumableWriter",
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "8d7a25b7eaf8a08e1a6f39b2bb05ac0d618d03e5",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-015",
@@ -23631,44 +24204,115 @@
       "interface": "Emulator configuration",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
+        "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Validate host browser, host SDK and peer-container upload Location values.",
+      "notes": "All three fixed advertised endpoint cases pass: host SDK/CLI, Compose peer, host-reachable localhost browser-address curl, hostile forwarding headers and normalized proxy prefixes/config rejection. Location uses only configured api_base_url and never grants object permission. Contract: docs/en/slices/resumable-upload.md; evidence: docs/en/evidence/resumable-upload.md. One fixed origin requires separate host/peer configurations or common reachable DNS/proxy. SPEC-RSM-LOCATION keeps automatic validated-request-origin/allowlist selection deferred; no browser execution/CORS claim.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RSM-LOC-001",
           "description": "positive: Host CLI/SDK follows configured host Location and completes upload. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "host_follows_returned_location_and_streams_large_body_in_small_buffers",
+            "TestObjectResumableWriter",
+            "guide-resumable-host"
+          ]
         },
         {
           "id": "RSM-LOC-002",
           "description": "positive: Compose peer follows peer-reachable advertised Location; browser-address case uses host-reachable endpoint without a CORS claim. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "guide-resumable-peer-browser-address"
+          ]
         },
         {
           "id": "RSM-LOC-003",
           "description": "negative/boundary: Spoofed Host/forwarding cannot change Location; trailing slash/proxy prefix preserved; invalid advertised URLs fail config. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "config::tests::advertised_endpoint_precedence_and_validation",
+            "url::tests::normalizes_base_urls",
+            "url::tests::rejects_invalid_base_urls"
+          ]
         }
       ],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "test_ids": [
+        "host_follows_returned_location_and_streams_large_body_in_small_buffers",
+        "TestObjectResumableWriter",
+        "guide-resumable-host",
+        "guide-resumable-peer-browser-address",
+        "initiation_returns_opaque_fixed_location_and_status_without_publication",
+        "config::tests::advertised_endpoint_precedence_and_validation",
+        "url::tests::normalizes_base_urls",
+        "url::tests::rejects_invalid_base_urls"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "host_follows_returned_location_and_streams_large_body_in_small_buffers",
+            "initiation_returns_opaque_fixed_location_and_status_without_publication",
+            "config::tests::advertised_endpoint_precedence_and_validation",
+            "url::tests::normalizes_base_urls",
+            "url::tests::rejects_invalid_base_urls"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "command": "Every executable sh block in docs/en/getting-started.md, in document order with cloud credential variables cleared and bash -euvxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-guide.txt",
+          "test_ids": [
+            "guide-resumable-host",
+            "guide-resumable-peer-browser-address"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-058",
@@ -25648,7 +26292,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass the full native JSON SDK suite, including NewRangeReader: docs/en/evidence/seed-range-sdk.txt. Earlier Compose, multipart and strict local-token evidence retains its original SDK versions in sdk_evidence. Broader resumable, signing and protocol work remains pending. Final public-read evidence adds default/XML GET/HEAD, explicit JSON reads, strict public/registered-only grants and revocation: docs/en/evidence/public-object-reads.md. Transport requests are asserted; optional metadata/header breadth is covered by wire tests, not inferred from byte success.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25656,32 +26300,47 @@
         {
           "id": "RSM-SDK-GO-001",
           "description": "positive: Default 16 MiB ChunkSize Writer with object larger than threshold performs real resumable POSTs and verifies Attrs/download/checksum. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
         },
         {
           "id": "RSM-SDK-GO-002",
           "description": "positive/boundary: 256 KiB ChunkSize Writer spans several chunks including exact multiple, short final, binary and empty paths; metadata and explicit MD5/CRC32C verified. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableChecksumFailurePreservesObject"
+          ]
         },
         {
           "id": "RSM-SDK-GO-003",
           "description": "negative/positive: Controlled transport interruption/lost chunk response plus configured safe retry exercises duplicate chunk; eventual exact bytes and one generation. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectResumableRetriesLostChunkResponse"
+          ]
         },
         {
           "id": "RSM-SDK-GO-004",
           "description": "negative/resource: Cancel Writer context during transfer: Write/Close fails, no partial object, server body permit released; session remains until explicit cancel/expiry. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectResumableContextCancellationDoesNotPublish",
+            "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots"
+          ]
         },
         {
           "id": "RSM-SDK-GO-005",
           "description": "permission/concurrency: DoesNotExist, GenerationMatch and MetagenerationMatch success/failure plus strict creator overwrite race use normal nonzero ChunkSize. Contract: docs/en/slices/resumable-upload.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
         },
         {
           "id": "GO-BUCKET",
@@ -25701,7 +26360,7 @@
         },
         {
           "id": "DESIGN-082-MEDIA",
-          "description": "Official raw-media suite verifies exact bytes/MD5/CRC32C, encoded names, generation selectors/conditions, nonempty bucket errors and explicit resumable Writer rejection; original evidence includes historical multipart rejection.",
+          "description": "Official raw-media suite verifies exact bytes/MD5/CRC32C, encoded names, generation selectors/conditions, nonempty bucket errors; original evidence includes historical multipart rejection.",
           "result": "PASS",
           "test_ids": [
             "TestObjectMediaLifecycle",
@@ -25739,7 +26398,7 @@
         },
         {
           "id": "DESIGN-082-PENDING",
-          "description": "Implement and verify resumable SDK Writer, signing, broader IAM/ACL, XML beyond the scoped GET/HEAD inputs, gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
+          "description": "Implement and verify signing, broader IAM/ACL, XML beyond the scoped GET/HEAD inputs, gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -25753,7 +26412,7 @@
         },
         {
           "id": "DESIGN-082-MULTIPART-GO-SDK",
-          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; historical single-request evidence is retained and normal nonzero resumable Writer is covered separately.",
           "result": "PASS",
           "test_ids": [
             "TestObjectMultipartWriter",
@@ -25792,7 +26451,16 @@
         "TestXMLReadsEncodedNames",
         "TestXMLReadsPermissive",
         "TestPublicReadsGrantAndRevoke",
-        "TestPublicReadsAllAuthenticatedUsers"
+        "TestPublicReadsAllAuthenticatedUsers",
+        "TestObjectResumableWriter",
+        "TestObjectResumableChecksumFailurePreservesObject",
+        "TestObjectResumableRetriesLostChunkResponse",
+        "TestObjectResumableContextCancellationDoesNotPublish",
+        "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
+        "TestObjectResumableConditionsAtFinalization",
+        "TestObjectResumableMetagenerationAtFinalization",
+        "TestStrictAuthResumableWriter",
+        "TestStrictAuthResumableCreatorOverwriteRace"
       ],
       "verification": [
         {
@@ -25895,6 +26563,31 @@
             "TestXMLReadsPermissive",
             "TestPublicReadsGrantAndRevoke",
             "TestPublicReadsAllAuthenticatedUsers"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-checks.txt",
+          "test_ids": [
+            "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableChecksumFailurePreservesObject",
+            "TestObjectResumableRetriesLostChunkResponse",
+            "TestObjectResumableContextCancellationDoesNotPublish",
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
           ]
         }
       ],
@@ -26012,15 +26705,37 @@
             "TestPublicReadsGrantAndRevoke",
             "TestPublicReadsAllAuthenticatedUsers"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON resumable POST Writer with normal nonzero ChunkSize; strict/permissive local endpoints, actual requests asserted; default/XML and explicit JSON verification reads; no invocation-token replay",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "TestObjectResumableChecksumFailurePreservesObject",
+            "TestObjectResumableRetriesLostChunkResponse",
+            "TestObjectResumableContextCancellationDoesNotPublish",
+            "TestObjectResumableConditionsAtFinalization",
+            "TestObjectResumableMetagenerationAtFinalization",
+            "TestStrictAuthResumableWriter",
+            "TestStrictAuthResumableCreatorOverwriteRace"
+          ]
         }
       ],
       "known_deviations": [
-        "ChunkSize=0 Writer multipart is supported for the scoped metadata/checksum/condition subset. Resumable Writer and unrestricted large-upload/retry workflows remain unsupported; raw-media coverage retains confined HTTP.",
-        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; upload tokens require generation-match and return 412 after committed conditioned retry. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
-        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
+        "Single-request multipart and normal nonzero ChunkSize resumable Writer are verified for the scoped metadata/checksum/condition subset. Other transports and unrestricted size/retry guarantees remain unverified; native resource results do not prove constrained-container memory.",
+        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; media/multipart upload tokens require generation-match and return 412 after committed conditioned retry. Resumable initiation accepts a token without generation-match but does not replay it; session offsets govern chunk retries. Signing, XML beyond the scoped reads, gRPC and full strict IAM/ACL semantics remain unavailable; local strict project/bucket and public grants are verified.",
+        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. Resumable terminal cleanup additionally has explicit due maintenance and a deadline scheduler.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
-      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "implemented_in": "1c27c9ebbd6e6f64e538d92917f47ce827ed5c18",
       "last_verified": "2026-10-22"
     },
     {
