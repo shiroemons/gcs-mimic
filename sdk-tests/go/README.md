@@ -16,9 +16,9 @@ GOTOOLCHAIN=auto go test -run XXX ./...
 GOTOOLCHAIN=auto go test -v ./...
 ```
 
-`TestBucketLifecycle` and `TestObjectMediaLifecycle` skip with an explicit message
-when `GCS_MIMIC_ENDPOINT` is unset. `-run XXX` compiles every package without
-running tests. To build and start an isolated server, run from the repository root:
+Integration tests skip with an explicit message when `GCS_MIMIC_ENDPOINT` is
+unset. `-run XXX` compiles every package without running tests. To build and start
+an isolated server, run from the repository root:
 
 ```sh
 bash scripts/sdk-go.sh
@@ -79,18 +79,25 @@ slashes, a literal `%2F`, spaces, Unicode and reserved URI characters.
 The pinned SDK's `NewReader` defaults to XML, so the shared client explicitly uses
 `storage.WithJSONReads()`. Its Writer uses `Objects.Insert(...).Media(...)`:
 single-request uploads are multipart and chunked uploads can be resumable; neither
-is a media upload. The supported upload path therefore uses the same guarded HTTP
-client directly. A Writer with `ChunkSize=0` explicitly exercises multipart and
-must return 501 `notImplemented` with a nonempty message, without creating an
-object. This status is the emulator's documented unsupported-semantics deviation,
-not the behavior of Google's multipart API. This harness does not establish SDK
-Writer upload compatibility.
+is a media upload. Raw media coverage uses the same guarded HTTP client directly.
+`TestObjectMultipartWriter` uses `ChunkSize=0` to exercise single-request multipart,
+including empty and multichunk binary data, fixed/custom metadata,
+explicit CRC32C/MD5, rejected checksum mismatches, create-if-absent and
+conditioned overwrites, followed by Attrs and NewReader verification. The media
+lifecycle test retains the unsupported resumable case by writing more than one
+256 KiB chunk with nonzero `ChunkSize`; it requires 501 `notImplemented` with a
+nonempty message and no object publication. That status is the emulator's local
+unsupported-semantics deviation, not Google's resumable behavior. This harness
+establishes the documented single-request Writer subset only.
+Upload invocation tokens require `ifGenerationMatch` and have no replay support;
+retrying a committed conditioned upload fails 412 instead of writing again.
 
 `TestObjectList` additionally exercises prefix/delimiter/offset filters and one-entry
 iterator/pager traversal. `TestObjectMetadataUpdate` verifies conditional Update,
 fixed/custom metadata, empty-value and deletion behavior, and unchanged object bytes.
-See the [listing](../../docs/en/slices/json-object-list.md) and
-[metadata](../../docs/en/slices/json-object-metadata.md) contracts for exact limits.
+See the [listing](../../docs/en/slices/json-object-list.md),
+[metadata](../../docs/en/slices/json-object-metadata.md) and
+[multipart](../../docs/en/slices/json-object-multipart.md) contracts for limits.
 
 ACL/IAM, ranges, XML, gRPC, signing and resumable transfers are outside
 this harness's scope. A clean skip or `-run XXX` is compilation evidence only;

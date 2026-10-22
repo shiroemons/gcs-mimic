@@ -97,7 +97,7 @@ func TestObjectMediaLifecycle(t *testing.T) {
 			uploadURL := *endpoint
 			uploadURL.Path = "/upload/storage/v1/b/" + bucket.BucketName() + "/o"
 			uploadURL.RawQuery = url.Values{"uploadType": {"media"}, "name": {name}, "ifGenerationMatch": {"0"}}.Encode()
-			// The pinned Writer uses multipart/resumable; this slice only implements media uploads.
+			// Keep raw media coverage independent of the SDK Writer's multipart transport.
 			request, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL.String(), bytes.NewReader(payload))
 			if err != nil {
 				t.Fatal(err)
@@ -173,12 +173,13 @@ func TestObjectMediaLifecycle(t *testing.T) {
 			requireObjectMissing(t, ctx, object)
 		})
 	}
-	t.Run("unsupported SDK multipart writer", func(t *testing.T) {
+	t.Run("unsupported SDK resumable writer", func(t *testing.T) {
 		object := bucket.Object("unsupported-writer")
 		cleanupObject(t, object)
 		writer := object.NewWriter(ctx)
-		writer.ChunkSize = 0 // Disable resumable chunking to exercise the multipart rejection.
-		_, writeErr := writer.Write([]byte("must not become an object"))
+		writer.ChunkSize = 256 << 10
+		// Exceed one chunk so the pinned SDK cannot choose single-request multipart.
+		_, writeErr := writer.Write(bytes.Repeat([]byte("x"), writer.ChunkSize+1))
 		closeErr := writer.Close()
 		if writeErr != nil {
 			requireObjectStatus(t, writeErr, http.StatusNotImplemented)
@@ -186,7 +187,7 @@ func TestObjectMediaLifecycle(t *testing.T) {
 		requireObjectStatus(t, closeErr, http.StatusNotImplemented)
 		var apiError *googleapi.Error
 		if !errors.As(closeErr, &apiError) || apiError.Message == "" || len(apiError.Errors) == 0 || apiError.Errors[0].Reason != "notImplemented" {
-			t.Fatalf("multipart rejection must explain unsupported semantics: %v", closeErr)
+			t.Fatalf("resumable rejection must explain unsupported semantics: %v", closeErr)
 		}
 		requireObjectMissing(t, ctx, object)
 	})
