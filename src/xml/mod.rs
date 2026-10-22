@@ -151,7 +151,9 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
         if (key.starts_with("x-goog-")
             && !matches!(
                 key,
-                "x-goog-if-generation-match" | "x-goog-if-metageneration-match"
+                "x-goog-if-generation-match"
+                    | "x-goog-if-metageneration-match"
+                    | "x-goog-api-client"
             ))
             || matches!(
                 key,

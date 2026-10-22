@@ -483,6 +483,9 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
         );
     }
     server.get("Unknown-Header: ignored\r\n", OBJECT).ok();
+    server
+        .get("x-goog-api-client: gl-go/1.27.3 gccl/1.70.0\r\n", OBJECT)
+        .ok();
     for headers in [
         "x-goog-if-generation-match: invalid\r\n",
         "x-goog-if-generation-match: -1\r\n",
