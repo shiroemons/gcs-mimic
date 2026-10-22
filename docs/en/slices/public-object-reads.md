@@ -64,16 +64,24 @@ exactly once. Literal and encoded slashes identify the same object bytes after
 decoding. Preserve repeated slashes, leading/trailing object slashes, Unicode,
 spaces, `+`, encoded `?`/`#`, literal percent signs and dot segments. Never use
 an object name as a filesystem path. Malformed escapes, invalid UTF-8 and names
-outside the existing bucket/object validators return an XML 400.
+outside the object validator return an XML 400. An invalid raw bucket segment
+does not select the XML adapter: it retains the JSON-style 404 unknown-route
+response. This exception and encoded bucket segments remain a routing parity
+question; see SPEC-XML-PATH-ERROR.
 
-Existing JSON namespaces and `/_internal` routes take precedence over XML
-fallback. An unrecognized path inside a reserved namespace must not become an
+Only `/storage/v1`, `/upload/storage/v1`, `/download/storage/v1`,
+`/batch/storage/v1` and `/_internal`, including each slash-delimited descendant,
+take precedence over XML fallback. Other objects in buckets named `storage`,
+`upload`, `download` or `batch` remain reachable. An unrecognized path inside
+a reserved namespace must not become an
 XML success. This creates a local addressing boundary for names colliding with
 API prefixes; SPEC-XML-PREFIX tracks the exact cloud-routing question.
 Virtual-host addresses are not interpreted as bucket names from `Host`.
 
 The existing `url public` helper must round-trip its encoded output through this
-route, including `%252F`, encoded dot segments and empty slash segments. A base
+route, including `%252F`, encoded dot segments and empty slash segments. It
+rejects bucket/object combinations whose final path collides with a reserved
+namespace rather than printing an unusable public URL. A base
 URL path prefix requires a proxy that strips that prefix; the helper does not
 configure server routing or trust forwarded headers.
 
@@ -84,22 +92,24 @@ configure server routing or trust forwarded headers.
 | `generation` | Optional positive decimal signed-64-bit selector; only the selected live generation exists locally. A different or removed generation yields authorized `NoSuchKey`, never current bytes |
 | `Range` | One closed, open-ended or suffix byte range; inclusive offsets refer to stored bytes. GET returns 206 when satisfiable and 416 when a valid range cannot be satisfied |
 | `x-goog-if-generation-match` | One nonnegative decimal signed-64-bit value; compare with the selected generation, including a failing zero against an existing object |
-| `x-goog-if-metageneration-match` | One nonnegative decimal signed-64-bit value; compare with the selected metadata revision; generation matching/selection is recommended when metadata consistency matters |
+| `x-goog-if-metageneration-match` | One positive decimal signed-64-bit value; compare with the selected metadata revision; generation matching/selection is recommended when metadata consistency matters |
 | `Authorization` | Strict local Bearer resolution below; no Google credential validation |
 | `Accept-Encoding` | Existing stored-byte negotiation: gzip may be served when accepted or protected by stored `no-transform`; required decompression returns 501 |
 | `Host` | Required HTTP authority; never changes permissions, advertised URLs or object names |
 | `Cache-Control` request header | Does not override stored metadata or the response default |
 | `Date`, `User-Agent`, `x-goog-api-client`, tracing headers | Informational; do not alter authorization or selected state |
+| `x-goog-gcs-idempotency-token` | A single nonempty read retry token is accepted without response replay; empty or repeated values return 400 |
 | `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since`, `If-Range` | Recognized but outside this slice; 501, never unconditional success |
 | CSEK/CMEK `x-goog-encryption-*`, `x-goog-user-project`, `userProject` | Recognized encryption/billing semantics are unsupported; 501 even for an empty value |
 | `x-goog-allowed-resources` | Resource restrictions are unsupported; 501 rather than an unchecked restriction |
 | `response-*` query overrides | Unsupported; 501 rather than ignored response metadata |
 | XML subresources, including `acl`, `encryption`, `retention`, multipart/list selectors | 501 `NotImplemented`; no request-body consumption |
-| Signed/authentication query parameters or signature Authorization schemes | Strict profile rejects with 401; no fallback to anonymous public grants |
+| Signed/authentication query parameters or signature Authorization schemes | Strict profile rejects with 400 `InvalidAuthentication`; no fallback to anonymous public grants |
 
 Duplicate generation or match values, malformed numbers and malformed query
-encoding return 400. Unknown XML query keys are locally rejected with 400;
-upstream unknown-key parity is not established. Unrelated extension headers are
+encoding return 400. Unknown XML query keys and unsupported `x-goog-*` headers
+are locally rejected with 501; upstream unknown-input parity is not established
+(SPEC-XML-INPUTS). Unrelated extension headers are
 not rejected merely because their names are unknown. Recognized unsupported
 semantics must fail explicitly.
 
@@ -128,34 +138,39 @@ GET returns streamed object bytes with 200, or the selected byte interval with
 on errors. For a valid HEAD Range, the method-specific reference says the range
 only adds `Content-Range`: preserve 200 and the full `Content-Length`. Treat this
 method-specific rule separately from GET; no partial body is sent. Exact HEAD
-unsatisfiable-range status and malformed-range parity remain unverified.
+unsatisfiable-range parity remains unverified: the local response is 200 with
+full `Content-Length`, `Content-Range: bytes */size` and no body. Malformed-range
+parity remains open under SPEC-RANGE-FALLBACK.
 
 | Header | Required local representation |
 | --- | --- |
 | `Content-Length` | Full size for 200 and HEAD; selected byte count for GET 206 |
 | `Content-Type` | Stored type, otherwise `application/octet-stream` |
 | `Content-Encoding`, `Content-Disposition`, `Content-Language` | Stored fixed metadata when present; no invented encoding |
-| `Content-Range` | `bytes start-end/size` for GET 206 or a satisfiable HEAD range; `bytes */size` for a GET 416 |
+| `Content-Range` | `bytes start-end/size` for GET 206 or a satisfiable HEAD range; `bytes */size` for a GET 416 or locally unsatisfiable HEAD 200 |
 | `Accept-Ranges` | `bytes` on successful object responses |
 | `x-goog-generation`, `x-goog-metageneration` | Decimal values from the same selected record as the bytes |
 | `x-goog-hash` | Whole-object CRC32C and MD5 in base64, including on partial reads; these are not checksums of the selected interval |
 | `x-goog-stored-content-length`, `x-goog-stored-content-encoding` | Full stored size and stored encoding, using `identity` when absent |
 | `Last-Modified` | Selected record's update time as an HTTP date, including valid GMT formatting |
-| `ETag` | Quoted entity tag; XML ordinary-object MD5 qualification and opaque-encoding limits are tracked under SPEC-012 |
+| `ETag` | Local quoted lowercase hexadecimal MD5; exact Google encoding and advanced-object qualifications remain SPEC-012 |
 | `Cache-Control` | Protocol/public-state rules below |
 | `x-goog-meta-*`, `x-goog-storage-class` | Selected custom metadata that can be represented safely in HTTP, and stored storage class |
 
 JSON custom metadata need not be a legal HTTP field name/value. The XML adapter
 must not inject headers, panic or silently claim a complete metadata round trip
 for an unrepresentable record. Such metadata remains outside this XML subset;
-reject the read explicitly rather than changing stored JSON metadata. Case
-collisions and exact non-ASCII XML wire encoding require separate evidence.
+reject the read with 501 rather than changing stored JSON metadata.
+Case-colliding custom metadata also returns 501. Exact non-ASCII XML wire
+encoding requires separate evidence (SPEC-012).
 
 | Condition | XML status/code |
 | --- | --- |
-| Invalid path/query/header value | 400 `InvalidArgument` |
+| Invalid object path/query/numeric value | 400 `InvalidArgument` |
+| Repeated match header | 400 `ExcessHeaderValues` |
+| Nonempty or transfer-encoded read body | 400 `UnexpectedContent` |
 | Anonymous caller lacks a usable public grant | Local 401 `AuthenticationRequired`; exact anonymous 401/403 choice remains SPEC-017 |
-| Invalid/unregistered/unsupported credentials in strict mode | Local 401 `InvalidAuthentication`; never anonymous fallback |
+| Invalid/unregistered/unsupported credentials in strict mode | 400 `InvalidAuthentication`; never anonymous fallback |
 | Registered identity lacks `storage.objects.get` | 403 `AccessDenied` |
 | Authorized missing bucket | 404 `NoSuchBucket` |
 | Authorized missing object or selected generation | 404 `NoSuchKey` |
@@ -165,7 +180,8 @@ collisions and exact non-ASCII XML wire encoding require separate evidence.
 
 Error GET responses use `Content-Type: application/xml` and an XML `Error`
 containing `Code` and `Message`. Escape dynamic values. Do not return JSON error
-documents on XML routes. HEAD preserves status and headers while suppressing
+documents on selected XML routes; invalid bucket segments retain the unknown
+route exception above. HEAD preserves status and headers while suppressing
 all error bytes. Exact local-token messages, request identifiers, optional XML
 elements, error header inventory and 501 spelling are local choices; the XML
 status reference is not an exhaustive wire template.
@@ -175,7 +191,8 @@ status reference is not an exhaustive wire template.
 Strict mode resolves credentials before consulting a public grant. A missing
 Authorization header represents an anonymous caller. A registered local bearer
 resolves one identity. An unregistered bearer, malformed/duplicate header,
-credential query or unsupported scheme returns 401, including on an `allUsers`
+credential query or unsupported scheme returns XML 400 `InvalidAuthentication`,
+including on an `allUsers`
 object. These rules deliberately do not treat arbitrary strings as Google users.
 
 | Caller | `allUsers` binding | `allAuthenticatedUsers` binding | Named identity/project grant |
@@ -191,7 +208,9 @@ objects public. `allAuthenticatedUsers` alone is never anonymous public access.
 Project grants and current owning-bucket bindings form a union; removing one
 grant does not revoke another independent grant.
 
-JSON anonymous reads now evaluate `allUsers` before denying access. A denied
+JSON anonymous operations now evaluate the exact granted permissions, including
+object mutations and bucket/policy operations; a read-only public grant does
+not enable writes or policy management. A denied
 anonymous JSON request retains the existing 401 `required` body; invalid
 credentials retain `authError`, and registered permission denials retain 403
 `forbidden`. JSON and XML use different error adapters over the same permissions.
@@ -207,6 +226,12 @@ transaction that selects object metadata/bytes. Subsequent requests after a
 successful revocation fail; a read already opened against an immutable generation
 may finish. Grants persist through restart. Deleting/recreating a bucket removes
 its old policy. No cache or Google propagation delay is simulated.
+
+Linux/Android listeners set `SO_REUSEADDR` before binding for same-port restart.
+Other Unix platforms retry bind for a bounded interval while TIME_WAIT drains,
+and fail promptly when a live listener is detected. This does not permit
+concurrent listeners or change persisted grants; Windows socket parity is not
+established by Unix checks.
 
 Permissive mode preserves the existing authentication bypass, including ignored
 credential inputs, while keeping input validation and stored IAM policies.
@@ -288,7 +313,7 @@ evidence. Do not infer passing cases from this table.
 
 | Feature | Case ID | Required observation |
 | --- | --- | --- |
-| DESIGN-004 | DESIGN-004-CALLERS | Missing credentials can use `allUsers`; valid registry tokens resolve identities; invalid/duplicate/unregistered credentials fail 401 even on a public object |
+| DESIGN-004 | DESIGN-004-CALLERS | Missing credentials can use `allUsers`; valid registry tokens resolve identities; invalid/duplicate/unregistered credentials fail XML 400 `InvalidAuthentication` or JSON 401 `authError` even on a public object |
 | DESIGN-004 | DESIGN-004-ERRORS | Private anonymous JSON preserves exact 401 `required`; XML uses its own XML denial; HEAD errors contain no body |
 | DESIGN-004 | DESIGN-004-EXISTENCE | Authorized missing bucket/object gets distinct 404 codes; unauthorized existing/missing resources receive the denial without existence disclosure |
 | DESIGN-012 | DESIGN-012-ALLUSERS | A bucket binding granting `storage.objects.get` permits anonymous XML GET/HEAD and JSON metadata/media reads; unrelated permissions remain denied |
