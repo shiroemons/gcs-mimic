@@ -102,7 +102,7 @@ fn public_members_authorize_anonymous_and_registered_callers_without_token_fallb
             "Authorization: Bearer\r\n",
             "Authorization: Bearer admin-token extra\r\n",
         ] {
-            xml_error(&server.get(auth, OBJECT), 401, "InvalidAuthentication");
+            xml_error(&server.get(auth, OBJECT), 400, "InvalidAuthentication");
             server.get(auth, JSON_OBJECT).invalid_credentials();
         }
     }
@@ -638,14 +638,14 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     ] {
         xml_error(
             &server.get("", &format!("{OBJECT}?{query}")),
-            401,
+            400,
             "InvalidAuthentication",
         );
     }
     for scheme in ["GOOG4-RSA-SHA256", "GOOG4-HMAC-SHA256", "GOOG1", "AWS"] {
         xml_error(
             &server.get(&format!("Authorization: {scheme} value\r\n"), OBJECT),
-            401,
+            400,
             "InvalidAuthentication",
         );
     }

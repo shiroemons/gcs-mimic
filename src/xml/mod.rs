@@ -67,6 +67,12 @@ impl Error {
 
 impl From<JsonError> for Error {
     fn from(error: JsonError) -> Self {
+        // XML reference-status pairs invalid/unsupported auth headers with 400; 401 covers expiry.
+        let status = if error.status == StatusCode::UNAUTHORIZED && error.reason != "required" {
+            StatusCode::BAD_REQUEST
+        } else {
+            error.status
+        };
         let code = match error.status {
             StatusCode::UNAUTHORIZED if error.reason == "required" => "AuthenticationRequired",
             StatusCode::UNAUTHORIZED => "InvalidAuthentication",
@@ -80,7 +86,7 @@ impl From<JsonError> for Error {
             _ => "InvalidArgument",
         };
         // shortcut: auth wording and error precedence are local choices until cloud differential evidence exists.
-        Self::new(error.status, code, error.message)
+        Self::new(status, code, error.message)
     }
 }
 
