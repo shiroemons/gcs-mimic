@@ -407,8 +407,9 @@ if [[ $reference_only == 0 ]]; then
       (map({key:.case,value:.}) | from_entries) as $rows
       | [.[] | select(.request.method == "PUT")] as $puts
       | ($puts | length == 32) and all($puts[];
-          (if .case == "put-malformed" then [400,"parseError"]
-            elif .case == "put-class-null" or (.case == "put-settings-null" and .target == "mimic-native") then [400,"invalidArgument"]
+          (if .case == "put-malformed" then [400,(if .target == "mimic-native" then "parseError" else "invalid" end)]
+            elif .case == "put-class-null" then [400,(if .target == "mimic-native" then "invalidArgument" else "invalid" end)]
+            elif .case == "put-settings-null" and .target == "mimic-native" then [400,"invalidArgument"]
             elif .case == "put-projection-invalid" or .case == "put-generation" then [400,"invalidParameter"]
             elif .case == "put-missing" then [404,"notFound"]
             elif (.case | startswith("put-unsupported-")) or .case == "put-nonempty-acl" or .case == "put-default-acl"
