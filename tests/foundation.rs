@@ -66,12 +66,61 @@ fn conflicting_process(address: &str, dir: &TestDir) -> Output {
     child.wait_with_output().unwrap()
 }
 
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir) {
+    for signal in ["-TERM", "-INT"] {
+        let mut child = common::server_command()
+            .args(["serve", "--listen", address, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            stderr.read_line(&mut line).unwrap();
+            let _ = send.send(line);
+        });
+        let line = match receive.recv_timeout(Duration::from_secs(3)) {
+            Ok(line) => line,
+            Err(error) => {
+                child.kill().unwrap();
+                let output = child.wait_with_output().unwrap();
+                panic!("server did not enter bind_wait: {error}; {output:?}");
+            }
+        };
+        assert!(
+            Command::new("kill")
+                .args([signal, &child.id().to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                let output = child.wait_with_output().unwrap();
+                panic!("server ignored {signal} during bind_wait: {output:?}");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        let event: serde_json::Value = serde_json::from_str(&line).expect("bind_wait event");
+        assert_eq!(event["event"], "bind_wait");
+        assert_eq!(output.status.code(), Some(0), "{signal}: {output:?}");
+        assert_eq!(output.stdout, b"{\"event\":\"stopped\"}\n", "{signal}");
+    }
+}
+
 #[test]
 fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
     let dir = TestDir::new();
     let other = TestDir::new();
     let mut address = "127.0.0.1:0".to_owned();
-    for _ in 0..2 {
+    for restart in 0..2 {
         let mut child = common::server_command()
             .args(["serve", "--listen", &address, "--data-dir"])
             .arg(&dir.0)
@@ -94,6 +143,13 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
         #[cfg(unix)]
         assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
         common::stop_server(&mut child, &mut stdout);
+        // Reuse the first server's TIME_WAIT so signal coverage adds no expiry wait.
+        #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+        if restart == 0 {
+            assert_bind_wait_signals_exit_without_readiness(&address, &dir);
+        }
+        #[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
+        let _ = restart;
     }
 }
 
