@@ -3,13 +3,16 @@
 The current slice supports JSON bucket create/get/list/delete and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object download and delete,
 with a persistent SQLite catalog and disk blobs.
-Resumable uploads, ranges, fixtures, IAM/ACL, signed URLs,
-CORS and TLS remain unavailable.
-Requests have no authentication enforcement; use an isolated local development environment.
+Resumable uploads, ranges, fixtures, bucket/object IAM policies, ACLs, public grants,
+XML endpoints, signed URLs, CORS and TLS remain unavailable.
+The default permissive profile enforces no authentication; use an isolated local
+development environment. An optional strict profile checks local bearer tokens
+against project-level predefined storage roles.
 The [bucket contract](slices/json-bucket-crud.md) and
-[object media](slices/json-object-media.md), [listing](slices/json-object-list.md) and
-[metadata](slices/json-object-metadata.md) and
-[multipart](slices/json-object-multipart.md) contracts list supported fields and deviations.
+[object media](slices/json-object-media.md), [listing](slices/json-object-list.md),
+[metadata](slices/json-object-metadata.md),
+[multipart](slices/json-object-multipart.md) and
+[strict authentication](slices/strict-auth.md) contracts list supported fields and deviations.
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -54,7 +57,8 @@ Host clients use `$endpoint`. Peers on the Compose network use `http://gcs:4443`
 Inside a container, localhost refers to that container; `0.0.0.0` is a listener
 address. `selfLink` always uses the one configured origin. Set a peer-reachable
 origin instead if peers must follow those links. Host and forwarded headers are
-never used to construct links. Public object URLs are not implemented.
+never used to construct links. The `gcs-mimic url public` helper builds public
+object URLs, but the server does not serve them yet (see the strict section below).
 
 ## Create, inspect, list and delete buckets
 
@@ -330,6 +334,186 @@ cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK
 are not claimed. Ruby/Rails remains unverified.
 For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
 
+## Strict local authentication
+
+`compose.strict.yaml` switches the same Compose project to `auth_mode=strict` and
+mounts the local fixture registry `config/identities.json` read-only. Its three
+principals hold project-level roles on `local-project`:
+
+| Token | Role |
+| --- | --- |
+| `local-admin-token` | `roles/storage.admin` |
+| `local-viewer-token` | `roles/storage.objectViewer` |
+| `local-creator-token` | `roles/storage.objectCreator` |
+
+These tokens are deliberately public emulator fixtures, not Google credentials;
+never reuse them for a real service. Pass both files to every command in this
+section so the service keeps strict mode. Recreating the service keeps the port,
+advertised endpoint and named volume selected above. The ready event reports
+the mode and the number of registered identities:
+
+```sh
+docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
+docker compose -f compose.yaml -f compose.strict.yaml logs --no-log-prefix gcs \
+  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "strict" and .identities == 3) | {auth_mode, identities}'
+```
+
+Anonymous requests receive 401 `required`; an unregistered bearer token receives
+401 `authError` and never falls back to anonymous access:
+
+```sh
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/anonymous.json" \
+  --write-out '%{http_code}' "$endpoint/storage/v1/b?project=local-project")
+test "$status" = 401
+jq -e '.error.errors[0].reason == "required"' "$work_dir/anonymous.json"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/bad-token.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer not-a-registered-token' \
+  "$endpoint/storage/v1/b?project=local-project")
+test "$status" = 401
+jq -e '.error.errors[0].reason == "authError"' "$work_dir/bad-token.json"
+```
+
+The admin creates a bucket, uploads a private object and reads it back:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: application/json' --data '{"name":"strict-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project" | jq '{name}'
+printf 'strict data\n' > "$work_dir/strict.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  -H 'Content-Type: text/plain' --data-binary @"$work_dir/strict.txt" \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt" \
+  > "$work_dir/strict-object.json"
+jq '{name, generation}' "$work_dir/strict-object.json"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-admin.txt"
+cmp "$work_dir/strict.txt" "$work_dir/strict-admin.txt"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media")
+test "$status" = 401
+```
+
+The object viewer can read and list objects. It cannot upload, and it cannot read
+bucket metadata because `roles/storage.objectViewer` lacks `storage.buckets.get`.
+A missing bucket returns 404 only to callers holding the permission in some
+project; the viewer receives 403:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-viewer-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-viewer.txt"
+cmp "$work_dir/strict.txt" "$work_dir/strict-viewer.txt"
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-viewer-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o" | jq '[.items[].name]'
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/viewer-upload.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer local-viewer-token' \
+  -H 'Content-Type: text/plain' --data-binary 'viewer data' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fviewer.txt")
+test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/viewer-upload.json"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/strict-bucket")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-viewer-token' "$endpoint/storage/v1/b/missing-strict-bucket")
+test "$status" = 403
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-admin-token' "$endpoint/storage/v1/b/missing-strict-bucket")
+test "$status" = 404
+```
+
+The object creator can create new objects but cannot overwrite a live object,
+because an overwrite also needs `storage.objects.delete`. A failing precondition
+is evaluated first and returns 412. The original object stays unchanged:
+
+```sh
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'created data' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fcreated.txt" \
+  | jq '{name}'
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/creator-overwrite.json" \
+  --write-out '%{http_code}' -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'overwrite attempt' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt")
+test "$status" = 403
+jq -e '.error.errors[0].reason == "forbidden"' "$work_dir/creator-overwrite.json"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-creator-token' \
+  -H 'Content-Type: text/plain' --data-binary 'overwrite attempt' \
+  "$endpoint/upload/storage/v1/b/strict-bucket/o?uploadType=media&name=notes%2Fprivate%20file.txt&ifGenerationMatch=0")
+test "$status" = 412
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  -H 'Authorization: Bearer local-creator-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fcreated.txt")
+test "$status" = 403
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-unchanged.txt"
+cmp "$work_dir/strict.txt" "$work_dir/strict-unchanged.txt"
+```
+
+`gcs-mimic url public` prints the XML-style path URL of an object. It reads no
+configuration, environment, data directory or network and never changes a
+permission. Every byte except RFC 3986 unreserved characters and `/` is
+percent-encoded; if a segment is `.` or `..`, every `/` is encoded as `%2F`.
+The XML endpoint and public grants are not implemented yet, so the server
+returns 404 for this URL and the object stays private:
+
+```sh
+public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/private file.txt')
+printf '%s\n' "$public_url"
+test "$public_url" = "$endpoint/strict-bucket/notes/private%20file.txt"
+dot_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+  gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/../private file.txt')
+test "$dot_url" = "$endpoint/strict-bucket/notes%2F..%2Fprivate%20file.txt"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' "$public_url")
+test "$status" = 404
+```
+
+The strict Go SDK tests use the same fixture tokens through an explicit endpoint
+and a static token source, without Application Default Credentials or the
+metadata server:
+
+```sh
+(cd sdk-tests/go && GCS_MIMIC_STRICT_ENDPOINT="$endpoint" GOTOOLCHAIN=auto \
+  go test -count=1 -v -run '^TestStrictAuth' ./...)
+```
+
+Stop/start with both files keeps strict mode and the data. Clean up as the admin,
+then recreate the service from `compose.yaml` alone to return to the default
+permissive profile:
+
+```sh
+docker compose -f compose.yaml -f compose.strict.yaml stop
+docker compose -f compose.yaml -f compose.strict.yaml start --wait
+curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket/o/notes%2Fprivate%20file.txt?alt=media" \
+  --output "$work_dir/strict-restarted.txt"
+cmp "$work_dir/strict.txt" "$work_dir/strict-restarted.txt"
+status=$(curl --disable --noproxy '*' --silent --output /dev/null --write-out '%{http_code}' \
+  "$endpoint/storage/v1/b/strict-bucket")
+test "$status" = 401
+for name in notes%2Fprivate%20file.txt notes%2Fcreated.txt; do
+  curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+    "$endpoint/storage/v1/b/strict-bucket/o/$name"
+done
+curl --disable --noproxy '*' --fail -X DELETE -H 'Authorization: Bearer local-admin-token' \
+  "$endpoint/storage/v1/b/strict-bucket"
+docker compose up -d --wait
+docker compose logs --no-log-prefix gcs \
+  | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "permissive") | {auth_mode}'
+curl --disable --noproxy '*' --fail "$endpoint/storage/v1/b?project=local-project" | jq .
+```
+
+Strict mode enforces only project-level predefined `roles/storage.*` grants on the
+JSON bucket/object routes. Bucket/object IAM policies, ACLs, `allUsers` and
+`allAuthenticatedUsers`, signed URLs, HMAC and XML endpoints are unavailable.
+Unknown routes return 404 and `/_internal` probes stay unauthenticated. The
+[strict authentication contract](slices/strict-auth.md) lists error bodies, check
+order and the local rules recorded as SPEC-017.
+
 Finish the Compose walkthrough by stopping and removing its containers and
 network, disposable volume, temporary files and this walkthrough's exact image tag:
 
@@ -393,6 +577,12 @@ readiness. The current configuration is JSON; future TOML settings are unavailab
 | `--catalog-wait-timeout-ms` | `GCS_MIMIC_CATALOG_WAIT_TIMEOUT_MS` | 30000 | 1–60000 |
 | `--shutdown-timeout-ms` | `GCS_MIMIC_SHUTDOWN_TIMEOUT_MS` | 5000 | 1–60000 |
 | `--max-object-bytes` | `GCS_MIMIC_MAX_OBJECT_BYTES` | 1073741824 (1 GiB) | 1–5497558138880 (5 TiB) |
+| `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
+| `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
+
+The identity file is read once at startup; an invalid registry, `strict` without a
+file or a file with `permissive` fails before readiness. Run
+`gcs-mimic url public --help` for the URL helper, which accepts no serve options.
 
 Each HTTP/1 connection handles one request, with a 16 KiB parser buffer, 64 headers
 and a deadline. Object routes use a header deadline followed by renewed chunk-inactivity
@@ -452,8 +642,14 @@ For connection errors, inspect `docker compose ps`, `docker compose logs gcs`,
 port mapping and the caller's network. For startup errors, check catalog path
 ownership, disk space, another owner process and config overrides. Unknown routes return
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
+In strict mode, 401 `required` means no `Authorization` header was sent, 401
+`authError` means the credential is unregistered or unsupported (including
+`access_token` or signature query parameters), and 403 `forbidden` means the
+principal lacks the permission in the bucket's project. Check the ready event's
+`auth_mode`: running `docker compose up` without `compose.strict.yaml` recreates the
+service in permissive mode.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
 fsync crash window remain unverified. See the [integration evidence](evidence/object-media.md),
 [multipart integration evidence](evidence/multipart.md),
-[executed guide transcript](evidence/multipart-guide.txt) and the
+[strict authentication evidence](evidence/strict-auth.md) and the
 [ledger](../../compatibility/features.json) for exact verification scope.
