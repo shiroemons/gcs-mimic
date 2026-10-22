@@ -1,0 +1,48 @@
+Selected final just check output; local path prefixes were redacted.
+bash scripts/test-check.sh
+PASS: shared checks run in order and stop at every failing Cargo command
+env -u RUSTUP_TOOLCHAIN bash scripts/check.sh
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.05s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.82s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-71df96ffc9fba5fd)
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-7abd585c3d582d21)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/auth_http.rs (target/debug/deps/auth_http-1d7c014f1d377f17)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-c5d1fe5869268f1b)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+     Running tests/catalog.rs (target/debug/deps/catalog-0a398d648ca54326)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s
+     Running tests/foundation.rs (target/debug/deps/foundation-5064eccc901d2aeb)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.43s
+     Running tests/object_http.rs (target/debug/deps/object_http-d9a00931ee96b00e)
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+     Running tests/object_list_http.rs (target/debug/deps/object_list_http-e476eeea05dda6f1)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.60s
+     Running tests/object_metadata_http.rs (target/debug/deps/object_metadata_http-67b4509afd8207c2)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running tests/object_multipart_http.rs (target/debug/deps/object_multipart_http-eb92948c29e29d96)
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.60s
+     Running tests/object_storage.rs (target/debug/deps/object_storage-68f9ca0e9e3ae7e7)
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.10s
+     Running tests/seed.rs (target/debug/deps/seed-5138dfa75697b538)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.46s
+     Running tests/url_cli.rs (target/debug/deps/url_cli-219213cad628591e)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+PASS: container publication validates inputs, API failures, immutable retries, attestations and alias selection without network access
+Usage: bash scripts/smoke-containers.sh [--image IMAGE] [linux/amd64|linux/arm64 ...]
+Unsupported platform: linux/unknown

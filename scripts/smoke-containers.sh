@@ -152,4 +152,46 @@ for platform in "$@"; do
   docker compose -p "$project" down --volumes
   project=
   echo "PASS: $platform build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM"
+
+  project="gcs-mimic-seed-${arch}-$$"
+  seed_compose=(docker compose -p "$project" -f compose.yaml -f compose.seed.yaml)
+  "${seed_compose[@]}" config --quiet
+  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
+  service=$("${seed_compose[@]}" ps --quiet gcs)
+  address=$("${seed_compose[@]}" port gcs 4443)
+  docker inspect "$service" | jq -e '.[0].Mounts | any(.Destination == "/fixtures" and .RW == false)' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+  cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
+    "http://$address/upload/storage/v1/b/local-bucket/o?uploadType=media&name=hello.txt" >/dev/null
+  "${seed_compose[@]}" stop --timeout 15
+  "${seed_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
+  [[ $("${seed_compose[@]}" ps --quiet gcs) == "$service" ]]
+  address=$("${seed_compose[@]}" port gcs 4443)
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+  cmp "$work/expected" "$work/seed-actual"
+  "${seed_compose[@]}" down
+  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
+  address=$("${seed_compose[@]}" port gcs 4443)
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+  cmp "$work/expected" "$work/seed-actual"
+  expect_status DELETE /storage/v1/b/local-bucket/o/hello.txt 204
+  expect_status DELETE /storage/v1/b/local-bucket 204
+  "${seed_compose[@]}" down
+  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
+  address=$("${seed_compose[@]}" port gcs 4443)
+  expect_status GET /storage/v1/b/local-bucket 404
+  "${seed_compose[@]}" down --volumes
+  "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
+  address=$("${seed_compose[@]}" port gcs 4443)
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/local-bucket/o/hello.txt?alt=media" >"$work/seed-actual"
+  cmp fixtures/local-bucket/hello.txt "$work/seed-actual"
+  "${seed_compose[@]}" down --volumes
+  project=
+  echo "PASS: $platform read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding"
 done

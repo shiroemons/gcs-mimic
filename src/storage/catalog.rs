@@ -18,6 +18,11 @@ pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReade
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const MAX_UPLOADS: usize = 8;
+const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    complete INTEGER NOT NULL CHECK(complete IN (0, 1))
+) WITHOUT ROWID;
+PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated";
 const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
@@ -75,6 +80,19 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
         expected
             .execute_batch(objects::METADATA_SCHEMA)
             .map_err(unavailable)?;
+    }
+    if version >= 5 {
+        expected.execute_batch(SEED_SCHEMA).map_err(unavailable)?;
+        let valid: bool = connection
+            .query_row(
+                "SELECT count(*) = 1 AND min(singleton) = 1 FROM startup_seed",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(unavailable)?;
+        if !valid {
+            return Err(unavailable("invalid startup seed state"));
+        }
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -157,12 +175,12 @@ impl Catalog {
                  PRAGMA temp_store = FILE;",
                 )
                 .map_err(unavailable)?;
-            let version: i64 = connection
+            let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=4).contains(&version) {
+            if !(0..=5).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 4"
+                    "unsupported catalog schema version {version}; supported version is 5"
                 )));
             }
             if version == 2 {
@@ -226,7 +244,14 @@ impl Catalog {
                 transaction
                     .execute_batch(BUCKET_SCHEMA)
                     .map_err(unavailable)?;
+                // Freshness and the retryable seed state must survive the same commit.
+                for schema in [objects::SCHEMA, objects::GENERATION_SCHEMA, objects::METADATA_SCHEMA, SEED_SCHEMA] {
+                    transaction.execute_batch(schema).map_err(unavailable)?;
+                }
+                transaction.execute("INSERT INTO object_generation VALUES (1, 0)", []).map_err(unavailable)?;
+                transaction.execute("INSERT INTO startup_seed VALUES (1, 0)", []).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
+                version = 5;
             }
             // A version marker alone must not make a missing or incompatible schema ready.
             connection
@@ -237,6 +262,13 @@ impl Catalog {
             }
             if version < 4 {
                 objects::migrate_metadata(&mut connection)?;
+            }
+            if version < 5 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(SEED_SCHEMA).map_err(unavailable)?;
+                // Older catalogs have already served user mutations, even if now empty.
+                transaction.execute("INSERT INTO startup_seed VALUES (1, 1)", []).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
             }
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
@@ -254,6 +286,33 @@ impl Catalog {
 
     pub fn is_healthy(&self) -> bool {
         !self.0.resources.is_poisoned() && !self.0.admission.is_closed()
+    }
+
+    pub(crate) async fn seed_complete(&self) -> Result<bool, CatalogError> {
+        self.run(|connection| {
+            connection
+                .query_row(
+                    "SELECT complete FROM startup_seed WHERE singleton = 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(unavailable)
+        })
+        .await
+    }
+
+    pub(crate) async fn finish_seed(&self) -> Result<(), CatalogError> {
+        self.run(|connection| {
+            let transaction = connection.transaction().map_err(unavailable)?;
+            transaction
+                .execute(
+                    "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
+                    [],
+                )
+                .map_err(unavailable)?;
+            transaction.commit().map_err(unavailable)
+        })
+        .await
     }
 
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
@@ -742,7 +801,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 4),
+                    ("user_version", 5),
                 ] {
                     assert_eq!(
                         connection

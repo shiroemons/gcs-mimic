@@ -1,0 +1,7 @@
+services:
+  gcs:
+    volumes:
+      - ./fixtures:/fixtures:ro
+    environment:
+      GCS_MIMIC_SEED_DIR: /fixtures
+      GCS_MIMIC_SEED_PROJECT: local-project

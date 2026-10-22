@@ -335,7 +335,7 @@ fn config_precedence_validation_and_size_limit() {
         ("shutdown-timeout-ms", "-1"),
         ("listen", "localhost:4443"),
         ("auth-mode", "strict"),
-        ("seed-dir", "/tmp"),
+        ("seed-policy", "if_empty"),
     ] {
         assert!(
             Config::load(&[format!("--{key}"), value.into()], &BTreeMap::new()).is_err(),
