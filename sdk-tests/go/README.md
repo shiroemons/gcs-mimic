@@ -201,7 +201,10 @@ discards the endpoint's path and builds `/<bucket>/<url.PathEscape(object)>`.
 generation is a query parameter, and match conditions use
 `x-goog-if-generation-match` and `x-goog-if-metageneration-match` headers.
 The request recorder asserts the escaped path and HTTP method, preventing a
-passing JSON download from masquerading as an XML read.
+passing JSON download from masquerading as an XML read. It wraps the transport
+before client construction because the SDK clones the supplied HTTP client.
+These read clients use `RetryNever` so unsupported wire behavior fails promptly;
+SDK invocation and idempotency headers are preserved.
 
 `parseReadResponse` takes full size from Content-Length for 200/HEAD and requires
 a parseable `Content-Range: bytes start-end/total` for 206. Reader attributes use

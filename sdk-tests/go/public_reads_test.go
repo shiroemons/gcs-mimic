@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -50,9 +51,20 @@ func (l *readRequestLog) last(t *testing.T, bucket, object, method string, jsonR
 
 func strictReadClient(t *testing.T, token string, jsonReads bool) (*storage.Client, *readRequestLog) {
 	t.Helper()
-	_, client, httpClient := newStrictClientWithReadMode(t, token, jsonReads)
-	log := &readRequestLog{base: httpClient.Transport}
-	httpClient.Transport = log
+	log := &readRequestLog{}
+	_, client := newStrictClientWithReadMode(t, token, jsonReads, log)
+	client.SetRetry(storage.WithPolicy(storage.RetryNever))
+	t.Cleanup(func() {
+		if t.Failed() {
+			log.mu.Lock()
+			defer log.mu.Unlock()
+			for _, request := range log.requests {
+				headers := request.Header.Clone()
+				headers.Del("Authorization")
+				t.Logf("read request: %s %s; headers=%v", request.Method, request.URL, headers)
+			}
+		}
+	})
 	return client, log
 }
 
@@ -103,7 +115,7 @@ func TestXMLReadsStrict(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireReadBytes(t, reader, tc.want, attrs, "")
+			requireReadBytes(t, reader, tc.want, attrs, "private, max-age=0")
 			r := log.last(t, bucket.BucketName(), attrs.Name, tc.method, false)
 			switch tc.name {
 			case "range":
@@ -131,9 +143,12 @@ func TestXMLReadsStrict(t *testing.T) {
 }
 
 func TestPublicReadsGrantAndRevoke(t *testing.T) {
-	ctx, bucket, attrs, payload := strictFixture(t, "public")
+	if os.Getenv("GCS_MIMIC_STRICT_ENDPOINT") == "" {
+		t.Skip("GCS_MIMIC_STRICT_ENDPOINT is unset; public reads require an explicit strict emulator")
+	}
 	for _, jsonReads := range []bool{false, true} {
 		t.Run(fmt.Sprintf("JSON=%v", jsonReads), func(t *testing.T) {
+			ctx, bucket, attrs, payload := strictFixture(t, "public")
 			anonymous, log := strictReadClient(t, "", jsonReads)
 			object := anonymous.Bucket(bucket.BucketName()).Object(attrs.Name)
 			requireReadDenied(t, ctx, object, http.StatusUnauthorized)
@@ -194,7 +209,7 @@ func TestPublicReadsAllAuthenticatedUsers(t *testing.T) {
 						if err != nil {
 							t.Fatal(err)
 						}
-						cacheControl := ""
+						cacheControl := "private, max-age=0"
 						if jsonReads {
 							cacheControl = "no-cache"
 						}
@@ -223,7 +238,7 @@ func TestXMLReadsEncodedNames(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireReadBytes(t, reader, payload, attrs, "")
+			requireReadBytes(t, reader, payload, attrs, "private, max-age=0")
 			log.last(t, bucket.BucketName(), name, http.MethodGet, false)
 		})
 	}
@@ -266,6 +281,7 @@ func TestXMLReadsPermissive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.SetRetry(storage.WithPolicy(storage.RetryNever))
 	t.Cleanup(func() {
 		if err := client.Close(); err != nil {
 			t.Errorf("close client: %v", err)
@@ -275,6 +291,6 @@ func TestXMLReadsPermissive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireReadBytes(t, reader, payload, attrs, "")
+	requireReadBytes(t, reader, payload, attrs, "private, max-age=0")
 	log.last(t, bucket.BucketName(), attrs.Name, http.MethodGet, false)
 }

@@ -1,5 +1,43 @@
 # Go SDK harness verification
 
+## Public and default XML reads: 2026-10-22
+
+After server retry-telemetry support in `ccecff8`, `just check-sdk` passed Go vet,
+all 18 top-level tests and 58 subtests, with 0 failures and 0 skips, against
+isolated native permissive and strict endpoints. The Go package reported 1.193s.
+Pins remain Go 1.27.3, Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0;
+`go.mod` and `go.sum` did not change.
+
+The new coverage accounts for 5 top-level tests and 20 subtests:
+
+| Test | Subtests | Verified behavior |
+| --- | --- | --- |
+| `TestXMLReadsStrict` | 5 | Default XML whole/range reads, generation query, matching conditions and HEAD; rejected generation/metageneration conditions additionally return 412 |
+| `TestPublicReadsGrantAndRevoke` | 2 | XML and JSON anonymous denial, bucket `allUsers` viewer grant, exact bytes and public cache default, then denial after revocation |
+| `TestPublicReadsAllAuthenticatedUsers` | 8 | XML/JSON protocol groups and registered no-project-role, anonymous and unregistered bearer cases; only the registered principal succeeds |
+| `TestXMLReadsEncodedNames` | 5 | Spaces, plus, literal percent escapes, Unicode and slashes through actual XML request paths |
+| `TestXMLReadsPermissive` | 0 | Default XML download without credentials |
+
+Reader assertions compare bytes, full object size, generation, metageneration,
+content type and cache control, including the XML private default
+`private, max-age=0` and public default `public, max-age=3600`. The recorder checks
+the real escaped request path, method, range, selected generation and condition
+headers. It wraps the supplied transport before SDK construction because Storage
+v1.70.0 clones the HTTP client. Read clients disable retries, preserving the
+SDK's invocation/idempotency headers and exposing unsupported responses promptly.
+Each public protocol journey uses its own bucket and cleans up with the admin.
+
+An additional targeted run with both endpoint variables unset passed with all
+5 new top-level tests explicitly skipped and no subtests executed. This verifies
+opt-in harness behavior only, separate from the successful integration run.
+`git diff --check` also passed for the harness changes.
+
+The pinned upstream XML URL and response-header behavior is documented in
+[README](README.md#public-and-default-xml-reads). No Google Cloud or metadata-server
+request was made. This check did not build containers, run the getting-started
+guide, verify cloud authentication error parity or exercise deferred XML writes,
+listing, virtual-host routing, signatures, ACLs, UBLA or PAP state machines.
+
 ## Final bucket IAM verification: 2026-10-22
 
 On merged source `7fadac2d5c15fd2534f915d90295f5d314486cb1`, `just check-sdk`

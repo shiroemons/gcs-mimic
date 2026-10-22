@@ -39,11 +39,10 @@ const (
 // attempting Application Default Credentials or metadata-server discovery.
 func newStrictClient(t *testing.T, token string) (context.Context, *storage.Client) {
 	t.Helper()
-	ctx, client, _ := newStrictClientWithReadMode(t, token, true)
-	return ctx, client
+	return newStrictClientWithReadMode(t, token, true, nil)
 }
 
-func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool) (context.Context, *storage.Client, *http.Client) {
+func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool, log *readRequestLog) (context.Context, *storage.Client) {
 	t.Helper()
 	raw := os.Getenv("GCS_MIMIC_STRICT_ENDPOINT")
 	if raw == "" {
@@ -88,6 +87,10 @@ func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool) (co
 		roundTripper = &oauth2.Transport{Source: source, Base: roundTripper}
 		opts = append(opts, option.WithTokenSource(source))
 	}
+	if log != nil {
+		log.base = roundTripper
+		roundTripper = log
+	}
 	httpClient := &http.Client{
 		Transport:     roundTripper,
 		Timeout:       10 * time.Second,
@@ -105,7 +108,7 @@ func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool) (co
 			t.Errorf("close client: %v", err)
 		}
 	})
-	return ctx, client, httpClient
+	return ctx, client
 }
 
 // requireStrictError checks the status code and the first error reason. JSON media reads return
