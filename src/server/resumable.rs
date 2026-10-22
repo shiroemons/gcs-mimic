@@ -331,6 +331,7 @@ async fn await_session_upload<T>(
             deadline
         };
         tokio::select! {
+            biased;
             result = &mut operation => break result,
             Ok(()) = progress.changed() => {},
             _ = tokio::time::sleep_until(wait_deadline) => {
