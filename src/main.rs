@@ -16,6 +16,7 @@ use std::{
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
 Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -34,6 +35,14 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
 
 HTTP/1 probes, JSON bucket CRUD and streaming JSON object media CRUD are available.
 Bucket metadata is limited to 64 KiB. Multipart, resumable, TLS and authentication are unavailable.";
+
+const URL_PUBLIC_HELP: &str =
+    "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME
+
+Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Every option is
+required exactly once, in any order. The object name is percent-encoded except for RFC 3986
+unreserved characters and '/'; if any '/'-separated segment is '.' or '..', '/' is encoded as %2F.
+No config file, environment, data directory or network is read, and no permission is changed.";
 
 fn main() -> ExitCode {
     match run() {
@@ -62,6 +71,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         [command, flag, url] if command == "healthcheck" && flag == "--url" => {
             Ok(healthcheck(url)?)
+        }
+        [command, kind, help] if command == "url" && kind == "public" && help == "--help" => {
+            println!("{URL_PUBLIC_HELP}");
+            Ok(())
+        }
+        [command, kind, rest @ ..] if command == "url" && kind == "public" => {
+            println!("{}", url_public(rest)?);
+            Ok(())
         }
         [command, rest @ ..] if command == "serve" => {
             let env: BTreeMap<_, _> = std::env::vars()
@@ -103,6 +120,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => Err(format!("invalid command; {HELP}").into()),
     }
+}
+
+fn url_public(args: &[String]) -> Result<String, String> {
+    let mut options = BTreeMap::new();
+    for pair in args.chunks(2) {
+        let [name, value] = pair else {
+            return Err(format!(
+                "url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}"
+            ));
+        };
+        if !matches!(name.as_str(), "--base-url" | "--bucket" | "--object") {
+            return Err(format!(
+                "unknown url public option: {name}\n{URL_PUBLIC_HELP}"
+            ));
+        }
+        if options.insert(name.as_str(), value.as_str()).is_some() {
+            return Err(format!("duplicate option: {name}"));
+        }
+    }
+    let required = |name| {
+        options
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("missing required option: {name}\n{URL_PUBLIC_HELP}"))
+    };
+    gcs_mimic::url::public_object_url(
+        required("--base-url")?,
+        required("--bucket")?,
+        required("--object")?,
+    )
 }
 
 fn healthcheck(url: &str) -> io::Result<()> {
