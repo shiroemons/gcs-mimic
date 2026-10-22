@@ -3831,11 +3831,13 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Only uploadType=media: bounded raw body, Content-Type, MD5/CRC32C, atomic generation conditions and Object JSON publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "Media and bounded multipart metadata/media upload with MD5/CRC32C, optional final checksum JSON, custom metadata, atomic conditions, persistent Object resources and conditioned invocation-token acceptance. Resumable and full method/permission/replay fidelity remain incomplete. Scope: docs/en/slices/json-object-media.md and docs/en/slices/json-object-multipart.md; integration: docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -3877,7 +3879,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-PENDING",
-          "description": "Implement multipart/resumable/metadata uploads, custom metadata, ACL/IAM, encryption/encoding, full field/common parameter semantics and upload-token replay.",
+          "description": "Implement resumable sessions, ACL/IAM permissions, encryption and encoding/transcoding effects, full field/common parameter semantics and bounded upload-token response replay.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -3913,6 +3915,106 @@
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-FRAMING",
+          "description": "Ordered two/three-part multipart/related with RFC token/quoted boundaries, delimiter whitespace, byte-exact chunk splits, empty/binary media and bounded parser carry; malformed, missing or extra parts and truncated framing fail without publication.",
+          "result": "PASS",
+          "test_ids": [
+            "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+            "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+            "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+            "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+            "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-METADATA",
+          "description": "Persist fixed/custom Unicode metadata and complete Object resources; reject invalid types, advanced/output/unknown fields without changing the old resource.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-NAME-BUCKET",
+          "description": "Query name overrides a string/null metadata name; invalid metadata name types still fail; missing/null selected name is required; path bucket overrides string metadata bucket and rejects non-string bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-CONTENT-TYPE",
+          "description": "Nonempty metadata contentType wins over media Content-Type then application/octet-stream; null/empty metadata type is absent and falls back locally.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-CHECKSUMS",
+          "description": "Validate incremental MD5/CRC32C from metadata, X-Goog-Hash and optional third JSON before publication; accept equal declarations, reject conflicts/unknown keys/mismatches, use parseError for malformed checksum JSON and preserve complete old resources on failure/truncation.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-PRECONDITIONS-TOKENS",
+          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "result": "PASS",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-BOUNDS-DEADLINES",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "result": "PASS",
+          "test_ids": [
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-CONCURRENCY",
+          "description": "Concurrent create-if-absent publishes exactly one generation with no staging/blob leaks.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-RESTART",
+          "description": "Complete bytes, fixed/custom metadata, hashes and generation survive restart through existing catalog/blob recovery.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart"
+          ]
+        },
+        {
+          "id": "JSON-OBJECTS-007-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "test_ids": [
@@ -3944,7 +4046,31 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
-        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+        "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+        "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+        "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+        "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+        "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+        "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+        "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+        "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+        "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+        "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+        "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+        "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+        "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+        "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+        "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+        "obj_multipart_http_media_json_and_custom_metadata_caps",
+        "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+        "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+        "TestObjectMultipartWriter"
       ],
       "verification": [
         {
@@ -4000,6 +4126,49 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+            "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+            "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+            "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+            "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4017,20 +4186,53 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "known_deviations": [
-        "Media only; multipart/resumable, metadata/ACL/encryption/encoding and upload tokens return local 501; no permission enforcement.",
+        "Media and scoped multipart are supported; resumable, ACL/IAM, encryption, contentEncoding query/transcoding and full field/common-parameter semantics remain unavailable. No permission enforcement.",
         "SPEC-008/010/011/012: local mutation precedence/hash parser/error rules, unsupported Content-MD5, accepted missing Content-Type default and opaque resource/header choices.",
         "Default 1 GiB local cap is configurable (1 byte..5 TiB); no production maximum-size or durability claim.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
-        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
+        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
+        "SPEC-013/SPEC-016: upload tokens require ifGenerationMatch with no replay; multipart MIME caps/errors, contentType precedence and checksum-container edge rules remain local choices awaiting direct service evidence."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21",
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "last_verified": "2026-10-22",
       "http_method": "POST",
       "path": "b/{bucket}/o",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -7459,11 +7661,13 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
+      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -7542,6 +7746,34 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-MULTIPART-PRECONDITIONS-TOKENS",
+          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "result": "PASS",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-MULTIPART-CONCURRENCY",
+          "description": "Concurrent create-if-absent publishes exactly one generation with no staging/blob leaks.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-COMMON-011-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "test_ids": [
@@ -7562,7 +7794,14 @@
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+        "TestObjectMultipartWriter",
+        "TestObjectMediaLifecycle"
       ],
       "verification": [
         {
@@ -7607,6 +7846,31 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -7624,15 +7888,48 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache.",
+        "SPEC-013/SPEC-016: multipart query-name advisory conditions precede body input; metadata-only names are checked after bounded metadata before media, then atomically at publication. Upload tokens require generation-match and do not replay responses."
       ],
-      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
       "last_verified": "2026-10-22"
     },
     {
@@ -8612,11 +8909,13 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Persist fixed content headers and bounded custom metadata, merge/null deletion/replacement, reflect metadata in JSON and nonpublic media headers, preserve across restart and migrate v3 defaults to v4. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
+      "notes": "Persist fixed content headers and bounded custom metadata, merge/null deletion/replacement, reflect metadata in JSON and nonpublic media headers, preserve across restart and migrate v3 defaults to v4. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8657,6 +8956,64 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-METADATA",
+          "description": "Persist fixed/custom Unicode metadata and complete Object resources; reject invalid types, advanced/output/unknown fields without changing the old resource.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-NAME-BUCKET",
+          "description": "Query name overrides a string/null metadata name; invalid metadata name types still fail; missing/null selected name is required; path bucket overrides string metadata bucket and rejects non-string bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-CONTENT-TYPE",
+          "description": "Nonempty metadata contentType wins over media Content-Type then application/octet-stream; null/empty metadata type is absent and falls back locally.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-BOUNDS-DEADLINES",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "result": "PASS",
+          "test_ids": [
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-RESTART",
+          "description": "Complete bytes, fixed/custom metadata, hashes and generation survive restart through existing catalog/blob recovery.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-001-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "test_ids": [
@@ -8669,7 +9026,19 @@
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+        "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+        "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+        "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+        "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+        "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+        "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+        "obj_multipart_http_media_json_and_custom_metadata_caps",
+        "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+        "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+        "TestObjectMultipartWriter",
+        "TestObjectMediaLifecycle"
       ],
       "verification": [
         {
@@ -8697,6 +9066,36 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -8714,14 +9113,47 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "known_deviations": [
         "Content-Type defaults locally to application/octet-stream when missing (SPEC-011).",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and public ACL/IAM cache behavior are unavailable; JSON media always uses nonpublic no-cache.",
+        "SPEC-016: multipart contentType precedence/null-empty fallback and conservative MIME/input rules are local; non-null custom metadata UTF-8 key/value bytes are capped at 8192 before media/staging and rechecked at publication."
       ],
-      "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
       "last_verified": "2026-10-22"
     },
     {
@@ -9002,11 +9434,13 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Incremental MD5 and CRC32C are computed for all media, rendered in metadata/headers and validated before publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Incremental MD5 and CRC32C are computed for all media, rendered in metadata/headers and validated before publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -9034,7 +9468,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-005-PENDING",
-          "description": "Resolve SPEC-010 exact JSON Content-MD5, duplicate/unknown hash parser policy and mismatch reasons; verify other transfer modes.",
+          "description": "Resolve SPEC-010/SPEC-016 checksum parser, Content-MD5, mismatch and third-part edge fidelity; implement resumable/composite and other transfer modes.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -9055,6 +9489,25 @@
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
           ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-005-MULTIPART-CHECKSUMS",
+          "description": "Validate incremental MD5/CRC32C from metadata, X-Goog-Hash and optional third JSON before publication; accept equal declarations, reject conflicts/unknown keys/mismatches, use parseError for malformed checksum JSON and preserve complete old resources on failure/truncation.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-005-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "test_ids": [
@@ -9067,7 +9520,11 @@
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+        "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+        "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+        "TestObjectMultipartWriter"
       ],
       "verification": [
         {
@@ -9095,6 +9552,29 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -9112,14 +9592,46 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "known_deviations": [
-        "SPEC-010: Content-MD5 is rejected 501; parser/reason choices are local and multipart/resumable/composite checksum behavior is absent.",
+        "SPEC-010/SPEC-016: Content-MD5 is rejected 501; checksum parser/reasons and multipart conflicting/unknown third-part fields are local rules. Resumable/composite checksum behavior remains absent.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-006",
@@ -9321,11 +9833,12 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "Simple JSON media upload is wired end to end with bounded channels, explicit unsupported semantics and atomic publication. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -9393,6 +9906,16 @@
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-008-TOKENS",
+          "description": "Media upload accepts one nonempty invocation token only with ifGenerationMatch including zero; retry of a committed conditioned create/overwrite is 412, missing generation-match is 501 before input, and empty/duplicate tokens are 400.",
+          "result": "PASS",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+          ]
         }
       ],
       "test_ids": [
@@ -9416,7 +9939,10 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
-        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
       ],
       "verification": [
         {
@@ -9456,19 +9982,30 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-008/010/011: local mutation/hash rules and missing Content-Type defaults to application/octet-stream.",
-        "No ACL/IAM/auth, metadata upload, encoding/encryption or token replay; default cap 1 GiB and inspected bounds are not performance measurements.",
+        "No ACL/IAM/auth, encoding/encryption or token replay; metadata upload belongs to the multipart subset. Media/multipart tokens require ifGenerationMatch, otherwise 501 before input (SPEC-013); default 1 GiB cap and inspected bounds are not performance measurements.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery.",
         "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-009",
@@ -9478,26 +10015,257 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/uploading-objects",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads",
+        "https://www.rfc-editor.org/rfc/rfc2046#section-5.1.1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "multipart/related metadata+binary, arbitrary boundary chunking and malformed-body handling.",
+      "notes": "Bounded JSON multipart metadata/media with optional final checksum part, exact bytes, early validation, atomic conditions, deadline cleanup, restart and pinned Go Writer. Scoped acceptance is recorded below; production edge fidelity, token replay and permissions remain incomplete. Contract: docs/en/slices/json-object-multipart.md; final evidence: docs/en/evidence/multipart.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-FRAMING",
+          "description": "Ordered two/three-part multipart/related with RFC token/quoted boundaries, delimiter whitespace, byte-exact chunk splits, empty/binary media and bounded parser carry; malformed, missing or extra parts and truncated framing fail without publication.",
+          "result": "PASS",
+          "test_ids": [
+            "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+            "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+            "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+            "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+            "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-METADATA",
+          "description": "Persist fixed/custom Unicode metadata and complete Object resources; reject invalid types, advanced/output/unknown fields without changing the old resource.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-NAME-BUCKET",
+          "description": "Query name overrides a string/null metadata name; invalid metadata name types still fail; missing/null selected name is required; path bucket overrides string metadata bucket and rejects non-string bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-CONTENT-TYPE",
+          "description": "Nonempty metadata contentType wins over media Content-Type then application/octet-stream; null/empty metadata type is absent and falls back locally.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-CHECKSUMS",
+          "description": "Validate incremental MD5/CRC32C from metadata, X-Goog-Hash and optional third JSON before publication; accept equal declarations, reject conflicts/unknown keys/mismatches, use parseError for malformed checksum JSON and preserve complete old resources on failure/truncation.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-PRECONDITIONS-TOKENS",
+          "description": "Four generation/metageneration conditions are rechecked atomically; advisory checks precede body/media as applicable. One nonempty invocation token requires ifGenerationMatch including zero; committed conditioned retry is 412, missing match is 501 before body, empty/duplicate token is 400.",
+          "result": "PASS",
+          "test_ids": [
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-BOUNDS-DEADLINES",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "result": "PASS",
+          "test_ids": [
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-CONCURRENCY",
+          "description": "Concurrent create-if-absent publishes exactly one generation with no staging/blob leaks.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-RESTART",
+          "description": "Complete bytes, fixed/custom metadata, hashes and generation survive restart through existing catalog/blob recovery.",
+          "result": "PASS",
+          "test_ids": [
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-SERVICE-FIDELITY",
+          "description": "Obtain authorized real-service evidence for SPEC-016 MIME caps, malformed-container/transport errors, contentType precedence/null/empty values and third-part checksum edge rules.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-REPLAY",
+          "description": "Implement bounded token response replay/deduplication (SPEC-013); current generation conditions prevent duplicate publication but do not replay success.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BEHAVIOR-OBJECT-009-PERMISSIONS",
+          "description": "Enforce object-create/delete permissions for create/overwrite, ACL/IAM/full projection and advanced metadata/encryption/encoding interactions before claiming complete Google fidelity.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+        "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+        "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+        "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+        "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+        "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+        "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+        "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+        "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+        "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+        "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+        "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+        "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+        "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+        "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+        "obj_multipart_http_media_json_and_custom_metadata_caps",
+        "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+        "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+        "TestObjectMultipartWriter",
+        "TestObjectMediaLifecycle"
+      ],
+      "verification": [
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
+            "json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split",
+            "json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation",
+            "json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry",
+            "obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary",
+            "obj_multipart_http_rejects_malformed_framing_and_bounds_final_json",
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation",
+            "obj_multipart_http_query_name_overrides_only_valid_metadata_names",
+            "obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part",
+            "obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication",
+            "obj_multipart_http_malformed_checksum_json_preserves_existing_generation",
+            "obj_multipart_http_truncated_checksum_part_preserves_existing_generation",
+            "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
+            "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+            "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+            "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+            "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
+            "json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames",
+            "obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging",
+            "obj_multipart_http_media_json_and_custom_metadata_caps",
+            "obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots",
+            "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-016: bounded ordered MIME subset, local cap accounting and malformed/transport error reasons; metadata contentType > media header > application/octet-stream, with null/empty fallback. Header folding/duplicates, non-binary transfer encodings and headers-only parts lacking the additional CRLF are rejected. Direct service edge evidence is absent.",
+        "SPEC-016/SPEC-010: third-part CRC32C follows the official example; MD5/empty-object/equal declarations and metadata/header/final checksum conflict and unknown-key rules are local. Content-MD5 remains 501.",
+        "SPEC-013: media/multipart tokens require ifGenerationMatch, including zero; no token replay/deduplication. Missing match returns 501 before body, empty/duplicate tokens return 400, committed conditioned retry returns 412.",
+        "SPEC-008/SPEC-015: local mutation/advisory precedence and conservative unsupported/output/unknown metadata 501 rules; query name overrides only string/null metadata name, path bucket overrides string metadata bucket. No IAM/ACL/auth enforcement, advanced metadata, encryption or gzip transcoding.",
+        "One live generation and local default 1 GiB media cap (configurable 1 byte..5 TiB). Resumable sessions and XML multipart are separate rows and remain unsupported. Functional carry/deadline/restart checks do not establish CPU/RSS/cgroup benchmarks, every crash boundary or power-loss durability."
+      ],
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-010",
@@ -21315,11 +22083,12 @@
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest"
+        "https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/writer.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned official Go HTTP JSON bucket lifecycle plus object Attrs/NewReader/Delete pass natively and against Compose after raw media upload. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Pinned official Go HTTP JSON bucket lifecycle plus object Attrs/NewReader/Delete pass natively and against Compose after raw media upload. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -21342,7 +22111,7 @@
         },
         {
           "id": "DESIGN-082-MEDIA",
-          "description": "Official object suite passes with exact bytes/MD5/CRC32C, encoded names, generation selectors/conditions, nonempty bucket errors and explicit SDK Writer rejection.",
+          "description": "Official raw-media suite verifies exact bytes/MD5/CRC32C, encoded names, generation selectors/conditions, nonempty bucket errors and explicit resumable Writer rejection; original evidence includes historical multipart rejection.",
           "result": "PASS",
           "test_ids": [
             "TestObjectMediaLifecycle",
@@ -21360,7 +22129,7 @@
         },
         {
           "id": "DESIGN-082-PENDING",
-          "description": "Implement multipart/resumable SDK Writer, signing, permissions, other transports and bounded retry-token response replay.",
+          "description": "Implement resumable SDK Writer, signing, permissions, XML/gRPC and bounded retry-token response replay; broader SDK workloads remain unverified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -21371,6 +22140,15 @@
           "test_ids": [
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "id": "DESIGN-082-MULTIPART-GO-SDK",
+          "description": "Pinned Go ChunkSize=0 Writer covers empty/binary data, fixed/custom metadata, explicit MD5/CRC32C, failed checksums, DoesNotExist and conditioned overwrite, Attrs and JSON NewReader; resumable Writer remains rejected.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "test_ids": [
@@ -21380,7 +22158,8 @@
         "guide-compose-go-object-suite",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "TestObjectMultipartWriter"
       ],
       "verification": [
         {
@@ -21421,6 +22200,26 @@
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -21453,16 +22252,48 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; ChunkSize=0 multipart Writer, fixed/custom metadata, checksums, conditioned create/overwrite, Attrs/NewReader; resumable explicitly rejected; generation-match required for upload tokens, no replay",
+          "command": "just pre-push",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-checks.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.69.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON against read-only-root Compose; full suite including single-request multipart Writer and JSON Attrs/NewReader; resumable explicitly rejected",
+          "command": "awk '/^```sh$/ { capture=1; next } /^```/ { capture=0 } capture { print }' docs/en/getting-started.md | bash -euxo pipefail",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/multipart-guide.txt",
+          "test_ids": [
+            "TestObjectMultipartWriter",
+            "TestObjectMediaLifecycle"
+          ]
         }
       ],
       "known_deviations": [
-        "SDK Writer uses unsupported multipart/resumable; test upload uses confined raw HTTP, without modifying high-level read/delete calls.",
-        "SPEC-013: Go GET/DELETE retry tokens are accepted without deduplication; signing, XML/gRPC and strict authorization remain unavailable.",
+        "ChunkSize=0 Writer multipart is supported for the scoped metadata/checksum/condition subset. Resumable Writer and unrestricted large-upload/retry workflows remain unsupported; raw-media coverage retains confined HTTP.",
+        "SPEC-013: GET/DELETE/update invocation tokens re-execute without deduplication; upload tokens require generation-match and return 412 after committed conditioned retry. Signing, XML/gRPC and strict authorization remain unavailable.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "0aec65af63082b700289617a65b131c284be268f",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-083",

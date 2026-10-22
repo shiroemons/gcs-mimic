@@ -9,13 +9,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 201 | 178 | 0 | 23 | 0 | 0 | 0 |
+| behavior | 201 | 177 | 0 | 24 | 0 | 0 | 0 |
 | project_requirement | 92 | 49 | 0 | 27 | 16 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
-| behavior | 178 | 0 | 21 | 2 | 0 | 0 |
+| behavior | 177 | 0 | 22 | 2 | 0 | 0 |
 | project_requirement | 49 | 0 | 0 | 0 | 0 | 43 |
 
 ## api_operation
@@ -150,7 +150,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
@@ -532,7 +532,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | BEHAVIOR-COMMON-008 | HTTPバッチ形式 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-COMMON-012 | HTTP条件付き要求 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-014 | プロジェクト・課金コンテキスト | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
@@ -661,15 +661,15 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-OBJECT-001 | 標準・カスタムオブジェクトメタデータ | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-001 | 標準・カスタムオブジェクトメタデータ | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-002 | 世代番号とメタ世代番号 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-003 | オブジェクト時刻とライフサイクル時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | customTimeの更新制約 | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-005 | チェックサム | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-005 | チェックサム | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | BEHAVIOR-OBJECT-006 | ETagの意味 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-007 | mediaLink・selfLinkの生成 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | 単純メディアアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-OBJECT-009 | JSON multipartアップロード | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-009 | JSON multipartアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-010 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-011 | 再開可能アップロードのチャンク送信 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-012 | アップロード進捗照会 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
+| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |

@@ -227,17 +227,17 @@
     },
     {
       "id": "SPEC-013",
-      "title": "Accepted GET and DELETE idempotency tokens do not deduplicate retries locally",
+      "title": "Accepted invocation tokens do not replay responses; uploads require generation-match",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "DESIGN-082"],
+      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-008", "BEHAVIOR-OBJECT-009", "DESIGN-082"],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#xgoog-gcs-idempotency-token",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.69.0/storage/invoke.go"
       ],
-      "observed_at": "2026-10-21",
+      "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "Pinned high-level Go Storage v1.69.0 attaches X-Goog-Gcs-Idempotency-Token to object Attrs/Delete even with RetryNever. The owner explicitly selected token acceptance on object metadata/media GET and DELETE without deduplication; existing bucket behavior is unchanged. The first operation result is real, but a retry re-executes, so repeated DELETE with the same token returns 404 after the first 204. Media uploads carrying the token remain rejected 501 before body consumption to avoid claiming safe duplicate-generation retries.",
-      "required_resolution": "Keep the affected method/SDK rows PARTIAL and document accepted-but-not-deduplicated tokens. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; do not strip headers or silently claim upload deduplication. See tests/object_http.rs and docs/en/evidence/object-media.md."
+      "observed_evidence": "Pinned Go Storage v1.69.0 attaches X-Goog-Gcs-Idempotency-Token to object operations even with RetryNever. GET/DELETE and metadata update retain local acceptance without deduplication; retries re-execute, so repeated DELETE returns 404 after its first 204. Media and multipart uploads now accept one nonempty token only with ifGenerationMatch (including zero); otherwise they return 501 before body input. Retrying a committed conditioned upload returns 412 without another generation. Empty or duplicate tokens return 400 invalidParameter. Shared validation also applies to objects.list and PATCH, without dedicated HTTP tests for those malformed-token cases. No response replay or token-keyed deduplication exists.",
+      "required_resolution": "Keep affected rows PARTIAL and record conditioned acceptance without replay. Implement and verify bounded, time-scoped response replay before claiming production retry-token fidelity; extend malformed-token HTTP coverage to listing and PATCH. Do not strip SDK headers or describe generation conditions as deduplication. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
     },
     {
       "id": "SPEC-015",
@@ -257,6 +257,23 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Legacy JSON references separate writable fields but do not establish how every changed read-only or unknown input is handled; Discovery lacks readOnly annotations. AIP-203 requires OUTPUT_ONLY values to be ignored, without establishing retroactive application to this legacy JSON API. Locally, identical server-managed values are accepted inside the update transaction; changed/unmodeled output fields, unknown fields, empty custom metadata keys and non-ASCII fixed header values return 501 notImplemented. SDK Update invocation tokens are accepted without replay, extending SPEC-013; an unconditional retry may increment metageneration again. Pinned Go sends individual empty custom values unchanged and an empty map as null, so empty string preservation and empty-map deletion are verified separately from JSON null key deletion. The general metadata guide describes stored response cache directives, while the protocol-specific JSON header reference requires no-cache for nonpublic objects; the more specific JSON rule is implemented, and public ACL/IAM cache behavior is unavailable. Gzip media requiring transcoding returns 501; gzip/wildcard q values or stored no-transform control unchanged-byte delivery; explicit gzip q=0 overrides wildcard and invalid/duplicate negotiation values return 400; double-compression detection is not implemented.",
       "required_resolution": "Keep affected rows PARTIAL. Verify legacy service handling of read-only/unknown inputs and scalar empty/null edge cases with an explicitly authorized differential fixture; implement bounded token response replay, public access classification/cache behavior and streaming transcoding before claiming those semantics. Preserve explicit advanced-field rejection and the 8 KiB final custom metadata limit. See docs/en/slices/json-object-metadata.md and docs/en/evidence/object-metadata.md."
+    },
+    {
+      "id": "SPEC-016",
+      "title": "Multipart MIME limits, content-type precedence and checksum-container errors need direct service evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-009", "BEHAVIOR-OBJECT-001", "BEHAVIOR-OBJECT-005", "BEHAVIOR-COMMON-011", "DESIGN-082"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/uploading-objects",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-api-multipart-uploads",
+        "https://www.rfc-editor.org/rfc/rfc2046#section-5.1.1",
+        "https://www.rfc-editor.org/rfc/rfc2387"
+      ],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The official upload guide defines metadata then media; data validation additionally shows a third CRC32C JSON part. References do not settle conflicting contentType precedence, exact malformed-container error reasons or emulator MIME caps. Locally, nonempty metadata contentType wins over media Content-Type then application/octet-stream; null/empty falls back. JSON parts cap at 65536 bytes, preamble/epilogue at 4096, part header blocks at 8192 including line/blank CRLF, and delimiter suffix lines at 8192 excluding CRLF. Preamble excludes the first delimiter CRLF. Known Content-Length above media cap plus 256 KiB fails early. Framing/type/header/truncation and body transport errors/trailers return 400 invalidParameter; malformed JSON returns parseError; checksum mismatch and unknown third-part keys return invalid. MD5 in the third part, an empty checksum object and equal duplicate declarations are accepted; conflicting declarations return invalidParameter. Folded/duplicate part headers, non-binary Content-Transfer-Encoding (including 7bit/8bit), and a headers-only part without the additional CRLF expected by the parser are rejected. Outer boundary and type=application/json are supported; alternate-root semantics return 501. These local rules have wire tests, not authorized real-service differential evidence or CPU/RSS measurements.",
+      "required_resolution": "Keep multipart and affected method/behavior rows PARTIAL while deviations remain. Obtain an explicitly authorized direct-service fixture for MIME boundaries/caps, empty-part CRLF, transfer encodings, contentType conflicts/null/empty values, third-part MD5/unknown/conflicting fields and exact malformed/transport error reasons. Preserve bounded streaming, early metadata validation and failed-overwrite resource snapshots. See docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md."
     }
   ],
   "resolved_research_items": [
