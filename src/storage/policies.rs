@@ -65,7 +65,7 @@ pub(super) fn insert_policy(
     Ok(())
 }
 
-fn read_policy(connection: &Connection, bucket: &str) -> Result<Policy, CatalogError> {
+pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Policy, CatalogError> {
     let (bindings, revision): (String, i64) = connection
         .query_row(
             "SELECT bindings, revision FROM bucket_policies WHERE bucket = ?1",
@@ -92,25 +92,30 @@ pub(super) fn check_access(
             return Err(CatalogError::Forbidden);
         }
         let policy = read_policy(connection, bucket)?;
-        if !identity.allows(permission, project) && !policy.allows(identity, permission) {
+        if !identity
+            .as_ref()
+            .is_some_and(|identity| identity.allows(permission, project))
+            && !policy.allows(identity.as_ref(), permission)
+        {
             return Err(CatalogError::Forbidden);
         }
-        return Ok(
-            identity.allows(OBJECTS_DELETE, project) || policy.allows(identity, OBJECTS_DELETE)
-        );
+        return Ok(identity
+            .as_ref()
+            .is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
+            || policy.allows(identity.as_ref(), OBJECTS_DELETE));
     }
     Ok(true)
 }
 
 impl Catalog {
-    pub(crate) async fn bucket_access(
+    pub(crate) async fn bucket_access<'a>(
         &self,
         bucket: &str,
-        identity: &Identity,
+        identity: impl Into<Option<&'a Identity>>,
         permission: &str,
     ) -> Result<BucketAccess, CatalogError> {
         let bucket = bucket.to_owned();
-        let identity = identity.clone();
+        let identity = identity.into().cloned();
         let permission = permission.to_owned();
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
@@ -122,7 +127,11 @@ impl Catalog {
                 )
                 .optional()
                 .map_err(unavailable)?;
-            if project.is_none() && !identity.allows_anywhere(&permission) {
+            if project.is_none()
+                && !identity
+                    .as_ref()
+                    .is_some_and(|identity| identity.allows_anywhere(&permission))
+            {
                 return Err(CatalogError::Forbidden);
             }
             let access = BucketAccess::Policy {

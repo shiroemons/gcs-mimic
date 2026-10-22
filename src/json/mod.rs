@@ -20,6 +20,7 @@ mod page_token;
 mod query;
 
 pub use body::read_body;
+pub(crate) use buckets::timestamp;
 pub use buckets::{bucket_list, bucket_resource, parse_insert, validate_bucket_name};
 pub use error::JsonError;
 pub(crate) use iam::policy_etag;
@@ -37,6 +38,7 @@ pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
     validate_project,
 };
+pub(crate) use query::{decode, parse_query};
 
 #[cfg(test)]
 mod tests;

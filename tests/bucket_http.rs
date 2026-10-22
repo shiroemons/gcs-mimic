@@ -336,7 +336,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         ("/storage/v1/b", "GET, POST"),
         ("/storage/v1/b/abc", "GET, DELETE"),
     ] {
-        let reply = server.request("PUT", path, "");
+        let reply = server.request("OPTIONS", path, "");
         reply.error(405, "methodNotAllowed");
         assert!(reply.headers.contains(&format!("allow: {allow}")));
     }
@@ -367,7 +367,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     );
     let chunk = " ".repeat(32768);
     server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n8000\r\n{chunk}\r\n8000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).error(413,"uploadTooLarge");
-    for path in ["/unknown", "/storage/v1/b/", "/storage/v1/b/abc/o"] {
+    for path in ["/INVALID", "/storage/v1/b/", "/storage/v1/b/abc/o"] {
         assert_eq!(
             server
                 .raw(&format!(

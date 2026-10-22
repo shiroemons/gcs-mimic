@@ -569,7 +569,7 @@ pub fn object_resource(
 pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonError> {
     let mut headers = HeaderMap::new();
     for (key, value) in [
-        // Public ACL/IAM grants are not modeled, so every JSON media response is nonpublic.
+        // The transport substitutes stored/default cache metadata only for an allUsers read grant.
         ("cache-control", "no-cache".to_owned()),
         (
             "content-type",

@@ -3,6 +3,9 @@ mod common;
 #[path = "auth_http/iam.rs"]
 mod iam;
 
+#[path = "auth_http/xml.rs"]
+mod xml;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{
@@ -108,7 +111,13 @@ impl Server {
         )
         .into_bytes();
         request.extend_from_slice(body);
-        self.raw(&request)
+        if method == "HEAD" {
+            let mut stream = self.stream();
+            stream.write_all(&request).unwrap();
+            Reply::read_body(stream, true)
+        } else {
+            self.raw(&request)
+        }
     }
 
     fn create_bucket(&self, auth: &str, project: &str, name: &str) -> Reply {
@@ -170,6 +179,10 @@ struct Reply {
 
 impl Reply {
     fn read(stream: TcpStream) -> Self {
+        Self::read_body(stream, false)
+    }
+
+    fn read_body(stream: TcpStream, head: bool) -> Self {
         let mut reader = BufReader::new(stream);
         let mut bytes = Vec::new();
         while !bytes.ends_with(b"\r\n\r\n") {
@@ -191,13 +204,18 @@ impl Reply {
                 (key.to_ascii_lowercase(), value.trim().into())
             })
             .collect();
-        let length = if matches!(status, 204 | 304) {
+        let length = if head || matches!(status, 204 | 304) {
             0
         } else {
             headers["content-length"].parse().unwrap()
         };
         let mut body = vec![0; length];
         reader.read_exact(&mut body).unwrap();
+        if head {
+            let mut extra = Vec::new();
+            reader.read_to_end(&mut extra).unwrap();
+            assert!(extra.is_empty(), "HEAD emitted a response body");
+        }
         Self {
             status,
             headers,
@@ -408,7 +426,7 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
     for auth in ["", "Authorization: Bearer unknown\r\n", ADMIN] {
         let reply = server.request("POST", "/storage/v1/b/bucket-a/o", auth, b"{}");
         assert_eq!(reply.status, 404);
-        assert_eq!(server.get(auth, "/unknown").status, 404);
+        assert_eq!(server.get(auth, "/INVALID").status, 404);
         assert_eq!(server.get(auth, "/_internal/ready").status, 200);
         assert_eq!(server.get(auth, "/_internal/health").status, 200);
     }

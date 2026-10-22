@@ -119,6 +119,11 @@ pub fn route(method: &Method, uri: &Uri) -> Option<Result<BucketRequest, JsonErr
         (bucket.is_some(), method),
         (false, &Method::GET | &Method::POST) | (true, &Method::GET | &Method::DELETE)
     );
+    if bucket.is_some() && matches!(*method, Method::PATCH | Method::PUT) {
+        return Some(Err(JsonError::unsupported(
+            "bucket metadata updates, including iamConfiguration",
+        )));
+    }
     if !allowed {
         let mut error = JsonError::new(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -223,7 +228,7 @@ fn parse(method: &Method, bucket: Option<String>, raw: &str) -> Result<BucketReq
     }
 }
 
-pub(super) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
+pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonError> {
     if raw.len() > 16 * 1024 {
         return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
     }
@@ -358,7 +363,7 @@ pub(super) fn finish(query: BTreeMap<String, String>) -> Result<(), JsonError> {
     }
 }
 
-pub(super) fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
+pub(crate) fn decode(raw: &str, form: bool) -> Result<String, JsonError> {
     let invalid = || JsonError::invalid_parameter("Malformed URI encoding");
     let mut bytes = Vec::with_capacity(raw.len());
     let mut input = raw.bytes();

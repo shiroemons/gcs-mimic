@@ -138,7 +138,7 @@ fn custom_role(role: &str) -> bool {
 
 fn validate_member(member: &str) -> Result<(), JsonError> {
     if matches!(member, "allUsers" | "allAuthenticatedUsers") {
-        return Err(JsonError::unsupported("public principal"));
+        return Ok(());
     }
     let (kind, id) = member
         .split_once(':')

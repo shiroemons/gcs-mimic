@@ -3,7 +3,7 @@
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
 //! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
-//! ACLs, public principals and signed URLs are not modeled.
+//! ACLs and signed URLs are not modeled.
 //! Nothing here contacts Google or the metadata server.
 
 mod policy;

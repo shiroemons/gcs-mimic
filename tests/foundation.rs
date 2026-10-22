@@ -112,7 +112,7 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     assert!(upload.contains("allow: POST\r\n"));
     for path in [
         "/resumable/upload/storage/v1/b/b/o",
-        "/bucket/object",
+        "/INVALID/object",
         "/google.storage.v2.Storage/ReadObject",
         "/_internal/reset",
         "/",

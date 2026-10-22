@@ -33,13 +33,17 @@ impl Policy {
         }
     }
 
-    pub(crate) fn allows(&self, identity: &Identity, permission: &str) -> bool {
+    pub(crate) fn allows(&self, identity: Option<&Identity>, permission: &str) -> bool {
         self.bindings.iter().any(|binding| {
             binding.members.iter().any(|member| {
-                member
-                    .strip_prefix("user:")
-                    .or_else(|| member.strip_prefix("serviceAccount:"))
-                    == Some(identity.id())
+                member == "allUsers"
+                    || (member == "allAuthenticatedUsers" && identity.is_some())
+                    || identity.is_some_and(|identity| {
+                        member
+                            .strip_prefix("user:")
+                            .or_else(|| member.strip_prefix("serviceAccount:"))
+                            == Some(identity.id())
+                    })
             }) && roles::PREDEFINED_ROLES
                 .iter()
                 .any(|(role, _, permissions)| {
