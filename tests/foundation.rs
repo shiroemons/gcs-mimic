@@ -11,12 +11,12 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
-    process::{Command, Stdio},
+    process::{Child, ChildStdout, Command, Output, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::oneshot;
 
@@ -25,6 +25,45 @@ impl Clock for FixedClock {
     fn now(&self) -> SystemTime {
         UNIX_EPOCH + Duration::from_secs(42)
     }
+}
+
+fn process_ready(child: &mut Child) -> (BufReader<ChildStdout>, serde_json::Value) {
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let _ = send.send((stdout, line));
+    });
+    let (stdout, line) = receive
+        .recv_timeout(Duration::from_secs(75))
+        .unwrap_or_else(|error| {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("server did not become ready before the restart deadline: {error}");
+        });
+    let ready = serde_json::from_str(&line).expect("ready on same port");
+    (stdout, ready)
+}
+
+fn conflicting_process(address: &str, dir: &TestDir) -> Output {
+    let mut child = common::server_command()
+        .args(["serve", "--listen", address, "--data-dir"])
+        .arg(&dir.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!("conflicting server did not fail fast: {output:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child.wait_with_output().unwrap()
 }
 
 #[test]
@@ -39,10 +78,8 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let ready: serde_json::Value = serde_json::from_str(&line).expect("ready on same port");
+        let (mut stdout, ready) = process_ready(&mut child);
+        assert_eq!(ready["event"], "ready");
         address = ready["listen"].as_str().unwrap().into();
         assert!(
             request(
@@ -51,15 +88,33 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
             )
             .starts_with("HTTP/1.1 200")
         );
-        let collision = common::server_command()
-            .args(["serve", "--listen", &address, "--data-dir"])
-            .arg(&other.0)
-            .output()
-            .unwrap();
+        let collision = conflicting_process(&address, &other);
         assert!(!collision.status.success());
         assert!(collision.stdout.is_empty());
         assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
         common::stop_server(&mut child, &mut stdout);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn live_wildcard_and_specific_listeners_are_exclusive() {
+    for (first, second) in [("0.0.0.0:0", "127.0.0.1"), ("127.0.0.1:0", "0.0.0.0")] {
+        let dir = TestDir::new();
+        let other = TestDir::new();
+        let mut child = common::server_command()
+            .args(["serve", "--listen", first, "--data-dir"])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (mut stdout, ready) = process_ready(&mut child);
+        let address: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+        let collision = conflicting_process(&format!("{second}:{}", address.port()), &other);
+        common::stop_server(&mut child, &mut stdout);
+        assert!(!collision.status.success());
+        assert!(collision.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&collision.stderr).contains("Address already in use"));
     }
 }
 
