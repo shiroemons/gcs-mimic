@@ -63,6 +63,7 @@ async fn start(
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.api_base_url.clone(),
+        auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
     let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
@@ -148,6 +149,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
         api_base_url: config.api_base_url.clone(),
+        auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
     let task = tokio::spawn(server::serve(listener, config, state.clone(), async {
@@ -198,6 +200,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         clock: Arc::new(FixedClock),
         catalog,
         api_base_url: config.api_base_url.clone(),
+        auth: Default::default(),
     });
     server::serve(listener, config, restarted.clone(), async { Ok(()) })
         .await

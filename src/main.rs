@@ -1,4 +1,5 @@
 use gcs_mimic::{
+    auth::{Auth, Registry},
     clock::SystemClock,
     config::Config,
     server::{self, State},
@@ -31,10 +32,13 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
   --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
   --shutdown-timeout-ms N      5000 (1..60000)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
 HTTP/1 probes, JSON bucket CRUD and streaming JSON object media CRUD are available.
-Bucket metadata is limited to 64 KiB. Multipart, resumable, TLS and authentication are unavailable.";
+Bucket metadata is limited to 64 KiB. Multipart, resumable and TLS are unavailable. Authentication is permissive by default;
+strict mode checks local bearer tokens against project-level predefined storage roles only.";
 
 const URL_PUBLIC_HELP: &str =
     "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME
@@ -85,6 +89,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|(key, _)| key.starts_with("GCS_MIMIC_"))
                 .collect();
             let config = Config::load(rest, &env)?;
+            // Load the registry before binding so a bad identity file never reaches readiness.
+            let auth = match &config.identity_file {
+                Some(path) => Auth::strict(Registry::load(path)?),
+                None => Auth::permissive(),
+            };
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(config.worker_threads)
                 .max_blocking_threads(config.max_blocking_threads)
@@ -110,8 +119,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let socket = if config.listen.is_ipv4() { tokio::net::TcpSocket::new_v4()? } else { tokio::net::TcpSocket::new_v6()? };
                 socket.bind(config.listen)?;
                 let listener = socket.listen(128)?;
-                let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone() });
-                println!("{}", serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms}));
+                let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
+                let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
+                if let Some(count) = state.auth.identity_count() {
+                    ready["identities"] = count.into();
+                }
+                println!("{ready}");
                 server::serve(listener, config, state, shutdown).await?;
                 println!("{{\"event\":\"stopped\"}}");
                 Ok::<_, io::Error>(())

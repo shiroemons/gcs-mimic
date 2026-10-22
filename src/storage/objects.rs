@@ -400,16 +400,23 @@ impl Catalog {
         name: &str,
         conditions: ObjectConditions,
     ) -> Result<(), ObjectError> {
+        self.check_upload(bucket, name, conditions, true).await
+    }
+
+    /// Advisory check that also rejects an overwrite the caller is not allowed to perform.
+    pub(crate) async fn check_upload(
+        &self,
+        bucket: &str,
+        name: &str,
+        conditions: ObjectConditions,
+        allow_overwrite: bool,
+    ) -> Result<(), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         self.run_object(move |connection| {
             bucket_class(connection, &bucket)?;
             let previous = lookup(connection, &bucket, &name)?;
-            check_conditions(
-                previous.as_ref().map(|(record, _)| record),
-                conditions,
-                false,
-            )
+            check_publication(previous.as_ref(), conditions, allow_overwrite)
         })
         .await
     }
@@ -430,7 +437,9 @@ impl Catalog {
         max_bytes: u64,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
-        let permit = self.prepare_object_upload(bucket, name, conditions).await?;
+        let permit = self
+            .prepare_object_upload(bucket, name, conditions, true)
+            .await?;
         self.put_object_prechecked(
             bucket,
             name,
@@ -441,6 +450,7 @@ impl Catalog {
             body,
             permit,
             ObjectMetadataUpdate::default(),
+            true,
         )
         .await
     }
@@ -450,9 +460,11 @@ impl Catalog {
         bucket: &str,
         name: &str,
         conditions: ObjectConditions,
+        allow_overwrite: bool,
     ) -> Result<OwnedSemaphorePermit, ObjectError> {
         let permit = self.admit_object_upload()?;
-        self.check_object_upload(bucket, name, conditions).await?;
+        self.check_upload(bucket, name, conditions, allow_overwrite)
+            .await?;
         Ok(permit)
     }
 
@@ -482,6 +494,8 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         permit: OwnedSemaphorePermit,
         metadata: ObjectMetadataUpdate,
+        // False when the caller lacks permission to delete a live object it would replace.
+        allow_overwrite: bool,
     ) -> Result<ObjectRecord, ObjectError> {
         let catalog = self.clone();
         let bucket = bucket.to_owned();
@@ -517,7 +531,8 @@ impl Catalog {
                         .map_err(object_unavailable)?;
                     let storage_class = bucket_class(&transaction, &bucket)?;
                     let previous = lookup(&transaction, &bucket, &name)?;
-                    check_conditions(previous.as_ref().map(|(record, _)| record), conditions, false)?;
+                    // Rechecked under the write lock so a concurrent create cannot be overwritten.
+                    check_publication(previous.as_ref(), conditions, allow_overwrite)?;
                     let now = clock.now();
                     let micros = i64::try_from(now.duration_since(UNIX_EPOCH)
                         .map_err(object_unavailable)?.as_micros()).map_err(object_unavailable)?;
@@ -929,6 +944,19 @@ fn selected(
     Ok((record, id))
 }
 
+/// Preconditions are evaluated first: a failing precondition means nothing would be replaced.
+fn check_publication(
+    previous: Option<&(ObjectRecord, String)>,
+    conditions: ObjectConditions,
+    allow_overwrite: bool,
+) -> Result<(), ObjectError> {
+    check_conditions(previous.map(|(record, _)| record), conditions, false)?;
+    if previous.is_some() && !allow_overwrite {
+        return Err(ObjectError::OverwriteForbidden);
+    }
+    Ok(())
+}
+
 fn check_conditions(
     record: Option<&ObjectRecord>,
     conditions: ObjectConditions,
@@ -1119,7 +1147,7 @@ mod tests {
                 .unwrap();
             let conditions = ObjectConditions::default();
             let permit = catalog
-                .prepare_object_upload("bucket", "object", conditions)
+                .prepare_object_upload("bucket", "object", conditions, true)
                 .await
                 .unwrap();
             catalog.delete_bucket("bucket", None, None).await.unwrap();
@@ -1145,6 +1173,7 @@ mod tests {
                     body,
                     permit,
                     ObjectMetadataUpdate::default(),
+                    true,
                 )
                 .await
                 .unwrap_err();
@@ -1158,6 +1187,111 @@ mod tests {
             );
             assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
         }
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create() {
+        let directory = std::env::temp_dir().join(format!(
+            "gcs-mimic-no-overwrite-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let catalog = Catalog::open(&directory).await.unwrap();
+        catalog
+            .insert_bucket(crate::bucket::BucketRecord {
+                name: "bucket".into(),
+                project: "project".into(),
+                location: "US".into(),
+                location_type: "multi-region".into(),
+                storage_class: "STANDARD".into(),
+                labels: Default::default(),
+                metageneration: 1,
+                time_created: UNIX_EPOCH,
+                updated: UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+        let upload = |allow_overwrite, bytes: &'static [u8]| {
+            let catalog = catalog.clone();
+            async move {
+                let permit = catalog
+                    .prepare_object_upload(
+                        "bucket",
+                        "object",
+                        ObjectConditions::default(),
+                        allow_overwrite,
+                    )
+                    .await?;
+                let (sender, body) = mpsc::channel(2);
+                sender
+                    .send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
+                    .await
+                    .unwrap();
+                sender.send(Ok(UploadChunk::End)).await.unwrap();
+                Ok::<_, ObjectError>((permit, body))
+            }
+        };
+        // The advisory check passes while the object is absent; another writer then creates it.
+        let (permit, body) = upload(false, b"late").await.unwrap();
+        let (winner_permit, winner_body) = upload(true, b"winner").await.unwrap();
+        let publish = |body, permit, allow_overwrite| {
+            catalog.put_object_prechecked(
+                "bucket",
+                "object",
+                "text/plain".into(),
+                ExpectedHashes::default(),
+                ObjectConditions::default(),
+                1000,
+                body,
+                permit,
+                ObjectMetadataUpdate::default(),
+                allow_overwrite,
+            )
+        };
+        let winner = publish(winner_body, winner_permit, true).await.unwrap();
+        assert_eq!(
+            publish(body, permit, false).await.unwrap_err(),
+            ObjectError::OverwriteForbidden
+        );
+        let current = catalog
+            .get_object("bucket", "object", None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(current, winner);
+        assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
+        // A failing precondition takes precedence: nothing would have been replaced.
+        let conditions = ObjectConditions {
+            if_generation_match: Some(0),
+            ..Default::default()
+        };
+        let mismatch = ObjectConditions {
+            if_generation_match: Some(winner.generation + 1),
+            ..Default::default()
+        };
+        for (conditions, error) in [
+            (conditions, ObjectError::PreconditionFailed),
+            (mismatch, ObjectError::PreconditionFailed),
+            (Default::default(), ObjectError::OverwriteForbidden),
+        ] {
+            assert_eq!(
+                catalog
+                    .check_upload("bucket", "object", conditions, false)
+                    .await
+                    .unwrap_err(),
+                error
+            );
+        }
+        assert!(
+            catalog
+                .check_upload("bucket", "fresh", Default::default(), false)
+                .await
+                .is_ok()
+        );
         catalog.close().await.unwrap();
         fs::remove_dir_all(directory).unwrap();
     }

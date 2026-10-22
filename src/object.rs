@@ -118,6 +118,8 @@ pub enum ObjectError {
     BucketNotFound,
     ObjectNotFound,
     PreconditionFailed,
+    /// Publication would replace a live object, but the caller may not delete it.
+    OverwriteForbidden,
     NotModified,
     ChecksumMismatch,
     TooLarge,
@@ -134,6 +136,7 @@ impl fmt::Display for ObjectError {
             Self::BucketNotFound => formatter.write_str("bucket not found"),
             Self::ObjectNotFound => formatter.write_str("object not found"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
+            Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),
             Self::TooLarge => formatter.write_str("object too large"),
