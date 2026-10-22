@@ -1,6 +1,6 @@
 {
   "as_of": "2026-10-21",
-  "note": "Property locations from all38 JSON schemas; references are preserved in upstream/json-schemas.json rather than recursively expanded. This inventory does not cover every XML or protobuf field. Every item is unimplemented.",
+  "note": "Property locations from all 38 JSON schemas; references are preserved in upstream/json-schemas.json rather than recursively expanded. Selected Bucket PATCH fields have scoped cases; broader method and provider coverage remains pending. This inventory does not cover every XML or protobuf field.",
   "count": 357,
   "fields": [
     {
@@ -383,8 +383,17 @@
       "shape": {
         "type": "boolean"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket defaultEventBasedHold: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -541,8 +550,17 @@
       "shape": {
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket etag: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -810,8 +828,17 @@
       "shape": {
         "type": "object"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket labels: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1106,8 +1133,17 @@
         "type": "string",
         "format": "int64"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket metageneration: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1366,8 +1402,17 @@
       "shape": {
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket storageClass: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1390,8 +1435,17 @@
         "type": "string",
         "format": "date-time"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket updated: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1401,8 +1455,17 @@
       "shape": {
         "type": "object"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket versioning: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1412,8 +1475,17 @@
       "shape": {
         "type": "boolean"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "Bucket versioning.enabled: scoped PATCH mutation/response/persistence in docs/en/slices/bucket-metadata-patch.md; all-method and provider field coverage remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_merges_labels_class_and_preserves_resources"
+          ]
+        }
+      ],
       "verification": []
     },
     {

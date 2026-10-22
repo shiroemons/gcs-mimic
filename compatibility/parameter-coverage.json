@@ -941,8 +941,17 @@
         "required": true,
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter bucket: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -954,8 +963,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter ifMetagenerationMatch: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -967,8 +985,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter ifMetagenerationNotMatch: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -986,8 +1013,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter predefinedAcl: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1006,8 +1042,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter predefinedDefaultObjectAcl: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1022,8 +1067,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter projection: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
@@ -1034,8 +1088,17 @@
         "location": "query",
         "type": "string"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-PATCH-SUBSET",
+          "description": "PATCH parameter userProject: supported syntax/conditions or explicit 501/subset behavior in docs/en/slices/bucket-metadata-patch.md; unsupported semantics and provider error parity remain pending.",
+          "result": "PENDING",
+          "test_ids": [
+            "bucket_patch_conditions_and_query_contract"
+          ]
+        }
+      ],
       "verification": []
     },
     {
