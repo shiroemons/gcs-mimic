@@ -22,7 +22,7 @@ Version increments, immutable release identity and licensing follow the
 
 ## Suggested first slices
 
-P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Seeding and TLS remain unimplemented; strict/permissive profiles now exist. Current progress is recorded only in the ledger.
+P0 ledger tooling (DESIGN-091/092/093/097), bounded configuration/HTTP probes and the P1 bucket and object-media slices now exist, with Clock injection and Docker/Compose smoke checks. Local arm64 is native; amd64 is emulated. Native amd64 and remote CI remain unverified. Python dependency tooling was replaced by Rust xtask. Initial seeding and strict/permissive profiles now exist; TLS remains unimplemented. Current progress is recorded only in the ledger.
 
 Bucket create/get/list/delete and streaming object media upload/metadata/download/delete use
 an indexed transactional catalog and opaque immutable blobs. Checksums, atomic generation
@@ -53,6 +53,14 @@ publication and rejected-overwrite preservation. MIME/error edge parity and toke
 remain open; see the [contract](slices/json-object-multipart.md) and
 [integration evidence](evidence/multipart.md). Resumable sessions remain separate P3
 work; Ruby/Rails is unverified.
+
+The **JSON byte-range reads** and **initial data seeding** slices are complete for
+their scoped subsets. Closed/open/suffix untranscoded ranges use bounded seeking,
+206/416 responses and generation pinning; If-Range, transcoding and exact fallback/header
+parity remain open. Initial seed directories populate eligible catalogs before readiness
+without replaying over existing data. See the [range contract](slices/json-object-range.md),
+[seed contract](slices/seed.md) and [executed native guide](evidence/seed-range-guide.txt).
+The next slice remains **bucket IAM and public reads / XML GET**.
 
 Item 5 is split. The first part, **strict local authentication**, is done: explicit
 permissive/strict profiles, a JSON local principal registry, project-level enforcement

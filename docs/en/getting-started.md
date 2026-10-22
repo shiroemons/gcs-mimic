@@ -1,9 +1,10 @@
 # Build and run gcs-mimic
 
 The current slice supports JSON bucket create/get/list/delete and object media/multipart upload,
-metadata get/patch/update, prefix/delimiter/paged listing, whole-object download and delete,
+metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
-Resumable uploads, ranges, fixtures, bucket/object IAM policies, ACLs, public grants,
+Initial seed directory import runs before readiness. Resumable uploads, If-Range,
+transcoding, bucket/object IAM policies, ACLs, public grants,
 XML endpoints, signed URLs, CORS and TLS remain unavailable.
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens
@@ -307,7 +308,8 @@ test "$status" = 404
 
 `down --volumes` deletes **all data in this Compose project's managed volume**;
 the final get returns 404. Use it only for a disposable local catalog. There is no
-fixture replay or seeding. SIGINT/SIGTERM stop acceptance and drain; recovery and
+fixture replay in this unseeded journey; see the separate seed example below.
+SIGINT/SIGTERM stop acceptance and drain; recovery and
 exclusive data-directory ownership must finish before bind/readiness. A second
 process using the same directory fails without reporting ready. Future-schema,
 corrupt or inaccessible catalogs also prevent startup.
@@ -324,7 +326,7 @@ endpoint from the repository root:
 The harness pins `cloud.google.com/go/storage` v1.70.0 and `google.golang.org/api`
 v0.307.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxies
 and redirects, and confines requests to the explicit emulator. It exercises
-bucket CRUD/paging and object listing/Update/Attrs/NewReader/Delete, exact bytes/hashes, generation
+bucket CRUD/paging and object listing/Update/Attrs/NewReader/NewRangeReader/Delete, exact bytes/hashes, generation
 conditions, encoded names and nonempty bucket errors. The harness uploads raw media with
 its confined HTTP client. `TestObjectMultipartWriter` also verifies the high-level
 Writer with `ChunkSize=0`, fixed/custom metadata, explicit hashes, create-if-absent
@@ -568,6 +570,8 @@ readiness. The current configuration is JSON; future TOML settings are unavailab
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
+| `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | Stable read-only bucket-directory input; only before initial catalog completion |
+| `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `http://127.0.0.1:4443` | Absolute HTTP(S), optional base path; no credentials/query/fragment |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
@@ -616,11 +620,99 @@ when the response is lost. Trickle uploads cannot renew the absolute request cei
 cancelled uploads release slots after their cleanup finishes.
 
 Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3
-to v4. Existing v3 objects gain default metadata columns in one atomic migration. Unreleased schema-v2 catalogs
+and v4 to v5. Existing v3 objects gain default metadata columns; v5 adds the durable
+seed initialization marker. Migrated catalogs do not import fixtures. Unreleased schema-v2 catalogs
 are rejected without changing their data; automatic recovery of deleted v2 generations is
 unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
 entries stop startup with a path diagnostic. Object `selfLink` addresses the current
 resource without a generation query; `mediaLink` selects the returned generation.
+
+## Seed a fresh native catalog and read a byte range
+
+After building the native binary above, run this standalone example in Bash from
+the repository root. It uses fresh data and a separate seed directory.
+
+```sh
+unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
+seed_demo=$(mktemp -d)
+mkdir -p "$seed_demo/fixtures/example-bucket"
+printf 'hello world' > "$seed_demo/fixtures/example-bucket/hello.txt"
+./target/release/gcs-mimic serve --listen 127.0.0.1:0 \
+  --data-dir "$seed_demo/data" --seed-dir "$seed_demo/fixtures" \
+  --seed-project local-project > "$seed_demo/server.log" 2>&1 &
+seed_pid=$!
+trap 'kill -TERM "$seed_pid" 2>/dev/null || true' EXIT
+for attempt in $(seq 1 100); do
+  if jq -e 'select(.event == "ready")' "$seed_demo/server.log" >/dev/null; then break; fi
+  kill -0 "$seed_pid"
+  sleep 0.1
+done
+seed_endpoint="http://$(jq -r 'select(.event == "ready") | .listen' "$seed_demo/server.log")"
+./target/release/gcs-mimic healthcheck --url "$seed_endpoint/_internal/ready"
+curl --disable --noproxy '*' --fail \
+  "$seed_endpoint/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/full.txt"
+printf 'hello world' | cmp - "$seed_demo/full.txt"
+curl --disable --noproxy '*' --fail-with-body -sS -D "$seed_demo/range.headers" \
+  -H 'Range: bytes=0-4' \
+  "$seed_endpoint/download/storage/v1/b/example-bucket/o/hello.txt?alt=media" > "$seed_demo/range.txt"
+printf 'hello' | cmp - "$seed_demo/range.txt"
+sed -n '1,20p' "$seed_demo/range.headers"
+printf 'Range body: '; sed -n '1p' "$seed_demo/range.txt"; printf '\n'
+kill -TERM "$seed_pid"
+wait "$seed_pid"
+trap - EXIT
+jq . "$seed_demo/server.log"
+rm -r "$seed_demo"
+```
+
+Expect 206, `Content-Range: bytes 0-4/11`, `Content-Length: 5` and `hello`.
+Closed/open/suffix ranges use stored bytes; pin `generation` when assembling
+multiple requests. Unsatisfiable ranges return 416. If-Range and required gzip
+decompression return 501. See the [range contract](slices/json-object-range.md)
+for local malformed/multiple-range fallback rules and header-parity limits.
+
+Each top-level seed directory names a bucket; nested regular files name objects
+with `/` separators. Empty bucket directories work. Imported objects have explicit
+`application/octet-stream` MIME; size, MD5 and CRC32C come from their bytes.
+Keep fixtures stable and read-only throughout startup. Symlinks, special files,
+invalid names and overlapping roots fail before readiness. Traversal is limited
+to 10000 entries and 32 nested directories; `max_object_bytes` applies per new file.
+No sidecar metadata is imported.
+
+A durable v5 marker prevents replay after restart or deletion of all buckets.
+Interrupted imports resume create-if-absent and preserve existing objects.
+First startup without `seed_dir` and migrations of existing catalogs also mark
+initialization complete: configuring fixtures later does not import them. Use a
+new data directory or deliberately reset a disposable volume to seed again.
+Import is administrative in both profiles; strict API reads still need a
+permitted local bearer token. See the [seed contract](slices/seed.md).
+
+### Seed with Compose
+
+Use a separate project with a new volume. Build its image from this checkout;
+the seed source is the checked-in `fixtures/local-bucket/hello.txt`.
+
+```sh
+export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo-$$
+export GCS_MIMIC_IMAGE="gcs-mimic:seed-demo-$$"
+docker build -t "$GCS_MIMIC_IMAGE" .
+export GCS_MIMIC_PORT=0
+docker compose -f compose.yaml -f compose.seed.yaml up -d --wait
+seed_address=$(docker compose -f compose.yaml -f compose.seed.yaml port gcs 4443)
+curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b/local-bucket/o"
+curl --disable --noproxy '*' --fail \
+  "http://$seed_address/storage/v1/b/local-bucket/o/hello.txt?alt=media"
+docker compose -f compose.yaml -f compose.seed.yaml stop
+```
+
+The last response is `Hello from the emulator.` followed by a newline. The override
+mounts fixtures read-only. Keep both `-f` arguments on restart/recreate commands;
+add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
+Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
+emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
+down --volumes`; the next `up -d --wait` imports into the fresh volume.
+The Compose seed journey remains unverified in this integration session.
 
 ## Verification and troubleshooting
 

@@ -3,6 +3,28 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-RANGE-FALLBACK",
+      "title": "JSON range fallback and empty-object response parity need direct evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-005"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#range", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes#416_requested_range_not_satisfiable", "https://www.rfc-editor.org/rfc/rfc9110.html#section-14"],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Malformed/non-bytes/multiple/repeated ranges and nonzero empty-object suffixes locally fall back to complete 200 responses under RFC 9110. Google documents single ranges and 416 reason, but not every fallback, exact 416 message or exhaustive error header.",
+      "required_resolution": "Obtain authoritative clarification or explicitly authorized differential evidence before claiming exact Google fallback, empty-suffix and error-header parity. Preserve the local rules in docs/en/slices/json-object-range.md."
+    },
+    {
+      "id": "SPEC-RANGE-VALIDATORS",
+      "title": "JSON If-Range validator support needs an established Google contract",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-005"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#range", "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5"],
+      "observed_at": "2026-10-22",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The checked Google JSON references do not establish the If-Range ETag/date subset; RFC definitions alone do not prove provider support. Both forms return explicit local 501.",
+      "required_resolution": "Establish Google's JSON If-Range contract before implementing validators; retain explicit rejection and method PARTIAL status."
+    },
+    {
       "id": "SPEC-LIST-PAGING",
       "title": "Object listing zero-size and cursor edge semantics require direct evidence",
       "status": "OPEN",
@@ -221,7 +243,7 @@
         "https://docs.cloud.google.com/storage/docs/data-validation"
       ],
       "observed_at": "2026-10-21",
-      "required_resolution": "Verify the JSON download generation/metageneration/hash headers with pinned official SDK assertions or authorized differential evidence. Track all emitted/omitted headers, including ETag and stored-content-encoding, and the timeFinalized resource omission. Treat exact id, ETag and generated URL encoding/spelling as opaque local choices unless exact upstream bytes are independently established.",
+      "required_resolution": "Verify the JSON download generation/metageneration/hash headers with pinned official SDK assertions or authorized differential evidence. Include partial responses: Accept-Ranges, representation metadata, full-object hashes and stored-content headers are locally asserted, but exhaustive Google 206 header presence is unverified. Track all emitted/omitted headers, including ETag and stored-content-encoding, and the timeFinalized resource omission. Treat exact id, ETag and generated URL encoding/spelling as opaque local choices unless exact upstream bytes are independently established.",
       "kind": "SCOPE_VERIFICATION",
       "observed_evidence": "The JSON header reference documents ETag, X-Goog-Stored-Content-Encoding (identity when absent) and X-Goog-Stored-Content-Length; the XML reference additionally specifies x-goog-generation/metageneration/hash. The checked JSON sources do not enumerate an exhaustive media response set. The Object resource describes id contents, ETag meaning, links and timeFinalized but does not fix an exact id concatenation or ETag encoding."
     },

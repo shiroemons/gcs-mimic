@@ -1,0 +1,115 @@
+Local path prefixes are redacted as <checkout>, <user-home> and <temp>.
+Command: just check-sdk
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+go: downloading cloud.google.com/go/storage v1.70.0
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:144: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+--- PASS: TestBucketLifecycle (0.02s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.26s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.01s)
+    --- PASS: TestObjectList/Prefix (0.00s)
+    --- PASS: TestObjectList/Delimiter (0.00s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.00s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.00s)
+    --- PASS: TestObjectList/Offsets (0.00s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.00s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+--- PASS: TestObjectMetadataUpdate (0.03s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.10s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.05s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.05s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.00s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.00s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.00s)
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.03s)
+    --- PASS: TestObjectRangeReader/closed (0.00s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.00s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:62: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:61907
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+=== RUN   TestObjectMediaLifecycle/unsupported_SDK_resumable_writer
+--- PASS: TestObjectMediaLifecycle (0.12s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.03s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.03s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.03s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.03s)
+    --- PASS: TestObjectMediaLifecycle/unsupported_SDK_resumable_writer (0.00s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:233: strict endpoint; admin principal from the local fixture registry; project=local-project
+--- PASS: TestStrictAuthAdminLifecycle (0.03s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.02s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous (0.00s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+--- PASS: TestStrictAuthObjectViewer (0.03s)
+=== RUN   TestStrictAuthObjectCreator
+--- PASS: TestStrictAuthObjectCreator (0.04s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	1.124s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+
+Exit status: 0

@@ -4,7 +4,7 @@
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart metadata/media upload, prefix/delimiter/paged listing, conditional metadata patch/replacement, Go SDK tests, stopping and isolated smoke checks. Resumable, ranges and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart metadata/media upload, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Resumable and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build
 

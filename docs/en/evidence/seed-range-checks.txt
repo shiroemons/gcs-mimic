@@ -1,0 +1,58 @@
+Local path prefixes were redacted as <checkout>, <user-home> and <temp>; selected output only.
+Command: just check
+bash scripts/test-check.sh
+PASS: shared checks run in order and stop at every failing Cargo command
+env -u RUSTUP_TOOLCHAIN bash scripts/check.sh
+    Checking xtask v0.1.0 (<checkout>/xtask)
+    Checking gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.17s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.18s
+test storage::catalog::objects::tests::object_range_reader_seeks_sparse_blob_and_bounds_every_chunk ... ok
+test result: ok. 78 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.44s
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.79s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.38s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+     Running tests/object_range_http.rs (target/debug/deps/object_range_http-474f9424c3b8a390)
+test obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding ... ok
+test obj_range_http_strict_authorization_precedes_range_evaluation ... ok
+test obj_range_http_single_ranges_and_representation_headers ... ok
+test obj_range_http_unsatisfiable_empty_and_ignored_ranges ... ok
+test obj_range_http_generation_preconditions_and_overwrite_pin_open_reader ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+test metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog ... ok
+test v1_migration_is_transactional_and_current_schema_reopens_idempotently ... ok
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+     Running tests/seed.rs (target/debug/deps/seed-5138dfa75697b538)
+test seed_configuration_precedence_and_validation ... ok
+test disabled_startup_never_replays_fixtures_later ... ok
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+test populated_v4_catalog_migrates_without_seeding ... ok
+test symlinks_and_special_files_fail_closed ... ok
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.95s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+PASS: container publication validates inputs, API failures, immutable retries, attestations and alias selection without network access
+Usage: bash scripts/smoke-containers.sh [--image IMAGE] [linux/amd64|linux/arm64 ...]
+Unsupported platform: linux/unknown
+
+Exit status: 0
+Container smoke and container builds were not run in this integration session.
