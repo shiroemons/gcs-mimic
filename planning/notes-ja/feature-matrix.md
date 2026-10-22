@@ -8,15 +8,15 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 286 | 0 | 12 | 0 | 0 | 0 |
-| behavior | 201 | 170 | 0 | 27 | 4 | 0 | 0 |
-| project_requirement | 92 | 44 | 0 | 27 | 21 | 0 | 0 |
+| api_operation | 298 | 284 | 0 | 14 | 0 | 0 | 0 |
+| behavior | 201 | 167 | 0 | 27 | 7 | 0 | 0 |
+| project_requirement | 92 | 43 | 0 | 27 | 22 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 286 | 2 | 10 | 0 | 0 | 0 |
-| behavior | 170 | 5 | 24 | 2 | 0 | 0 |
-| project_requirement | 44 | 0 | 0 | 0 | 0 | 48 |
+| api_operation | 284 | 2 | 12 | 0 | 0 | 0 |
+| behavior | 167 | 8 | 24 | 2 | 0 | 0 |
+| project_requirement | 43 | 0 | 0 | 0 | 0 | 49 |
 
 ## api_operation
 
@@ -73,7 +73,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 1 |
+| JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
@@ -81,7 +81,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | JSON-BUCKETS-008 | buckets.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 1 |
+| JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-BUCKETS-013 | buckets.update | NOT_STARTED | P1 | EXACT | NONE | 0 |
 
@@ -382,12 +382,12 @@ API operations, behaviors and project requirements have separate denominators. P
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | マルチパート中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | オブジェクトダウンロード | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
 | EXT-XML-013 | アップロード済みパート一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | オブジェクトメタデータ取得 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
 | EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -468,7 +468,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
-| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-005 | サービスアカウント署名者の対応付け | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuthトークン発行との境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
 | DESIGN-008 | Storage定義済みロールの権限展開 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
@@ -609,9 +609,9 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-012 | allUsersによる匿名アクセス許可 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-013 | allAuthenticatedUsersによる認証済みユーザーへの許可 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-014 | バケットIAMの実アクセス制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-012 | allUsersによる匿名アクセス許可 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-013 | allAuthenticatedUsersによる認証済みユーザーへの許可 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-014 | バケットIAMの実アクセス制御 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-016 | 継承ポリシーとバケットポリシーの評価 | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-017 | オブジェクトACLとバケットIAMの併用評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-018 | 作成時のデフォルトオブジェクトACL適用 | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -757,7 +757,7 @@ API operations, behaviors and project requirements have separate denominators. P
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-047 | パス形式のオブジェクトURL | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-047 | パス形式のオブジェクトURL | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-048 | 仮想ホスト形式のオブジェクトURL | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-049 | メディア取得URLとメタデータURLの区別 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-050 | ウェブサイト用ホスト・index・エラーページの解決 | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -840,7 +840,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | UX-002 | 初期データ投入後の起動完了 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
-| UX-005 | 非公開・公開の権限制御フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| UX-005 | 非公開・公開の権限制御フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | ブラウザCORS・直接アップロード | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
@@ -913,7 +913,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | AUDIT-003 | 公式C++ SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 6 |
+| DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 7 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |

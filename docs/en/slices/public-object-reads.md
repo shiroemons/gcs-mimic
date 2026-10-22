@@ -239,7 +239,8 @@ until the 65-second deadline. The original address-in-use error is retained.
 Shutdown signals also cancel this wait promptly and release catalog ownership.
 
 Permissive mode preserves the existing authentication bypass, including ignored
-credential inputs, while keeping input validation and stored IAM policies.
+Authorization values, while keeping input validation and stored IAM policies.
+Signature query parameters remain unsupported XML queries and return 501.
 This behavior is not evidence of a public grant. Unsupported XML operations,
 encryption, billing and conditions still fail rather than receiving success.
 
