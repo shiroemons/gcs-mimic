@@ -102,7 +102,7 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
     transaction.commit().map_err(unavailable)
 }
 
-fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
+pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
     if id.len() != 32
         || !id
             .bytes()
@@ -114,7 +114,7 @@ fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
 }
 
 #[cfg(unix)]
-fn sync_dir(path: &Path) -> io::Result<()> {
+pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
@@ -216,6 +216,7 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
         #[cfg(unix)]
         sync_dir(data_dir).map_err(object_unavailable)?;
+        super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
         for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
             let entry = entry.map_err(object_unavailable)?;
             if os_metadata(&entry) {

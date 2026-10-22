@@ -7,7 +7,7 @@ use rusqlite::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{Notify, Semaphore};
@@ -20,6 +20,9 @@ pub use resumable::{
 
 #[path = "resumable_maintenance.rs"]
 mod resumable_maintenance;
+
+#[path = "resumable_recovery.rs"]
+mod resumable_recovery;
 
 #[path = "objects.rs"]
 mod objects;
@@ -151,6 +154,7 @@ struct Inner {
     session_writers: Mutex<std::collections::HashSet<String>>,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<String>>,
+    maintenance_started: AtomicBool,
 }
 
 struct Resources {
@@ -317,11 +321,11 @@ impl Catalog {
                 session_writers: Mutex::new(Default::default()),
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),
+                maintenance_started: AtomicBool::new(false),
             })))
         })
         .await
         .map_err(unavailable)??;
-        catalog.start_resumable_maintenance();
         Ok(catalog)
     }
 

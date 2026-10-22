@@ -127,6 +127,12 @@ impl Catalog {
 
     /// Runs bounded cleanup against the injected clock; failed records remain the retry journal.
     pub async fn maintain_resumable_sessions(&self) -> Result<Option<SystemTime>, CatalogError> {
+        let result = self.run_resumable_maintenance().await;
+        self.0.maintenance_wake.notify_one();
+        result
+    }
+
+    async fn run_resumable_maintenance(&self) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.maintain_resumable_inner().await;
         *self.0.maintenance_error.lock().map_err(unavailable)? =
             result.as_ref().err().map(ToString::to_string);
@@ -196,7 +202,15 @@ impl Catalog {
         .await
     }
 
-    pub(super) fn start_resumable_maintenance(&self) {
+    /// Starts one scheduler. Its owner must call `close` before releasing directory ownership.
+    pub fn start_resumable_maintenance(&self) {
+        if self
+            .0
+            .maintenance_started
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return;
+        }
         let weak = std::sync::Arc::downgrade(&self.0);
         let wake = self.0.maintenance_wake.clone();
         tokio::spawn(async move {
@@ -212,7 +226,7 @@ impl Catalog {
                     return;
                 }
                 let catalog = Catalog(inner);
-                let delay = match catalog.maintain_resumable_sessions().await {
+                let delay = match catalog.run_resumable_maintenance().await {
                     Ok(next) => next.map(|deadline| {
                         deadline
                             .duration_since(catalog.0.clock.now())

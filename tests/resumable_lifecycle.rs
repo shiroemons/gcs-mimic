@@ -368,6 +368,7 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
         .await
         .unwrap();
+    catalog.start_resumable_maintenance();
     tokio::time::timeout(Duration::from_secs(2), async {
         while clock.calls.load(Ordering::SeqCst) < 2 {
             tokio::task::yield_now().await;
@@ -411,4 +412,396 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     catalog.close().await.unwrap();
     let reopened = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     reopened.close().await.unwrap();
+}
+
+async fn prefix(catalog: &Catalog, data: &[u8]) -> gcs_mimic::storage::ResumableSession {
+    let session = catalog
+        .create_resumable_session("bucket", "name", Default::default(), None)
+        .await
+        .unwrap();
+    let mut lease = catalog
+        .lock_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    std::fs::write(lease.staging_path(), data).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(lease.staging_path())
+        .unwrap()
+        .sync_all()
+        .unwrap();
+    catalog
+        .checkpoint_resumable_session(&mut lease, data.len() as u64, None)
+        .await
+        .unwrap();
+    session
+}
+
+#[tokio::test]
+async fn restart_discards_write_before_offset_commit_and_preserves_committed_prefix() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let session = prefix(&catalog, b"acknowledged").await;
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    // Inject the disk state after a file write/sync but before the offset transaction.
+    std::fs::write(&stage, b"acknowledged-uncommitted-tail").unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&stage)
+        .unwrap()
+        .sync_all()
+        .unwrap();
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&stage).unwrap(), b"acknowledged");
+    assert_eq!(
+        catalog
+            .resumable_session(&session.id, "bucket")
+            .await
+            .unwrap()
+            .offset,
+        12
+    );
+    let mut lease = catalog
+        .lock_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    std::fs::write(&stage, b"acknowledged-more").unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&stage)
+        .unwrap()
+        .sync_all()
+        .unwrap();
+    catalog
+        .checkpoint_resumable_session(&mut lease, 17, None)
+        .await
+        .unwrap();
+    drop(lease);
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
+    assert_eq!(std::fs::read(&stage).unwrap(), b"acknowledged-more");
+    assert_eq!(
+        catalog
+            .resumable_session(&session.id, "bucket")
+            .await
+            .unwrap()
+            .offset,
+        17
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let session = prefix(&catalog, b"prefix").await;
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    std::fs::create_dir_all(&shard).unwrap();
+    let blob = shard.join(&session.blob_id);
+    // Inject publication's rename-before-Object/session-commit boundary.
+    std::fs::rename(&stage, &blob).unwrap();
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
+    assert_eq!(std::fs::read(&stage).unwrap(), b"prefix");
+    assert!(!blob.exists());
+    assert_eq!(
+        catalog
+            .resumable_session(&session.id, "bucket")
+            .await
+            .unwrap()
+            .offset,
+        6
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let (sender, body) = tokio::sync::mpsc::channel(2);
+    sender
+        .send(Ok(UploadChunk::Data(hyper::body::Bytes::from_static(
+            b"published",
+        ))))
+        .await
+        .unwrap();
+    sender.send(Ok(UploadChunk::End)).await.unwrap();
+    drop(sender);
+    let object = catalog
+        .put_object(
+            "bucket",
+            "name",
+            "text/plain".into(),
+            Default::default(),
+            Default::default(),
+            1024,
+            body,
+        )
+        .await
+        .unwrap();
+    let session = prefix(&catalog, b"published").await;
+    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    std::fs::create_dir_all(&shard).unwrap();
+    let blob = shard.join(&session.blob_id);
+    std::fs::rename(dir.0.join("staging").join(&session.blob_id), &blob).unwrap();
+    let completion = gcs_mimic::json::object_resource(
+        &object,
+        "http://local",
+        gcs_mimic::json::Projection::NoAcl,
+    )
+    .unwrap();
+    // Inject the durable state after the combined Object/COMPLETE transaction commits.
+    let mut connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let transaction = connection.transaction().unwrap();
+    transaction.execute("INSERT INTO pending_blob_deletions SELECT blob_id FROM objects WHERE bucket = 'bucket' AND name = 'name'", []).unwrap();
+    transaction
+        .execute(
+            "UPDATE objects SET blob_id = ?1 WHERE bucket = 'bucket' AND name = 'name'",
+            [&session.blob_id],
+        )
+        .unwrap();
+    transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', total = offset, completion = ?1 WHERE id = ?2", rusqlite::params![completion.to_string(), session.id]).unwrap();
+    transaction.commit().unwrap();
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        catalog
+            .resumable_session(&session.id, "bucket")
+            .await
+            .unwrap()
+            .completion,
+        Some(completion)
+    );
+    assert_eq!(cancel_wire(&catalog, &session.id, b"").await, 410);
+    assert_eq!(std::fs::read(&blob).unwrap(), b"published");
+    *clock.0.lock().unwrap() = session.deadline;
+    assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+    assert_eq!(std::fs::read(&blob).unwrap(), b"published");
+    assert_eq!(
+        catalog
+            .get_object("bucket", "name", None, Default::default())
+            .await
+            .unwrap(),
+        object
+    );
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
+    assert_eq!(std::fs::read(&blob).unwrap(), b"published");
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn missing_short_and_nonfile_acknowledged_prefixes_block_readiness() {
+    for damage in ["missing", "short", "directory"] {
+        let dir = TestDir::new();
+        let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+        let catalog = setup(&dir, clock.clone()).await;
+        let session = prefix(&catalog, b"prefix").await;
+        catalog.close().await.unwrap();
+        let stage = dir.0.join("staging").join(&session.blob_id);
+        match damage {
+            "missing" => std::fs::remove_file(&stage).unwrap(),
+            "short" => std::fs::write(&stage, b"x").unwrap(),
+            _ => {
+                std::fs::remove_file(&stage).unwrap();
+                std::fs::create_dir(&stage).unwrap();
+            }
+        }
+        let error = match Catalog::open_with_clock(&dir.0, clock).await {
+            Ok(_) => panic!("damaged prefix became ready"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("acknowledged upload prefix"),
+            "{error}"
+        );
+        let offset: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row(
+                "SELECT offset FROM resumable_sessions WHERE id = ?1",
+                [&session.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(offset, 6);
+    }
+}
+
+#[tokio::test]
+async fn recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let mut sessions = Vec::new();
+    for _ in 0..33 {
+        sessions.push(prefix(&catalog, b"prefix").await);
+    }
+    let cancelled = prefix(&catalog, b"cancelled").await;
+    catalog
+        .cancel_resumable_session(&cancelled.id, "bucket")
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    std::fs::write(
+        dir.0.join("staging").join(&cancelled.blob_id),
+        b"cancelled-crash-tail",
+    )
+    .unwrap();
+    let orphan = "a".repeat(32);
+    let deferred = "b".repeat(32);
+    std::fs::write(dir.0.join("staging").join(&orphan), b"orphan").unwrap();
+    for id in [&orphan, &deferred] {
+        let shard = dir.0.join("blobs").join(&id[..2]);
+        std::fs::create_dir_all(&shard).unwrap();
+        std::fs::write(shard.join(id), b"orphan").unwrap();
+    }
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute(
+            "INSERT INTO pending_blob_deletions VALUES (?1)",
+            [&deferred],
+        )
+        .unwrap();
+    let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
+    assert_eq!(
+        std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
+        33
+    );
+    for session in sessions {
+        assert_eq!(
+            std::fs::read(dir.0.join("staging").join(&session.blob_id)).unwrap(),
+            b"prefix"
+        );
+        assert_eq!(
+            catalog
+                .resumable_session(&session.id, "bucket")
+                .await
+                .unwrap()
+                .offset,
+            6
+        );
+    }
+    for id in [&orphan, &deferred] {
+        assert!(!dir.0.join("blobs").join(&id[..2]).join(id).exists());
+    }
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn writer_lease_is_reacquired_after_drop_and_panic() {
+    let dir = TestDir::new();
+    let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
+    let session = prefix(&catalog, b"prefix").await;
+    let lease = catalog
+        .lock_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    drop(lease);
+    let lease = catalog
+        .lock_resumable_session(&session.id, "bucket")
+        .await
+        .unwrap();
+    let panic = tokio::spawn(async move {
+        let _lease = lease;
+        panic!("lease unwind fixture");
+    })
+    .await
+    .unwrap_err();
+    assert!(panic.is_panic());
+    drop(
+        catalog
+            .lock_resumable_session(&session.id, "bucket")
+            .await
+            .unwrap(),
+    );
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn recovery_rejects_ambiguous_active_publication_without_deleting_either_copy() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let session = prefix(&catalog, b"prefix").await;
+    catalog.close().await.unwrap();
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    let shard = dir.0.join("blobs").join(&session.blob_id[..2]);
+    std::fs::create_dir_all(&shard).unwrap();
+    let blob = shard.join(&session.blob_id);
+    std::fs::copy(&stage, &blob).unwrap();
+    assert!(Catalog::open_with_clock(&dir.0, clock).await.is_err());
+    assert_eq!(std::fs::read(&stage).unwrap(), b"prefix");
+    assert_eq!(std::fs::read(&blob).unwrap(), b"prefix");
+}
+
+#[tokio::test]
+async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    catalog.start_resumable_maintenance();
+    let session = catalog
+        .create_resumable_session("bucket", "name", Default::default(), None)
+        .await
+        .unwrap();
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    std::fs::remove_file(&stage).unwrap();
+    std::fs::create_dir(&stage).unwrap();
+    *clock.0.lock().unwrap() = session.deadline;
+    assert!(catalog.maintain_resumable_sessions().await.is_err());
+    assert!(catalog.resumable_maintenance_error().is_some());
+    // The failure is repaired without explicitly invoking maintenance a second time.
+    std::fs::remove_dir(&stage).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let count: i64 = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+                .unwrap()
+                .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            if count == 0 && catalog.resumable_maintenance_error().is_none() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn recovery_rejects_symlink_prefix_without_changing_its_target() {
+    let dir = TestDir::new();
+    let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
+    let catalog = setup(&dir, clock.clone()).await;
+    let session = prefix(&catalog, b"prefix").await;
+    catalog.close().await.unwrap();
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    let target = dir.0.join("untouched");
+    std::fs::write(&target, b"target-tail").unwrap();
+    std::fs::remove_file(&stage).unwrap();
+    std::os::unix::fs::symlink(&target, &stage).unwrap();
+    assert!(Catalog::open_with_clock(&dir.0, clock).await.is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"target-tail");
 }
