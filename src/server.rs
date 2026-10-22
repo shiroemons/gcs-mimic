@@ -278,7 +278,8 @@ async fn object_response(
             name,
             params,
         } => {
-            let (_, expected) = json::parse_object_upload_headers(request.headers())?;
+            let (_, expected) =
+                json::parse_object_upload_headers(request.headers(), params.conditions)?;
             let boundary = json::multipart_boundary(request.headers())?;
             // The parser's JSON, header, delimiter-padding and discard caps total less than 256 KiB.
             if request
@@ -388,7 +389,8 @@ async fn object_response(
             name,
             params,
         } => {
-            let (content_type, expected) = json::parse_object_upload_headers(request.headers())?;
+            let (content_type, expected) =
+                json::parse_object_upload_headers(request.headers(), params.conditions)?;
             if request
                 .headers()
                 .get("content-length")

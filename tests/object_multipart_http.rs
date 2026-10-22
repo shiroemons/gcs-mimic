@@ -585,6 +585,77 @@ fn obj_multipart_http_rejects_malformed_framing_and_bounds_final_json() {
 }
 
 #[test]
+fn obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite() {
+    for query_name in [false, true] {
+        let dir = TestDir::new();
+        let server = Server::start(&dir, 1000, 30_000);
+        server.bucket();
+        let headers = "Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Gcs-Idempotency-Token: opaque, retry=token\r\n";
+        let path = format!(
+            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&{}ifGenerationMatch=",
+            if query_name { "name=token&" } else { "" }
+        );
+        let body = wire(br#"{"name":"token"}"#, None, b"original", None);
+        let original = server
+            .request("POST", &format!("{path}0"), headers, &body)
+            .json();
+        server
+            .request("POST", &format!("{path}0"), headers, &body)
+            .error(412, "conditionNotMet");
+        assert_eq!(server.get("token").json(), original);
+        assert_eq!(server.get("token?alt=media").body, b"original");
+        no_leaks(&dir, 1);
+        let overwrite = format!("{path}{}", original["generation"].as_str().unwrap());
+        let body = wire(br#"{"name":"token"}"#, None, b"replacement", None);
+        let replaced = server.request("POST", &overwrite, headers, &body).json();
+        assert_ne!(replaced["generation"], original["generation"]);
+        server
+            .request("POST", &overwrite, headers, &body)
+            .error(412, "conditionNotMet");
+        assert_eq!(server.get("token").json(), replaced);
+        assert_eq!(server.get("token?alt=media").body, b"replacement");
+        no_leaks(&dir, 1);
+    }
+}
+
+#[test]
+fn obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let original = server
+        .upload("name=existing", &wire(b"{}", None, b"original", None))
+        .json();
+    let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
+    for name in ["", "&name=absent", "&name=existing"] {
+        for query in [
+            "",
+            "&ifGenerationNotMatch=0",
+            "&ifMetagenerationMatch=1",
+            "&ifMetagenerationNotMatch=2",
+        ] {
+            let mut stream = socket(&server.address);
+            write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{token}\r\n").unwrap();
+            Reply::read(stream).error(501, "notImplemented");
+        }
+        for headers in [
+            "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
+            format!("{token}{token}"),
+        ] {
+            for query in ["", "&ifGenerationMatch=0"] {
+                let mut stream = socket(&server.address);
+                write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{headers}\r\n").unwrap();
+                Reply::read(stream).error(400, "invalidParameter");
+            }
+        }
+    }
+    server.get("absent").error(404, "notFound");
+    assert_eq!(server.get("existing").json(), original);
+    assert_eq!(server.get("existing?alt=media").body, b"original");
+    no_leaks(&dir, 1);
+}
+
+#[test]
 fn obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);

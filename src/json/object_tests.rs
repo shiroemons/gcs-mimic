@@ -399,16 +399,96 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
         let mut headers = HeaderMap::new();
         headers.insert(header, HeaderValue::from_static("value"));
         assert_eq!(
-            parse_object_upload_headers(&headers).unwrap_err().status,
+            parse_object_upload_headers(&headers, Default::default())
+                .unwrap_err()
+                .status,
             StatusCode::NOT_IMPLEMENTED
         );
     }
 }
 
 #[test]
+fn obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-goog-gcs-idempotency-token",
+        HeaderValue::from_static("opaque, token=1"),
+    );
+    for generation in [i64::MIN, -1, 0, 1, i64::MAX] {
+        assert!(
+            parse_object_upload_headers(
+                &headers,
+                ObjectConditions {
+                    if_generation_match: Some(generation),
+                    ..Default::default()
+                }
+            )
+            .is_ok()
+        );
+    }
+    for conditions in [
+        ObjectConditions::default(),
+        ObjectConditions {
+            if_generation_not_match: Some(0),
+            ..Default::default()
+        },
+        ObjectConditions {
+            if_metageneration_match: Some(1),
+            ..Default::default()
+        },
+        ObjectConditions {
+            if_metageneration_not_match: Some(2),
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(
+            parse_object_upload_headers(&headers, conditions)
+                .unwrap_err()
+                .status,
+            StatusCode::NOT_IMPLEMENTED
+        );
+    }
+    for values in [
+        vec![""],
+        vec![" \t"],
+        vec!["same", "same"],
+        vec!["first", "second"],
+    ] {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(
+                "x-goog-gcs-idempotency-token",
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        for generation in [None, Some(0), Some(1)] {
+            let error = parse_object_upload_headers(
+                &headers,
+                ObjectConditions {
+                    if_generation_match: generation,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+            assert_eq!(
+                (error.status, error.reason),
+                (StatusCode::BAD_REQUEST, "invalidParameter")
+            );
+        }
+        for media in [false, true] {
+            let error = validate_object_get_headers(&headers, media).unwrap_err();
+            assert_eq!(
+                (error.status, error.reason),
+                (StatusCode::BAD_REQUEST, "invalidParameter")
+            );
+        }
+    }
+}
+
+#[test]
 fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
     assert_eq!(
-        parse_object_upload_headers(&HeaderMap::new()).unwrap(),
+        parse_object_upload_headers(&HeaderMap::new(), Default::default()).unwrap(),
         (
             "application/octet-stream".to_owned(),
             ExpectedHashes::default()
@@ -433,7 +513,7 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
             );
         }
         assert_eq!(
-            parse_object_upload_headers(&headers).unwrap(),
+            parse_object_upload_headers(&headers, Default::default()).unwrap(),
             (
                 "text/plain; charset=utf-8".to_owned(),
                 ExpectedHashes {
@@ -449,7 +529,7 @@ fn obj_headers_001_upload_defaults_hashes_and_multiple_headers() {
         HeaderValue::from_static("md5=1B2M2Y8AsgTpgAmY7PhCfg=="),
     );
     assert_eq!(
-        parse_object_upload_headers(&headers)
+        parse_object_upload_headers(&headers, Default::default())
             .unwrap()
             .1
             .md5
@@ -480,7 +560,9 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         let mut headers = HeaderMap::new();
         headers.insert("x-goog-hash", HeaderValue::from_str(value).unwrap());
         assert_eq!(
-            parse_object_upload_headers(&headers).unwrap_err().status,
+            parse_object_upload_headers(&headers, Default::default())
+                .unwrap_err()
+                .status,
             StatusCode::BAD_REQUEST,
             "{value}"
         );
@@ -498,7 +580,9 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
         let mut headers = HeaderMap::new();
         headers.insert(name, HeaderValue::from_static(value));
         assert_eq!(
-            parse_object_upload_headers(&headers).unwrap_err().status,
+            parse_object_upload_headers(&headers, Default::default())
+                .unwrap_err()
+                .status,
             StatusCode::NOT_IMPLEMENTED,
             "{name}"
         );
@@ -513,16 +597,19 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
     ] {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", HeaderValue::from_str(value).unwrap());
-        assert!(parse_object_upload_headers(&headers).is_err(), "{value}");
+        assert!(
+            parse_object_upload_headers(&headers, Default::default()).is_err(),
+            "{value}"
+        );
     }
     let mut headers = HeaderMap::new();
     headers.append("content-type", HeaderValue::from_static("text/plain"));
     headers.append("content-type", HeaderValue::from_static("text/html"));
-    assert!(parse_object_upload_headers(&headers).is_err());
+    assert!(parse_object_upload_headers(&headers, Default::default()).is_err());
     let mut headers = HeaderMap::new();
     headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
     headers.append("x-goog-hash", HeaderValue::from_static("crc32c=AQIDBA=="));
-    assert!(parse_object_upload_headers(&headers).is_err());
+    assert!(parse_object_upload_headers(&headers, Default::default()).is_err());
 }
 
 #[test]

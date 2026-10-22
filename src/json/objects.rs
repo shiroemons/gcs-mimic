@@ -336,6 +336,14 @@ fn integer(query: &mut BTreeMap<String, String>, key: &str) -> Result<Option<i64
 }
 
 fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
+    let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
+    if let Some(token) = tokens.next()
+        && (token.as_bytes().trim_ascii().is_empty() || tokens.next().is_some())
+    {
+        return Err(JsonError::invalid_parameter(
+            "Expected a single non-empty x-goog-gcs-idempotency-token header",
+        ));
+    }
     for key in headers.keys() {
         let name = key.as_str();
         if name.starts_with("x-goog-encryption-")
@@ -355,15 +363,23 @@ fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
 /// Parse upload metadata without consuming or collecting the body.
 pub fn parse_object_upload_headers(
     headers: &HeaderMap,
+    conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers)?;
+    // shortcut: tokens rely on generation checks; add response replay for strict retry fidelity.
+    if headers.contains_key("x-goog-gcs-idempotency-token")
+        && conditions.if_generation_match.is_none()
+    {
+        return Err(JsonError::unsupported_object(
+            "x-goog-gcs-idempotency-token without ifGenerationMatch",
+        ));
+    }
     for name in [
         "content-encoding",
         "content-md5",
         "content-range",
         "x-upload-content-type",
         "x-upload-content-length",
-        "x-goog-gcs-idempotency-token",
     ] {
         if headers.contains_key(name) {
             return Err(JsonError::unsupported_object(name));
