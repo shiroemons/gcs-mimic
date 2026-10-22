@@ -10,7 +10,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
@@ -149,6 +149,8 @@ struct Inner {
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
+    maintenance_wake: Arc<Notify>,
+    maintenance_error: Mutex<Option<String>>,
 }
 
 struct Resources {
@@ -173,7 +175,7 @@ impl Catalog {
         clock: Arc<dyn Clock>,
     ) -> Result<Self, CatalogError> {
         let data_dir = data_dir.as_ref().to_owned();
-        tokio::task::spawn_blocking(move || {
+        let catalog = tokio::task::spawn_blocking(move || {
             let lock = lock::acquire(&data_dir)?;
             let path = data_dir.join("catalog.sqlite3");
             // A read-write connection can checkpoint a rejected catalog's hot WAL on close.
@@ -303,6 +305,7 @@ impl Catalog {
             if version < 7 {
                 resumable::migrate(&mut connection)?;
             }
+            resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
@@ -312,10 +315,14 @@ impl Catalog {
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
+                maintenance_wake: Arc::new(Notify::new()),
+                maintenance_error: Mutex::new(None),
             })))
         })
         .await
-        .map_err(unavailable)?
+        .map_err(unavailable)??;
+        catalog.start_resumable_maintenance();
+        Ok(catalog)
     }
 
     pub fn is_healthy(&self) -> bool {
@@ -353,6 +360,7 @@ impl Catalog {
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
         self.0.admission.close();
+        self.0.maintenance_wake.notify_one();
         let _uploads = self
             .0
             .uploads

@@ -1,6 +1,61 @@
 use super::{Catalog, CatalogError, ResumableError, SessionState, unavailable, unix_millis};
-use rusqlite::params;
-use std::{fs, io, path::Path};
+use rusqlite::{Connection, params};
+use std::{
+    fs, io,
+    path::Path,
+    time::{Duration, SystemTime},
+};
+
+const PAGE_SIZE: i64 = 16;
+const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+fn cleanup_page(
+    connection: &Connection,
+    now: i64,
+    after: &str,
+) -> Result<Vec<(String, String, i64)>, CatalogError> {
+    connection.prepare("SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND deadline <= ?2 UNION ALL SELECT id, blob_id, deadline FROM resumable_sessions WHERE id > ?1 AND state = 'CANCELLED' AND deadline > ?2 ORDER BY id LIMIT ?3").map_err(unavailable)?
+        .query_map(params![after, now, PAGE_SIZE], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(unavailable)?
+        .collect::<rusqlite::Result<_>>().map_err(unavailable)
+}
+
+fn clean_record(
+    connection: &Connection,
+    data_dir: &Path,
+    id: &str,
+    blob_id: &str,
+    deadline: i64,
+    now: i64,
+) -> Result<(), CatalogError> {
+    clean_session_files(connection, data_dir, blob_id)?;
+    if deadline <= now {
+        connection
+            .execute(
+                "DELETE FROM resumable_sessions WHERE id = ?1 AND deadline <= ?2",
+                params![id, now],
+            )
+            .map_err(unavailable)?;
+    }
+    Ok(())
+}
+
+pub(super) fn recover_due(
+    connection: &Connection,
+    data_dir: &Path,
+    now: i64,
+) -> Result<(), CatalogError> {
+    let mut after = String::new();
+    loop {
+        let rows = cleanup_page(connection, now, &after)?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        for (id, blob_id, deadline) in rows {
+            clean_record(connection, data_dir, &id, &blob_id, deadline, now)?;
+            after = id;
+        }
+    }
+}
 
 fn unlink(path: &Path) -> Result<(), CatalogError> {
     match fs::remove_file(path) {
@@ -59,8 +114,123 @@ impl Catalog {
         // The terminal row is the durable cleanup journal if unlink or directory sync fails.
         let blob_id = lease.session.blob_id.clone();
         let data_dir = self.0.data_dir.clone();
-        self.run(move |connection| clean_session_files(connection, &data_dir, &blob_id))
-            .await?;
-        Ok(())
+        let result = self
+            .run(move |connection| clean_session_files(connection, &data_dir, &blob_id))
+            .await;
+        if let Err(error) = &result {
+            *self.0.maintenance_error.lock().map_err(unavailable)? = Some(error.to_string());
+        }
+        drop(lease);
+        self.0.maintenance_wake.notify_one();
+        result.map_err(Into::into)
+    }
+
+    /// Runs bounded cleanup against the injected clock; failed records remain the retry journal.
+    pub async fn maintain_resumable_sessions(&self) -> Result<Option<SystemTime>, CatalogError> {
+        let result = self.maintain_resumable_inner().await;
+        *self.0.maintenance_error.lock().map_err(unavailable)? =
+            result.as_ref().err().map(ToString::to_string);
+        result
+    }
+
+    pub fn resumable_maintenance_error(&self) -> Option<String> {
+        self.0
+            .maintenance_error
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
+        let now = unix_millis(self.0.clock.now())?;
+        let mut after = String::new();
+        let mut failure = None;
+        loop {
+            let catalog = self.clone();
+            let (last, error) = self
+                .run(move |connection| {
+                    let rows = cleanup_page(connection, now, &after)?;
+                    let mut last = None;
+                    let mut failure = None;
+                    for (id, blob_id, deadline) in rows {
+                        last = Some(id.clone());
+                        let result = catalog.try_resumable_writer(&id).and_then(|_guard| {
+                            clean_record(
+                                connection,
+                                &catalog.0.data_dir,
+                                &id,
+                                &blob_id,
+                                deadline,
+                                now,
+                            )
+                        });
+                        if let Err(error) = result {
+                            failure = Some(error);
+                        }
+                    }
+                    Ok((last, failure))
+                })
+                .await?;
+            if error.is_some() {
+                failure = error;
+            }
+            match last {
+                Some(id) => after = id,
+                None => break,
+            }
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        self.run(|connection| {
+            let deadline: Option<i64> = connection
+                .query_row("SELECT min(deadline) FROM resumable_sessions", [], |row| {
+                    row.get(0)
+                })
+                .map_err(unavailable)?;
+            deadline
+                .map(super::system_time)
+                .transpose()
+                .map_err(unavailable)
+        })
+        .await
+    }
+
+    pub(super) fn start_resumable_maintenance(&self) {
+        let weak = std::sync::Arc::downgrade(&self.0);
+        let wake = self.0.maintenance_wake.clone();
+        tokio::spawn(async move {
+            loop {
+                let notified = wake.notified();
+                tokio::pin!(notified);
+                // Register before reading the next deadline so insertions cannot lose a wakeup.
+                notified.as_mut().enable();
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                if inner.admission.is_closed() {
+                    return;
+                }
+                let catalog = Catalog(inner);
+                let delay = match catalog.maintain_resumable_sessions().await {
+                    Ok(next) => next.map(|deadline| {
+                        deadline
+                            .duration_since(catalog.0.clock.now())
+                            .unwrap_or_default()
+                    }),
+                    Err(error) => {
+                        eprintln!("resumable maintenance failed; retrying: {error}");
+                        Some(RETRY_DELAY)
+                    }
+                };
+                drop(catalog);
+                match delay {
+                    Some(delay) => {
+                        tokio::select! { _ = tokio::time::sleep(delay) => {}, _ = &mut notified => {} }
+                    }
+                    None => notified.await,
+                }
+            }
+        });
     }
 }
