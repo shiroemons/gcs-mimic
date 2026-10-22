@@ -1,10 +1,10 @@
 # Getting started: proposed end-to-end contract
 
-**Status: future end-to-end design specification.** The implemented HTTP foundation, persistent JSON bucket CRUD and object media subset have a separate [runnable guide](getting-started.md). This document retains later acceptance targets, including TOML configuration, fixtures, broader object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+**Status: future end-to-end design specification.** The implemented HTTP foundation, persistent JSON bucket CRUD and object media/multipart subset have a separate [runnable guide](getting-started.md). This document retains later acceptance targets, including TOML configuration, fixtures, broader object SDKs and signed URLs. Its commands/settings are not the current runtime contract. The current fixed `api_base_url` subset is documented in the runnable guide; validated-request-origin mode remains planned. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, prefix/delimiter/paged listing, conditional metadata patch/replacement, Go SDK tests, stopping and isolated smoke checks. Multipart/resumable, ranges and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart metadata/media upload, prefix/delimiter/paged listing, conditional metadata patch/replacement, Go SDK tests, stopping and isolated smoke checks. Resumable, ranges and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build
 

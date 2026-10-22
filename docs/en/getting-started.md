@@ -1,14 +1,15 @@
 # Build and run gcs-mimic
 
-The current slice supports JSON bucket create/get/list/delete and object media upload,
+The current slice supports JSON bucket create/get/list/delete and object media/multipart upload,
 metadata get/patch/update, prefix/delimiter/paged listing, whole-object download and delete,
 with a persistent SQLite catalog and disk blobs.
-Multipart/resumable uploads, ranges, fixtures, IAM/ACL, signed URLs,
+Resumable uploads, ranges, fixtures, IAM/ACL, signed URLs,
 CORS and TLS remain unavailable.
 Requests have no authentication enforcement; use an isolated local development environment.
 The [bucket contract](slices/json-bucket-crud.md) and
 [object media](slices/json-object-media.md), [listing](slices/json-object-list.md) and
-[metadata](slices/json-object-metadata.md) contracts list supported fields and deviations.
+[metadata](slices/json-object-metadata.md) and
+[multipart](slices/json-object-multipart.md) contracts list supported fields and deviations.
 Run the shell blocks in order in one Bash session from the repository root.
 
 ## Build and start with Compose
@@ -132,7 +133,10 @@ a GET whose not-match condition is false returns 304 with an empty body. Mutatio
 412 for that condition instead (local rule, SPEC-008). A nonempty bucket returns 409.
 Ordinary `alt=media` responds directly with 200, a declared deviation from the documented
 redirect flow. Metadata/media GET and DELETE accept Go SDK retry tokens without replay or
-deduplication; repeated DELETE can therefore return 404 (SPEC-013). Upload tokens return 501.
+deduplication; repeated DELETE can therefore return 404 (SPEC-013). Media/multipart
+upload tokens require `ifGenerationMatch`, including zero; without it they return
+501 before body input. A committed conditioned retry returns 412; no response replay
+is implemented. Empty/duplicate token headers return 400 `invalidParameter`.
 
 Peer-container upload, metadata, download and delete use the same media subset:
 
@@ -149,6 +153,48 @@ cmp "$work_dir/upload.txt" "$work_dir/peer-download.txt"
 docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
   --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
 ```
+
+## Upload metadata and media in one multipart request
+
+Write a `multipart/related` body with CRLF delimiters, JSON metadata first and media
+second. Metadata contentType takes precedence over the media part header locally;
+null or empty contentType falls back to that header, then `application/octet-stream`.
+Custom metadata is limited to 8192 UTF-8 key/value bytes. The media cap excludes
+framing, and each JSON part is limited to 65536 bytes.
+
+```sh
+printf 'Hello multipart.\n' > "$work_dir/multipart-media.txt"
+printf '%s\r\n' \
+  '--guide-boundary' \
+  'Content-Type: application/json; charset=UTF-8' '' \
+  '{"name":"multipart/hello.txt","contentType":"text/plain; charset=utf-8","metadata":{"team":"local","source":"multipart"}}' \
+  '--guide-boundary' 'Content-Type: application/octet-stream' '' \
+  > "$work_dir/upload.multipart"
+tee -a "$work_dir/upload.multipart" < "$work_dir/multipart-media.txt" > /dev/null
+printf '\r\n--guide-boundary--\r\n' >> "$work_dir/upload.multipart"
+curl --disable --noproxy '*' --fail \
+  -H 'Content-Type: multipart/related; boundary=guide-boundary' \
+  --data-binary @"$work_dir/upload.multipart" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=multipart&ifGenerationMatch=0" \
+  > "$work_dir/multipart.json"
+jq -e '.name == "multipart/hello.txt" and .contentType == "text/plain; charset=utf-8" and .metadata == {"team":"local","source":"multipart"}' \
+  "$work_dir/multipart.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt" \
+  > "$work_dir/multipart-get.json"
+cmp "$work_dir/multipart.json" "$work_dir/multipart-get.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt?alt=media" \
+  --output "$work_dir/multipart-download.txt"
+cmp "$work_dir/multipart-media.txt" "$work_dir/multipart-download.txt"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/multipart%2Fhello.txt"
+```
+
+An optional third JSON part may declare MD5/CRC32C; checksums, all framing and
+transport EOF must pass before publication. Wrong checksums or malformed/truncated
+containers preserve the previous object. The [contract](slices/json-object-multipart.md)
+records MIME limits and local error choices; resumable uploads still return 501.
 
 ## List objects and conditionally change metadata
 
@@ -276,8 +322,10 @@ v0.307.0. It sets `STORAGE_EMULATOR_HOST`, disables credentials, metrics, proxie
 and redirects, and confines requests to the explicit emulator. It exercises
 bucket CRUD/paging and object listing/Update/Attrs/NewReader/Delete, exact bytes/hashes, generation
 conditions, encoded names and nonempty bucket errors. The harness uploads raw media with
-its confined HTTP client because the SDK Writer uses unsupported multipart/resumable
-uploads; it verifies that Writer fails 501 without creating an object. It creates and
+its confined HTTP client. `TestObjectMultipartWriter` also verifies the high-level
+Writer with `ChunkSize=0`, fixed/custom metadata, explicit hashes, create-if-absent
+and conditioned overwrite, followed by Attrs/NewReader. Nonzero chunking beyond
+one chunk exercises resumable rejection (501 without publication). It creates and
 cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK support
 are not claimed. Ruby/Rails remains unverified.
 For an isolated native server plus vet/test, use `bash scripts/sdk-go.sh`.
@@ -406,5 +454,6 @@ ownership, disk space, another owner process and config overrides. Unknown route
 404; recognized unsupported object/bucket semantics return 501 rather than false success.
 Missing/truncated referenced blobs prevent readiness; host power loss and every individual
 fsync crash window remain unverified. See the [integration evidence](evidence/object-media.md),
-[executed list/metadata guide transcript](evidence/object-list-metadata-guide.txt) and the
+[multipart integration evidence](evidence/multipart.md),
+[executed guide transcript](evidence/multipart-guide.txt) and the
 [ledger](../../compatibility/features.json) for exact verification scope.

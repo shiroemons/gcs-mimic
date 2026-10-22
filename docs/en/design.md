@@ -4,7 +4,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media upload/metadata/download/delete with checksums and atomic generation conditions. Permissions and broader transfer modes remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. Permissions and resumable transfers remain unimplemented; no performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -18,7 +18,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, catalog opening and listener setup. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes four bucket operations, object media upload/get/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
+One application crate contains `config`, `clock`, `server`, `bucket`, `object`, `json` and `storage`; `main` owns runtime creation, signals, catalog opening and listener setup. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes four bucket operations, object media/multipart upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. No XML/gRPC success stubs are registered. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration and bucket metadata parsing.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -39,6 +39,14 @@ Bucket insert JSON is capped at 64 KiB; probe and other bucket methods reject bo
 Object media has a configurable `max_object_bytes` cap: 1 GiB by default, validated
 from 1 byte through 5 TiB via CLI/environment/JSON configuration. Known Content-Length
 overflow is rejected before reading; producer and storage also bound unknown-length streams.
+
+JSON multipart removes MIME framing in the adapter before shared bounded staging
+and atomic publication. Metadata and optional final checksum JSON each have a 64 KiB
+cap; part header blocks and delimiter suffixes have 8 KiB caps, and preamble/epilogue
+each have a 4 KiB cap. Publication waits for complete framing, checksums and transport
+EOF. Media/multipart invocation tokens require generation-match and are not replayed.
+The [multipart contract](slices/json-object-multipart.md) records precise accounting,
+advisory ordering and local choices under SPEC-013/SPEC-016.
 
 Eight uploads are admitted immediately; excess uploads fail with 503 before any advisory
 catalog check. Header validation and the known Content-Length cap check precede admission.

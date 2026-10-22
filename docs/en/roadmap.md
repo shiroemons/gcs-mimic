@@ -47,10 +47,12 @@ glob/context filters, partial response masks, token replay, gzip transcoding and
 unverified legacy metadata input and list-shape edge cases. See the
 [listing contract](slices/json-object-list.md) and [metadata contract](slices/json-object-metadata.md).
 
-The next slice is **JSON multipart upload**: it completes the next P1 transfer subset
-needed by the pinned Go Writer and later Ruby/Rails workflows before P2 public/private
-access. This follows the P1-before-P2 dependency order in the phase table; the public/private
-item below follows that transfer slice. Resumable sessions remain separate P3 work.
+The **JSON multipart upload** subset now supports bounded metadata/media containers,
+optional final checksums and the pinned Go `ChunkSize=0` Writer, including conditional
+publication and rejected-overwrite preservation. MIME/error edge parity and token replay
+remain open; see the [contract](slices/json-object-multipart.md) and
+[integration evidence](evidence/multipart.md). The next slice is **public/private access**,
+item 5 below. Resumable sessions remain separate P3 work; Ruby/Rails is unverified.
 
 1. **Bootstrap only:** initialize toolchain, server shell, config, health/readiness, ledger validator/table generator and a Docker smoke test. Decide persistence/recovery interfaces without implementing all GCS handlers.
 2. **One bucket path:** create/get/list/delete a bucket, including name/project validation, duplicate and non-empty deletion behavior, metadata identity and persistence.
@@ -59,7 +61,7 @@ item below follows that transfer slice. Resumable sessions remain separate P3 wo
 5. **Public/private slice:** anonymous access, a minimal strict principal/role model, public grants, denied requests and public URL construction.
 6. **Signed URL slice:** V4 download/upload using local signing keys, final external host, expiry/tampering and signer permission checks.
 
-The full method row `objects.insert` can remain `PARTIAL` while only media uploads work. Track multipart and resumable acceptance cases separately. Similarly, `objects.list` is not complete merely because an unfiltered first page works.
+The full method row `objects.insert` remains `PARTIAL` with media and the scoped multipart subset. Track multipart and resumable acceptance cases separately. Similarly, `objects.list` is not complete merely because an unfiltered first page works.
 
 ## Release and source maintenance
 

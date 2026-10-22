@@ -1,7 +1,13 @@
 # Go SDK harness verification: 2026-10-21
 
-The original harness-only results are retained below. The integrated emulator now passes the full
-emulator workflow with Go 1.27.3, storage v1.69.0 and API v0.306.0.
+The original harness-only results are retained below. Current pins are Go 1.27.3,
+Storage v1.69.0 and API v0.307.0. The
+[multipart integration evidence](../../docs/en/evidence/multipart.md) records the
+final full suite, including `TestObjectMultipartWriter` with `ChunkSize=0`,
+metadata/checksums, conditional create/overwrite, Attrs and JSON NewReader.
+Resumable Writer remains unsupported; upload invocation tokens require
+generation-match and have no response replay. Results and versions below are
+historical evidence rather than current coverage claims.
 
 ## Integrated execution
 
