@@ -22,7 +22,7 @@ open where real-service fidelity is unverified. Execution evidence and limits ar
 | 6 | Missing Content-Type is accepted as a local convenience and stored as `application/octet-stream`; this does not claim Google's upload-header acceptance (SPEC-011). |
 | 7 | Media includes ETag, identity stored-content-encoding, generation/metageneration, hashes and exact lengths. The rendered subset is tested, while complete production header parity remains unverified (SPEC-012). |
 | 8 | `timeFinalized` equals creation time for finalized-only objects. Local ID/ETag/link encodings and omitted unsupported resource fields remain explicit (SPEC-012). |
-| 9 | Unsupported ETag, Range/If-Range, encryption and custom metadata headers fail 501. Media/multipart upload tokens require ifGenerationMatch, including zero; without it they fail 501 before body input. No response replay exists; committed conditioned retries return 412. GET/DELETE accept tokens without deduplication; retries re-execute (SPEC-013). |
+| 9 | Unsupported ETag conditions, If-Range, encryption and custom metadata headers fail 501. Single byte ranges follow the [range contract](json-object-range.md). Media/multipart upload tokens require ifGenerationMatch, including zero; without it they fail 501 before body input. No response replay exists; committed conditioned retries return 412. GET/DELETE accept tokens without deduplication; retries re-execute (SPEC-013). |
 
 ### Official-source rationale
 
@@ -96,8 +96,9 @@ The application must stream bodies and checksums through bounded buffers to opaq
 object names never become filesystem paths. An upload is visible only after complete body,
 checksum validation, durable blob publication and an atomic catalog commit.
 
-The later [multipart](json-object-multipart.md), [listing](json-object-list.md) and
-[metadata](json-object-metadata.md) contracts extend this original media scope.
+The later [multipart](json-object-multipart.md), [listing](json-object-list.md),
+[metadata](json-object-metadata.md) and [range](json-object-range.md) contracts
+extend this original scope; supported requests supersede old rejection cases.
 Resumable sessions, version retention, soft delete, ranges, transcoding, custom
 metadata, ACL/IAM, authentication enforcement, encryption, retention/holds, notifications,
 copy/compose/rewrite, listing and metadata patch/update remain outside this slice. Known
@@ -168,7 +169,7 @@ metadata response disguised as a download; upload requests on the wrong endpoint
 | `Transfer-Encoding: chunked` | Supported bounded stream with unknown final length; full cap/checksum validation still applies |
 | `X-Goog-Hash` on insert | MD5 (16 bytes), CRC32C (4 big-endian bytes), or both in base64; validate against the complete bytes before publication |
 | `Content-MD5` on insert | No JSON support claim; reject 501 rather than silently treating it as validation (SPEC-010) |
-| `Range`, `If-Range` on media get | Reject 501; never return an unannounced full body or claim 206 support |
+| `Range`, `If-Range` on media get | Single ranges return 206/416 under the [range contract](json-object-range.md); malformed/multiple/repeated ranges use its local 200 fallback. If-Range remains 501. |
 | `If-Match`, `If-None-Match` | Reject 501 until ETag condition semantics exist; query generation conditions remain separate |
 | `Content-Encoding`, custom metadata and encryption semantic headers | Unsupported behavior fails explicitly; no accepted-but-ignored compression, key or metadata request |
 | `X-Goog-Gcs-Idempotency-Token` | Media/multipart uploads require ifGenerationMatch (including zero), otherwise 501 before body input; committed conditioned retries return 412. One nonempty header is required; empty/duplicate values return 400 invalidParameter. No replay exists. Metadata/media GET and DELETE retries execute again; repeated DELETE normally returns 404 after its first 204 (SPEC-013). |
@@ -215,7 +216,8 @@ Successful whole-media responses must describe the exact opened generation:
 | `x-goog-stored-content-length` | Exact stored byte count; no transcoding |
 | `x-goog-stored-content-encoding` | `identity` for the supported unencoded subset |
 
-No `Content-Range` or successful `Accept-Ranges: bytes` claim is made. JSON resources/errors
+The [range contract](json-object-range.md) adds `Content-Range` on 206/416 and
+`Accept-Ranges: bytes` on successful media responses. JSON resources/errors
 use `application/json; charset=UTF-8`; media must never inherit that JSON content type.
 No provider trace IDs, production caching/authorization policy or complete header parity is
 claimed. Response headers and media stream must be bound to one selected generation even
@@ -408,7 +410,7 @@ results in the feature ledger; source research and successful validation are not
 | 39 / OBJ-MEDIA-039 | Malformed escapes/UTF-8 fail; nested dot components, leading/trailing/repeated slash and backslash remain logical names, never filesystem paths | Adapter + storage |
 | 40 / OBJ-MEDIA-040 | Naming recommendations (#, wildcard/bracket/control compatibility concerns) are not invented blanket GCS prohibitions | Adapter |
 | 41 / OBJ-MEDIA-041 | Host/forwarded headers cannot alter selfLink/mediaLink; configured base path survives traversal, and mediaLink retains generation | Wire |
-| 42 / OBJ-MEDIA-042 | Multipart/resumable/Range/ETag conditions/fields/encoding/encryption/upload tokens and unsupported queries fail explicitly without body publication; GET/DELETE tokens follow SPEC-013 | Adapter + wire |
+| 42 / OBJ-MEDIA-042 | Unsupported requests fail without publication; later multipart/range contracts supersede the original rejection cases. If-Range/ETag conditions remain rejected; GET/DELETE tokens follow SPEC-013 | Adapter + wire |
 | 43 / OBJ-MEDIA-043 | softDeleted=false uses live data; true/restoreToken/versioning-dependent requests never claim historical support | Adapter + wire |
 | 44 / OBJ-MEDIA-044 | Permission omissions are documented; authenticated-looking headers and URL generation do not grant or verify IAM/ACL rights | Scope review |
 | 45 / OBJ-MEDIA-045 | Restart preserves successful object metadata and bytes/checksums/generations, with opaque names and bucket links intact | Storage recovery |
