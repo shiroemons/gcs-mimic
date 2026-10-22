@@ -69,6 +69,13 @@ The filesystem versioning limitation and missing-bucket 500 are recorded
 comparison behavior, not required gcs-mimic errors. The memory settings capability
 is the minimum baseline to preserve with durable local storage.
 
+The pinned [reference bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/bucket.go)
+has SHA-256 `73ac2fded764470f13b451d281c61089704f48e79a0234cfdf164657d443cf96`.
+`getBucketAttrsToUpdate` models only the two settings as non-pointer booleans:
+omission resets them to false. The local contract deliberately preserves omitted
+settings in both profiles. The final corpus adds an empty PATCH after enablement
+to expose this difference, plus an empty-string label value case.
+
 ## Official Go SDK wire mapping
 
 The pinned module origin metadata resolves tag `storage/v1.70.0` to the revision
@@ -116,6 +123,13 @@ no real-service differential parity is inferred from SDK serialization.
 ## Local verification status
 
 `GOTOOLCHAIN=auto go vet ./...` passes. The two new SDK tests compile and skip
-explicitly when emulator endpoints are unset. Native and legacy-profile PATCH
-integration, SDK execution and the final complete Go harness remain pending the
-core implementation. No server support is claimed from these harness checks.
+explicitly when emulator endpoints are unset. Against application source
+`406bd7185c86c27f74480d8d87ecde31a43fb6a9`, the narrow PATCH SDK runner passes
+both new tests with no skips (package time 0.474s), including strict read-only
+denial and admin success. Final complete Go execution and native/legacy-profile
+comparison await the reviewed application source.
+
+Local `updated` uses the injected clock and millisecond JSON precision. The
+tests require non-decreasing time, no time before creation, metageneration +1,
+a changed ETag and actual metadata changes. Consecutive successful updates can
+share `updated`; timestamp inequality is not used as the mutation identifier.

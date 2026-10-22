@@ -12,7 +12,7 @@ for command in curl jq go cargo tar shasum git; do
   if ! command -v "$command" >/dev/null; then echo "Missing command: $command" >&2; exit 1; fi
 done
 [[ $go_toolchain =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]]
-work=$(mktemp -d "${TMPDIR:?Set TMPDIR to a temporary directory}/gcs-mimic-compare.XXXXXX")
+work=$(mktemp -d -t gcs-mimic-compare.XXXXXX)
 pids=()
 targets=()
 origins=()
@@ -222,8 +222,10 @@ patch_bucket patch-label-remove '{"labels":{"remove":null}}'
 patch_bucket patch-label-empty '{"labels":{}}'
 patch_bucket patch-label-null '{"labels":null}'
 patch_bucket patch-label-restore '{"labels":{"keep":"one"}}'
+patch_bucket patch-label-empty-value '{"labels":{"empty":""}}'
 patch_bucket patch-storage-class '{"storageClass":"NEARLINE"}'
 patch_bucket patch-settings-enable '{"versioning":{"enabled":true},"defaultEventBasedHold":true}'
+patch_bucket patch-settings-omitted '{}'
 patch_bucket patch-settings-disable '{"versioning":{"enabled":false},"defaultEventBasedHold":false}'
 patch_bucket patch-hold-enable '{"defaultEventBasedHold":true}'
 patch_bucket patch-hold-disable '{"defaultEventBasedHold":false}'
@@ -247,7 +249,7 @@ patch_bucket patch-notmatch-failure '{"labels":{"condition":"denied"}}' '?ifMeta
 jq -es '
   [.[] | select(.target | startswith("reference-"))] as $rows
   | [$rows[] | select(.request.method == "PATCH")] as $patches
-  | ($patches | length == 54)
+  | ($patches | length == 58)
     and all($patches[];
       .status == (if .case == "patch-malformed" then 400
         elif .case == "patch-missing" then (if .target == "reference-filesystem" then 500 else 404 end)
@@ -260,12 +262,74 @@ jq -es '
       (.body | fromjson) as $body
       | $body.versioning.enabled == (.target == "reference-memory")
         and $body.defaultEventBasedHold == (.target == "reference-memory"))
+    and all($rows[] | select(.case == "patch-settings-omitted-get-state") | .body | fromjson;
+      .versioning.enabled == false and .defaultEventBasedHold == false)
     and all($rows[] | select(.case == "patch-hold-enable-get-state") | .body | fromjson;
       .defaultEventBasedHold == true)
     and all($rows[] | select(.case == "patch-hold-disable-get-state") | .body | fromjson;
       .defaultEventBasedHold == false)
 ' "$work/results.jsonl" >/dev/null
 echo 'PATCH-ASSERT reference status, ignored fields, settings and revision behavior: PASS'
+
+if [[ $reference_only == 0 ]]; then
+  jq -es '
+    def resource($rows; $case): $rows[$case].body | fromjson;
+    [group_by(.target)[] | select(.[0].target | startswith("mimic-"))] as $targets
+    | ($targets | length == 2) and all($targets[];
+      (map({key:.case,value:.}) | from_entries) as $rows
+      | [.[] | select(.request.method == "PATCH")] as $patches
+      | ($patches | length == 29)
+        and all($patches[];
+          .status == (if .case == "patch-malformed" then 400
+            elif .case == "patch-missing" then 404
+            elif (.case | startswith("patch-unsupported-")) or .case == "patch-predefined-acl"
+              or .case == "patch-predefined-default-acl" or .case == "patch-user-project" then 501
+            elif .case == "patch-match-stale" or .case == "patch-notmatch-failure" then 412
+            else 200 end))
+        and (resource($rows; "patch-label-add").labels == {keep:"one",remove:"two"})
+        and (resource($rows; "patch-label-merge").labels == {keep:"one",remove:"two",add:"three"})
+        and (resource($rows; "patch-label-remove").labels == {keep:"one",add:"three"})
+        and (resource($rows; "patch-label-empty").labels == {keep:"one",add:"three"})
+        and ((resource($rows; "patch-label-null").labels // {}) == {})
+        and (resource($rows; "patch-label-empty-value").labels == {keep:"one",empty:""})
+        and (resource($rows; "patch-storage-class").storageClass == "NEARLINE")
+        and all(["patch-settings-enable","patch-settings-omitted"][];
+          resource($rows; .) | .versioning.enabled == true and .defaultEventBasedHold == true)
+        and all(["patch-settings-disable","patch-hold-disable"][];
+          resource($rows; .) | (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false)
+        and (resource($rows; "patch-hold-enable").defaultEventBasedHold == true)
+        and (resource($rows; "patch-notmatch-failure-get-state").labels == {condition:"notmatch"})
+        and (reduce $patches[] as $patch (
+          {ok:true, previous:{
+            "compare-patch":resource($rows; "patch-create"),
+            "compare-patch-conditions":resource($rows; "patch-conditions-create")}};
+          ($patch.request.path | split("?")[0] | split("/")[-1]) as $name
+          | resource($rows; $patch.case + "-get-state") as $after
+          | .previous[$name] as $before
+          | if $name == "compare-patch-missing" then
+              .ok = (.ok and $rows[$patch.case + "-get-state"].status == 404)
+            else
+              .ok = (.ok and
+                (resource($rows; $patch.case + "-list-state").items | map(select(.name == $name))) == [$after]
+                and (if $patch.status == 200 then
+                  ($patch.request.body | fromjson) as $input
+                  | ($patch.body | fromjson) == $after
+                  and ($after.metageneration | tonumber) == (($before.metageneration | tonumber) + 1)
+                  and $after.updated >= $before.updated and $after.updated >= $after.timeCreated and $after.etag != $before.etag
+                  and $after.timeCreated == $before.timeCreated and $after.name == $before.name
+                  and $after.location == $before.location and $after.projectNumber == $before.projectNumber
+                  and $after.storageClass == ($input.storageClass // $before.storageClass)
+                  and (if $input | has("labels") then true else ($after.labels // {}) == ($before.labels // {}) end)
+                  and (($after.versioning.enabled // false) ==
+                    (if $input | has("versioning") then $input.versioning.enabled else ($before.versioning.enabled // false) end))
+                  and (($after.defaultEventBasedHold // false) ==
+                    (if $input | has("defaultEventBasedHold") then $input.defaultEventBasedHold else ($before.defaultEventBasedHold // false) end))
+                else $after == $before end))
+              | .previous[$name] = $after
+            end) | .ok))
+  ' "$work/results.jsonl" >/dev/null
+  echo 'PATCH-ASSERT mimic profiles status, merge/removal, settings, revision and failure preservation: PASS'
+fi
 
 echo
 echo 'Comparison table (HTTP statuses; equality includes selected headers and normalized bodies):'

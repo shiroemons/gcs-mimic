@@ -101,7 +101,7 @@ func TestBucketMetadataUpdate(t *testing.T) {
 func requireBucketUpdate(t *testing.T, ctx context.Context, bucket *storage.BucketHandle, before, updated *storage.BucketAttrs) {
 	t.Helper()
 	if updated.MetaGeneration != before.MetaGeneration+1 || updated.Etag == before.Etag ||
-		!updated.Updated.After(before.Updated) || updated.Name != before.Name ||
+		updated.Updated.Before(before.Updated) || updated.Updated.Before(updated.Created) || updated.Name != before.Name ||
 		!updated.Created.Equal(before.Created) || updated.Location != before.Location {
 		t.Fatalf("bucket identity/revision transition: before=%+v after=%+v", before, updated)
 	}

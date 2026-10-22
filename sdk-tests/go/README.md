@@ -78,7 +78,7 @@ individual keys (including delete-only and absent-key updates), change the
 default storage class and enable/disable versioning and default event-based
 holds. Both metageneration match and not-match have successful and 412 cases;
 failures preserve metadata. Every successful response must advance
-metageneration, update time and ETag, preserve identity/creation time/location,
+metageneration, change ETag, keep update time non-decreasing, preserve identity/creation time/location,
 and agree with a subsequent `Attrs` call. The strict companion grants
 `roles/storage.legacyBucketReader` to a bucket-only principal, verifies readable
 Attrs and denied Update (403), then verifies admin Update and unchanged object

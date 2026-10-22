@@ -14,9 +14,18 @@ The slice-start `cargo xtask dependencies check` exited 0: Go 1.27.3,
 Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0 are CURRENT. No module or
 lockfile changes were made. `GOTOOLCHAIN=auto go vet ./...` passed and the two
 new tests compile and explicitly skip with emulator endpoints unset.
-Server integration is pending the core PATCH implementation; compile/skip
-checks do not establish API support. The [comparison evidence](../../docs/en/evidence/bucket-metadata-patch-comparison.md)
+Against application source `406bd7185c86c27f74480d8d87ecde31a43fb6a9`, the narrow
+PATCH runner passed vet and both new tests with no skips (package time 0.474s).
+The final full Go harness and four-target comparison await the reviewed source.
+The [comparison evidence](../../docs/en/evidence/bucket-metadata-patch-comparison.md)
 records exact serializer mappings and the executed pinned reference corpus.
+
+`updated` uses the injected clock and JSON millisecond precision. Consecutive
+updates can share a timestamp; tests require it to be non-decreasing and not
+before creation time. A successful mutation is established independently by
+metageneration increasing exactly once, a changed ETag, the requested metadata
+change and agreement with subsequent Attrs. Failed conditions and denied
+permissions must preserve the entire checked metadata revision.
 
 ## Resumable Writer contract tests: 2026-10-22
 
