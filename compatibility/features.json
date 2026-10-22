@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "as_of": "2026-10-21",
+  "as_of": "2026-10-22",
   "project_name": "gcs-mimic",
   "scope": "Dated public Cloud Storage contract baseline and emulator project requirements.",
   "counting_rules": [
@@ -363,16 +363,11 @@
           "docs/en/evidence/resumable-upload-freshness.txt",
           "docs/en/evidence/resumable-upload-dependencies.txt"
         ]
-      }
-    ],
-    "next_deliverables": [
+      },
       {
         "id": "bucket-core-parity",
-        "order": 5,
-        "title": "Deliver bucket create, get and delete in bounded steps",
-        "depends_on": [
-          "json-bucket-crud"
-        ],
+        "title": "Bucket create, get and delete with versioning and default holds",
+        "scope": "Delivered order 5 on 2026-10-22: all seven original completion conditions are mapped to executed results in docs/en/evidence/bucket-core-parity.md. Native and explicit compatibility profiles preserve strict authorization; API-created settings drive retained versions and actual holds. Both pinned reference backends and local profiles execute the same wire corpus. Intentional/strict/unsupported differences remain explicit rather than whole-method source/Google parity. Broad bucket, versioning and hold rows remain PARTIAL; metadata PATCH is next. Full replacement/import/embedding/gRPC and provider wire questions remain visibly open outside this bounded gate.",
         "feature_ids": [
           "JSON-BUCKETS-001",
           "JSON-BUCKETS-002",
@@ -380,17 +375,27 @@
           "BEHAVIOR-BUCKET-012",
           "BEHAVIOR-OBJECT-029"
         ],
-        "completion_conditions": [
-          "Start with only the create-by-name contract: pin the affected sources at reference release v1.56.1 commit 896ece51e49eed0946089f3089f6343855c0d106, reconcile current official Google sources and affected gaps, and define name-only request parsing, naming, project query behavior, duplicate creation, response fields, authorization, errors and state changes. Resolve conflicts for this operation in an explicit compatibility profile while preserving native/strict behavior; permissive authentication is not compatibility.",
-          "Implement and verify name-only creation immediately after that scoped contract is fixed, including source-valid/native-rejected names, omitted project, malformed requests, duplicates, failed-request state preservation and restart persistence. GET/delete contract research, versioning/hold implementation and the complete migration inventory are not prerequisites for starting or delivering this bounded slice; keep broader feature rows PARTIAL.",
-          "Next, reconcile and implement basic-resource GET, including missing buckets, authorization and source resource fields/defaults such as location/class, project number, metageneration, ETag, timestamps and links. Compare the creation response with GET, and record pending configuration fields without claiming them supported.",
-          "Then reconcile and implement empty-bucket deletion, including success status/body, unknown/nonempty buckets, repeat deletion and delete/recreate. Use existing object-media behavior to verify rejected nonempty deletion preserves every object; its contract research does not block name-only creation.",
-          "Before closing the three-operation baseline, deliver source versioning and defaultEventBasedHold configuration/results and relevant effects as separate small slices, reconciling only their affected contracts and interactions. Accepted-but-ignored settings or stored metadata alone cannot close a capability; these effects are completion requirements, not prerequisites for starting name-only creation.",
-          "Complete equivalent source/destination wire and pinned official SDK workflows for all three operations and their supported options. Review both source backends for these operations and record their differences; normalize only documented nondeterminism, never missing fields or errors. Record per-slice results as work proceeds rather than waiting for the full gate to begin implementation.",
-          "Close source-baseline gaps before marking these rows source-equivalent. Record raw results and remaining differences, preserve broader Google cases and fidelity, and keep the feature rows PARTIAL until their own full completion rules pass. The migration contract records detailed source pins and observed gaps."
+        "acceptance_case_refs": [
+          "JSON-BUCKETS-005/BUCKET-PROFILE-CREATE",
+          "JSON-BUCKETS-002/BUCKET-PROFILE-RESOURCE",
+          "JSON-BUCKETS-001/BUCKET-PROFILE-DELETE",
+          "JSON-BUCKETS-001/BUCKET-HISTORY-NONEMPTY",
+          "BEHAVIOR-OBJECT-029/HTTP-BUCKET-SETTINGS",
+          "BEHAVIOR-BUCKET-012/HTTP-BUCKET-SETTINGS"
         ],
-        "deferred_scope": "The complete source-contract-baseline inventory is required by replacement-validation, not by this bucket deliverable or its first creation slice. Other source API routes, Go embedding, native memory-backend delivery, import/export, legacy gRPC and infrastructure features retain their migration-track slices and remain mandatory for the full functional-superset target. This bucket gate does not redefine the product target as only three methods."
-      },
+        "evidence": [
+          "docs/en/evidence/bucket-core-parity.md",
+          "docs/en/evidence/bucket-core-comparison.md",
+          "docs/en/evidence/bucket-core-comparison.txt",
+          "docs/en/evidence/bucket-core-parity-checks.txt",
+          "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "docs/en/evidence/bucket-core-parity-containers.txt",
+          "docs/en/evidence/bucket-core-parity-guide.txt",
+          "docs/en/evidence/bucket-core-parity-dependencies.txt"
+        ]
+      }
+    ],
+    "next_deliverables": [
       {
         "id": "bucket-metadata-patch",
         "order": 6,
@@ -1643,9 +1648,9 @@
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Empty deletion and atomic metageneration checks now include real nonempty live-object protection. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "Empty deletion and atomic metageneration checks now include real nonempty live-object protection. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -1712,6 +1717,25 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "BUCKET-PROFILE-DELETE",
+          "description": "Profile empty/missing/repeat responses, recreate and denied nonempty deletion preserve every object.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_core_missing_and_delete_recreate",
+            "bucket_core_nonempty_delete_preserves_objects",
+            "bucket_core_strict_permissions"
+          ]
+        },
+        {
+          "id": "BUCKET-HISTORY-NONEMPTY",
+          "description": "Both profiles protect history-only buckets and allow deletion after permanent cleanup.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_api_settings_drive_versioning_and_hold_effects",
+            "disabled_versioning_preserves_history_and_bucket_nonempty"
+          ]
         }
       ],
       "test_ids": [
@@ -1724,7 +1748,15 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "bucket_core_missing_and_delete_recreate",
+        "bucket_core_nonempty_delete_preserves_objects",
+        "bucket_core_strict_permissions",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "disabled_versioning_preserves_history_and_bucket_nonempty",
+        "TestBucketLifecycle",
+        "TestObjectMediaLifecycle",
+        "TestObjectVersioning"
       ],
       "verification": [
         {
@@ -1769,6 +1801,30 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_core_missing_and_delete_recreate",
+            "bucket_core_nonempty_delete_preserves_objects",
+            "bucket_core_strict_permissions",
+            "bucket_api_settings_drive_versioning_and_hold_effects",
+            "disabled_versioning_preserves_history_and_bucket_nonempty"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestObjectMediaLifecycle",
+            "TestObjectVersioning"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1786,11 +1842,29 @@
           "test_ids": [
             "TestBucketLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestObjectMediaLifecycle",
+            "TestObjectVersioning"
+          ]
         }
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.delete through project-plus-bucket predefined roles; broader bucket policies, ACLs and soft-delete/retention are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
-        "DELETE not-match failure uses the local 412 rule; exact Google precedence remains unverified."
+        "DELETE not-match failure uses the local 412 rule; exact Google precedence remains unverified.",
+        "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
       "last_verified": "2026-10-22",
@@ -1831,9 +1905,9 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -1882,6 +1956,34 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "BUCKET-PROFILE-RESOURCE",
+          "description": "Create/GET consistency, profile defaults/framing, booleans, restart and migration.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_core_create_get_defaults",
+            "bucket_core_settings_round_trip",
+            "bucket_core_restart_settings",
+            "bucket_core_profile_lookup_names_and_json_framing",
+            "bucket_core_migrates_v7_settings"
+          ]
+        },
+        {
+          "id": "BUCKET-PROFILE-NAMES",
+          "description": "Source-only names work on object/session/XML routes; native rejects without removing persisted data.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_profile_names_support_object_and_xml_routes"
+          ]
+        },
+        {
+          "id": "PROFILE-NAME-AND-LIST-BOUNDS",
+          "description": "Creation/lookup length bounds remain consistent; source-only page cursors and active-profile GET/list resource defaults stay usable after native restart.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_profile_paging_preserves_names_and_resource_defaults"
+          ]
         }
       ],
       "test_ids": [
@@ -1891,7 +1993,16 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "bucket_core_create_get_defaults",
+        "bucket_core_settings_round_trip",
+        "bucket_core_restart_settings",
+        "bucket_core_profile_lookup_names_and_json_framing",
+        "bucket_core_migrates_v7_settings",
+        "bucket_profile_names_support_object_and_xml_routes",
+        "TestBucketLifecycle",
+        "TestBucketSettingsRoundTrip",
+        "bucket_profile_paging_preserves_names_and_resource_defaults"
       ],
       "verification": [
         {
@@ -1924,6 +2035,39 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_core_create_get_defaults",
+            "bucket_core_settings_round_trip",
+            "bucket_core_restart_settings",
+            "bucket_core_profile_lookup_names_and_json_framing",
+            "bucket_core_migrates_v7_settings",
+            "bucket_profile_names_support_object_and_xml_routes"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_profile_paging_preserves_names_and_resource_defaults"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -1941,13 +2085,31 @@
           "test_ids": [
             "TestBucketLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip"
+          ]
         }
       ],
       "known_deviations": [
         "Strict mode enforces storage.buckets.get through project-plus-bucket predefined roles; broader bucket policies and ACL/ownership are not enforced, and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket 404/403 rule.",
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
-        "Recognized unsupported field selection/generation/billing semantics return 501."
+        "Recognized unsupported field selection/generation/billing semantics return 501.",
+        "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
+        "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
       "last_verified": "2026-10-22",
@@ -2298,9 +2460,9 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably.",
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -2356,6 +2518,38 @@
           "test_ids": [
             "bkt_ins_002_output_only_fields_do_not_override_server_state"
           ]
+        },
+        {
+          "id": "BUCKET-PROFILE-CREATE",
+          "description": "Source naming/omitted project, settings and invalid input preserve state; strict protection never weakens.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_core_project_and_names",
+            "bucket_core_invalid_requests_preserve_state",
+            "bucket_core_source_input_shape",
+            "bucket_core_unsupported_settings_preserve_state",
+            "bucket_core_strict_protection_settings_never_create_an_unprotected_bucket",
+            "bucket_core_settings_round_trip",
+            "bucket_core_restart_settings",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "id": "BUCKET-PROFILE-CONFIG",
+          "description": "CLI/environment/file/default profile selection preserves strict authentication and native naming.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::compat_profile_precedence_and_validation",
+            "bucket_profile_names_support_object_and_xml_routes"
+          ]
+        },
+        {
+          "id": "PROFILE-NAME-AND-LIST-BOUNDS",
+          "description": "Creation/lookup length bounds remain consistent; source-only page cursors and active-profile GET/list resource defaults stay usable after native restart.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_profile_name_bound_keeps_created_buckets_reachable"
+          ]
         }
       ],
       "test_ids": [
@@ -2366,7 +2560,20 @@
         "bkt_ins_002_output_only_fields_do_not_override_server_state",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "bucket_core_project_and_names",
+        "bucket_core_invalid_requests_preserve_state",
+        "bucket_core_source_input_shape",
+        "bucket_core_unsupported_settings_preserve_state",
+        "bucket_core_strict_protection_settings_never_create_an_unprotected_bucket",
+        "bucket_core_settings_round_trip",
+        "bucket_core_restart_settings",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "config::tests::compat_profile_precedence_and_validation",
+        "bucket_profile_names_support_object_and_xml_routes",
+        "TestBucketLifecycle",
+        "TestBucketSettingsRoundTrip",
+        "bucket_profile_name_bound_keeps_created_buckets_reachable"
       ],
       "verification": [
         {
@@ -2392,6 +2599,43 @@
             "auth_http_project_roles_gate_each_route",
             "auth_http_admin_full_crud_and_restart_with_same_registry"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_core_project_and_names",
+            "bucket_core_invalid_requests_preserve_state",
+            "bucket_core_source_input_shape",
+            "bucket_core_unsupported_settings_preserve_state",
+            "bucket_core_strict_protection_settings_never_create_an_unprotected_bucket",
+            "bucket_core_settings_round_trip",
+            "bucket_core_restart_settings",
+            "bucket_api_settings_drive_versioning_and_hold_effects",
+            "config::tests::compat_profile_precedence_and_validation",
+            "bucket_profile_names_support_object_and_xml_routes"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_profile_name_bound_keeps_created_buckets_reachable"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -2409,6 +2653,22 @@
           "test_ids": [
             "TestBucketLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip"
+          ]
         }
       ],
       "known_deviations": [
@@ -2417,10 +2677,12 @@
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
         "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
-        "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults."
+        "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults.",
+        "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
+        "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "POST",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -2466,9 +2728,9 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens.",
+      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -2516,6 +2778,15 @@
           "description": "Enforce IAM policies beyond project-level predefined roles, complete full projection, soft-deleted listing and regional partial failures.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "PROFILE-CARRY-OVER-PAGING",
+          "description": "Pages cross source-only names in both profiles after restart without native-name rejection; profile list resources equal profile GET; created names remain reachable within the 666-byte bound.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_profile_paging_preserves_names_and_resource_defaults",
+            "bucket_profile_name_bound_keeps_created_buckets_reachable"
+          ]
         }
       ],
       "test_ids": [
@@ -2524,7 +2795,9 @@
         "bkt_lst_002_token_tampering_and_invalid_shapes",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
         "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry"
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "bucket_profile_paging_preserves_names_and_resource_defaults",
+        "bucket_profile_name_bound_keeps_created_buckets_reachable"
       ],
       "verification": [
         {
@@ -2547,6 +2820,16 @@
             "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
             "auth_http_project_roles_gate_each_route",
             "auth_http_admin_full_crud_and_restart_with_same_registry"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "bucket_profile_paging_preserves_names_and_resource_defaults",
+            "bucket_profile_name_bound_keeps_created_buckets_reachable"
           ]
         }
       ],
@@ -2574,7 +2857,7 @@
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
-      "last_verified": "2026-10-21",
+      "last_verified": "2026-10-22",
       "http_method": "GET",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -4872,9 +5155,9 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON live-object DELETE supports generation selection, all four atomic conditions and empty 204; repeated deletion is 404. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "JSON live-object DELETE supports generation selection, all four atomic conditions and empty 204; repeated deletion is 404. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4913,7 +5196,7 @@
         },
         {
           "id": "JSON-OBJECTS-004-PENDING",
-          "description": "Implement broader bucket policy semantics, object IAM/ACLs, retention/holds/versioning/soft-delete, userProject and production token replay; unconditional bucket grants now pass.",
+          "description": "Implement broader bucket policies, object IAM/ACLs, retention/temporary holds/soft delete, remaining provider versioning/hold interactions, userProject and production token replay; local versioning/event holds and unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -4934,6 +5217,16 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_delete_and_permanent_generation_delete",
+            "held_objects_reject_delete_and_replacement",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
         }
       ],
       "test_ids": [
@@ -4950,7 +5243,12 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "versioned_delete_and_permanent_generation_delete",
+        "held_objects_reject_delete_and_replacement",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "TestObjectVersioning",
+        "TestObjectEventBasedHold"
       ],
       "verification": [
         {
@@ -5007,6 +5305,27 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_delete_and_permanent_generation_delete",
+            "held_objects_reject_delete_and_replacement",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5024,13 +5343,30 @@
           "test_ids": [
             "TestObjectMediaLifecycle"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "known_deviations": [
-        "Strict mode enforces storage.objects.delete through project-plus-bucket predefined roles; broader bucket policies and object IAM policies and ACLs are not enforced and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule. No retention, hold, version-history or soft-delete semantics.",
+        "Strict mode enforces storage.objects.delete through project-plus-bucket predefined roles; broader bucket policies and object IAM policies and ACLs are not enforced and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule. No retention, temporary-hold or soft-delete semantics; event holds and retained history are enforced.",
         "SPEC-008: mutation not-match returns 412 and mixed/missing condition precedence is a local rule.",
         "SPEC-013: GET/DELETE tokens are accepted without replay; same-token repeated DELETE returns 404 after 204.",
-        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
+        "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
+        "SPEC-VERSION-DELETE-CONDITIONS keeps selected-generation condition interpretation unverified against the provider."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
       "last_verified": "2026-10-22",
@@ -5089,7 +5425,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "JSON metadata, whole-media and single-range GET support live-generation selection and query conditions; selfLink addresses the current object and mediaLink pins a generation. Range scope: docs/en/slices/json-object-range.md. If-Range/transcoding and exact fallback/header parity remain open. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -5142,7 +5478,7 @@
         },
         {
           "id": "JSON-OBJECTS-005-PENDING",
-          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, version/soft-delete selection, broader bucket policies, object IAM/ACLs, download redirect/header parity and token replay; resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
+          "description": "Implement If-Range, transcoding, ETag conditions, fields/full ACL projection, soft-delete selection and remaining provider version interactions, broader policies, object IAM/ACLs, redirect/header parity and replay; retained-generation reads pass. Resolve SPEC-RANGE-FALLBACK and SPEC-RANGE-VALIDATORS.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5162,6 +5498,16 @@
             "iam::iam_bucket_grants_cover_existing_routes",
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_delete_and_permanent_generation_delete",
+            "bucket_profile_names_support_object_and_xml_routes"
           ]
         }
       ],
@@ -5187,7 +5533,11 @@
         "TestStrictAuthRejectsMissingAndInvalidCredentials",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "versioned_overwrite_and_generation_reads",
+        "versioned_delete_and_permanent_generation_delete",
+        "bucket_profile_names_support_object_and_xml_routes",
+        "TestObjectVersioning"
       ],
       "verification": [
         {
@@ -5259,6 +5609,26 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_delete_and_permanent_generation_delete",
+            "bucket_profile_names_support_object_and_xml_routes"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5292,12 +5662,27 @@
             "TestStrictAuthObjectViewer",
             "TestStrictAuthRejectsMissingAndInvalidCredentials"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-009: ordinary alt=media returns direct 200; no production redirect flow.",
         "SPEC-008/011/012: local condition precedence, missing upload MIME convenience, opaque ID/ETag/link choices and incomplete independent JSON header parity.",
-        "Single untranscoded JSON byte ranges work. If-Range, transcoding, ETag conditions, fields and userProject remain unsupported; full omits ACL/owner; no historical versions. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
+        "Single untranscoded JSON byte ranges work. If-Range, transcoding, ETag conditions, fields and userProject remain unsupported; full omits ACL/owner; retained historical versions now work. SPEC-RANGE-FALLBACK, SPEC-RANGE-VALIDATORS and SPEC-012 retain fallback, empty-suffix, validator and partial-header questions.",
         "Strict mode enforces storage.objects.get through project-plus-bucket predefined roles; allUsers and allAuthenticatedUsers bucket grants are enforced; broader bucket policies, object IAM policies and ACLs remain unsupported and permissive mode (default) checks nothing. SPEC-017 records local authentication error details and the missing-bucket rule.",
         "SPEC-013: accepted GET/DELETE retry tokens execute again without response replay.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
@@ -5423,7 +5808,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence.",
+      "notes": "Media, bounded multipart and JSON resumable initiation/chunk/status/cancel/expiry/finalization subsets pass with MD5/CRC32C, custom metadata, atomic conditions, persistent Object resources and bounded disk-backed sessions. Strict local grants, capability delegation and transaction-time revocation are verified. Scope: docs/en/slices/json-object-media.md, docs/en/slices/json-object-multipart.md and docs/en/slices/resumable-upload.md; final evidence: docs/en/evidence/resumable-upload.md. Full method fields/common parameters, IAM/ACL, encryption/transcoding, Discovery alias and invocation-token replay remain incomplete; retain all prior media/multipart/IAM evidence. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -5640,6 +6025,17 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes",
+            "versioned_overwrite_and_generation_reads",
+            "bucket_profile_names_support_object_and_xml_routes",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
         }
       ],
       "test_ids": [
@@ -5711,7 +6107,13 @@
         "sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion",
         "unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix",
         "strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline",
-        "TestObjectResumableWriter"
+        "TestObjectResumableWriter",
+        "default_hold_applies_to_all_upload_modes",
+        "versioned_overwrite_and_generation_reads",
+        "bucket_profile_names_support_object_and_xml_routes",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "TestObjectVersioning",
+        "TestObjectEventBasedHold"
       ],
       "verification": [
         {
@@ -5868,6 +6270,28 @@
           "test_ids": [
             "TestObjectResumableWriter"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes",
+            "versioned_overwrite_and_generation_reads",
+            "bucket_profile_names_support_object_and_xml_routes",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5931,6 +6355,22 @@
           "artifact": "docs/en/evidence/resumable-upload-sdk-go.txt",
           "test_ids": [
             "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
           ]
         }
       ],
@@ -6026,7 +6466,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md. Integrated v4 metadata parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "Live JSON listing supports prefix, arbitrary delimiter, binary offsets, bounded keyset paging, trailing markers and existing object-resource projections. Scope/acceptance: docs/en/slices/json-object-list.md; execution: docs/en/evidence/object-list.md. Integrated v4 metadata parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -6101,7 +6541,7 @@
         },
         {
           "id": "OBJECT-LIST-PENDING",
-          "description": "Add broader bucket policies, object IAM/ACLs, history/soft-delete/folders, nonempty glob/context filters, field selection/billing and direct evidence for unresolved paging/shape edges; unconditional bucket grants now pass.",
+          "description": "Add broader policies, object IAM/ACLs, soft-delete/folders and remaining provider history interactions, nonempty glob/context filters, fields/billing and direct paging/shape evidence; retained-version paging and unconditional bucket grants now pass.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -6113,6 +6553,15 @@
             "iam::iam_bucket_grants_cover_existing_routes",
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_listing_pages_and_query_boundaries",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
           ]
         }
       ],
@@ -6131,7 +6580,10 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "versioned_listing_pages_and_query_boundaries",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "TestObjectVersioning"
       ],
       "verification": [
         {
@@ -6197,6 +6649,25 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_listing_pages_and_query_boundaries",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -6229,12 +6700,27 @@
           "test_ids": [
             "TestObjectList"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
         }
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-plus-bucket predefined roles; broader bucket policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
-        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "versions=true supports retained history; softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, all fields/userProject and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
       "implemented_in": "41c2490",
@@ -6411,7 +6897,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "PATCH merges the five supported fixed metadata fields and custom map keys; null deletes keys/fields, final UTF-8 custom metadata is bounded to 8 KiB, conditions are atomic and persisted v4 metadata is reflected by resource JSON/media headers. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -6462,6 +6948,15 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
         }
       ],
       "test_ids": [
@@ -6477,7 +6972,10 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "event_hold_metadata_release_and_restart",
+        "event_hold_permissions_and_invalid_input",
+        "TestObjectEventBasedHold"
       ],
       "verification": [
         {
@@ -6531,6 +7029,25 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -6563,11 +7080,27 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22",
@@ -6937,7 +7470,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged.",
+      "notes": "PUT replaces the five supported fixed metadata fields and custom map, clears omitted fields, accepts identical GET resource output fields atomically, preserves generation/blob/checksums and increments metageneration. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Integrated list parity, full checks and executed guide: docs/en/evidence/object-list-metadata.md. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -6988,6 +7521,15 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
         }
       ],
       "test_ids": [
@@ -7003,7 +7545,9 @@
         "auth_http_admin_full_crud_and_restart_with_same_registry",
         "iam::iam_bucket_grants_cover_existing_routes",
         "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "event_hold_metadata_release_and_restart",
+        "event_hold_permissions_and_invalid_input"
       ],
       "verification": [
         {
@@ -7057,6 +7601,16 @@
             "iam::iam_bucket_grants_authorize_only_the_target_bucket",
             "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -7093,7 +7647,8 @@
       ],
       "known_deviations": [
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
-        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
+        "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md).",
+        "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported."
       ],
       "implemented_in": "074d39a93ea79a6a0d02b490a46c11cf1df39ca2",
       "last_verified": "2026-10-22",
@@ -10505,26 +11060,127 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Apply defaultEventBasedHold to new objects and check subsequent release behavior.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Create-time default hold has actual publication/protected-mutation effects; explicit false overrides and selected release pass. Changed defaults are tested at the catalog boundary; bucket PATCH/PUT is pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md.",
+      "dependencies": [
+        "JSON-BUCKETS-005",
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-010",
+        "JSON-OBJECTS-015"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DEFAULT-ALL-UPLOADS",
+          "description": "Media/multipart/resumable inherit current default; explicit false overrides and changed defaults preserve older objects.",
+          "result": "PASS",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes"
+          ]
+        },
+        {
+          "id": "PROTECTED-MUTATIONS",
+          "description": "Held live/history reject overwrite/delete and preserve bytes/identity, including finalization races.",
+          "result": "PASS",
+          "test_ids": [
+            "held_objects_reject_delete_and_replacement"
+          ]
+        },
+        {
+          "id": "RELEASE-AND-RESTART",
+          "description": "Selected-generation PATCH/PUT release increments metageneration atomically, preserves bytes and survives restart.",
+          "result": "PASS",
+          "test_ids": [
+            "event_hold_metadata_release_and_restart"
+          ]
+        },
+        {
+          "id": "STRICT-AND-INPUT",
+          "description": "Invalid/null/unsupported hold input and unauthorized mutations fail without publication.",
+          "result": "PASS",
+          "test_ids": [
+            "event_hold_permissions_and_invalid_input"
+          ]
+        },
+        {
+          "id": "HTTP-BUCKET-SETTINGS",
+          "description": "HTTP bucket creation with both settings drives hold inheritance/rejection/release and history in both profiles.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "id": "PROVIDER-AND-DEFAULT-UPDATES",
+          "description": "Bucket PATCH/PUT default updates and full provider omission/null/PUT/propagation/error parity remain pending; API dependencies remain PARTIAL.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_hold_applies_to_all_upload_modes",
+        "held_objects_reject_delete_and_replacement",
+        "event_hold_metadata_release_and_restart",
+        "event_hold_permissions_and_invalid_input",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "TestObjectEventBasedHold"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes",
+            "held_objects_reject_delete_and_replacement",
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported.",
+        "Bucket metadata PATCH/PUT cannot change defaults yet; required APIs remain PARTIAL. Pinned Go high-level Create omits DefaultEventBasedHold, so official JSON Buckets.Insert creates enabled defaults before high-level SDK effects."
+      ],
+      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-BUCKET-013",
@@ -11041,7 +11697,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Metadata updates preserve generation/content identity, increment metageneration once and set updated using the injected clock; selected live-generation checks and v1/v3-to-v4 migration persist across restart. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md.",
+      "notes": "Metadata updates preserve generation/content identity, increment metageneration once and set updated using the injected clock; selected live-generation checks and v1/v3-to-v4 migration persist across restart. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Applicable retained generations, versions listing and eventBasedHold now pass; docs/en/slices/bucket-versioning-holds.md and docs/en/evidence/bucket-core-parity.md. Broader pending scope is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11111,6 +11767,16 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "id": "VERSIONING-AND-EVENT-HOLD",
+          "description": "Applicable selected-generation/history/event-hold behavior passes for this operation; full provider semantics remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_delete_and_permanent_generation_delete",
+            "event_hold_metadata_release_and_restart"
+          ]
         }
       ],
       "test_ids": [
@@ -11129,7 +11795,12 @@
         "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "versioned_overwrite_and_generation_reads",
+        "versioned_delete_and_permanent_generation_delete",
+        "event_hold_metadata_release_and_restart",
+        "TestObjectVersioning",
+        "TestObjectEventBasedHold"
       ],
       "verification": [
         {
@@ -11163,6 +11834,27 @@
             "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
             "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_delete_and_permanent_generation_delete",
+            "event_hold_metadata_release_and_restart"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -11180,13 +11872,29 @@
           "test_ids": [
             "TestObjectMetadataUpdate"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning",
+            "TestObjectEventBasedHold"
+          ]
         }
       ],
       "known_deviations": [
         "Allocator/ETag/time formatting are local representations; no global Google generation ordering promise.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Generation nonreuse applies to identities allocated by v3 from an empty object catalog; intermediate unreleased v3 catalogs remain accepted.",
-        "Only one live generation is retained; historical versions and soft delete remain unavailable.",
+        "One live and retained noncurrent generations are supported; soft delete remains unavailable.",
         "SPEC-015: identical server-managed input values are accepted; changed/unmodeled output, unknown input, empty custom keys and non-ASCII fixed metadata values conservatively return 501 pending legacy JSON service evidence. ACL/IAM and advanced writable fields remain unsupported.",
         "SPEC-015/SPEC-013: SDK invocation tokens are accepted without replay; unconditioned retries can increment metageneration again. Gzip expansion/double-compression detection and full public ACL semantics remain unavailable. Effective allUsers grants now select stored/public-default Cache-Control; nonpublic JSON remains no-cache (docs/en/evidence/public-object-reads.md)."
       ],
@@ -13375,26 +14083,84 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "versions/softDeleted combinations, generation order and restore tokens.",
+      "notes": "Retained-version listing and query-bound keyset paging pass; soft-delete/restore listing remains unavailable.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RETAINED-VERSIONS",
+          "description": "versions=true returns live/history in name/increasing-generation order with bounded same-name pages and bound tokens.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_listing_pages_and_query_boundaries"
+          ]
+        },
+        {
+          "id": "SOFT-DELETE-AND-RESTORE",
+          "description": "softDeleted=true, restore tokens and versions/soft-delete interactions remain unsupported.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "versioned_overwrite_and_generation_reads",
+        "versioned_listing_pages_and_query_boundaries",
+        "TestObjectVersioning"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_listing_pages_and_query_boundaries"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Soft-delete/restore tokens remain unsupported; zero-size/empty-array/token provider edges remain SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
+      ],
+      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-022",
@@ -13607,26 +14373,181 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/object-versioning",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Live/noncurrent transitions on overwrite/delete, generation-specific requests and versioning toggles.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "notes": "Durable live/noncurrent transitions, selected reads/deletes, increasing-generation listing, bounded paging, strict races/recovery/migration pass. Disabled configuration is tested at the catalog boundary; bucket PATCH/PUT is pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md.",
+      "dependencies": [
+        "JSON-BUCKETS-005",
+        "JSON-OBJECTS-004",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-008"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "OVERWRITE",
+          "description": "Retain old bytes, new live identity and history-only deletion timestamp.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads"
+          ]
+        },
+        {
+          "id": "PLAIN-AND-SELECTED-DELETE",
+          "description": "Archive plain deletion without promotion; explicit deletion removes only the selected revision and conditions preserve failed state.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_delete_and_permanent_generation_delete"
+          ]
+        },
+        {
+          "id": "VERSIONS-PAGING",
+          "description": "Increasing-generation order, same-name bounded pages, filters and bound tokens; reject invalid selectors.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_listing_pages_and_query_boundaries"
+          ]
+        },
+        {
+          "id": "DISABLED-HISTORY",
+          "description": "Disabling preserves existing history; subsequent live changes reclaim bytes; history-only buckets remain nonempty.",
+          "result": "PASS",
+          "test_ids": [
+            "disabled_versioning_preserves_history_and_bucket_nonempty"
+          ]
+        },
+        {
+          "id": "ATOMIC-RACE",
+          "description": "Conditional overwrite/delete serialize without losing prior revisions.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_overwrite_delete_race"
+          ]
+        },
+        {
+          "id": "STRICT-PERMISSIONS",
+          "description": "History read/list/update/delete and overwrite preserve strict permission checks.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_strict_permissions"
+          ]
+        },
+        {
+          "id": "CRASH-RECOVERY",
+          "description": "Process kills preserve committed references and recover publication/deletion journals.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_crash_recovery_preserves_referenced_generations"
+          ]
+        },
+        {
+          "id": "SCHEMA-MIGRATION",
+          "description": "Supported v7/v8 catalogs preserve metadata, bytes, allocator and bucket settings after migration.",
+          "result": "PASS",
+          "test_ids": [
+            "versioned_schema_migrations_preserve_objects",
+            "storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table"
+          ]
+        },
+        {
+          "id": "HTTP-BUCKET-SETTINGS",
+          "description": "Both true settings created through HTTP enable real history and hold effects in both profiles.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "id": "PROVIDER-AND-SETTINGS-UPDATES",
+          "description": "Bucket PATCH/PUT versioning toggles, propagation timing and complete selected-generation DELETE precondition/provider edge parity remain pending; API dependencies remain PARTIAL.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "versioned_overwrite_and_generation_reads",
+        "versioned_delete_and_permanent_generation_delete",
+        "versioned_listing_pages_and_query_boundaries",
+        "disabled_versioning_preserves_history_and_bucket_nonempty",
+        "versioned_overwrite_delete_race",
+        "versioned_strict_permissions",
+        "versioned_crash_recovery_preserves_referenced_generations",
+        "versioned_schema_migrations_preserve_objects",
+        "bucket_api_settings_drive_versioning_and_hold_effects",
+        "TestObjectVersioning",
+        "storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "versioned_overwrite_and_generation_reads",
+            "versioned_delete_and_permanent_generation_delete",
+            "versioned_listing_pages_and_query_boundaries",
+            "disabled_versioning_preserves_history_and_bucket_nonempty",
+            "versioned_overwrite_delete_race",
+            "versioned_strict_permissions",
+            "versioned_crash_recovery_preserves_referenced_generations",
+            "versioned_schema_migrations_preserve_objects",
+            "bucket_api_settings_drive_versioning_and_hold_effects"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectVersioning"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-VERSION-DELETE-CONDITIONS: all four DELETE conditions compare with the selected revision; exact provider interpretation is unverified.",
+        "Bucket metadata PATCH/PUT cannot toggle versioning; immediate local propagation differs from Google's documented interval.",
+        "Archive timestamp/error wire details and host power-loss/every fsync window remain unverified; soft delete and lifecycle interactions remain pending.",
+        "Required API dependencies remain PARTIAL; target EXACT is unchanged."
+      ],
+      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-030",
@@ -13781,26 +14702,90 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/object-holds",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Reject protected changes and model release/retention interactions.",
+      "notes": "Writable eventBasedHold is enforced on upload, selected-generation PATCH/PUT and delete; temporaryHold is rejected explicitly.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EVENT-HOLD-PROTECTION",
+          "description": "Event holds on live/history reject protected mutation, allow conditioned release and persist across restart.",
+          "result": "PASS",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes",
+            "held_objects_reject_delete_and_replacement",
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
+        },
+        {
+          "id": "TEMPORARY-RETENTION-AND-WIRE",
+          "description": "Temporary holds, retention interactions and complete provider hold wire semantics remain pending.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "default_hold_applies_to_all_upload_modes",
+        "held_objects_reject_delete_and_replacement",
+        "event_hold_metadata_release_and_restart",
+        "event_hold_permissions_and_invalid_input",
+        "TestObjectEventBasedHold"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-checks.txt",
+          "test_ids": [
+            "default_hold_applies_to_all_upload_modes",
+            "held_objects_reject_delete_and_replacement",
+            "event_hold_metadata_release_and_restart",
+            "event_hold_permissions_and_invalid_input"
+          ]
+        },
+        {
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "command": "just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator just check-sdk",
+          "artifact": "docs/en/evidence/bucket-core-parity-sdk-go.txt",
+          "test_ids": [
+            "TestObjectEventBasedHold"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported."
+      ],
+      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
+      "last_verified": "2026-10-22"
     },
     {
       "id": "BEHAVIOR-OBJECT-036",

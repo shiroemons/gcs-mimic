@@ -2,7 +2,7 @@
 
 Generated from `compatibility/features.json`; do not edit status here.
 
-Research cutoff: 2026-10-21. Implementation status and achieved fidelity are independent.
+Research cutoff: 2026-10-22. Implementation status and achieved fidelity are independent.
 
 API operations, behaviors and project requirements have separate denominators. Parameter and schema-field inventories are not additional features. SDK evidence is recorded separately on each row.
 
@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 284 | 0 | 14 | 0 | 0 | 0 |
-| behavior | 201 | 162 | 0 | 27 | 12 | 0 | 0 |
+| behavior | 201 | 158 | 0 | 31 | 12 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 284 | 2 | 12 | 0 | 0 | 0 |
-| behavior | 162 | 13 | 24 | 2 | 0 | 0 |
+| behavior | 158 | 13 | 28 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -92,11 +92,11 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-008 | buckets.patch | NOT_STARTED | P1 | EXACT | NONE | 0 |
@@ -168,13 +168,13 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
-| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -510,7 +510,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-009 | CORS設定の保存・取得 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-010 | Webサイト設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-014 | 公開アクセス防止 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-015 | Soft deleteポリシー | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -683,7 +683,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-OBJECT-001 | 標準・カスタムオブジェクトメタデータ | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
-| BEHAVIOR-OBJECT-002 | 世代番号とメタ世代番号 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-002 | 世代番号とメタ世代番号 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-003 | オブジェクト時刻とライフサイクル時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | customTimeの更新制約 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-005 | チェックサム | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
@@ -702,7 +702,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-018 | prefix・delimiterによる一覧 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-019 | 一覧の範囲・glob条件 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-020 | フォルダーをprefixに含める一覧 | NOT_STARTED | P5 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | コピー時の意味論 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-024 | rewriteの継続セッション | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -710,13 +710,13 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-026 | 合成オブジェクトのメタデータ | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-028 | オブジェクトの原子的移動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-032 | HNSのrestoreToken識別 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-033 | 一括復元の条件と件数 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-034 | オブジェクト保持設定 | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-035 | 一時保留・イベントベース保留 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-035 | 一時保留・イベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-036 | バケット保持期間の強制 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-037 | 顧客指定暗号鍵の検証 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-038 | CMEKのローカル再現 | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |

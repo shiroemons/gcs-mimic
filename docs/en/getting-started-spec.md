@@ -41,10 +41,21 @@ must continue with the same strict bucket and object, and:
   cache persistence after revocation and the deferred CORS/signing/UBLA/PAP scope.
 - Cover pinned Go default/XML reads as well as explicit JSON reads.
 
+The current bucket journey must create a bucket through HTTP with
+`versioning.enabled=true` and `defaultEventBasedHold=true`, verify inherited hold
+and a rejected delete, release the hold, overwrite, list both retained generations,
+read the earlier bytes, then release/delete all generations and the empty bucket.
+Run the same setting/effect contract in native and `legacy-emulator` compatibility
+profiles through HTTP tests. The runnable guide's native journey is sufficient
+for onboarding; the compatibility corpus additionally covers source-only names.
+The implemented compatibility option is `--compat-profile`, environment
+`GCS_MIMIC_COMPAT_PROFILE` or JSON `compat_profile`, default `native`, with
+CLI > environment > file > default precedence. It never changes strict permissions.
+
 The broader public and signing sequences in section 8 remain future acceptance
 targets beyond the [implemented read subset](slices/public-object-reads.md).
 
-The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart metadata/media upload, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Resumable and Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
+The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
 ## 1. Prerequisites and source build
 

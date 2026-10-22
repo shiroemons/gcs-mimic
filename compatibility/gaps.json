@@ -3,6 +3,28 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-VERSION-DELETE-CONDITIONS",
+      "title": "Generation-specific deletion condition selection needs authoritative clarification",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-004", "BEHAVIOR-OBJECT-029", "BEHAVIOR-COMMON-011"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete", "https://docs.cloud.google.com/storage/docs/request-preconditions"],
+      "observed_at": "2026-10-22",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The delete reference selects a revision with generation but describes conditions using current/live generation wording; the preconditions guide describes the targeted resource and explicitly selected noncurrent versions. Local deletion evaluates all four conditions against the selected revision and its metageneration, including not-match when no live version remains. versioned_delete_and_permanent_generation_delete verifies this local choice; docs/en/slices/bucket-versioning-holds.md records the source distinction. No provider differential request was made.",
+      "required_resolution": "Obtain authoritative clarification or explicitly authorized provider evidence for selected noncurrent revisions with another live revision or no live revision, all four conditions and combined failures. Preserve atomic selected-generation conditions and keep complete provider parity pending."
+    },
+    {
+      "id": "SPEC-EVENT-HOLD-WIRE",
+      "title": "Event hold omission, null, propagation and error wire details remain unverified",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-BUCKET-012", "BEHAVIOR-OBJECT-035", "JSON-OBJECTS-007", "JSON-OBJECTS-010", "JSON-OBJECTS-015"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/object-holds", "https://docs.cloud.google.com/storage/docs/holding-objects", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update"],
+      "observed_at": "2026-10-22",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "HTTP tests verify inherited holds on media/multipart/resumable publication, explicit false overrides, rejected protected mutations and selected-generation release. Local PUT omission preserves a hold, null is invalid, false is omitted from object resources, configuration effects are immediate and exact provider error messages/combined failure precedence are unverified. The pinned Go high-level bucket Create serializer omits DefaultEventBasedHold; SDK coverage creates that setting using official JSON Buckets.Insert then uses high-level Writer/Attrs/Update/Delete.",
+      "required_resolution": "Reconcile null/omitted PUT handling, false representation, propagation and exact error precedence through authoritative clarification or authorized provider observations. Implement bucket metadata updates as separate slices; temporary holds and retention interactions remain explicit pending work."
+    },
+    {
       "id": "SPEC-RSM-DISCOVERY-PATH",
       "title": "Discovery resumable protocol path differs from the documented and Go SDK initiation path",
       "status": "OPEN",
