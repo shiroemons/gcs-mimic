@@ -1,6 +1,6 @@
 use super::{Catalog, MAX_UPLOADS, system_time, unavailable, unix_millis};
 use crate::{
-    bucket::CatalogError,
+    bucket::{BucketAccess, CatalogError},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         UploadChunk,
@@ -348,13 +348,24 @@ impl Catalog {
         query: ObjectListQuery,
         limit: usize,
     ) -> Result<ObjectListPage, ObjectError> {
+        self.list_objects_authorized(query, limit, &BucketAccess::Unchecked)
+            .await
+    }
+
+    pub(crate) async fn list_objects_authorized(
+        &self,
+        query: ObjectListQuery,
+        limit: usize,
+        access: &BucketAccess,
+    ) -> Result<ObjectListPage, ObjectError> {
         if !(1..=1000).contains(&limit) {
             return Err(object_unavailable(
                 "object list limit must be between 1 and 1000",
             ));
         }
+        let access = access.clone();
         self.run_object(move |connection| {
-            bucket_class(connection, &query.bucket)?;
+            authorized_bucket(connection, &query.bucket, &access)?;
             list_page(connection, &query, limit)
         })
         .await
@@ -400,21 +411,24 @@ impl Catalog {
         name: &str,
         conditions: ObjectConditions,
     ) -> Result<(), ObjectError> {
-        self.check_upload(bucket, name, conditions, true).await
+        self.check_upload(bucket, name, conditions, &BucketAccess::Unchecked)
+            .await
     }
 
-    /// Advisory check that also rejects an overwrite the caller is not allowed to perform.
+    /// Advisory check that also rejects a bucket or an overwrite the caller is not authorized
+    /// for. Publication repeats every part of it inside its own transaction.
     pub(crate) async fn check_upload(
         &self,
         bucket: &str,
         name: &str,
         conditions: ObjectConditions,
-        allow_overwrite: bool,
+        access: &BucketAccess,
     ) -> Result<(), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
+        let access = access.clone();
         self.run_object(move |connection| {
-            bucket_class(connection, &bucket)?;
+            let (_, allow_overwrite) = authorized_bucket(connection, &bucket, &access)?;
             let previous = lookup(connection, &bucket, &name)?;
             check_publication(previous.as_ref(), conditions, allow_overwrite)
         })
@@ -438,7 +452,7 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
         let permit = self
-            .prepare_object_upload(bucket, name, conditions, true)
+            .prepare_object_upload(bucket, name, conditions, &BucketAccess::Unchecked)
             .await?;
         self.put_object_prechecked(
             bucket,
@@ -450,7 +464,7 @@ impl Catalog {
             body,
             permit,
             ObjectMetadataUpdate::default(),
-            true,
+            BucketAccess::Unchecked,
         )
         .await
     }
@@ -460,11 +474,10 @@ impl Catalog {
         bucket: &str,
         name: &str,
         conditions: ObjectConditions,
-        allow_overwrite: bool,
+        access: &BucketAccess,
     ) -> Result<OwnedSemaphorePermit, ObjectError> {
         let permit = self.admit_object_upload()?;
-        self.check_upload(bucket, name, conditions, allow_overwrite)
-            .await?;
+        self.check_upload(bucket, name, conditions, access).await?;
         Ok(permit)
     }
 
@@ -494,8 +507,9 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
         permit: OwnedSemaphorePermit,
         metadata: ObjectMetadataUpdate,
-        // False when the caller lacks permission to delete a live object it would replace.
-        allow_overwrite: bool,
+        // Rechecked at publication: the bucket may have been recreated under another project
+        // while the body streamed, and overwriting needs storage.objects.delete there.
+        access: BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
         let catalog = self.clone();
         let bucket = bucket.to_owned();
@@ -529,7 +543,7 @@ impl Catalog {
                 catalog.run_upload(move |connection| {
                     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
                         .map_err(object_unavailable)?;
-                    let storage_class = bucket_class(&transaction, &bucket)?;
+                    let (storage_class, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
                     let previous = lookup(&transaction, &bucket, &name)?;
                     // Rechecked under the write lock so a concurrent create cannot be overwritten.
                     check_publication(previous.as_ref(), conditions, allow_overwrite)?;
@@ -597,11 +611,32 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<ObjectRecord, ObjectError> {
+        self.get_object_authorized(
+            bucket,
+            name,
+            generation,
+            conditions,
+            &BucketAccess::Unchecked,
+        )
+        .await
+    }
+
+    pub(crate) async fn get_object_authorized(
+        &self,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> Result<ObjectRecord, ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
+        let access = access.clone();
         self.run_object(move |connection| {
-            selected(connection, &bucket, &name, generation, conditions, true)
-                .map(|(record, _)| record)
+            selected(
+                connection, &bucket, &name, generation, conditions, true, &access,
+            )
+            .map(|(record, _)| record)
         })
         .await
     }
@@ -613,11 +648,34 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+        self.open_object_authorized(
+            bucket,
+            name,
+            generation,
+            conditions,
+            &BucketAccess::Unchecked,
+        )
+        .await
+    }
+
+    /// The bucket's project is verified in the same call that resolves the generation and
+    /// opens its blob, so the returned reader never belongs to an unauthorized bucket.
+    pub(crate) async fn open_object_authorized(
+        &self,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let data_dir = self.0.data_dir.clone();
+        let access = access.clone();
         self.run_object(move |connection| {
-            let (record, id) = selected(connection, &bucket, &name, generation, conditions, true)?;
+            let (record, id) = selected(
+                connection, &bucket, &name, generation, conditions, true, &access,
+            )?;
             // Open under the same execution permit that serializes deletes and overwrites.
             let file = File::open(blob_path(&data_dir, &id)?).map_err(object_unavailable)?;
             Ok((
@@ -639,15 +697,49 @@ impl Catalog {
         update: ObjectMetadataUpdate,
         validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
+        self.update_object_metadata_authorized(
+            bucket,
+            name,
+            generation,
+            conditions,
+            update,
+            validate,
+            &BucketAccess::Unchecked,
+        )
+        .await
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "The public update contract plus the authorization it must recheck"
+    )]
+    pub(crate) async fn update_object_metadata_authorized(
+        &self,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+        update: ObjectMetadataUpdate,
+        validate: impl FnOnce(&ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        access: &BucketAccess,
+    ) -> Result<ObjectRecord, ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let clock = self.0.clock.clone();
+        let access = access.clone();
         self.run_object(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(object_unavailable)?;
-            let (mut record, _) =
-                selected(&transaction, &bucket, &name, generation, conditions, false)?;
+            let (mut record, _) = selected(
+                &transaction,
+                &bucket,
+                &name,
+                generation,
+                conditions,
+                false,
+                &access,
+            )?;
             validate(&record)?;
             update.apply(&mut record)?;
             record.metageneration = record
@@ -689,14 +781,41 @@ impl Catalog {
         generation: Option<i64>,
         conditions: ObjectConditions,
     ) -> Result<(), ObjectError> {
+        self.delete_object_authorized(
+            bucket,
+            name,
+            generation,
+            conditions,
+            &BucketAccess::Unchecked,
+        )
+        .await
+    }
+
+    pub(crate) async fn delete_object_authorized(
+        &self,
+        bucket: &str,
+        name: &str,
+        generation: Option<i64>,
+        conditions: ObjectConditions,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let data_dir = self.0.data_dir.clone();
+        let access = access.clone();
         self.run_object(move |connection| {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(object_unavailable)?;
-            let (_, id) = selected(&transaction, &bucket, &name, generation, conditions, false)?;
+            let (_, id) = selected(
+                &transaction,
+                &bucket,
+                &name,
+                generation,
+                conditions,
+                false,
+                &access,
+            )?;
             transaction
                 .execute(
                     "DELETE FROM objects WHERE bucket = ?1 AND name = ?2",
@@ -900,16 +1019,27 @@ fn trailing_marker(name: &str, query: &ObjectListQuery) -> bool {
             .is_some_and(|stem| !stem.ends_with(&query.delimiter))
 }
 
-fn bucket_class(connection: &Connection, bucket: &str) -> Result<String, ObjectError> {
-    connection
+/// Resolves the bucket and re-validates `access` against the owning project observed on the
+/// same connection, before any object state is read or changed.
+///
+/// Returns the storage class and whether replacing a live object is allowed. A missing bucket
+/// is reported before authorization, matching the adapter's missing-bucket rule.
+fn authorized_bucket(
+    connection: &Connection,
+    bucket: &str,
+    access: &BucketAccess,
+) -> Result<(String, bool), ObjectError> {
+    let (storage_class, project): (String, String) = connection
         .query_row(
-            "SELECT storage_class FROM buckets WHERE name = ?1",
+            "SELECT storage_class, project FROM buckets WHERE name = ?1",
             [bucket],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()
         .map_err(object_unavailable)?
-        .ok_or(ObjectError::BucketNotFound)
+        .ok_or(ObjectError::BucketNotFound)?;
+    let allow_overwrite = access.check(&project).ok_or(ObjectError::Forbidden)?;
+    Ok((storage_class, allow_overwrite))
 }
 
 fn lookup(
@@ -934,8 +1064,9 @@ fn selected(
     generation: Option<i64>,
     conditions: ObjectConditions,
     read: bool,
+    access: &BucketAccess,
 ) -> Result<(ObjectRecord, String), ObjectError> {
-    bucket_class(connection, bucket)?;
+    authorized_bucket(connection, bucket, access)?;
     let (record, id) = lookup(connection, bucket, name)?.ok_or(ObjectError::ObjectNotFound)?;
     if generation.is_some_and(|generation| generation != record.generation) {
         return Err(ObjectError::ObjectNotFound);
@@ -1147,7 +1278,7 @@ mod tests {
                 .unwrap();
             let conditions = ObjectConditions::default();
             let permit = catalog
-                .prepare_object_upload("bucket", "object", conditions, true)
+                .prepare_object_upload("bucket", "object", conditions, &BucketAccess::Unchecked)
                 .await
                 .unwrap();
             catalog.delete_bucket("bucket", None, None).await.unwrap();
@@ -1173,7 +1304,7 @@ mod tests {
                     body,
                     permit,
                     ObjectMetadataUpdate::default(),
-                    true,
+                    BucketAccess::Unchecked,
                 )
                 .await
                 .unwrap_err();
@@ -1224,7 +1355,7 @@ mod tests {
                         "bucket",
                         "object",
                         ObjectConditions::default(),
-                        allow_overwrite,
+                        &project_access(allow_overwrite),
                     )
                     .await?;
                 let (sender, body) = mpsc::channel(2);
@@ -1250,7 +1381,7 @@ mod tests {
                 body,
                 permit,
                 ObjectMetadataUpdate::default(),
-                allow_overwrite,
+                project_access(allow_overwrite),
             )
         };
         let winner = publish(winner_body, winner_permit, true).await.unwrap();
@@ -1280,7 +1411,7 @@ mod tests {
         ] {
             assert_eq!(
                 catalog
-                    .check_upload("bucket", "object", conditions, false)
+                    .check_upload("bucket", "object", conditions, &project_access(false))
                     .await
                     .unwrap_err(),
                 error
@@ -1288,10 +1419,321 @@ mod tests {
         }
         assert!(
             catalog
-                .check_upload("bucket", "fresh", Default::default(), false)
+                .check_upload(
+                    "bucket",
+                    "fresh",
+                    Default::default(),
+                    &project_access(false)
+                )
                 .await
                 .is_ok()
         );
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn project_access(overwrite: bool) -> BucketAccess {
+        BucketAccess::Project {
+            project: "project".into(),
+            overwrite,
+        }
+    }
+
+    fn temp_catalog_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "gcs-mimic-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    async fn create_bucket(catalog: &Catalog, project: &str) {
+        catalog
+            .insert_bucket(crate::bucket::BucketRecord {
+                name: "bucket".into(),
+                project: project.into(),
+                location: "US".into(),
+                location_type: "multi-region".into(),
+                storage_class: "STANDARD".into(),
+                labels: Default::default(),
+                metageneration: 1,
+                time_created: UNIX_EPOCH,
+                updated: UNIX_EPOCH,
+            })
+            .await
+            .unwrap();
+    }
+
+    fn body(bytes: &'static [u8]) -> mpsc::Receiver<Result<UploadChunk, io::Error>> {
+        let (sender, body) = mpsc::channel(2);
+        sender
+            .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
+            .unwrap();
+        sender.try_send(Ok(UploadChunk::End)).unwrap();
+        body
+    }
+
+    async fn put(catalog: &Catalog, name: &str, bytes: &'static [u8]) -> ObjectRecord {
+        catalog
+            .put_object(
+                "bucket",
+                name,
+                "text/plain".into(),
+                ExpectedHashes::default(),
+                ObjectConditions::default(),
+                1000,
+                body(bytes),
+            )
+            .await
+            .unwrap()
+    }
+
+    async fn publish(
+        catalog: &Catalog,
+        name: &str,
+        permit: OwnedSemaphorePermit,
+        access: BucketAccess,
+    ) -> Result<ObjectRecord, ObjectError> {
+        catalog
+            .put_object_prechecked(
+                "bucket",
+                name,
+                "text/plain".into(),
+                ExpectedHashes::default(),
+                ObjectConditions::default(),
+                1000,
+                body(b"late"),
+                permit,
+                ObjectMetadataUpdate::default(),
+                access,
+            )
+            .await
+    }
+
+    /// Recreate "bucket" under `project` holding one object named "object".
+    async fn recreate_bucket(catalog: &Catalog, project: &str) -> ObjectRecord {
+        for name in ["object", "fresh"] {
+            let _ = catalog
+                .delete_object("bucket", name, None, Default::default())
+                .await;
+        }
+        let _ = catalog.delete_bucket("bucket", None, None).await;
+        create_bucket(catalog, project).await;
+        put(catalog, "object", b"other project").await
+    }
+
+    /// Every bucket and object operation must fail with `Forbidden` and change nothing.
+    async fn assert_all_forbidden(
+        catalog: &Catalog,
+        access: &BucketAccess,
+        current: &ObjectRecord,
+    ) {
+        let conditions = ObjectConditions::default();
+        assert_eq!(
+            catalog
+                .check_upload("bucket", "object", conditions, access)
+                .await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(
+            catalog
+                .get_object_authorized("bucket", "object", None, conditions, access)
+                .await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(
+            catalog
+                .open_object_authorized("bucket", "object", None, conditions, access)
+                .await
+                .map(|(record, _)| record),
+            Err(ObjectError::Forbidden)
+        );
+        let query = ObjectListQuery {
+            bucket: "bucket".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            catalog
+                .list_objects_authorized(query, 10, access)
+                .await
+                .map(|page| page.items),
+            Err(ObjectError::Forbidden)
+        );
+        let update = ObjectMetadataUpdate {
+            content_type: Some(Some("application/json".into())),
+            ..Default::default()
+        };
+        assert_eq!(
+            catalog
+                .update_object_metadata_authorized(
+                    "bucket",
+                    "object",
+                    None,
+                    conditions,
+                    update,
+                    |_| Ok(()),
+                    access,
+                )
+                .await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(
+            catalog
+                .delete_object_authorized("bucket", "object", None, conditions, access)
+                .await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket_authorized("bucket", access).await,
+            Err(CatalogError::Forbidden)
+        );
+        // Authorization precedes the non-empty check, so a non-empty bucket also reports 403.
+        assert_eq!(
+            catalog
+                .delete_bucket_authorized("bucket", None, None, access)
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog
+                .get_object("bucket", "object", None, conditions)
+                .await
+                .as_ref(),
+            Ok(current)
+        );
+        assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn operations_recheck_the_authorized_project_after_bucket_recreation() {
+        let directory = temp_catalog_dir("recreated-bucket");
+        let catalog = Catalog::open(&directory).await.unwrap();
+        create_bucket(&catalog, "project").await;
+        let access = BucketAccess::Project {
+            project: "project".into(),
+            overwrite: true,
+        };
+        // The advisory check passes in the authorized project; the bucket is then deleted and
+        // recreated under another project before the body completes.
+        let permit = catalog
+            .prepare_object_upload("bucket", "object", Default::default(), &access)
+            .await
+            .unwrap();
+        let current = recreate_bucket(&catalog, "other-project").await;
+        assert_eq!(
+            publish(&catalog, "object", permit, access.clone()).await,
+            Err(ObjectError::Forbidden)
+        );
+        let permit = catalog.admit_object_upload().unwrap();
+        assert_eq!(
+            publish(&catalog, "fresh", permit, access.clone()).await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
+        assert_all_forbidden(&catalog, &access, &current).await;
+        let page = catalog
+            .list_objects(
+                ObjectListQuery {
+                    bucket: "bucket".into(),
+                    ..Default::default()
+                },
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.items, vec![current.clone()]);
+        // An access authorized against the bucket's actual project still succeeds.
+        let actual = BucketAccess::Project {
+            project: "other-project".into(),
+            overwrite: false,
+        };
+        assert_eq!(
+            catalog
+                .get_object_authorized("bucket", "object", None, Default::default(), &actual)
+                .await,
+            Ok(current)
+        );
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn missing_bucket_access_reauthorizes_against_the_actual_project() {
+        let directory = temp_catalog_dir("missing-bucket-access");
+        let catalog = Catalog::open(&directory).await.unwrap();
+        let access = BucketAccess::Missing {
+            permitted: vec!["project".into()],
+            overwrite: Vec::new(),
+        };
+        let conditions = ObjectConditions::default();
+        // Still missing: the caller holds the permission somewhere, so it learns 404.
+        assert_eq!(
+            catalog
+                .check_upload("bucket", "object", conditions, &access)
+                .await,
+            Err(ObjectError::BucketNotFound)
+        );
+        assert_eq!(
+            catalog
+                .get_object_authorized("bucket", "object", None, conditions, &access)
+                .await,
+            Err(ObjectError::BucketNotFound)
+        );
+        assert_eq!(
+            catalog
+                .delete_object_authorized("bucket", "object", None, conditions, &access)
+                .await,
+            Err(ObjectError::BucketNotFound)
+        );
+        assert_eq!(
+            catalog.get_bucket_authorized("bucket", &access).await,
+            Ok(None)
+        );
+        assert_eq!(
+            catalog
+                .delete_bucket_authorized("bucket", None, None, &access)
+                .await,
+            Err(CatalogError::NotFound)
+        );
+        // Created later in a project where the caller lacks the permission.
+        create_bucket(&catalog, "project").await;
+        let permit = catalog
+            .prepare_object_upload("bucket", "object", conditions, &access)
+            .await
+            .unwrap();
+        let current = recreate_bucket(&catalog, "other-project").await;
+        assert_eq!(
+            publish(&catalog, "object", permit, access.clone()).await,
+            Err(ObjectError::Forbidden)
+        );
+        assert_all_forbidden(&catalog, &access, &current).await;
+        // Created later in a permitted project: overwriting still needs storage.objects.delete
+        // there and never defaults to allowed.
+        recreate_bucket(&catalog, "other-project").await;
+        let current = recreate_bucket(&catalog, "project").await;
+        let permit = catalog.admit_object_upload().unwrap();
+        assert_eq!(
+            publish(&catalog, "object", permit, access.clone()).await,
+            Err(ObjectError::OverwriteForbidden)
+        );
+        assert_eq!(
+            catalog
+                .get_object_authorized("bucket", "object", None, conditions, &access)
+                .await,
+            Ok(current)
+        );
+        let permit = catalog.admit_object_upload().unwrap();
+        assert!(publish(&catalog, "fresh", permit, access).await.is_ok());
+        let deleter = BucketAccess::Missing {
+            permitted: vec!["project".into()],
+            overwrite: vec!["project".into()],
+        };
+        let permit = catalog.admit_object_upload().unwrap();
+        assert!(publish(&catalog, "object", permit, deleter).await.is_ok());
+        assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
         catalog.close().await.unwrap();
         fs::remove_dir_all(directory).unwrap();
     }
