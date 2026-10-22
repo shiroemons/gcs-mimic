@@ -12,6 +12,12 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
+#[path = "resumable.rs"]
+pub(crate) mod resumable;
+pub use resumable::{
+    ResumableError, ResumableOptions, ResumableSession, SessionLease, SessionState,
+};
+
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
@@ -105,9 +111,15 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .map_err(unavailable)?;
         policies::validate(connection)?;
     }
+    if version >= 7 {
+        expected
+            .execute_batch(resumable::SCHEMA)
+            .map_err(unavailable)?;
+        resumable::validate(connection)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
-            db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 16")
+            db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
             .map_err(unavailable)?.query_map([], |row| {
                 let sql: String = row.get(3)?;
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, sql.split_whitespace().collect::<Vec<_>>().join(" ")))
@@ -133,6 +145,7 @@ struct Inner {
     uploads: Arc<Semaphore>,
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
+    session_writers: Mutex<std::collections::HashSet<String>>,
 }
 
 struct Resources {
@@ -189,9 +202,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=6).contains(&version) {
+            if !(0..=7).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 6"
+                    "unsupported catalog schema version {version}; supported version is 7"
                 )));
             }
             if version == 2 {
@@ -284,6 +297,9 @@ impl Catalog {
             if version < 6 {
                 policies::migrate(&mut connection)?;
             }
+            if version < 7 {
+                resumable::migrate(&mut connection)?;
+            }
             objects::recover(&connection, &data_dir)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
@@ -292,6 +308,7 @@ impl Catalog {
                 uploads: Arc::new(Semaphore::new(MAX_UPLOADS)),
                 data_dir,
                 clock,
+                session_writers: Mutex::new(Default::default()),
             })))
         })
         .await
@@ -440,6 +457,12 @@ impl Catalog {
                 &record.name,
                 &Policy::default_for(&record.project),
             )?;
+            transaction
+                .execute(
+                    "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
+                    [&record.name],
+                )
+                .map_err(unavailable)?;
             transaction.commit().map_err(unavailable)?;
             Ok(record)
         })
@@ -588,6 +611,9 @@ impl Catalog {
             }
             transaction
                 .execute("DELETE FROM bucket_policies WHERE bucket = ?1", [&name])
+                .map_err(unavailable)?;
+            transaction
+                .execute("DELETE FROM bucket_incarnations WHERE bucket = ?1", [&name])
                 .map_err(unavailable)?;
             transaction
                 .execute("DELETE FROM buckets WHERE name = ?1", [name])
@@ -826,7 +852,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 6),
+                    ("user_version", 7),
                 ] {
                     assert_eq!(
                         connection

@@ -221,6 +221,10 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
             if os_metadata(&entry) {
                 continue;
             }
+            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE')", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+            if retained {
+                continue;
+            }
             unlink(&entry.path()).map_err(|error| {
                 object_unavailable(format!("staging entry {}: {error}", entry.path().display()))
             })?;
