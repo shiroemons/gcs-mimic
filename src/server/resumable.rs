@@ -1,6 +1,4 @@
-use super::{
-    ObjectActivity, ResponseBody, await_upload_catalog, boxed, empty_response, stream_upload,
-};
+use super::{ObjectActivity, ResponseBody, boxed, empty_response, stream_upload};
 use crate::{
     bucket::BucketAccess,
     config::Config,
@@ -149,6 +147,16 @@ pub(super) async fn session_response(
     if length.is_some_and(|n| n > config.max_object_bytes) {
         return Err(ObjectError::TooLarge.into());
     }
+    let oversized = match range {
+        Some(Range::Data { end, total, .. }) => {
+            end >= config.max_object_bytes || total.is_some_and(|n| n > config.max_object_bytes)
+        }
+        Some(Range::Status(total)) => total.is_some_and(|n| n > config.max_object_bytes),
+        None => false,
+    };
+    if oversized {
+        return Err(ObjectError::TooLarge.into());
+    }
     if let Some(Range::Data { start, end, .. }) = range
         && length.is_some_and(|length| length != end - start + 1)
     {
@@ -263,12 +271,14 @@ pub(super) async fn session_response(
     }
     let permit = state.catalog.admit_object_upload()?;
     let offset = session.offset.max(end);
+    let (catalog_wait, progress) = watch::channel(false);
     let chunk = ResumableChunk {
         start,
         length,
         total,
         finalize,
         options,
+        catalog_wait,
     };
     let (sender, body) = mpsc::channel(2);
     let base = state.api_base_url.clone();
@@ -292,14 +302,43 @@ pub(super) async fn session_response(
             if let Err(error)=result {
                 let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
                 drop(sender);
-                match await_upload_catalog(upload,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.reason=="badRequest"=>{},Err(storage)=>return Err(storage)}
+                match await_session_upload(upload,progress,timeout,deadline,activity).await {Ok(_)=>{},Err(storage)if storage.reason=="badRequest"=>{},Err(storage)=>return Err(storage)}
                 return Err(error.into());
             }
-            await_upload_catalog(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},timeout,deadline,activity).await?
+            await_session_upload(async{let _=sender.send(Ok(UploadChunk::End)).await;drop(sender);upload.await},progress,timeout,deadline,activity).await?
         }
     };
     match result {
         Some(value) => Ok(completed(value)),
         None => incomplete(offset, &headers),
     }
+}
+
+async fn await_session_upload<T>(
+    operation: impl std::future::Future<Output = Result<T, JsonError>>,
+    mut progress: watch::Receiver<bool>,
+    timeout: std::time::Duration,
+    deadline: tokio::time::Instant,
+    activity: &watch::Sender<ObjectActivity>,
+) -> Result<T, JsonError> {
+    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    tokio::pin!(operation);
+    let result = loop {
+        let waiting = *progress.borrow_and_update();
+        let wait_deadline = if waiting {
+            deadline.min(tokio::time::Instant::now() + timeout)
+        } else {
+            deadline
+        };
+        tokio::select! {
+            result = &mut operation => break result,
+            Ok(()) = progress.changed() => {},
+            _ = tokio::time::sleep_until(wait_deadline) => {
+                let message = if waiting { "upload catalog wait timed out" } else { "upload finalization timed out" };
+                break Err(ObjectError::Unavailable(message.into()).into());
+            }
+        }
+    };
+    activity.send_modify(|progress| progress.awaiting_catalog = false);
+    result
 }

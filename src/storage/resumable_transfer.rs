@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::{io, time::UNIX_EPOCH};
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::{OwnedSemaphorePermit, mpsc, oneshot},
+    sync::{OwnedSemaphorePermit, mpsc, oneshot, watch},
 };
 
 pub(crate) struct ResumableChunk {
@@ -22,6 +22,7 @@ pub(crate) struct ResumableChunk {
     pub total: Option<u64>,
     pub finalize: bool,
     pub options: ResumableOptions,
+    pub catalog_wait: watch::Sender<bool>,
 }
 
 fn unavailable(error: impl std::fmt::Display) -> ObjectError {
@@ -72,9 +73,11 @@ impl Catalog {
                 return Err(error.into());
             }
             let offset=durable.max(chunk.start+chunk.length);
+            chunk.catalog_wait.send_replace(true);
             catalog.checkpoint_resumable_session(&mut lease,offset,chunk.total).await?;
+            chunk.catalog_wait.send_replace(false);
             if !chunk.finalize {return Ok(None);}
-            let result=catalog.finalize_resumable(&lease,chunk.options,file,render).await;
+            let result=catalog.finalize_resumable(&lease,chunk.options,file,chunk.catalog_wait,render).await;
             if result.is_err() {
                 let id=lease.session.id.clone();
                 let committed=catalog.run_upload(move |connection|connection.query_row("SELECT * FROM resumable_sessions WHERE id = ?1",[id],read_session).optional().map_err(unavailable)).await?;
@@ -120,6 +123,7 @@ impl Catalog {
         lease: &SessionLease,
         options: ResumableOptions,
         mut file: tokio::fs::File,
+        catalog_wait: watch::Sender<bool>,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Value, ResumableError> {
         file.seek(io::SeekFrom::Start(0))
@@ -160,6 +164,7 @@ impl Catalog {
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
         let data_dir = self.0.data_dir.clone();
+        catalog_wait.send_replace(true);
         self.run_upload(move |connection| Ok((|| -> Result<Value,ResumableError> {
             let transaction=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
             let stored=transaction.query_row("SELECT * FROM resumable_sessions WHERE id = ?1",[&session.id],read_session).map_err(unavailable)?;

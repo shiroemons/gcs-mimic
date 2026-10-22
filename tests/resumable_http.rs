@@ -49,6 +49,14 @@ impl Reply {
 }
 impl Harness {
     async fn start(max: u64, strict: bool, base: Option<&str>) -> Self {
+        Self::start_with_catalog_wait(max, strict, base, 30000).await
+    }
+    async fn start_with_catalog_wait(
+        max: u64,
+        strict: bool,
+        base: Option<&str>,
+        catalog_wait_timeout_ms: u64,
+    ) -> Self {
         let dir = TestDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
@@ -88,6 +96,7 @@ impl Harness {
         let config = Config {
             api_base_url: state.api_base_url.clone(),
             max_object_bytes: max,
+            catalog_wait_timeout_ms,
             ..Default::default()
         };
         let (stop, rx) = oneshot::channel();
@@ -1835,5 +1844,90 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
         .await;
     assert_eq!(status.status, 308);
     assert!(!status.headers.contains_key("range"));
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
+    let size = 8 * 1024 * 1024;
+    let h = Harness::start_with_catalog_wait(size, false, None, 50).await;
+    let init = h.initiate("name=hash-scan", "", b"").await;
+    let path = h.path(&init);
+    let bytes = vec![b'h'; size as usize];
+    assert_eq!(
+        h.request(
+            "PUT",
+            &path,
+            &format!("Content-Range: bytes 0-{}/*\r\n", size - 1),
+            &bytes
+        )
+        .await
+        .status,
+        308
+    );
+    let started = tokio::time::Instant::now();
+    let completed = h
+        .request(
+            "PUT",
+            &path,
+            &format!("Content-Range: bytes */{size}\r\n"),
+            b"",
+        )
+        .await;
+    eprintln!(
+        "8 MiB final hash scan and publication: {:?}; catalog wait budget: 50 ms",
+        started.elapsed()
+    );
+    assert_eq!(completed.status, 200);
+    assert_eq!(completed.json()["size"], size.to_string());
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/hash-scan?alt=media", "", b"")
+            .await
+            .body,
+        bytes
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout() {
+    let h = Harness::start_with_catalog_wait(1024 * 1024, false, None, 50).await;
+    let init = h.initiate("name=sql-wait", "", b"").await;
+    let path = h.path(&init);
+    let bytes = vec![b's'; 256 * 1024];
+    assert_eq!(
+        h.request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &bytes)
+            .await
+            .status,
+        308
+    );
+    let database = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
+    database.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let response = tokio::time::timeout(
+        Duration::from_secs(2),
+        h.request("PUT", &path, "Content-Range: bytes */262144\r\n", b""),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status, 503);
+    database.execute_batch("COMMIT;").unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let status = h
+            .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+            .await;
+        if status.status != 503 {
+            assert_eq!(status.status, 200);
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/sql-wait?alt=media", "", b"")
+            .await
+            .body,
+        bytes
+    );
     h.stop().await;
 }
