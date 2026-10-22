@@ -308,7 +308,7 @@ not additional independent features.
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-007 | concurrency | Two writers on one session serialize/reject safely; separate sessions progress; all permits released after timeout/disconnect |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-008 | positive | SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override |
 | BEHAVIOR-OBJECT-011 | RSM-CHUNK-009 | resource/boundary | Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers |
-| BEHAVIOR-OBJECT-012 | RSM-STATUS-001 | positive/boundary | Empty PUT bytes */N (N>0) and */* before data return 308 with no Range and no object; */0 completes the empty object |
+| BEHAVIOR-OBJECT-012 | RSM-STATUS-001 | positive/boundary | Empty PUT `bytes */N` (N>0) and `bytes */*` before data return 308 with no Range and no object; `bytes */0` completes the empty object |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-002 | positive | Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-003 | positive | Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation |
 | BEHAVIOR-OBJECT-012 | RSM-STATUS-004 | negative | Invalid token/total/range or nonempty status body cannot mutate destination or report false completion |

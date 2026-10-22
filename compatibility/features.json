@@ -5163,6 +5163,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "RSM-INSERT-001",
+          "description": "positive/negative: Initiation/chunk/status/cancel/finalization subset passes with existing media/multipart regression coverage; advanced fields and replay remain pending. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
           "id": "JSON-OBJECTS-007-MEDIA",
           "description": "OBJ-MEDIA-001/003..020/024..030/033..035/042/045..046/049: scoped media defaults, framing/cap, hashes, interrupted overwrite preservation, explicit EOF, commit waiting, eager-body rejection and conditional publication.",
           "result": "PASS",
@@ -11828,8 +11834,39 @@
       "notes": "Session Location, declared length/type, origin, metadata and preconditions.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-INIT-001",
+          "description": "positive: POST metadata or empty initiation returns 200, empty body, no-store and opaque absolute Location; no Object yet. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-INIT-002",
+          "description": "positive/boundary: Query/path name precedence and encoded Unicode/slash/percent names; fixed/custom metadata and content type survive finalization. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-INIT-003",
+          "description": "negative/boundary: Malformed/duplicate fields, metadata/custom cap and known oversized/overflow total fail without session/file mutation. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-INIT-004",
+          "description": "permission: Strict anonymous/invalid/insufficient permission denial; creator can initiate new object but cannot overwrite; no body staging on rejection. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-INIT-005",
+          "description": "resource/concurrency: 128 retained session cap enforced atomically, next initiation 503; rejected initiation leaks no bytes/permits. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -11857,8 +11894,63 @@
       "notes": "Content-Range offsets, partial acceptance, retries, unknown total size and finalization.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-CHUNK-001",
+          "description": "positive/boundary: PUT sequential 256 KiB-multiple chunks and smaller last chunk produce exact binary bytes and whole hashes. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-002",
+          "description": "positive/boundary: Unknown total uses bytes start-end/*, learns total only consistently and completes with numeric final total. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-003",
+          "description": "positive/boundary: Single no-range upload, empty object and exact-multiple empty final request finish correctly. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-004",
+          "description": "negative: Gaps, reversed/overflow/duplicate ranges, inconsistent totals and invalid nonfinal size are rejected without corrupting prefix. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-005",
+          "description": "positive/boundary: Complete duplicate and partial overlap ignore persisted bytes, append only tail and never change already acknowledged bytes. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-006",
+          "description": "negative/restart: Interrupted/wrong-length body never acknowledges uncommitted bytes; truncate tail and resend/status recover exact prefix. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-007",
+          "description": "concurrency: Two writers on one session serialize/reject safely; separate sessions progress; all permits released after timeout/disconnect. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-008",
+          "description": "positive: SDK POST with no-308 header gets HTTP 200 plus override 308 and correct Range; final response removes override. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CHUNK-009",
+          "description": "resource/boundary: Exact object cap succeeds; cap+1 known/unknown/offset stream fails 413; large/slow upload uses bounded server buffers. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -11886,8 +11978,33 @@
       "notes": "308/Range and zero-byte status requests including no persisted bytes.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-STATUS-001",
+          "description": "positive/boundary: Empty PUT bytes */N (N>0) and */* before data return 308 with no Range and no object; */0 completes the empty object. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-STATUS-002",
+          "description": "positive: Persisted prefix returns Range bytes=0-last, empty body and same offset across repeated queries/restart. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-STATUS-003",
+          "description": "positive: Completed status returns 200 Object snapshot even after later overwrite, never allocates a new generation. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-STATUS-004",
+          "description": "negative: Invalid token/total/range or nonempty status body cannot mutate destination or report false completion. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -11915,8 +12032,45 @@
       "notes": "Cancellation response, future rejection, session expiration and temporary-byte cleanup.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-CANCEL-001",
+          "description": "positive/permission: Anonymous delegate DELETE cancels active session with 499, removes staging and preserves old object. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CANCEL-002",
+          "description": "negative/boundary: Cancelled URI gives 410 before original deadline, 404 at/after deadline; unknown URI is 404. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-CANCEL-003",
+          "description": "concurrency: Cancel racing append/finalize has one terminal winner; completed-object bytes are never deleted. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-EXPIRY-001",
+          "description": "boundary: Injected clock at deadline-1, deadline, deadline+1 verifies fixed 604800-second lifetime without sliding renewal. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-EXPIRY-002",
+          "description": "resource/restart: Explicit due maintenance and startup cleanup release staged bytes/records; idle scheduler has no polling loop. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-EXPIRY-003",
+          "description": "negative/resource: Failed cleanup remains visible/retryable; no leaked slot or falsely reported physical reclamation. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -11944,8 +12098,75 @@
       "notes": "Ordinary uploads remain invisible until complete; correct overwrite atomicity and metadata application.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-FINAL-001",
+          "description": "positive: Final 200 Object has exact bytes, hashes, metadata, size and new generation; timestamps reflect completion. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-002",
+          "description": "positive/negative: Before completion GET/list show no new object and retain the old overwrite; final EOF changes visibility atomically. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-003",
+          "description": "negative/boundary: Metadata/final X-Goog-Hash MD5/CRC32C success, malformed/conflicting/wrong whole hash and final metadata cap preserve old full resource. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-004",
+          "description": "positive/negative: All four initiation conditions persist; changes during upload fail atomic finalization with 412; chunk query cannot relax them. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-005",
+          "description": "concurrency: Two create-if-absent sessions have exactly one winner; overwrite/metadata/delete races obey selected final conditions. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-006",
+          "description": "permission/concurrency: URI delegate needs no re-auth; revoked initiator grant, new overwrite without delete and bucket recreation cannot bypass final permission checks. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-007",
+          "description": "positive/concurrency: Repeated final request after lost response returns same completed resource without second generation; independent of invocation-token replay. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-FINAL-008",
+          "description": "positive/boundary: Final X-Goog-Meta-* augments/overrides initiation custom metadata and survives restart with final byte/hash metadata. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-RECOVERY-001",
+          "description": "restart: Kill after file write/before offset commit: truncate tail; after offset commit: preserve acknowledged prefix and resume. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-RECOVERY-002",
+          "description": "restart: Kill after rename/before Object commit: restore active staging; kill after commit: preserve completed object/snapshot. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-RECOVERY-003",
+          "description": "negative/restart: Missing/truncated referenced prefix blocks readiness; orphan, expired, deferred-delete and multi-page recovery stay bounded. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -23421,8 +23642,27 @@
       "notes": "Proposed project requirement. Validate host browser, host SDK and peer-container upload Location values.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RSM-LOC-001",
+          "description": "positive: Host CLI/SDK follows configured host Location and completes upload. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-LOC-002",
+          "description": "positive: Compose peer follows peer-reachable advertised Location; browser-address case uses host-reachable endpoint without a CORS claim. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-LOC-003",
+          "description": "negative/boundary: Spoofed Host/forwarding cannot change Location; trailing slash/proxy prefix preserved; invalid advertised URLs fail config. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
       "test_ids": [],
       "verification": [],
       "sdk_evidence": [],
@@ -25413,6 +25653,36 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "RSM-SDK-GO-001",
+          "description": "positive: Default 16 MiB ChunkSize Writer with object larger than threshold performs real resumable POSTs and verifies Attrs/download/checksum. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-SDK-GO-002",
+          "description": "positive/boundary: 256 KiB ChunkSize Writer spans several chunks including exact multiple, short final, binary and empty paths; metadata and explicit MD5/CRC32C verified. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-SDK-GO-003",
+          "description": "negative/positive: Controlled transport interruption/lost chunk response plus configured safe retry exercises duplicate chunk; eventual exact bytes and one generation. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-SDK-GO-004",
+          "description": "negative/resource: Cancel Writer context during transfer: Write/Close fails, no partial object, server body permit released; session remains until explicit cancel/expiry. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "RSM-SDK-GO-005",
+          "description": "permission/concurrency: DoesNotExist, GenerationMatch and MetagenerationMatch success/failure plus strict creator overwrite race use normal nonzero ChunkSize. Contract: docs/en/slices/resumable-upload.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
         {
           "id": "GO-BUCKET",
           "description": "Pinned SDK lifecycle and vet pass without skips.",
