@@ -41,8 +41,9 @@ foundation's completion scope. Selected crash recovery is not power-loss proof.
 
 ## Existing capabilities and evidence
 
-These are executed subsets, not newly promoted feature rows. Existing source
-versions, command outputs and limits remain in the named evidence files.
+These entries show the declared verified scopes. Whole-feature completion is
+recorded only in the ledger. Existing source versions, command outputs and limits
+remain in the named evidence files.
 
 | Capability | Verified scope | Remaining boundary | Evidence |
 | --- | --- | --- | --- |
@@ -53,12 +54,14 @@ versions, command outputs and limits remain in the named evidence files.
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
 | Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Bucket IAM, public reads, signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
-| Initial seed import | Native import before readiness without replay over mutations | Linux invalid-byte filenames and seeded Compose execution | [Seed verification](evidence/seed.md) |
+| Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
 
 `BEHAVIOR-OBJECT-016` remains IMPLEMENTED for its declared single-range subset;
-`JSON-OBJECTS-005` remains PARTIAL. `UX-002` remains PARTIAL until its recorded
-platform/container cases pass. Range and seeding are existing work, not the next
-features to reimplement. The integrated [native guide](evidence/seed-range-guide.txt)
+`JSON-OBJECTS-005` remains PARTIAL. `UX-002` and `UX-009` are now IMPLEMENTED:
+the missing Linux/Compose cases pass with recorded evidence. ARM64 uses native
+execution and AMD64 uses emulation. Broader fixture/volume requirements retain
+their explicit remaining scope. Range and seeding are existing work, not the
+next features to reimplement. The integrated [native guide](evidence/seed-range-guide.txt)
 and [Go SDK log](evidence/seed-range-sdk.txt) retain their actual execution scope.
 
 ## Ordered delivery queue
@@ -71,7 +74,7 @@ success stub does not complete a workflow.
 
 | Order | Deliverable | Completion boundary | Visible user outcome |
 | ---: | --- | --- | --- |
-| 1 | Seed platform verification | Pass Linux filename and seeded Compose persistence/reset cases | Fixture import has the missing platform evidence |
+| 1 | Seed platform verification | Linux filename and seeded Compose persistence/reset cases passed on 2026-10-22 | Missing platform evidence recorded; UX-002 and UX-009 IMPLEMENTED |
 | 2 | Bucket IAM policies | Persist and enforce the declared unconditional bindings; authorize get/set and atomically reject stale etags | Policy operations work and affect access |
 | 3 | Public object reads | XML path GET/HEAD; allUsers versus authenticated-only grants; denial, revocation and restart | Public URLs return bytes; private URLs stay protected |
 | 4 | Resumable upload | Initiation, chunks, status/retry, finalization, cancellation/expiry and pinned Go Writer | Normal chunked SDK uploads work |
@@ -84,8 +87,9 @@ success stub does not complete a workflow.
 | 11 | Release verification | Required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
 The next implementation capability is **bucket IAM policies**, followed by
-**public object reads**. Seed verification is the preceding evidence-closure
-task. It is not evidence that bucket IAM or XML already exists.
+**public object reads**. The preceding seed verification gate is closed by the
+[Linux and Compose evidence](evidence/seed-platform.md). This does not imply
+bucket IAM or XML is implemented.
 
 ### Small steps inside the larger workflows
 
@@ -136,7 +140,7 @@ the ledger retains the exact dependencies and default selection order.
 ```mermaid
 flowchart TD
   E[Existing verified capability subsets] --> B[Source contract baseline]
-  E --> S[Close seed platform evidence]
+  E --> S[Seed platform evidence recorded]
   E --> I[Bucket IAM]
   E --> R[Resumable uploads]
   I --> P[Public reads]

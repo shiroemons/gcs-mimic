@@ -5,8 +5,9 @@
 Contract checked: **2026-10-22**. Scope: UX-002, an emulator-specific project
 requirement. The directory layout follows fake-gcs-server's fixture ergonomics;
 it is not a Google API. The authoritative status remains in
-`compatibility/features.json`. Native behavior and pending integration checks are
-recorded in the [evidence](../evidence/seed.md).
+`compatibility/features.json`. Historical native behavior is recorded in the
+[native evidence](../evidence/seed.md); the completed Linux and Compose cases
+are recorded in the [platform evidence](../evidence/seed-platform.md).
 
 ## Sources checked
 
@@ -25,7 +26,7 @@ All sources below were checked on 2026-10-22:
   `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0`.
   The fetched bytes match the retained source manifest. No API route/schema is
   added by this slice, and no RPC behavior changes.
-- [fake-gcs-server v1.56.1 README](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/README.md#preload-data):
+- fake-gcs-server v1.56.1 README:
   a usability reference for bucket-directory/file layout only. Its raw README
   SHA-256 is
   `562a420488e91854d23eb1e627a6953621727dd81f8e44d37a09151035a05b66`.
@@ -50,11 +51,11 @@ Test identifiers below are the exact integration test function names in
 | seed-retry | Failed partial import emits no ready event and releases ownership; retry preserves existing bytes/generation, imports missing files and rejects a changed bucket project | `interrupted_import_retries_without_overwrite_and_releases_lock` | PASS |
 | seed-invalid | Reject top-level files, invalid bucket/object names, missing/overlapping roots and oversize files; accept zero bytes and the inclusive file-size cap | `invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive` | PASS |
 | seed-walk | Accept 32 nested directories below a bucket; reject deeper trees and more than 10000 entries | `fixture_depth_and_entry_count_are_bounded` | PASS |
-| seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS; Unix-only test |
-| seed-utf8 | Reject non-UTF-8 filesystem names on a filesystem that permits their creation | `non_utf8_fixture_names_fail_closed` | PENDING Linux execution; macOS rejects fixture creation |
+| seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS and Linux ARM64; Unix-only test |
+| seed-utf8 | Reject non-UTF-8 filesystem names on a filesystem that permits their creation | `non_utf8_fixture_names_fail_closed` | PASS on Linux ARM64; macOS rejects fixture creation |
 | seed-migration | Populated v4 catalog migrates to v5 without replay or overwrite; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_without_seeding`; `tests/object_storage.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `tests/object_storage.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
 | seed-readiness | After recovery and the seeding event, blocked publication prevents any listener/probe success; successful import precedes health and readiness | `probes_cannot_succeed_while_seed_publication_is_blocked` | PASS |
-| seed-compose | Read-only fixture mount; up --wait; stop/start, recreate and all-bucket deletion preserve mutations; deliberate new volume reseeds | `scripts/smoke-containers.sh` seeded journey | PENDING integration container run; Compose configuration validates |
+| seed-compose | Read-only fixture mount; up --wait; stop/start, recreate and all-bucket deletion preserve mutations; deliberate new volume reseeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PASS on Linux ARM64/native and AMD64/emulated |
 
 ## Supported subset and local rules
 
@@ -214,29 +215,19 @@ ambiguity was found that needs a new Google compatibility gap.
 
 Power-loss behavior and individual seed-marker/fsync crash instruction windows
 were not tested. Mid-import failure/retry and normal persistence were tested;
-existing publication crash-recovery tests remain green. Container execution,
-native Linux/Windows and the Linux-only invalid-byte filename fixture were not
-run here. The Compose and source-build container journey awaits final integration.
+existing publication crash-recovery tests remain green. The Linux ARM64 seed
+suite and source-built ARM64/native plus AMD64/emulated Compose journeys pass.
+Native AMD64 and Windows execution remain unverified by this evidence.
 Source mutation races are excluded by the stable read-only input contract.
 
-## Ledger proposal
+## Ledger completion
 
-For **UX-002**, use the acceptance IDs, descriptions, results and exact test IDs
-in the table above. Record the native passing verification as
-`cargo test --locked --offline --test seed` and `just check`, dated 2026-10-22,
-with `docs/en/evidence/seed-tests.txt` and `docs/en/evidence/seed-check.txt`.
-Record implementation commit `8ad9e4ecdf8a034442a1291b9272df0d7d005cc4`.
+**UX-002 is IMPLEMENTED** with achieved fidelity `PROJECT`, all 14 acceptance
+cases PASS and the Linux/Compose evidence recorded on 2026-10-22. Its earlier
+native checks and evidence remain attached. **UX-009 is IMPLEMENTED** for its
+declared stop/reset journey. The broader **DESIGN-062** fixture requirement
+remains PARTIAL because manifest metadata is unimplemented; **DESIGN-063** and
+**UX-008** retain their separate durability/platform/permission limitations.
 
-Proposed notes: "Read-only bucket-directory fixtures import sequentially into a
-fresh catalog after recovery and before listener readiness. A transactional v5
-marker prevents replay after restart or user deletion; interrupted imports
-resume create-if-absent. First startup without fixtures and migrated catalogs
-are already initialized. Fixed octet-stream MIME, 10000 entries, 32 nested
-directories and max_object_bytes apply; no metadata sidecars or source mutation."
-
-Proposed achieved fidelity: `PROJECT`. Keep **PARTIAL** while the table's Linux
-invalid-byte and container cases are pending. Promote to **IMPLEMENTED** with
-`acceptance_status: COMPLETE`, every case PASS, no known deviations and the final
-integration date only after those checks have recorded passing evidence. The
-seeded smoke section is ready for the integration task's single final container
-run; it has not been executed by this worker. Proposed new gap entries: none.
+The implementation scope and local input/resource rules above are unchanged.
+No new Google compatibility gap or legacy-format compatibility claim is added.

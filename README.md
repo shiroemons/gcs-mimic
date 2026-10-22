@@ -12,7 +12,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Prebuilt binary distribution | 🚧 Partial | CI is configured for macOS/Windows ARM64 and x86-64, plus Linux GNU/musl on both CPUs. All-platform execution and public release are pending. |
 | Docker and Compose | 🚧 Partial | Non-root runtime; native amd64/arm64 Foundation CI passed. GHCR publication is configured but has not run. |
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
-| Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose verification remains pending. |
+| Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose startup is verified on ARM64 and emulated AMD64. |
 | HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete, metadata, scoped keyset paging and conditions; ACL/IAM and advanced settings are unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart upload with metadata and MD5/CRC32C, metadata/whole-media get, single byte ranges and delete, prefix/delimiter/offset listing with keyset paging, metadata patch/update and atomic conditions. Resumable, If-Range, transcoding, glob/version listing and ACL/hold/retention metadata are unavailable. |
@@ -38,10 +38,16 @@ and protocol differences remain in the same feature ledger.
 | Bounded JSON multipart upload with Go `ChunkSize=0` Writer | MIME edge parity, response replay and resumable uploads | [Multipart](docs/en/evidence/multipart.md) |
 | Strict local tokens and project-level predefined storage roles | Bucket IAM, public reads and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
 | Single closed/open/suffix stored-byte ranges with pinned generation | If-Range, transcoding and exact fallback/header parity | [Range](docs/en/evidence/object-range.md) |
-| Native initial seed import before readiness without replay over changes | Linux invalid-byte filename and seeded Compose verification | [Seed](docs/en/evidence/seed.md) |
+| Native initial seed import before readiness without replay over changes | Fixed octet-stream MIME; manifest metadata and legacy seed defaults remain separate work | [Seed](docs/en/evidence/seed-platform.md) |
 
-Next, close the pending seed platform evidence, then implement bucket IAM
-policies and public XML GET/HEAD. Continue with resumable uploads, V4 signed GET
+Seed platform verification is complete: Linux rejects invalid-byte filenames;
+Compose preserves user mutations and deletions with read-only fixtures, and
+restores fixtures only after an explicit fresh-volume reset. UX-002 and UX-009
+are IMPLEMENTED for their declared scope. ARM64 execution is native; AMD64 uses
+emulation.
+
+Next, implement bucket IAM policies and public XML GET/HEAD.
+Continue with resumable uploads, V4 signed GET
 then PUT, copy then compose, browser CORS and Ruby/Rails journeys. Add applicable
 Ruby checks as each capability lands. Distribution verification has separate
 release gates and publication authorization.
@@ -120,7 +126,7 @@ establish access control.
 | Runtime / embedded use | Rust binary | Go binary or Go test library | Python CLI or Python test server |
 | Disk persistence | 🚧 SQLite catalog and opaque blobs; documented recovery limits | ✅ Filesystem backend | ✅ Files and JSON metadata |
 | Optional in-memory backend | ❌ | ✅ | ✅ |
-| Fixture import | 🚧 Native initial seed directory before readiness; no replay; Compose/Linux edge verification pending | ✅ Seed directory / initial objects | 🚧 Default bucket creation only |
+| Fixture import | ✅ Native read-only initial seed before readiness; no replay; Linux and Compose lifecycle verified | ✅ Seed directory / initial objects | 🚧 Default bucket creation only |
 | Published native binaries | 🚧 Eight-target CI configured; no release yet | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | 🚧 Source build; GHCR workflow configured | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |

@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
 | behavior | 201 | 173 | 0 | 26 | 2 | 0 | 0 |
-| project_requirement | 92 | 45 | 0 | 28 | 19 | 0 | 0 |
+| project_requirement | 92 | 44 | 0 | 27 | 21 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
 | behavior | 173 | 2 | 24 | 2 | 0 | 0 |
-| project_requirement | 45 | 0 | 0 | 0 | 0 | 47 |
+| project_requirement | 44 | 0 | 0 | 0 | 0 | 48 |
 
 ## api_operation
 
@@ -823,7 +823,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-059 | linux/amd64コンテナの提供 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-060 | linux/arm64コンテナの提供 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-061 | ホスト・Compose内からの接続例 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-062 | 読み取り専用フィクスチャ投入 | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-062 | 読み取り専用フィクスチャ投入 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-063 | 永続データボリューム | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI・環境変数の優先順位 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-065 | HTTP・任意のテストTLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -837,14 +837,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | クリーンチェックアウトからDockerビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-002 | 初期データ投入後の起動完了 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-002 | 初期データ投入後の起動完了 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | 非公開・公開の権限制御フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | ブラウザCORS・直接アップロード | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| UX-009 | 停止と明示的データ初期化の区別 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | 停止と明示的データ初期化の区別 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | 資源制限下の大容量オブジェクト操作 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-012 | 英語正本の導入ガイド・トラブルシューティング検証 | PARTIAL | P0 | PROJECT | PROJECT | 0 |

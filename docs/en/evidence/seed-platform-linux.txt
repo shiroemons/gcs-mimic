@@ -1,0 +1,83 @@
+Local path prefixes are replaced with placeholders; all other output is unchanged.
+Linux aarch64
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo 1.99.1 (5f94df478 2026-08-27)
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling syn v3.0.9
+   Compiling errno v0.3.14
+   Compiling typenum v1.20.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling cc v1.9.0
+   Compiling tokio-macros v2.7.2
+   Compiling hybrid-array v0.4.15
+   Compiling signal-hook-registry v1.4.8
+   Compiling http v1.5.0
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling httparse v1.10.1
+   Compiling pkg-config v0.3.34
+   Compiling semver v1.0.28
+   Compiling pin-project-lite v0.2.17
+   Compiling vcpkg v0.2.15
+   Compiling tokio v1.54.1
+   Compiling libsqlite3-sys v0.38.2
+   Compiling rustc_version v0.4.1
+   Compiling http-body v1.1.0
+   Compiling futures-core v0.3.34
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling smallvec v1.16.3
+   Compiling crc32c v0.6.8
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling serde_json v1.0.154
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.5
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling hyper v1.12.0
+   Compiling digest v0.11.3
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling rusqlite v0.40.2
+   Compiling md-5 v0.11.0
+   Compiling hyper-util v0.1.21
+   Compiling http-body-util v0.1.5
+   Compiling gcs-mimic v0.1.0 (/checkout)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.31s
+     Running tests/seed.rs (/seed-target/debug/deps/seed-4956cf7a3e23e91d)
+
+running 12 tests
+{"event":"seeding"}
+test disabled_startup_never_replays_fixtures_later ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+{"event":"seeding"}
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+{"event":"seeding"}
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+test non_utf8_fixture_names_fail_closed ... ok
+{"event":"seeding"}
+test populated_v4_catalog_migrates_without_seeding ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+{"event":"seeding"}
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+test symlinks_and_special_files_fail_closed ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.67s
+

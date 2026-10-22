@@ -10,13 +10,13 @@ API operations, behaviors and project requirements have separate denominators. P
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 288 | 0 | 10 | 0 | 0 | 0 |
 | behavior | 201 | 173 | 0 | 26 | 2 | 0 | 0 |
-| project_requirement | 92 | 45 | 0 | 28 | 19 | 0 | 0 |
+| project_requirement | 92 | 44 | 0 | 27 | 21 | 0 | 0 |
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 288 | 0 | 10 | 0 | 0 | 0 |
 | behavior | 173 | 2 | 24 | 2 | 0 | 0 |
-| project_requirement | 45 | 0 | 0 | 0 | 0 | 47 |
+| project_requirement | 44 | 0 | 0 | 0 | 0 | 48 |
 
 ## api_operation
 
@@ -823,7 +823,7 @@ API operations, behaviors and project requirements have separate denominators. P
 | DESIGN-059 | Native linux/amd64 container | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-060 | Native linux/arm64 container | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-061 | Host and compose-network connection examples | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-062 | Read-only fixture seeding | NOT_STARTED | P0 | PROJECT | NONE | 0 |
+| DESIGN-062 | Read-only fixture seeding | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-063 | Persistent data volume | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI and environment precedence | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-065 | HTTP and optional test TLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -837,14 +837,14 @@ API operations, behaviors and project requirements have separate denominators. P
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
-| UX-002 | Seed then ready startup | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-002 | Seed then ready startup | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-006 | Signed access and invalid-signature journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-007 | Browser CORS and direct upload journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| UX-009 | Stop versus deliberate reset semantics | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-009 | Stop versus deliberate reset semantics | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-011 | Resource-limited large-object workflow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-012 | Canonical English guide and troubleshooting verification | PARTIAL | P0 | PROJECT | PROJECT | 0 |

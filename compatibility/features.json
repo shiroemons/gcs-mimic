@@ -195,18 +195,21 @@
       {
         "id": "initial-seed-import",
         "title": "Initial seed directory import",
-        "scope": "Native fresh-catalog import before readiness without replay over mutations; UX-002 remains PARTIAL until its Linux filename and seeded Compose cases pass.",
+        "scope": "UX-002 is IMPLEMENTED for the declared native seed contract: fresh-catalog import before readiness without replay over mutations, Linux invalid-byte rejection and read-only Compose persistence/reset on ARM64/native plus AMD64/emulated. Manifest metadata and legacy source semantics remain separate work.",
         "feature_ids": [
           "UX-002"
         ],
         "acceptance_case_refs": [
           "UX-002/seed-once",
           "UX-002/seed-retry",
-          "UX-002/seed-readiness"
+          "UX-002/seed-readiness",
+          "UX-002/seed-utf8",
+          "UX-002/seed-compose"
         ],
         "evidence": [
           "docs/en/evidence/seed.md",
-          "docs/en/evidence/seed-range-guide.txt"
+          "docs/en/evidence/seed-range-guide.txt",
+          "docs/en/evidence/seed-platform.md"
         ]
       }
     ],
@@ -21865,25 +21868,72 @@
       "interface": "Emulator extension",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Seed /data/<bucket>/<key> and manifest metadata without mutating source fixtures.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. This does not claim fake-gcs-server metadata/seed equivalence.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "fixture-directory",
+          "description": "Import bucket-directory objects and empty buckets with the declared native seed defaults before readiness.",
+          "result": "PASS",
+          "test_ids": [
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
+        },
+        {
+          "id": "fixture-read-only",
+          "description": "Mount source fixtures read-only and preserve user mutations/deletions until an explicit disposable-volume reset.",
+          "result": "PASS",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
+        },
+        {
+          "id": "fixture-manifest-metadata",
+          "description": "Define and implement manifest metadata import without mutating the source; fixed octet-stream directory import does not satisfy this requirement.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "seeded_http_metadata_bytes_and_strict_administrative_import",
+        "container-seed-lifecycle"
+      ],
+      "verification": [
+        {
+          "command": "Docker Linux ARM64, network none, pinned Rust 1.99.1: cargo +1.99.1 test --locked --offline --test seed",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-platform-linux.txt",
+          "test_ids": [
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-platform-containers.txt",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
+      "known_deviations": [
+        "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-063",
@@ -21901,7 +21951,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "The non-root read-only-root Compose image persists catalog/WAL/lock, opaque blobs and staging on its writable named volume. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "The non-root read-only-root Compose image persists catalog/WAL/lock, opaque blobs and staging on its writable named volume. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only seed persistence/reset is now verified on Linux ARM64/native and AMD64/emulated; docs/en/evidence/seed-platform.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -21935,9 +21985,11 @@
         },
         {
           "id": "DESIGN-063-PENDING",
-          "description": "Add distinct read-only fixture import and verify its reset/reseed policy.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Read-only fixture import preserves state across Compose stop/start and recreate; explicit fresh-volume reset restores fixtures.",
+          "result": "PASS",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
         },
         {
           "id": "DESIGN-063-MEDIA-SAFETY",
@@ -21955,7 +22007,8 @@
         "round_trip_exact_hashes_opaque_names_and_restart",
         "guide-object-restart-persistence",
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "container-seed-lifecycle"
       ],
       "verification": [
         {
@@ -21988,15 +22041,24 @@
           "test_ids": [
             "guide-object-restart-persistence"
           ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-platform-containers.txt",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Fixtures/seeding remain unavailable; host power loss and native amd64 remain unverified.",
+        "Read-only seeding and reset are verified; host power-loss durability and native AMD64 platform execution remain unverified. Emulated AMD64 execution does not establish a native AMD64 result.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "DESIGN-064",
@@ -24532,16 +24594,16 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Read-only bucket-directory fixtures import sequentially into a fresh catalog after recovery and before listener readiness. A transactional v5 marker prevents replay after restart or user deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Fixed octet-stream MIME, 10000 entries, 32 nested directories and max_object_bytes apply; no metadata sidecars or source mutation. Scope: docs/en/slices/seed.md; Linux filename and Compose execution remain pending.",
+      "notes": "Read-only bucket-directory fixtures import sequentially into a fresh catalog after recovery and before listener readiness. A transactional v5 marker prevents replay after restart or user deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Fixed octet-stream MIME, 10000 entries, 32 nested directories and max_object_bytes apply; no metadata sidecars or source mutation. Scope: docs/en/slices/seed.md; Linux invalid-byte rejection and ARM64/native plus AMD64/emulated seeded Compose lifecycle are verified in docs/en/evidence/seed-platform.md. Stable read-only source input remains required; no source-mutation protection or directory-wide atomic import is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {"id": "seed-config", "description": "CLI/environment/JSON/default precedence and invalid configuration rejection.", "result": "PASS", "test_ids": ["seed_configuration_precedence_and_validation"]},
         {"id": "seed-layout", "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and fixed MIME.", "result": "PASS", "test_ids": ["seeded_http_metadata_bytes_and_strict_administrative_import"]},
@@ -24553,17 +24615,20 @@
         {"id": "seed-invalid", "description": "Reject invalid/missing/overlapping roots, names and oversized files; accept zero and inclusive size cap.", "result": "PASS", "test_ids": ["invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive"]},
         {"id": "seed-walk", "description": "Bound traversal at 32 directory levels and 10000 total entries.", "result": "PASS", "test_ids": ["fixture_depth_and_entry_count_are_bounded"]},
         {"id": "seed-links", "description": "Reject symlink roots/entries and Unix sockets before readiness; verified on macOS.", "result": "PASS", "test_ids": ["symlinks_and_special_files_fail_closed"]},
-        {"id": "seed-utf8", "description": "Execute invalid-byte filename rejection on Linux; macOS cannot create the fixture.", "result": "PENDING", "test_ids": []},
+        {"id": "seed-utf8", "description": "Reject invalid-byte fixture names before readiness on Linux; macOS cannot create the fixture.", "result": "PASS", "test_ids": ["non_utf8_fixture_names_fail_closed"]},
         {"id": "seed-migration", "description": "Populated v4 migrates to v5 without seeding or overwrite; prior migration regressions stay green.", "result": "PASS", "test_ids": ["populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog"]},
         {"id": "seed-readiness", "description": "Blocked seed publication prevents listener/probe success; import precedes readiness.", "result": "PASS", "test_ids": ["probes_cannot_succeed_while_seed_publication_is_blocked"]},
-        {"id": "seed-compose", "description": "Run read-only seeded Compose up --wait, persistence, all-bucket deletion and deliberate reset/reseed journey.", "result": "PENDING", "test_ids": []}
+        {"id": "seed-compose", "description": "Read-only seeded Compose up --wait, mutation persistence across stop/start and recreate, all-bucket deletion without replay, and deliberate reset/reseed pass on Linux ARM64/native and AMD64/emulated.", "result": "PASS", "test_ids": ["container-seed-lifecycle"]}
       ],
-      "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"],
+      "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked", "non_utf8_fixture_names_fail_closed", "container-seed-lifecycle"],
       "verification": [
-        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"]}
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-range-checks.txt", "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"]},
+        {"command": "Docker Linux ARM64, network none, pinned Rust 1.99.1: cargo +1.99.1 test --locked --offline --test seed", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-platform-linux.txt", "test_ids": ["disabled_startup_never_replays_fixtures_later", "explicit_project_and_empty_seed_directory_are_supported", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "non_utf8_fixture_names_fail_closed", "populated_v4_catalog_migrates_without_seeding", "fixture_depth_and_entry_count_are_bounded", "probes_cannot_succeed_while_seed_publication_is_blocked", "seed_configuration_precedence_and_validation", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "seeded_http_metadata_bytes_and_strict_administrative_import", "symlinks_and_special_files_fail_closed"]},
+        {"command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-platform-containers.txt", "test_ids": ["container-seed-lifecycle"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-22", "artifact": "docs/en/evidence/seed-platform-checks.txt", "test_ids": ["seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "explicit_project_and_empty_seed_directory_are_supported", "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds", "disabled_startup_never_replays_fixtures_later", "interrupted_import_retries_without_overwrite_and_releases_lock", "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive", "fixture_depth_and_entry_count_are_bounded", "symlinks_and_special_files_fail_closed", "populated_v4_catalog_migrates_without_seeding", "v1_migration_is_transactional_and_current_schema_reopens_idempotently", "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog", "probes_cannot_succeed_while_seed_publication_is_blocked"]}
       ],
       "sdk_evidence": [],
-      "known_deviations": ["Linux invalid-byte filename rejection and seeded Compose execution are unverified. Trusted seed input must remain stable/read-only throughout import; no source mutation protection or whole-directory atomicity is claimed."],
+      "known_deviations": [],
       "implemented_in": "8ad9e4ecdf8a034442a1291b9272df0d7d005cc4",
       "last_verified": "2026-10-22"
     },
@@ -24896,7 +24961,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. UX-002 adds a native durable seed marker that prevents replay after restart or all-bucket deletion; its seeded Compose case remains pending. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
+      "notes": "Bucket/object metadata, generation and exact bytes persist across native restart, Compose stop/start and down/up; interrupted uploads recover. UX-002 adds a native durable seed marker that prevents replay after restart or all-bucket deletion; its seeded Compose case now passes on Linux ARM64/native and AMD64/emulated; docs/en/evidence/seed-platform.md. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -25003,11 +25068,11 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No persisted bucket/object permissions; selected process crashes are covered, every instruction and power loss are not. Native initialization markers prevent fixture replay; seeded Compose verification remains on UX-002.",
+        "No persisted bucket/object permissions; selected process crashes are covered, every instruction and power loss are not. Native initialization markers prevent fixture replay; seeded Compose verification passes under UX-002.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "UX-009",
@@ -25017,16 +25082,16 @@
       "interface": "Emulator user journey",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Stop/down preserves catalog and blobs; explicit project-scoped down --volumes removes disposable bucket/object state. Native fresh data reseeds under UX-002; the seeded Compose reset/reseed journey remains pending. Scope: docs/en/slices/json-object-media.md and docs/en/slices/seed.md; evidence: docs/en/evidence/object-media.md and docs/en/evidence/seed-range.md.",
+      "notes": "Stop/down preserves catalog and blobs. The isolated seeded Compose journey verifies overwritten bytes across stop/start and recreation, no replay after deleting every bucket, and fixture restoration only after deliberate project-scoped volume removal. Verified on Linux ARM64/native and AMD64/emulated. This is explicit local volume reset, not an admin reset API. Existing native and object-reset evidence is retained; additional evidence: docs/en/evidence/seed-platform.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "RESET-COMPOSE",
@@ -25046,14 +25111,17 @@
         },
         {
           "id": "UX-009-PENDING",
-          "description": "Native fresh data reseeds under UX-002; execute the seeded Compose deliberate volume reset/reseed journey.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Seeded Compose deliberate volume reset restores original fixtures; ordinary shutdown/recreation and all-bucket deletion do not replay them.",
+          "result": "PASS",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
         }
       ],
       "test_ids": [
         "container-bucket-reset",
-        "guide-object-reset"
+        "guide-object-reset",
+        "container-seed-lifecycle"
       ],
       "verification": [
         {
@@ -25073,14 +25141,21 @@
           "test_ids": [
             "guide-object-reset"
           ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-22",
+          "artifact": "docs/en/evidence/seed-platform-containers.txt",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Native fresh catalogs support initial reseeding; seeded Compose reset/reseed remains unverified. No admin reset route; explicit volume removal destroys this project's local data."
-      ],
+      "known_deviations": [],
       "implemented_in": "89acc944ae2c1d5896cea5d84b66a8a2250e8910",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-22"
     },
     {
       "id": "UX-010",
