@@ -32,6 +32,7 @@ pub use objects::{
 pub use page_token::{decode_page_token, encode_page_token};
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,
+    validate_project,
 };
 
 #[cfg(test)]

@@ -250,7 +250,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
     Ok(project)
 }
 
-pub(super) fn validate_project(project: &str) -> Result<(), JsonError> {
+pub fn validate_project(project: &str) -> Result<(), JsonError> {
     if project.is_empty()
         || project.len() > 256
         || project

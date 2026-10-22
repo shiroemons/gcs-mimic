@@ -1,3 +1,4 @@
+use crate::auth::AuthMode;
 use std::{
     collections::BTreeMap,
     fs::File,
@@ -19,6 +20,9 @@ pub struct Config {
     pub object_request_timeout_ms: u64,
     pub catalog_wait_timeout_ms: u64,
     pub shutdown_timeout_ms: u64,
+    pub auth_mode: AuthMode,
+    /// Strict-mode identity registry; loaded once at startup, never in permissive mode.
+    pub identity_file: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -35,6 +39,8 @@ impl Default for Config {
             object_request_timeout_ms: 900_000,
             catalog_wait_timeout_ms: 30_000,
             shutdown_timeout_ms: 5_000,
+            auth_mode: AuthMode::Permissive,
+            identity_file: None,
         }
     }
 }
@@ -133,8 +139,25 @@ impl Config {
                 "shutdown_timeout_ms" => {
                     config.shutdown_timeout_ms = bounded(&key, &value, 1, 60_000)?
                 }
+                "auth_mode" => config.auth_mode = value.parse()?,
+                "identity_file" => {
+                    if value.is_empty() {
+                        return Err("identity_file must not be empty".into());
+                    }
+                    config.identity_file = Some(PathBuf::from(value));
+                }
                 _ => return Err(format!("unknown setting: {key}")),
             }
+        }
+        // Reject mismatched profiles so a registry is never silently ignored or missing.
+        match (config.auth_mode, &config.identity_file) {
+            (AuthMode::Strict, None) => {
+                return Err("auth_mode=strict requires identity_file".into());
+            }
+            (AuthMode::Permissive, Some(_)) => {
+                return Err("identity_file requires auth_mode=strict".into());
+            }
+            _ => {}
         }
         Ok(config)
     }
@@ -281,6 +304,83 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    #[test]
+    fn authentication_profile_precedence_and_validation() {
+        let file =
+            std::env::temp_dir().join(format!("gcs-mimic-auth-config-{}.json", std::process::id()));
+        let args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let defaults = Config::load(&[], &BTreeMap::new()).unwrap();
+        assert_eq!(defaults.auth_mode, AuthMode::Permissive);
+        assert_eq!(defaults.identity_file, None);
+        std::fs::write(
+            &file,
+            r#"{"auth_mode":"strict","identity_file":"file-ids.json"}"#,
+        )
+        .unwrap();
+        let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
+        assert_eq!(loaded.auth_mode, AuthMode::Strict);
+        assert_eq!(
+            loaded.identity_file.as_deref(),
+            Some(Path::new("file-ids.json"))
+        );
+        let env = BTreeMap::from([("GCS_MIMIC_IDENTITY_FILE".into(), "env-ids.json".into())]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().identity_file.as_deref(),
+            Some(Path::new("env-ids.json"))
+        );
+        let mut cli = args.clone();
+        cli.extend(["--identity-file".into(), "cli-ids.json".into()]);
+        assert_eq!(
+            Config::load(&cli, &env).unwrap().identity_file.as_deref(),
+            Some(Path::new("cli-ids.json"))
+        );
+        // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
+        let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);
+        assert_eq!(
+            Config::load(&args, &permissive_env).unwrap_err(),
+            "identity_file requires auth_mode=strict"
+        );
+        let mut strict_cli = vec!["--auth-mode".into(), "strict".into()];
+        assert_eq!(
+            Config::load(&strict_cli, &permissive_env).unwrap_err(),
+            "auth_mode=strict requires identity_file"
+        );
+        strict_cli.extend(["--identity-file".into(), "ids.json".into()]);
+        assert_eq!(
+            Config::load(&strict_cli, &permissive_env)
+                .unwrap()
+                .auth_mode,
+            AuthMode::Strict
+        );
+        assert_eq!(
+            Config::load(
+                &["--identity-file".into(), "ids.json".into()],
+                &BTreeMap::new()
+            )
+            .unwrap_err(),
+            "identity_file requires auth_mode=strict"
+        );
+        for invalid in ["", "Strict", "none", "STRICT"] {
+            assert!(
+                Config::load(&["--auth-mode".into(), invalid.into()], &BTreeMap::new()).is_err(),
+                "{invalid}"
+            );
+        }
+        assert!(
+            Config::load(
+                &[
+                    "--auth-mode".into(),
+                    "strict".into(),
+                    "--identity-file".into(),
+                    "".into()
+                ],
+                &BTreeMap::new()
+            )
+            .is_err()
+        );
+        std::fs::remove_file(file).unwrap();
     }
 
     #[test]

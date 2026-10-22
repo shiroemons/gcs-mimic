@@ -1,4 +1,4 @@
-use crate::{bucket::CatalogError, object::ObjectError};
+use crate::{auth::AuthFailure, bucket::CatalogError, object::ObjectError};
 use http_body_util::Full;
 use hyper::{Response, StatusCode, body::Bytes, header};
 use serde_json::{Value, json};
@@ -10,6 +10,8 @@ pub struct JsonError {
     pub reason: &'static str,
     pub message: String,
     pub allow: Option<&'static str>,
+    /// Request header named by `locationType`/`location` in the error item, if any.
+    pub header_location: Option<&'static str>,
 }
 
 impl JsonError {
@@ -19,6 +21,7 @@ impl JsonError {
             reason,
             message: message.into(),
             allow: None,
+            header_location: None,
         }
     }
 
@@ -28,6 +31,10 @@ impl JsonError {
 
     pub fn invalid_argument(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalidArgument", message)
+    }
+
+    pub fn forbidden() -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", "Forbidden")
     }
 
     pub fn unsupported(name: &str) -> Self {
@@ -47,8 +54,12 @@ impl JsonError {
     }
 
     pub fn value(&self) -> Value {
-        json!({"error": {"code": self.status.as_u16(), "message": self.message,
-            "errors": [{"message": self.message, "domain": "global", "reason": self.reason}]}})
+        let mut item = json!({"message": self.message, "domain": "global", "reason": self.reason});
+        if let Some(location) = self.header_location {
+            item["locationType"] = "header".into();
+            item["location"] = location.into();
+        }
+        json!({"error": {"code": self.status.as_u16(), "message": self.message, "errors": [item]}})
     }
 
     pub fn into_response(self) -> Response<Full<Bytes>> {
@@ -70,6 +81,29 @@ impl JsonError {
                 .insert(header::ALLOW, header::HeaderValue::from_static(allow));
         }
         response
+    }
+}
+
+impl From<AuthFailure> for JsonError {
+    fn from(failure: AuthFailure) -> Self {
+        match failure {
+            // Documented status-code example for a missing credential.
+            AuthFailure::LoginRequired => {
+                let mut error = Self::new(StatusCode::UNAUTHORIZED, "required", "Login Required");
+                error.header_location = Some("Authorization");
+                error
+            }
+            // The reason is documented; message and location are a local choice.
+            AuthFailure::InvalidCredentials => {
+                let mut error =
+                    Self::new(StatusCode::UNAUTHORIZED, "authError", "Invalid Credentials");
+                error.header_location = Some("Authorization");
+                error
+            }
+            // The service's longer "<principal> does not have <permission> access" text is
+            // undocumented, so the documented example message is kept.
+            AuthFailure::Forbidden => Self::forbidden(),
+        }
     }
 }
 
@@ -118,6 +152,7 @@ impl From<ObjectError> for JsonError {
                 "conditionNotMet",
                 "Precondition failed",
             ),
+            ObjectError::OverwriteForbidden => Self::forbidden(),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid",
