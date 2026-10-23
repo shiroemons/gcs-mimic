@@ -1,11 +1,6 @@
-use gcs_mimic::{json, object};
+use gcs_mimic::json::{self, compose};
 use hyper::StatusCode;
 use serde_json::{Value, json};
-
-#[path = "../src/json/compose.rs"]
-mod compose;
-#[path = "../src/storage/compose_crc32c.rs"]
-mod compose_crc32c;
 
 fn parse(value: Value) -> Result<compose::ComposeRequest, json::JsonError> {
     compose::parse_compose(

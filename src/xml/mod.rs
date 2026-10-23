@@ -260,14 +260,18 @@ pub(crate) fn media_headers(
         } else {
             "private, max-age=0"
         });
-    let etag = format!(
-        "\"{}\"",
-        record
-            .md5
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    );
+    let etag = if record.component_count.is_some() {
+        json::object_etag(record)
+    } else {
+        format!(
+            "\"{}\"",
+            record
+                .md5
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        )
+    };
     let timestamp = json::timestamp(record.updated)?;
     let days = record
         .updated

@@ -1,15 +1,94 @@
 use crate::{
     json::{JsonError, parse_object_metadata, validate_object_name},
-    object::ObjectMetadataUpdate,
+    object::{ComposeSource, ObjectMetadataUpdate},
 };
 use hyper::StatusCode;
 use serde_json::{Map, Value};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ComposeSource {
-    pub name: String,
-    pub generation: Option<i64>,
-    pub if_generation_match: Option<i64>,
+pub(crate) fn route(
+    method: &hyper::Method,
+    uri: &hyper::Uri,
+    profile: crate::config::CompatProfile,
+) -> Option<Result<crate::json::ObjectRequest, JsonError>> {
+    let path = uri.path().strip_prefix("/storage/v1/b/")?;
+    let (bucket, rest) = path.split_once("/o/")?;
+    let name = rest.strip_suffix("/compose")?;
+    if bucket.contains('/') || name.contains('/') {
+        return None;
+    }
+    Some((|| {
+        if method != hyper::Method::POST {
+            let mut error = JsonError::new(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "methodNotAllowed",
+                "Compose requires POST",
+            );
+            error.allow = Some("POST");
+            return Err(error);
+        }
+        let bucket = crate::json::decode(bucket, false)?;
+        crate::json::validate_bucket_name_for_profile(&bucket, profile)?;
+        let name = crate::json::decode(name, false)?;
+        validate_object_name(&name)?;
+        let mut query = crate::json::parse_query(uri.query().unwrap_or_default())?;
+        crate::json::Fields::take(&mut query, "Object")?;
+        crate::json::query::projection(&mut query)?;
+        for key in [
+            "destinationPredefinedAcl",
+            "kmsKeyName",
+            "userProject",
+            "dropContextGroups",
+            "ifGenerationNotMatch",
+            "ifMetagenerationNotMatch",
+            "key",
+            "oauth_token",
+            "quotaUser",
+            "userIp",
+            "callback",
+        ] {
+            if query.contains_key(key) {
+                return Err(JsonError::unsupported_object(key));
+            }
+        }
+        match query.remove("prettyPrint").as_deref() {
+            None | Some("false") => {}
+            Some("true") => return Err(JsonError::unsupported_object("prettyPrint")),
+            Some(_) => {
+                return Err(JsonError::invalid_parameter(
+                    "prettyPrint must be a boolean",
+                ));
+            }
+        }
+        match query.remove("alt").as_deref() {
+            None | Some("json") => {}
+            Some(_) => return Err(JsonError::invalid_parameter("Compose requires alt=json")),
+        }
+        let mut condition = |key: &str| {
+            query
+                .remove(key)
+                .map(|value| {
+                    value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit())
+                        .then(|| value.parse::<i64>().ok())
+                        .flatten()
+                        .filter(|value| *value >= 0)
+                        .ok_or_else(|| JsonError::invalid_parameter(format!("Invalid {key}")))
+                })
+                .transpose()
+        };
+        let conditions = crate::object::ObjectConditions {
+            if_generation_match: condition("ifGenerationMatch")?,
+            if_metageneration_match: condition("ifMetagenerationMatch")?,
+            ..Default::default()
+        };
+        crate::json::query::finish(query)?;
+        Ok(crate::json::ObjectRequest::Compose {
+            bucket,
+            name,
+            conditions,
+        })
+    })())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

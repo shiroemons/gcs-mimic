@@ -58,8 +58,9 @@ ordinary objects as one. The same object listed twice contributes twice.
 | deleteSourceObjects | Omitted/false leaves all source generations intact; true hard-deletes pinned source generations in the destination publication transaction under the local safety rules below; null/non-boolean returns 400 |
 | ifGenerationMatch | Destination match condition, including zero for no live destination; authoritative check in the publication transaction; one winner under concurrent create-if-absent |
 | ifMetagenerationMatch | Destination live metadata match; authoritative check in the same transaction; cannot silently ignore a stale revision |
-| fields | Existing Object selector validates before mutation; filters successful Object only; errors remain complete; componentCount becomes selectable after extending the schema |
-| Unsupported queries | destinationPredefinedAcl, kmsKeyName, userProject, dropContextGroups, unsupported condition variants, projection and recognized unsupported common query semantics return explicit 501; malformed or duplicated supported parameters return 400 according to shared query rules |
+| fields | Existing Object selector validates before mutation; filters successful Object only; errors remain complete; the pinned schema already permits componentCount |
+| projection | noAcl/full both render the supported metadata subset, omitting owner/ACL as required by compose; full-projection additional permission parity stays pending on the broad method |
+| Unsupported queries | destinationPredefinedAcl, kmsKeyName, userProject, dropContextGroups, unsupported condition variants and recognized unsupported common query semantics return explicit 501; malformed or duplicated supported parameters return 400 according to shared query rules |
 | Unsupported destination features | ACL/owner, contexts, customTime, customerEncryption/KMS, temporaryHold, retention, soft-delete fields and explicit storageClass changes return 501; they never silently alter or grant permissions |
 | Headers | Existing authentication, transport, telemetry and bounded invocation-token rules; customer encryption, billing, copy-source encryption, method override, write ETag/date conditions and unsupported X-Goog-* semantics fail closed; request Content-Type describes JSON and never becomes destination contentType |
 
@@ -85,8 +86,9 @@ foundation's filesystem/catalog recovery protocol. The final short transaction
 checks the bucket incarnation, current effective grants, destination conditions
 and active destination hold, then publishes one immutable destination generation
 with metageneration 1. An old live destination becomes noncurrent when versioning
-is enabled, or is journaled for physical deletion otherwise. A failed operation
-preserves the complete previous destination and every source. Destination-as-source
+is enabled, or is journaled for physical deletion otherwise. Validation,
+precondition, permission and hold failures before commit preserve the complete
+previous destination and every source. Destination-as-source
 uses its pinned earlier generation, allowing append without reading partial data.
 
 Strict mode requires `storage.objects.get` for sources and
@@ -108,6 +110,12 @@ the content's MD5. Metadata GET/list, selected-generation GET, whole/range media
 XML read headers, metadata updates, copy/rewrite and restart must preserve or
 render composite identity consistently; XML compose itself remains out of scope.
 Ordinary uploads retain MD5 and omit componentCount.
+
+As in the frozen upload contract, a timeout or disconnected response after a
+complete request does not prove that publication failed: the owned operation may
+finish its atomic commit. Re-read the destination or retry with generation
+conditions. Post-commit cleanup failure cannot undo a committed destination;
+startup cleanup uses persisted transfer ownership and the deletion journal.
 
 ## Acceptance decomposition
 
@@ -154,8 +162,9 @@ questions, separately from that documented behavior scope:
   holds and retention cannot be created in the current model and remain rejected
   as input rather than simulated as deletable states.
 - Duplicate source entries contribute bytes/count in order but delete once.
-- When a source uses the destination name, publish the new composite and remove
-  only the pinned previous source generation; never delete the new destination.
+- Sources with the destination name are excluded from hard deletion. Publish the
+  new composite using normal destination overwrite rules: with versioning, its
+  previous live generation becomes noncurrent; without versioning it is removed.
 - Destination publication and deletion of all pinned source generations commit
   in one catalog transaction, with deferred blob reclaim. Recheck deletability
   under that write transaction; a failure rolls back the complete mutation.
