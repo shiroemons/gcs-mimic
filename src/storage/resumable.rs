@@ -108,8 +108,8 @@ pub struct SessionLease {
     guard: WriterGuard,
 }
 pub(super) struct WriterGuard {
-    catalog: Catalog,
-    id: String,
+    pub(super) catalog: Catalog,
+    pub(super) id: String,
 }
 impl Drop for WriterGuard {
     fn drop(&mut self) {
