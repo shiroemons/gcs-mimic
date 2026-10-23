@@ -15,6 +15,7 @@ mod error;
 mod fields;
 mod iam;
 mod multipart;
+mod object_copy;
 mod object_list;
 mod object_metadata;
 mod objects;
@@ -36,6 +37,7 @@ pub use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
+pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{
