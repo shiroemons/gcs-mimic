@@ -195,10 +195,16 @@ impl Config {
                         for domain in value.split(',') {
                             let domain = domain.trim().to_ascii_lowercase();
                             validate_dns_name(&domain)?;
-                            if config.xml_virtual_host_domains.contains(&domain)
-                                || config.xml_virtual_host_domains.len() == 32
-                            {
-                                return Err("xml_virtual_host_domains must contain at most 32 distinct DNS names".into());
+                            if config.xml_virtual_host_domains.contains(&domain) {
+                                return Err(format!(
+                                    "duplicate xml_virtual_host_domains entry: {domain}"
+                                ));
+                            }
+                            if config.xml_virtual_host_domains.len() == 32 {
+                                return Err(
+                                    "xml_virtual_host_domains must contain at most 32 DNS names"
+                                        .into(),
+                                );
                             }
                             config.xml_virtual_host_domains.push(domain);
                         }
@@ -274,6 +280,18 @@ impl Config {
         }
         if !explicit_api_base_url {
             config.api_base_url = format!("{}://127.0.0.1:4443", config.scheme.as_str());
+        }
+        let api: hyper::Uri = config
+            .api_base_url
+            .parse()
+            .map_err(|_| "invalid api_base_url")?;
+        if crate::xml::bucket_for_authority(
+            api.authority().unwrap().as_str(),
+            &config.xml_virtual_host_domains,
+        )
+        .is_some()
+        {
+            return Err("api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain".into());
         }
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         match (config.auth_mode, &config.identity_file) {
@@ -386,6 +404,21 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         assert!(Config::load(&args, &env).is_err());
+        args[3] = "example.invalid".into();
+        args.extend([
+            "--api-base-url".into(),
+            "http://api.example.invalid:4443".into(),
+        ]);
+        assert!(
+            Config::load(&args, &env)
+                .unwrap_err()
+                .contains("api_base_url host selects an XML virtual bucket")
+        );
+        *args.last_mut().unwrap() = "http://example.invalid:4443".into();
+        assert!(Config::load(&args, &env).is_ok());
+        args[3] = "example.invalid,api.example.invalid".into();
+        *args.last_mut().unwrap() = "http://api.example.invalid:4443".into();
+        assert!(Config::load(&args, &env).is_ok());
         std::fs::remove_file(file).unwrap();
     }
 

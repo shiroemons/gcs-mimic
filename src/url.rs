@@ -48,13 +48,20 @@ pub fn virtual_host_object_url(
     }
     let authority = uri.authority().ok_or("missing base URL authority")?;
     crate::config::validate_dns_name(authority.host())?;
-    crate::config::validate_dns_name(&format!("{bucket}.{}", authority.host()))?;
+    crate::config::validate_dns_name(bucket)
+        .map_err(|_| "bucket name must be a DNS label sequence for virtual-host URLs")?;
+    let host = format!("{bucket}.{}", authority.host().to_ascii_lowercase());
+    crate::config::validate_dns_name(&host)?;
     if authority.as_str().contains(':') && authority.port_u16().is_none() {
         return Err("invalid virtual-host base URL port".into());
     }
     Ok(format!(
-        "{}://{bucket}.{authority}/{}",
+        "{}://{host}{}/{}",
         uri.scheme_str().unwrap(),
+        authority
+            .port_u16()
+            .map(|port| format!(":{port}"))
+            .unwrap_or_default(),
         encode_object_name(object)
     ))
 }
@@ -98,6 +105,15 @@ mod tests {
         assert_eq!(
             virtual_host_object_url("http://storage.invalid", "bucket", "storage/v1/b").unwrap(),
             "http://bucket.storage.invalid/storage/v1/b"
+        );
+        assert_eq!(
+            virtual_host_object_url("https://Storage.Invalid:4443", "bucket", "o").unwrap(),
+            "https://bucket.storage.invalid:4443/o"
+        );
+        assert!(
+            virtual_host_object_url("https://storage.invalid", "bucket_name", "o")
+                .unwrap_err()
+                .contains("bucket name must be a DNS label sequence")
         );
         for base in [
             "http://127.0.0.1",

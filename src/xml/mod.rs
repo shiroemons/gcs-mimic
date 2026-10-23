@@ -164,6 +164,10 @@ pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<
     if hosts.next().is_some() {
         return None;
     }
+    bucket_for_authority(host, domains)
+}
+
+pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<String> {
     let authority: hyper::http::uri::Authority = host.parse().ok()?;
     if authority.as_str().contains('@')
         || (authority.as_str().contains(':') && authority.port_u16().is_none())
@@ -180,6 +184,36 @@ pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<
         }
     }
     None
+}
+
+pub(crate) fn authority_error(uri: &Uri, headers: &HeaderMap, config: &Config) -> Option<Error> {
+    let authority = uri.authority()?;
+    if virtual_bucket(headers, &config.xml_virtual_host_domains).is_none()
+        && bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains).is_none()
+    {
+        return None;
+    }
+    let mut hosts = headers.get_all("host").iter();
+    if hosts
+        .next()
+        .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
+        && hosts.next().is_none()
+    {
+        return None;
+    }
+    Some(if crate::auth::signature::is_signed(uri.query()) {
+        Error::new(
+            StatusCode::FORBIDDEN,
+            "SignatureDoesNotMatch",
+            "The request authority does not match Host.",
+        )
+    } else {
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidArgument",
+            "The request authority does not match Host.",
+        )
+    })
 }
 
 /// Virtual hosts are XML-only; path-style reserves the JSON and emulator namespaces.

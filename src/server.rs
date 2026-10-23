@@ -230,6 +230,9 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
+    if let Some(error) = xml::authority_error(request.uri(), request.headers(), config) {
+        return boxed(error.response(request.method() == Method::HEAD));
+    }
     if xml::virtual_bucket(request.headers(), &config.xml_virtual_host_domains).is_none()
         && json::cors::is_route(request.uri())
     {

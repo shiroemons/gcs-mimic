@@ -177,6 +177,50 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
     );
     assert_eq!(range.status, 206);
     assert_eq!(range.body, b"ew");
+    let current = request(&server, "GET", &host, "/new", VIEWER, b"");
+    let generation: i64 = current.headers["x-goog-generation"].parse().unwrap();
+    assert_eq!(
+        request(
+            &server,
+            "GET",
+            &host,
+            &format!("/new?generation={generation}"),
+            VIEWER,
+            b""
+        )
+        .ok()
+        .body,
+        b"new"
+    );
+    error(
+        &request(
+            &server,
+            "GET",
+            &host,
+            &format!("/new?generation={}", generation + 1),
+            VIEWER,
+            b"",
+        ),
+        404,
+        "NoSuchKey",
+    );
+    error(
+        &request(
+            &server,
+            "PUT",
+            &host,
+            "/new",
+            &format!("{ADMIN}x-goog-if-generation-match: 0\r\n"),
+            b"denied",
+        ),
+        412,
+        "PreconditionFailed",
+    );
+    assert_eq!(
+        request(&server, "GET", &host, "/new", VIEWER, b"").headers["x-goog-generation"],
+        current.headers["x-goog-generation"]
+    );
+    request(&server, "PUT", &host, "/new", &format!("{ADMIN}x-goog-if-generation-match: {generation}\r\nx-goog-if-metageneration-match: 1\r\n"), b"condition bytes").ok();
     error(
         &request(&server, "GET", &host, "/", ADMIN, b""),
         501,
@@ -208,6 +252,8 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
         "dotted.bucket.unconfigured.invalid",
         "dotted.bucket.evil-example.invalid",
         DOMAIN,
+        "dotted.bucket.storage.example.invalid.",
+        "[::1]:4443",
     ] {
         assert_eq!(
             request(
@@ -303,6 +349,56 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
 }
 
 #[test]
+fn virtual_host_absolute_target_authority_must_match_host_before_dispatch() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    assert_eq!(
+        request(
+            &server,
+            "GET",
+            &host,
+            &format!("http://{host}/object"),
+            VIEWER,
+            b""
+        )
+        .ok()
+        .body,
+        b"hello world"
+    );
+    for (authority, target) in [
+        (host.as_str(), format!("http://local/{BUCKET}/object")),
+        ("local", format!("http://{host}/object")),
+    ] {
+        error(
+            &request(&server, "GET", authority, &target, VIEWER, b""),
+            400,
+            "InvalidArgument",
+        );
+        let head = request(&server, "HEAD", authority, &target, VIEWER, b"");
+        assert_eq!(head.status, 400);
+        assert!(head.body.is_empty());
+        error(
+            &request(
+                &server,
+                "OPTIONS",
+                authority,
+                &target,
+                "Origin: https://app.invalid\r\nAccess-Control-Request-Method: GET\r\n",
+                b"",
+            ),
+            400,
+            "InvalidArgument",
+        );
+    }
+    let signed = signed(&Method::GET, &host, "/object", "viewer@example.invalid");
+    error(
+        &request(&server, "GET", "local", &signed, "", b""),
+        403,
+        "SignatureDoesNotMatch",
+    );
+}
+
+#[test]
 fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
     let (_config, _data, server) = fixture(true);
     let host = host(&server);
@@ -335,7 +431,20 @@ fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
     );
     for changed in [
         url.replace(BUCKET, "another.bucket"),
-        url.replace(&host, &format!("{host}0")),
+        url.replace(
+            &host,
+            &format!(
+                "{BUCKET}.{DOMAIN}:{}",
+                server
+                    .address
+                    .split_once(':')
+                    .unwrap()
+                    .1
+                    .parse::<u16>()
+                    .unwrap()
+                    ^ 1
+            ),
+        ),
         url.replace("/object?", "/different?"),
         url.replace(
             &format!("{host}/object"),
@@ -395,6 +504,26 @@ fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
     assert_eq!(
         preflight.headers["access-control-allow-origin"],
         "https://app.invalid"
+    );
+    let json_path = request(
+        &server,
+        "OPTIONS",
+        &host,
+        "/storage/v1/b/other/o/object",
+        &format!(
+            "{origin}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: Content-Type\r\n"
+        ),
+        b"",
+    );
+    assert_eq!(json_path.status, 200);
+    assert_eq!(
+        json_path.headers["access-control-allow-origin"],
+        "https://app.invalid"
+    );
+    assert!(
+        !json_path
+            .headers
+            .contains_key("access-control-allow-credentials")
     );
     let denied = request(&server, "GET", &host, "/object", origin, b"");
     error(&denied, 401, "AuthenticationRequired");
