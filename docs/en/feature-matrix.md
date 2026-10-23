@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 282 | 0 | 16 | 0 | 0 | 0 |
-| behavior | 201 | 156 | 0 | 31 | 14 | 0 | 0 |
+| behavior | 201 | 156 | 0 | 28 | 17 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 282 | 2 | 14 | 0 | 0 | 0 |
-| behavior | 156 | 15 | 28 | 2 | 0 | 0 |
+| behavior | 156 | 18 | 25 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -92,19 +92,19 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 6 |
 | JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 3 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 
 ### JSON API / defaultObjectAccessControls
 
@@ -168,18 +168,18 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
+| JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
+| JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 6 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
+| JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-016 | objects.viewFullContext | NOT_STARTED | P7 | EXACT | NONE | 0 |
 
 ### JSON API / operations
@@ -549,11 +549,11 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-004 | Partial response fields selectors | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-005 | Projection full/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT replacement versus PATCH merge | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| BEHAVIOR-COMMON-007 | HTTP and JSON error envelopes | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-COMMON-008 | HTTP batch request format | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-COMMON-009 | Strong data and listing consistency | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | Authorization propagation model | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
-| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| BEHAVIOR-COMMON-011 | Generation/metageneration preconditions | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-012 | HTTP conditional requests | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-013 | Pagination and token validation | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-014 | Project and billing context | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
@@ -686,7 +686,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-002 | Generations and metagenerations | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-003 | Object timestamps and lifecycle time | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | Custom time monotonicity | NOT_STARTED | P1 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-005 | Checksums | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| BEHAVIOR-OBJECT-005 | Checksums | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-006 | ETag semantics | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-007 | Metadata mediaLink/selfLink | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | Simple media upload | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
