@@ -477,6 +477,42 @@ fn json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior() {
 }
 
 #[test]
+fn json_etag_read_if_match_overrides_if_unmodified_since() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.setup("", b"data");
+    let unmodified = "If-Unmodified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n";
+    for path in [
+        OBJECT.to_owned(),
+        format!("{OBJECT}?alt=media"),
+        BUCKET.to_owned(),
+    ] {
+        let initial = server.request("GET", &path, "", b"");
+        let selected = &initial.headers["etag"];
+        let matched = server.request(
+            "GET",
+            &path,
+            &format!("If-Match: {selected}\r\n{unmodified}"),
+            b"",
+        );
+        assert_eq!(matched.status, 200);
+        assert_eq!(matched.body, initial.body);
+        server
+            .request(
+                "GET",
+                &path,
+                &format!("If-Match: \"other\"\r\n{unmodified}"),
+                b"",
+            )
+            .error(412, "conditionNotMet");
+        server
+            .request("GET", &path, unmodified, b"")
+            .error(501, "notImplemented");
+    }
+    server.stop();
+}
+
+#[test]
 fn json_etag_read_metadata_update_and_overwrite_pin_open_reader() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);

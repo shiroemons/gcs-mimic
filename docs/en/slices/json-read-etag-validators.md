@@ -35,6 +35,7 @@ read support; RFC 9110 supplies syntax and HTTP comparison rules.
 | [objects.list](https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list) and [buckets.list](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/list) | Collection responses have no defined collection `etag`; this does not establish how Google evaluates collection validators |
 | [RFC 9110 sections 13.1.1 and 13.1.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1) | Quoted entity-tag lists, wildcard, strong If-Match and weak If-None-Match comparison |
 | [RFC 9110 section 13.1.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.3) | Ignore If-Modified-Since when If-None-Match is present |
+| [RFC 9110 section 13.1.4](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.4) | Ignore If-Unmodified-Since when If-Match is present |
 | [RFC 9110 section 13.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.2) | Normal errors before conditions; If-Match before If-None-Match; conditions before Range |
 | [RFC 9110 section 15.4.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-15.4.5) | Bodyless 304 and applicable cache/validator response headers |
 | [Discovery](https://storage.googleapis.com/$discovery/rest?version=v1) | Revision `20261013`; query condition definitions and Object/Bucket versus Objects/Buckets schemas; no HTTP-validator evaluation order |
@@ -162,7 +163,7 @@ questions or excluded implementation, not skipped tests counted as success.
 | ETAG-READ-REJECTIONS | ETag headers on query-conditioned reads, lists, IAM GET and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data | `etag::json_etag_read_unsupported_combinations_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
 | ETAG-READ-FIELDS | Bucket/object fields=name retains the complete-resource HTTP ETag; matching cache validator returns bodyless 304 and failed If-Match returns an unfiltered 412 error | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
 | ETAG-READ-FIELDS-ORDER | Malformed fields returns 400 before failing If-Match or matching If-None-Match; parameter validation precedes condition evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
-| ETAG-READ-DATE-PRECEDENCE | If-None-Match overrides If-Modified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists | `etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior` | PASS |
+| ETAG-READ-DATE-PRECEDENCE | If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists | `etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior`; `etag::json_etag_read_if_match_overrides_if_unmodified_since` | PASS |
 | ETAG-READ-QUERY-ORDER | Establish HTTP versus generation/metageneration condition precedence before enabling mixed requests | None; explicit rejection is tested above | PENDING |
 | ETAG-READ-COLLECTION-CONTRACT | Establish collection ETags and list validator behavior rather than deriving a tag from page items | None; explicit rejection is tested above | PENDING |
 | ETAG-READ-PROVIDER-WIRE | Independently establish opaque Google tag bytes, malformed-input errors and exhaustive response headers | None; local wire behavior above is tested | PENDING |
@@ -178,9 +179,12 @@ questions or excluded implementation, not skipped tests counted as success.
   Existing JSON HEAD routing still rejects the method. XML validators retain
   their existing rejection and no XML route calls the new shared evaluator.
 - If-Range remains excluded under SPEC-RANGE-VALIDATORS and returns 501 on
-  supported GETs. JSON date validators return 501 on those reads, except
-  If-Modified-Since is ignored when If-None-Match is present, as RFC 9110 requires.
+  supported GETs, including requests without Range. JSON date validators return
+  501 on those reads, except If-Modified-Since is ignored when If-None-Match is
+  present and If-Unmodified-Since is ignored when If-Match is present, as RFC 9110 requires.
   Non-GET and list routes preserve their existing ignored date/If-Range behavior.
+- Two bucket incarnations created in the same millisecond with equal revisions
+  can share the record-derived HTTP tag; this slice does not add an incarnation allocator.
 - Decompressive transcoding remains unsupported before ETag evaluation. No new
   compressed/expanded representation equivalence is claimed.
 - Field selection applies only after read ETag evaluation to the final 200

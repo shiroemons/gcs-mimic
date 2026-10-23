@@ -500,7 +500,9 @@ pub(crate) fn validate_read_condition_headers(
 ) -> Result<(), JsonError> {
     if etags_supported {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
-            if name == "if-modified-since" && headers.contains_key("if-none-match") {
+            if (name == "if-modified-since" && headers.contains_key("if-none-match"))
+                || (name == "if-unmodified-since" && headers.contains_key("if-match"))
+            {
                 continue;
             }
             if headers.contains_key(name) {
