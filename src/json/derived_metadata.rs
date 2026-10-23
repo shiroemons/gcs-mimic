@@ -7,7 +7,7 @@ pub fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
 ) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
-    if bytes.is_empty() {
+    if bytes.is_empty() || bytes.trim_ascii() == b"null" {
         return Ok((
             ObjectMetadataUpdate {
                 content_type: Some(Some(source.content_type.clone())),
@@ -83,6 +83,10 @@ mod tests {
         source.metadata.insert("source".into(), "value".into());
         source.event_based_hold = true;
         let (inherit, class, _) = derived_metadata(b"", &source).unwrap();
+        assert_eq!(
+            derived_metadata(b" \nnull\t", &source).unwrap(),
+            derived_metadata(b"", &source).unwrap()
+        );
         assert_eq!(class, Some(source.storage_class.clone()));
         assert_eq!(inherit.event_based_hold, None);
         let (replace, class, _) = derived_metadata(

@@ -29,7 +29,12 @@ CREATE TABLE derived_transfers (
     crc32c INTEGER NOT NULL CHECK(crc32c BETWEEN 0 AND 4294967295),
     ephemeral INTEGER NOT NULL CHECK(ephemeral IN (0, 1)),
     created INTEGER NOT NULL,
-    deadline INTEGER NOT NULL CHECK(deadline = created + 604800000)
+    deadline INTEGER NOT NULL CHECK(deadline = created + 604800000),
+    publishing INTEGER NOT NULL DEFAULT 0 CHECK(publishing IN (0, 1))
+) WITHOUT ROWID;
+CREATE TABLE derived_deletions (
+    blob_id TEXT PRIMARY KEY CHECK(length(blob_id) = 32),
+    transfer_id TEXT NOT NULL CHECK(length(transfer_id) = 32)
 ) WITHOUT ROWID;
 CREATE TABLE derived_inputs (
     transfer_id TEXT NOT NULL,
@@ -262,8 +267,9 @@ impl Catalog {
             .execute("DELETE FROM objects WHERE blob_id = ?1", [&id])
             .map_err(unavailable)?;
         connection
-            .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+            .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [&id])
             .map_err(unavailable)?;
+        connection.execute("INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1", [&id]).map_err(unavailable)?;
         Ok(())
     }
 
@@ -409,16 +415,15 @@ impl Catalog {
                     .and_then(|file| file.sync_all())
                     .map_err(unavailable)?;
                 let mut preserve = false;
-                let result =
-                    (|| {
-                        #[cfg(unix)]
-                        objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
-                        let transaction = connection
-                            .transaction_with_behavior(TransactionBehavior::Immediate)
-                            .map_err(unavailable)?;
-                        transaction
+                let result = (|| {
+                    #[cfg(unix)]
+                    objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
+                    let transaction = connection
+                        .transaction_with_behavior(TransactionBehavior::Immediate)
+                        .map_err(unavailable)?;
+                    transaction
                     .execute(
-                        "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6)",
+                        "INSERT INTO derived_transfers VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, 0)",
                         params![
                             id,
                             total as i64,
@@ -427,46 +432,46 @@ impl Catalog {
                         ],
                     )
                     .map_err(unavailable)?;
-                        for (position, segment) in segments.iter().enumerate() {
-                            transaction
-                                .execute(
-                                    "INSERT INTO derived_inputs VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                                    params![
-                                        id,
-                                        position as i64,
-                                        segment.source.id,
-                                        segment.offset as i64,
-                                        segment.length as i64,
-                                        segment.source.object.size as i64
-                                    ],
-                                )
-                                .map_err(unavailable)?;
+                    for (position, segment) in segments.iter().enumerate() {
+                        transaction
+                            .execute(
+                                "INSERT INTO derived_inputs VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                                params![
+                                    id,
+                                    position as i64,
+                                    segment.source.id,
+                                    segment.offset as i64,
+                                    segment.length as i64,
+                                    segment.source.object.size as i64
+                                ],
+                            )
+                            .map_err(unavailable)?;
+                    }
+                    let transfer = DerivedTransfer {
+                        id: id.clone(),
+                        total,
+                        offset: 0,
+                        created: system_time(created).map_err(unavailable)?,
+                        deadline: system_time(deadline).map_err(unavailable)?,
+                    };
+                    bind(&transaction, &transfer)?;
+                    if let Err(error) = transaction.commit() {
+                        // A failed commit can be ambiguous; retain every confirmed reference.
+                        preserve = true;
+                        let committed: bool = connection
+                            .query_row(
+                                "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
+                                [&id],
+                                |row| row.get(0),
+                            )
+                            .map_err(unavailable)?;
+                        if !committed {
+                            preserve = false;
+                            return Err(unavailable(error));
                         }
-                        let transfer = DerivedTransfer {
-                            id: id.clone(),
-                            total,
-                            offset: 0,
-                            created: system_time(created).map_err(unavailable)?,
-                            deadline: system_time(deadline).map_err(unavailable)?,
-                        };
-                        bind(&transaction, &transfer)?;
-                        if let Err(error) = transaction.commit() {
-                            // A failed commit can be ambiguous; retain every confirmed reference.
-                            preserve = true;
-                            let committed: bool = connection
-                                .query_row(
-                                    "SELECT EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1)",
-                                    [&id],
-                                    |row| row.get(0),
-                                )
-                                .map_err(unavailable)?;
-                            if !committed {
-                                preserve = false;
-                                return Err(unavailable(error));
-                            }
-                        }
-                        Ok(transfer)
-                    })();
+                    }
+                    Ok(transfer)
+                })();
                 match result {
                     Ok(transfer) => {
                         for segment in &mut segments {
@@ -625,6 +630,7 @@ impl Catalog {
                 };
                 destination.metadata.apply(&mut record)?;
                 let metadata = serde_json::to_string(&record.metadata).map_err(unavailable)?;
+                transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
                 validate(&transaction, &record)?;
                 let retired = objects::retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
                 transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(unavailable)?;
@@ -639,8 +645,12 @@ impl Catalog {
                     }
                 }
                 if let Some(old) = retired && let Err(error) = objects::reclaim(connection, &data_dir, &old) { eprintln!("deferred blob reclaim {old}: {error}"); }
+                if let Err(error) = reclaim_derived_deletions(connection, &data_dir, Some(&query)) {
+                    eprintln!("deferred derived source reclamation: {error}");
+                }
                 Ok(record)
             }).await;
+            catalog.0.maintenance_wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !matches!(error, ObjectError::Unavailable(_) | ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
                 && let Err(error) = catalog.cleanup_derived(&id).await {
@@ -674,6 +684,10 @@ impl Catalog {
         &self,
         now: i64,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
+        let data_dir = self.0.data_dir.clone();
+        self.run_object(move |connection| reclaim_derived_deletions(connection, &data_dir, None))
+            .await
+            .map_err(super::unavailable)?;
         let due = self.run_object(move |connection| {
             connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(unavailable)?
                 .query_map([now], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
@@ -690,6 +704,18 @@ impl Catalog {
                     row.get(0)
                 })
                 .map_err(super::unavailable)?;
+            let pending: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM derived_deletions)",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(super::unavailable)?;
+            let deadline = if pending {
+                Some(deadline.map_or(now, |deadline| deadline.min(now)))
+            } else {
+                deadline
+            };
             deadline
                 .map(system_time)
                 .transpose()
@@ -697,6 +723,27 @@ impl Catalog {
         })
         .await
     }
+}
+
+fn reclaim_derived_deletions(
+    connection: &Connection,
+    data_dir: &Path,
+    transfer_id: Option<&str>,
+) -> Result<(), ObjectError> {
+    let ids = connection.prepare("SELECT blob_id FROM derived_deletions WHERE (?1 IS NULL OR transfer_id = ?1) ORDER BY blob_id LIMIT 128").map_err(unavailable)?
+        .query_map([transfer_id], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)?;
+    let mut failure = None;
+    for id in ids {
+        match objects::reclaim(connection, data_dir, &id) {
+            Ok(()) => {
+                connection
+                    .execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [id])
+                    .map_err(unavailable)?;
+            }
+            Err(error) => failure = Some(error),
+        }
+    }
+    failure.map_or(Ok(()), Err)
 }
 
 fn cleanup_record(connection: &Connection, data_dir: &Path, id: &str) -> Result<(), ObjectError> {
@@ -751,6 +798,7 @@ pub(super) fn recover(
     data_dir: &Path,
     now: i64,
 ) -> Result<(), ObjectError> {
+    reclaim_derived_deletions(connection, data_dir, None)?;
     let ids = connection
         .prepare("SELECT id FROM derived_transfers ORDER BY id LIMIT 129")
         .map_err(unavailable)?
@@ -1579,6 +1627,90 @@ mod tests {
         );
         assert_eq!(bytes(&catalog, "source").await, b"bytes");
         assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn committed_callback_deletion_reclaims_source_blob_without_restart() {
+        let (catalog, path) = setup().await;
+        let original = put(&catalog, "source", b"bytes").await;
+        let transfer = ready(&catalog, "source").await;
+        catalog
+            .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
+                Catalog::delete_derived_source_in_transaction(
+                    connection,
+                    "bucket",
+                    "source",
+                    original.generation,
+                    Default::default(),
+                    &BucketAccess::Unchecked,
+                )
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            catalog
+                .get_object("bucket", "source", None, Default::default())
+                .await,
+            Err(ObjectError::ObjectNotFound)
+        );
+        assert_eq!(bytes(&catalog, "copy").await, b"bytes");
+        let blobs: usize = fs::read_dir(path.join("blobs"))
+            .unwrap()
+            .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
+            .sum();
+        assert_eq!(blobs, 1);
+        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        assert_eq!(catalog.maintain_derived_transfers().await.unwrap(), None);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn callback_reclamation_failure_preserves_success_and_maintenance_retries() {
+        let (catalog, path) = setup().await;
+        let original = put(&catalog, "source", b"bytes").await;
+        let id = catalog
+            .run_object(|connection| {
+                Ok(objects::lookup(connection, "bucket", "source")?.unwrap().1)
+            })
+            .await
+            .unwrap();
+        let blob = objects::blob_path(&path, &id).unwrap();
+        let failed_blob = blob.clone();
+        let transfer = ready(&catalog, "source").await;
+        catalog
+            .publish_derived(&transfer.id, destination("copy"), move |connection, _| {
+                Catalog::delete_derived_source_in_transaction(
+                    connection,
+                    "bucket",
+                    "source",
+                    original.generation,
+                    Default::default(),
+                    &BucketAccess::Unchecked,
+                )?;
+                fs::remove_file(&failed_blob).map_err(unavailable)?;
+                fs::create_dir(&failed_blob).map_err(unavailable)?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(bytes(&catalog, "copy").await, b"bytes");
+        assert!(catalog.maintain_derived_transfers().await.is_err());
+        fs::remove_dir(&blob).unwrap();
+        assert_eq!(catalog.maintain_derived_transfers().await.unwrap(), None);
+        let tagged = catalog
+            .run_object(|connection| {
+                connection
+                    .query_row("SELECT count(*) FROM derived_deletions", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map_err(unavailable)
+            })
+            .await
+            .unwrap();
+        assert_eq!(tagged, 0);
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
     }
