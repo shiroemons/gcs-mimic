@@ -24,7 +24,7 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
-    time_deleted, event_based_hold";
+    time_deleted, event_based_hold, component_count";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -261,19 +261,24 @@ pub(super) fn reclaim(
     Ok(())
 }
 
-pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), CatalogError> {
+pub(super) fn recover(
+    connection: &Connection,
+    data_dir: &Path,
+    now: i64,
+) -> Result<(), CatalogError> {
     let recover = || -> Result<(), ObjectError> {
         fs::create_dir_all(data_dir.join("staging")).map_err(object_unavailable)?;
         fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
         #[cfg(unix)]
         sync_dir(data_dir).map_err(object_unavailable)?;
         super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
+        super::derived::recover(connection, data_dir, now)?;
         for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
             let entry = entry.map_err(object_unavailable)?;
             if os_metadata(&entry) {
                 continue;
             }
-            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE')", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
             if retained {
                 continue;
             }
@@ -455,6 +460,14 @@ impl Catalog {
             .acquire_owned()
             .await
             .map_err(object_unavailable)?;
+        self.run_upload_admitted(execution, operation).await
+    }
+
+    pub(super) async fn run_upload_admitted<T: Send + 'static>(
+        &self,
+        execution: OwnedSemaphorePermit,
+        operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
+    ) -> Result<T, ObjectError> {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let _execution = execution;
@@ -468,7 +481,7 @@ impl Catalog {
         .map_err(object_unavailable)?
     }
 
-    async fn run_object<T: Send + 'static>(
+    pub(super) async fn run_object<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
@@ -632,7 +645,7 @@ impl Catalog {
                     let time = system_time(millis).map_err(object_unavailable)?;
                     let mut record = ObjectRecord {
                         bucket, name, generation, metageneration: 1,
-                        content_type, size, md5, crc32c, storage_class,
+                        content_type, size, md5, crc32c, component_count: None, storage_class,
                         content_encoding: None, content_disposition: None,
                         content_language: None, cache_control: None, metadata: Default::default(),
                         time_created: time, updated: time,
@@ -1213,7 +1226,7 @@ pub(super) fn lookup(
         .map_err(object_unavailable)
 }
 
-fn selected(
+pub(super) fn selected(
     connection: &Connection,
     bucket: &str,
     name: &str,
@@ -1333,6 +1346,7 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             size: read_size(row, 5)?,
             md5,
             crc32c: row.get(7)?,
+            component_count: row.get(19)?,
             storage_class: row.get(8)?,
             time_created: system_time(row.get(9)?)?,
             updated: system_time(row.get(10)?)?,
@@ -1462,6 +1476,9 @@ mod tests {
             INSERT INTO objects VALUES('bucket', 'z', 20001, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, '00000000000000000000000000004e21');").unwrap();
         connection.execute_batch(METADATA_SCHEMA).unwrap();
         connection.execute_batch(VERSIONING_SCHEMA).unwrap();
+        connection
+            .execute_batch(super::super::derived::SCHEMA)
+            .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         unsafe {
@@ -1515,6 +1532,9 @@ mod tests {
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch(METADATA_SCHEMA).unwrap();
         connection.execute_batch(VERSIONING_SCHEMA).unwrap();
+        connection
+            .execute_batch(super::super::derived::SCHEMA)
+            .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)
             SELECT 'bucket', CASE WHEN n <= 10000 THEN 'a/history' ELSE printf('y/%05d',n) END, n,1,'text/plain',0,zeroblob(16),0,'STANDARD',0,0,printf('%032x',n),1 FROM entries;

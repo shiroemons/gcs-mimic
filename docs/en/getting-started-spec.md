@@ -94,6 +94,16 @@ The [README](../../README.md) and [runnable guide](getting-started.md) cover Doc
 
 ## 1. Prerequisites and source build
 
+The [object rewrite journey](getting-started.md#rewrite-an-object-and-follow-continuation-tokens)
+must execute a generation-selected one-call rewrite and a 3 MiB rewrite that
+changes storage class with `maxBytesRewrittenPerCall=1048576`. Follow returned
+tokens until done, verify string byte counts/resource presence, metadata and
+download equality, then delete only the example objects. Execute these blocks
+against native and Docker endpoints after source finalization. Rust/Go tests
+separately cover binding, grants, conditions, replay, process-kill recovery,
+corruption rejection, expiry and admission. The
+[contract](slices/object-rewrite.md) names local rules and unsupported semantics.
+
 Support Linux amd64, Linux arm64 and Docker Desktop on Apple Silicon macOS. The container workflow requires Git, Docker Engine/Desktop, Docker Compose v2 supporting both `up --wait` and `start --wait`, and curl. A native Rust toolchain is optional for Docker users; document the exact latest-stable Rust baseline separately for contributors according to [the dependency policy](dependency-policy.md). OpenSSL is required only for the strict signing walkthrough.
 
 The first supported installation route is a source build:
@@ -198,6 +208,18 @@ Ready means persistence recovery and initial seeding have finished. A running pr
 
 ## 4. First bucket/object workflow
 
+The runnable [compose journey](getting-started.md#compose-existing-objects) must
+upload two sources, compose their ordered bytes with destination
+ifGenerationMatch=0, verify componentCount/CRC32C and absent MD5, reject a stale
+destination condition without mutation, then compose with deleteSourceObjects
+and verify hard-deleted source generations. Run the block against the final
+native binary and Docker image. The pinned Go ComposerFrom tests additionally
+cover selected source generations, source conditions, destination metadata,
+strict get/create permissions and a self-source append with atomic source
+deletion. Restart and failed-mutation persistence belong in the wire tests.
+The [slice contract](slices/object-compose.md) records advanced rejected fields
+and local deletion safety rules; gRPC and XML compose are separate features.
+
 These requests use the deliberately permissive local profile.
 
 ```bash
@@ -217,11 +239,17 @@ curl --fail -X POST -H "Content-Type: text/plain" \
 
 curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt"
 curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt?alt=media"
+curl --fail -X POST -H "Content-Type: application/json" --data 'null' \
+  "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt/copyTo/b/scratch-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0"
+curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fcopy.txt?alt=media"
+curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fcopy.txt"
 curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt"
 curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket"
 ```
 
 Expected verification includes exact content, metadata fields, correct URL encoding and the correct missing-object error after deletion. Do not present these commands as passing until the corresponding implementation milestones exist.
+
+The copy example uses the [declared local contract](slices/object-copy.md): pin an explicit source generation when exercising races, verify create-if-absent 412 and destination preservation, compare bytes/checksums and exercise restart. Null-body inheritance supports generated SDK clients; explicit-resource replacement/default edges remain source questions. The [shared final evidence](evidence/derived-objects.md) records native/Docker execution of the affected copy, one/multi-call rewrite and compose blocks, plus integrated restart equality. High-level Go `CopierFrom` passes actual rewrite workflows, while generated `Objects.Copy` verifies copy directly.
 
 ## 5. Host versus container connectivity
 

@@ -4,7 +4,8 @@
 
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
-metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
+metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,
+prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
@@ -317,6 +318,114 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
   --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
 ```
 
+## Copy an object with source and destination conditions
+
+Copy runs on the server with a pinned source generation and bounded disk streaming.
+An absent or JSON `null` body inherits supported editable source metadata, excluding
+holds; a supplied resource replaces that metadata in the declared local profile.
+Strict mode needs source `storage.objects.get`, destination `storage.objects.create`
+and destination `storage.objects.delete` for an overwrite. The high-level Go
+`CopierFrom` uses rewrite; this example exercises JSON `objects.copy` directly.
+
+```sh
+curl --disable --noproxy '*' --fail -X POST -H 'Content-Type: application/json' \
+  --data 'null' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=$generation&ifSourceGenerationMatch=$generation&ifGenerationMatch=0" \
+  > "$work_dir/copied.json"
+jq -e --slurpfile source "$work_dir/object.json" \
+  '.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c' \
+  "$work_dir/copied.json"
+copy_generation=$(jq -er .generation "$work_dir/copied.json")
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=$copy_generation" \
+  --output "$work_dir/copied.txt"
+cmp "$work_dir/upload.txt" "$work_dir/copied.txt"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/copy-condition.json" \
+  --write-out '%{http_code}' -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0")
+test "$status" = 412
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=$copy_generation"
+```
+
+The [copy contract](slices/object-copy.md) lists unsupported ACL/KMS/billing/retention
+semantics and the open body/default/large-object parity questions. Copy, one/multi-call
+rewrite and compose blocks pass against the native release and final Docker image;
+the [shared final evidence](evidence/derived-objects.md) also records exact resource/byte
+persistence through restart. These are local builds, not a published-image claim.
+
+## Rewrite an object and follow continuation tokens
+
+Rewrite selects source bytes on the server. This example uses the object and
+generation from the upload block above and completes in one request:
+
+```sh
+curl --disable --noproxy '*' --fail -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=$generation&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-one.json"
+jq -e '.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)' \
+  "$work_dir/rewrite-one.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media" \
+  --output "$work_dir/rewrite-one.txt"
+cmp "$work_dir/upload.txt" "$work_dir/rewrite-one.txt"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt"
+```
+
+For a multi-call example, change storage class and request a 1 MiB maximum.
+The maximum must be positive and divisible by 1048576; it only applies across
+different locations or storage classes. Same-location/class rewrites complete
+in one call. An absent or JSON `null` body inherits editable source metadata
+except holds; `{}` replaces the modeled metadata with local omission defaults.
+The `null` interpretation supports nil resources from official clients.
+
+```sh
+dd if=/dev/zero of="$work_dir/rewrite-source.bin" bs=1048576 count=3
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/octet-stream' \
+  --data-binary @"$work_dir/rewrite-source.bin" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-source.json"
+rewrite_url="$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}' \
+  "$rewrite_url" > "$work_dir/rewrite-progress.json"
+jq -e '.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)' \
+  "$work_dir/rewrite-progress.json"
+while ! jq -e '.done == true' "$work_dir/rewrite-progress.json" >/dev/null; do
+  rewrite_token=$(jq -er '.rewriteToken' "$work_dir/rewrite-progress.json")
+  curl --disable --noproxy '*' --fail -X POST \
+    "$rewrite_url&rewriteToken=$rewrite_token" > "$work_dir/rewrite-next.json"
+  mv "$work_dir/rewrite-next.json" "$work_dir/rewrite-progress.json"
+done
+jq -e '.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)' \
+  "$work_dir/rewrite-progress.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media" \
+  --output "$work_dir/rewrite-finished.bin"
+cmp "$work_dir/rewrite-source.bin" "$work_dir/rewrite-finished.bin"
+for rewrite_name in source finished; do
+  curl --disable --noproxy '*' --fail -X DELETE \
+    "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2F$rewrite_name.bin"
+done
+```
+
+Continuation may omit optional parameters/body; repeated values must match the
+first request. The immediately previous token replays its response, including
+the original completed generation, without another publication. Sessions expire
+after a fixed week. At most 128 active sessions and 128 completed responses are
+retained separately; older completion responses can be evicted before expiry.
+Malformed/mismatched requests fail 400; unavailable, altered or expired keys fail
+local 410. Changed unqualified sources fail 412; explicitly selected retained
+generations can continue. The [contract](slices/object-rewrite.md) records these
+local choices and provider questions. Strict calls require source read,
+destination create and delete for overwrite; each call rechecks grants.
+KMS/CSEK, ACL/owner, requester billing and context/retention remain unsupported.
+
 ## Select response fields and validate cached reads
 
 Select from supported JSON response fields with comma lists, slash paths or
@@ -607,6 +716,69 @@ One fixed base cannot automatically serve both address spaces. Use separate
 configurations as above or a common reachable DNS/proxy endpoint. A configured
 proxy prefix is retained in Location; the proxy must strip it before forwarding.
 Host, Forwarded and X-Forwarded-* never choose the advertised endpoint.
+
+## Compose existing objects
+
+Compose concatenates 1 to 32 sources in request order, all from one bucket and
+storage class. Sources can themselves be composites. Cumulative component counts
+are not limited to 1024; the reported count saturates at 2,147,483,647. A composite
+has CRC32C and componentCount, and omits md5Hash. Set destination contentType
+explicitly; the JSON adapter does not inherit a CLI's first-source MIME default.
+The [compose contract](slices/object-compose.md) separates documented behavior
+from local safety rules and unsupported ACL, encryption, billing and contexts.
+
+Continue with the same permissive endpoint. These commands use a separate bucket
+and remove it after verification.
+
+```sh
+compose_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"compose-demo-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary '1234' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first"
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary '56789' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0" \
+  > "$compose_dir/object.json"
+jq -e '.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)' \
+  "$compose_dir/object.json"
+printf '123456789' > "$compose_dir/expected"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite?alt=media" > "$compose_dir/bytes"
+cmp "$compose_dir/expected" "$compose_dir/bytes"
+compose_status=$(curl --disable --noproxy '*' --silent --show-error \
+  -o "$compose_dir/stale.json" -w '%{http_code}' -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}]}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0")
+test "$compose_status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$compose_dir/stale.json"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c"
+source_status=$(curl --disable --noproxy '*' --silent --show-error \
+  -o "$compose_dir/missing.json" -w '%{http_code}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/first")
+test "$source_status" = 404
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined?alt=media" > "$compose_dir/joined"
+cmp "$compose_dir/expected" "$compose_dir/joined"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/composite"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/joined"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket"
+rm -rf "$compose_dir"
+```
+
+`deleteSourceObjects=true` permanently deletes only the pinned source generations,
+including with bucket versioning enabled. The local implementation requires delete
+permission in strict mode and rejects a held source before changing any object.
+Duplicate entries contribute bytes twice and delete once; a source with the
+destination name follows normal overwrite/versioning rules and is excluded from
+source hard deletion. Publication and source removal
+share one catalog transaction. Failed conditions, missing sources and invalid
+requests leave the old destination and all source generations intact.
 
 ## List objects and conditionally change metadata
 

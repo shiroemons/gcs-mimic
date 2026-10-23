@@ -30,9 +30,25 @@ mod resumable_maintenance;
 #[path = "resumable_recovery.rs"]
 mod resumable_recovery;
 
+#[path = "compose.rs"]
+mod compose;
+#[path = "compose_crc32c.rs"]
+mod compose_crc32c;
+#[path = "rewrite.rs"]
+pub(crate) mod rewrite;
+#[path = "rewrite_token.rs"]
+mod rewrite_token;
+
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
+
+#[path = "derived.rs"]
+mod derived;
+pub use derived::{
+    DerivedDestination, DerivedRequestGuard, DerivedSegment, DerivedSource, DerivedSourceSpec,
+    DerivedTransfer,
+};
 
 #[path = "policies.rs"]
 mod policies;
@@ -151,6 +167,17 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(objects::VERSIONING_SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 10 {
+        expected
+            .execute_batch(derived::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 11 {
+        expected
+            .execute_batch(rewrite::SCHEMA)
+            .map_err(unavailable)?;
+        rewrite::validate(connection)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
@@ -180,6 +207,7 @@ struct Inner {
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
+    derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
@@ -239,9 +267,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=9).contains(&version) {
+            if !(0..=11).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 9"
+                    "unsupported catalog schema version {version}; supported version is 11"
                 )));
             }
             if version == 2 {
@@ -279,7 +307,8 @@ impl Catalog {
                 .map_err(unavailable)?;
             connection
                 .execute_batch(
-                    "PRAGMA cache_size = -2048;
+                    "PRAGMA foreign_keys = ON;
+                 PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
                  PRAGMA temp_store = FILE;",
                 )
@@ -343,8 +372,20 @@ impl Catalog {
             if version < 9 {
                 objects::migrate_versioning(&mut connection)?;
             }
-            resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
-            objects::recover(&connection, &data_dir)?;
+            if version < 10 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(derived::SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            if version < 11 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(rewrite::SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            let recovery_now = unix_millis(clock.now())?;
+            rewrite::recover_due(&mut connection, recovery_now)?;
+            resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
+            objects::recover(&connection, &data_dir, recovery_now)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
@@ -353,6 +394,7 @@ impl Catalog {
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
+                derived_wake: Notify::new(),
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),
@@ -1242,10 +1284,11 @@ mod tests {
             .run(|connection| {
                 for (pragma, expected) in [
                     ("synchronous", 2),
+                    ("foreign_keys", 1),
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 9),
+                    ("user_version", 11),
                 ] {
                     assert_eq!(
                         connection

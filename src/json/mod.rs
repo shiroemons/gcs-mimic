@@ -10,10 +10,13 @@
 
 mod body;
 mod buckets;
+pub mod compose;
+mod derived_metadata;
 mod error;
 mod fields;
 mod iam;
 mod multipart;
+mod object_copy;
 mod object_list;
 mod object_metadata;
 mod objects;
@@ -21,6 +24,7 @@ mod page_token;
 mod query;
 pub(crate) mod resumable;
 pub mod resumable_cancel;
+pub(crate) mod rewrite;
 
 pub use body::read_body;
 pub(crate) use buckets::{bucket_etag, timestamp, validate_bucket_name_for_profile};
@@ -29,11 +33,13 @@ pub use buckets::{
     parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
     validate_bucket_name,
 };
+pub use derived_metadata::{derived_component_count, derived_metadata};
 pub use error::JsonError;
 pub use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
+pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{

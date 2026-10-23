@@ -664,7 +664,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            11
         );
         assert_eq!(
             connection
@@ -728,7 +728,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 10)
+                .pragma_update(None, "user_version", 12)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -802,7 +802,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 10"));
+            assert!(error.to_string().contains("schema version 12"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -862,7 +862,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        11
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -967,7 +967,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        11
     );
     assert_eq!(
         connection
@@ -987,7 +987,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 10)
+        .pragma_update(None, "user_version", 12)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -999,7 +999,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 10")
+                .contains("schema version 12")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -1019,7 +1019,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 10;",
+            "future" => "PRAGMA user_version = 12;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

@@ -7689,26 +7689,264 @@
       "interface": "storage.objects.compose",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
+        "https://docs.cloud.google.com/storage/docs/composite-objects",
+        "https://docs.cloud.google.com/storage/quotas"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: destinationBucket, destinationObject. Query parameters: destinationPredefinedAcl, dropContextGroups, ifGenerationMatch, ifMetagenerationMatch, kmsKeyName, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "dependencies": [
+        "BEHAVIOR-OBJECT-025",
+        "BEHAVIOR-OBJECT-026",
+        "BEHAVIOR-OBJECT-027"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-CONSTRUCTION",
+          "description": "Ordered one/empty/repeated/32-source and nested composition; same bucket/class, selected source generations, atomic destination conditions and one race winner.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_storage_class_defaults_and_event_holds"
+          ]
+        },
+        {
+          "id": "COMPOSE-VALIDATION",
+          "description": "Malformed shapes, names/generations, source count/body/metadata caps, method/query/fields and advanced-input errors preserve existing objects.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+            "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+            "compose_body_rejects_malformed_source_and_destination_shapes",
+            "compose_body_rejects_invalid_generation_values",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+            "compose_body_checks_final_custom_metadata_size_before_transfer",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_method_body_and_selector_boundaries"
+          ]
+        },
+        {
+          "id": "COMPOSE-AUTHORIZATION",
+          "description": "Strict read/create/delete grants allow and deny correctly; publication rechecks grants, holds and destination conditions after the durable checkpoint.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+            "compose_rechecks_read_and_create_grants_after_streaming",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_destination_condition_is_rechecked_after_streaming",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETION",
+          "description": "Atomic hard deletion under versioning, selected noncurrent deletion, deduplication, destination-name exclusion, physical reclaim and late-failure rollback; replacements are never deleted.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_source_generation_change_never_deletes_the_replacement"
+          ]
+        },
+        {
+          "id": "COMPOSE-METADATA",
+          "description": "Component count accumulation/saturation, CRC32C combination, absent MD5, XML component count, opaque JSON/XML ETags, fields/list/metadata update and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components"
+          ]
+        },
+        {
+          "id": "COMPOSE-RESOURCE-RECOVERY",
+          "description": "Aggregate size cap and cleanup, one-snapshot pinning across source changes, ephemeral/restart recovery and original-error preservation on cleanup failure.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart"
+          ]
+        },
+        {
+          "id": "COMPOSE-GO",
+          "description": "Pinned Go ComposerFrom generation/condition/metadata/deletion and strict-permission workflows against guarded local endpoints.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        },
+        {
+          "id": "COMPOSE-UNSUPPORTED-INPUTS",
+          "description": "Recognized ACL/KMS/billing/contexts/retention/temporary holds and every explicit storageClass input return the documented local 501 with no mutation; provider questions are outside the declared scope in SPEC-COMPOSE-EDGES.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+        "compose_concurrent_create_if_absent_has_one_winner",
+        "compose_storage_class_defaults_and_event_holds",
+        "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+        "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+        "compose_body_rejects_malformed_source_and_destination_shapes",
+        "compose_body_rejects_invalid_generation_values",
+        "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+        "compose_body_checks_final_custom_metadata_size_before_transfer",
+        "compose_rejects_invalid_or_unsupported_input_without_mutation",
+        "compose_method_body_and_selector_boundaries",
+        "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+        "compose_rechecks_read_and_create_grants_after_streaming",
+        "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+        "compose_hold_added_after_streaming_preserves_destination_and_sources",
+        "compose_destination_condition_is_rechecked_after_streaming",
+        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+        "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_order_checksums_metadata_fields_and_restart",
+        "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+        "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+        "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+        "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+        "compose_incarnation_change_preserves_original_error_and_recovers_after_restart",
+        "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+        "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
+        "TestObjectCompose",
+        "TestObjectComposeStrictPermissions",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+            "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+            "compose_body_rejects_malformed_source_and_destination_shapes",
+            "compose_body_rejects_invalid_generation_values",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+            "compose_body_checks_final_custom_metadata_size_before_transfer",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_method_body_and_selector_boundaries",
+            "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+            "compose_rechecks_read_and_create_grants_after_streaming",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_destination_condition_is_rechecked_after_streaming",
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_order_checksums_metadata_fields_and_restart",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; ComposerFrom",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{destinationBucket}/o/{destinationObject}/compose",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -7755,26 +7993,310 @@
       "interface": "storage.objects.copy",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: destinationBucket, destinationObject, sourceBucket, sourceObject. Query parameters: destinationKmsKeyName, destinationPredefinedAcl, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, ifSourceGenerationMatch, ifSourceGenerationNotMatch, ifSourceMetagenerationMatch, ifSourceMetagenerationNotMatch, projection, sourceGeneration, userProject.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "COPY-METADATA",
+          "description": "Absent/null inheritance except holds, explicit resource replacement and URL names overriding body names.",
+          "test_ids": [
+            "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-HISTORY-RESTART",
+          "description": "Selected source generations, cross-bucket/same-object copies, versioning, projections/fields, empty/multi-buffer payloads and restart equality.",
+          "test_ids": [
+            "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-CONDITIONS",
+          "description": "All source/destination conditions, including zero, preserve failed destinations.",
+          "test_ids": [
+            "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-HOLDS-HASHES",
+          "description": "Expected checksums, source hold exclusion, destination default holds and explicit hold override.",
+          "test_ids": [
+            "copy_validates_checksums_and_holds_without_inheriting_source_hold"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-INPUT-ERRORS",
+          "description": "Invalid/unsupported paths, queries, methods, metadata and headers; missing source/buckets; no rejected publication.",
+          "test_ids": [
+            "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-PERMISSIONS",
+          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants.",
+          "test_ids": [
+            "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-CONCURRENCY",
+          "description": "Two competing create-if-absent requests publish exactly one destination generation.",
+          "test_ids": [
+            "concurrent_copy_create_if_absent_publishes_exactly_one_generation"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-COMPOSITE",
+          "description": "Composite count/class inheritance, class/location collapse to one and MD5 omission.",
+          "test_ids": [
+            "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-STREAM-RECOVERY",
+          "description": "Pinned ranges, persisted incremental hashes, source mutation/deletion, tail truncation, rename rollback and corrupt-prefix quarantine.",
+          "test_ids": [
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+            "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-OWNERSHIP",
+          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown.",
+          "test_ids": [
+            "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+            "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+            "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+            "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+            "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-PUBLICATION",
+          "description": "Same-name prevalidation, callback rollback, transient/incomplete retry, original result preservation and post-commit reclamation/maintenance retry.",
+          "test_ids": [
+            "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+            "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+            "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+            "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+            "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+            "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-MIGRATION",
+          "description": "Version-nine migration preserves objects and has no prior foreign keys or post-migration foreign-key violations.",
+          "test_ids": [
+            "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-GO-JSON",
+          "description": "Pinned generated Copy covers nil-resource inheritance, conditional bytes/metadata/fields; a hermetic transport assertion proves CopierFrom uses rewrite.",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-REQUEST-CONTROL",
+          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
+          "test_ids": [
+            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-ACL-OWNER-PROJECTION",
+          "description": "Accepted projection=full currently renders the frozen metadata subset without ACL/owner resources or their additional permission checks; complete full projection is not modeled.",
+          "test_ids": [],
+          "result": "PENDING"
+        }
+      ],
+      "test_ids": [
+        "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
+        "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
+        "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
+        "copy_validates_checksums_and_holds_without_inheriting_source_hold",
+        "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation",
+        "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+        "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+        "concurrent_copy_create_if_absent_publishes_exactly_one_generation",
+        "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+        "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix",
+        "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+        "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+        "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+        "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+        "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+        "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+        "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+        "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+        "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+        "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+        "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+        "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
+        "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
+        "TestObjectCopyJSON",
+        "TestObjectCopyHighLevelCopierUsesRewrite",
+        "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+        "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+        "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+        "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+        "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+        "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker",
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
+            "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
+            "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
+            "copy_validates_checksums_and_holds_without_inheriting_source_hold",
+            "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation",
+            "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+            "concurrent_copy_create_if_absent_publishes_exactly_one_generation",
+            "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+            "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix",
+            "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+            "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+            "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+            "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+            "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+            "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+            "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+            "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+            "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+            "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+            "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
+            "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
+            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Generated HTTP JSON Objects.Copy; hermetic CopierFrom rewrite transport assertion",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Accepted projection=full omits ACL/owner resources and their additional permission behavior; full method stays PARTIAL for this exact missing surface."
+      ],
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/copyTo/b/{destinationBucket}/o/{destinationObject}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -11867,26 +12389,188 @@
       "interface": "storage.objects.rewrite",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: destinationBucket, destinationObject, sourceBucket, sourceObject. Query parameters: destinationKmsKeyName, destinationPredefinedAcl, dropContextGroups, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, ifSourceGenerationMatch, ifSourceGenerationNotMatch, ifSourceMetagenerationMatch, ifSourceMetagenerationNotMatch, maxBytesRewrittenPerCall, projection, rewriteToken, sourceGeneration, userProject.",
+      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "REWRITE-RESOURCE",
+          "description": "Encoded source/destination paths, one-call/empty/same-name completion, metadata inheritance/replacement, string byte counts, conditional resource/token presence and response fields.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_one_call_empty_metadata_fields_and_same_name",
+            "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+            "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+            "rewrite_composite_count_uses_the_bucket_class_selected_at_publication"
+          ]
+        },
+        {
+          "id": "REWRITE-CONDITIONS",
+          "description": "All eight source/destination conditions, explicit retained source generation, source changes and atomic create-if-absent races preserve failed destinations.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_create_if_absent_race_has_one_atomic_winner",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite"
+          ]
+        },
+        {
+          "id": "REWRITE-STRICT",
+          "description": "Strict source read/destination create/overwrite delete, cross-bucket grants and revocation, holds and explicit rejection of unsupported encryption/ACL/billing/context semantics.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+            "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+            "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state"
+          ]
+        },
+        {
+          "id": "REWRITE-SDK",
+          "description": "Pinned official Go Copier uses one-call and cross-location continuation, ProgressFunc, a one-MiB test maximum, exact boundaries, empty objects, metadata/hashes and destination conditions.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "id": "REWRITE-STREAM-BUDGET",
+          "description": "A 16 MiB+17 rewrite completes despite a tiny catalog wait budget, and an owned initial mutation awaits its durable result across a blocked transaction and request deadline.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
+        },
+        {
+          "id": "REWRITE-FULL-PROJECTION-PENDING",
+          "description": "Accepted projection=full exposes the frozen supported fields but does not model ACL/owner fields or their additional permission semantics; the broad method remains PARTIAL.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "rewrite_one_call_empty_metadata_fields_and_same_name",
+        "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+        "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+        "rewrite_composite_count_uses_the_bucket_class_selected_at_publication",
+        "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+        "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+        "rewrite_create_if_absent_race_has_one_atomic_winner",
+        "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+        "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+        "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+        "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+        "rewrite_completion_replay_rejects_recreated_buckets",
+        "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state",
+        "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+        "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
+        "TestObjectRewriteCopier",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "rewrite_one_call_empty_metadata_fields_and_same_name",
+            "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+            "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+            "rewrite_composite_count_uses_the_bucket_class_selected_at_publication",
+            "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_create_if_absent_race_has_one_atomic_winner",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+            "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+            "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state",
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON Copier; real rewrite/continuation and ProgressFunc with one-MiB testing query injected by the recorder; isolated local endpoint",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, requester billing, contexts/retention and advanced metadata are explicitly rejected, not silently accepted. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
+      ],
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/rewriteTo/b/{destinationBucket}/o/{destinationObject}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -19820,26 +20504,302 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Source generation, source/destination preconditions, metadata and ACL inheritance.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Provider body/default/error/placement questions are outside declared acceptance and remain in gaps.json. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "COPY-METADATA",
+          "description": "Absent/null inheritance except holds, explicit resource replacement and URL names overriding body names.",
+          "test_ids": [
+            "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-HISTORY-RESTART",
+          "description": "Selected source generations, cross-bucket/same-object copies, versioning, projections/fields, empty/multi-buffer payloads and restart equality.",
+          "test_ids": [
+            "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-CONDITIONS",
+          "description": "All source/destination conditions, including zero, preserve failed destinations.",
+          "test_ids": [
+            "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-HOLDS-HASHES",
+          "description": "Expected checksums, source hold exclusion, destination default holds and explicit hold override.",
+          "test_ids": [
+            "copy_validates_checksums_and_holds_without_inheriting_source_hold"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-INPUT-ERRORS",
+          "description": "Invalid/unsupported paths, queries, methods, metadata and headers; missing source/buckets; no rejected publication.",
+          "test_ids": [
+            "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-PERMISSIONS",
+          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants.",
+          "test_ids": [
+            "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-CONCURRENCY",
+          "description": "Two competing create-if-absent requests publish exactly one destination generation.",
+          "test_ids": [
+            "concurrent_copy_create_if_absent_publishes_exactly_one_generation"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-COMPOSITE",
+          "description": "Composite count/class inheritance, class/location collapse to one and MD5 omission.",
+          "test_ids": [
+            "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-STREAM-RECOVERY",
+          "description": "Pinned ranges, persisted incremental hashes, source mutation/deletion, tail truncation, rename rollback and corrupt-prefix quarantine.",
+          "test_ids": [
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+            "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-OWNERSHIP",
+          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown.",
+          "test_ids": [
+            "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+            "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+            "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+            "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+            "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-PUBLICATION",
+          "description": "Same-name prevalidation, callback rollback, transient/incomplete retry, original result preservation and post-commit reclamation/maintenance retry.",
+          "test_ids": [
+            "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+            "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+            "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+            "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+            "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+            "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "DERIVED-MIGRATION",
+          "description": "Version-nine migration preserves objects and has no prior foreign keys or post-migration foreign-key violations.",
+          "test_ids": [
+            "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-GO-JSON",
+          "description": "Pinned generated Copy covers nil-resource inheritance, conditional bytes/metadata/fields; a hermetic transport assertion proves CopierFrom uses rewrite.",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ],
+          "result": "PASS"
+        },
+        {
+          "id": "COPY-REQUEST-CONTROL",
+          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
+          "test_ids": [
+            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+          ],
+          "result": "PASS"
+        }
+      ],
+      "test_ids": [
+        "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
+        "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
+        "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
+        "copy_validates_checksums_and_holds_without_inheriting_source_hold",
+        "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation",
+        "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+        "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+        "concurrent_copy_create_if_absent_publishes_exactly_one_generation",
+        "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+        "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix",
+        "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+        "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+        "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+        "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+        "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+        "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+        "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+        "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+        "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+        "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+        "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+        "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
+        "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
+        "TestObjectCopyJSON",
+        "TestObjectCopyHighLevelCopierUsesRewrite",
+        "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+        "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+        "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+        "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+        "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+        "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker",
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
+            "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
+            "copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets",
+            "copy_validates_checksums_and_holds_without_inheriting_source_hold",
+            "copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation",
+            "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+            "concurrent_copy_create_if_absent_publishes_exactly_one_generation",
+            "copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources",
+            "storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix",
+            "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
+            "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
+            "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
+            "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
+            "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+            "storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination",
+            "storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+            "storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress",
+            "storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error",
+            "storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart",
+            "storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries",
+            "storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object",
+            "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
+            "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
+            "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
+            "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
+            "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Generated HTTP JSON Objects.Copy; hermetic CopierFrom rewrite transport assertion",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCopyJSON",
+            "TestObjectCopyHighLevelCopierUsesRewrite"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-024",
@@ -19849,26 +20809,202 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "rewriteToken, done, byte counts, token constraints/expiry and restart handling.",
+      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "REWRITE-TOKENS",
+          "description": "Opaque random tokens bind the selected source, destination, all supplied conditions/parameters/body, permit omitted continuation fields and reject tampered or mismatched reuse.",
+          "result": "PASS",
+          "test_ids": [
+            "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+            "continuation_binds_every_supplied_parameter_body_and_path",
+            "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget"
+          ]
+        },
+        {
+          "id": "REWRITE-PROGRESS-REPLAY",
+          "description": "One-MiB granularity, monotonic byte counts, immediate token retry and concurrent retry never double advance; completion replay never creates another destination generation.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_route_decodes_once_and_bounds_byte_budgets",
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+            "rewrite_committed_completion_does_not_reread_an_expired_token",
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "id": "REWRITE-RECOVERY",
+          "description": "Restart/process kill preserve acknowledged bytes and request binding; unacknowledged suffixes are discarded, invalid prefixes cleanly reject and remove active session state, and completion publishes exactly one durable object.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+            "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+            "rewrite_initial_request_owner_reclaims_undelivered_state"
+          ]
+        },
+        {
+          "id": "REWRITE-LIFETIME",
+          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+            "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+            "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites"
+          ]
+        },
+        {
+          "id": "REWRITE-SOURCE-STATE",
+          "description": "Unqualified changed/deleted sources fail closed, explicit retained source generations may continue, and recreated buckets cannot reuse completed state.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_progress_replay_reclaims_state_after_bucket_recreation"
+          ]
+        },
+        {
+          "id": "REWRITE-STREAM-BUDGET",
+          "description": "Large-source streaming and a blocked initial transaction await their durable outcome across tiny catalog wait/request deadlines.",
+          "result": "PASS",
+          "test_ids": [
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+        "continuation_binds_every_supplied_parameter_body_and_path",
+        "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget",
+        "rewrite_route_decodes_once_and_bounds_byte_budgets",
+        "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+        "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+        "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+        "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+        "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+        "rewrite_committed_completion_does_not_reread_an_expired_token",
+        "rewrite_initial_request_owner_reclaims_undelivered_state",
+        "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+        "rewrite_completed_cache_evicts_without_rejecting_new_rewrites",
+        "rewrite_progress_replay_reclaims_state_after_bucket_recreation",
+        "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+        "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+        "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+        "rewrite_completion_replay_rejects_recreated_buckets",
+        "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+        "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
+        "TestObjectRewriteCopier",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+            "continuation_binds_every_supplied_parameter_body_and_path",
+            "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget",
+            "rewrite_route_decodes_once_and_bounds_byte_budgets",
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+            "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+            "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+            "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+            "rewrite_committed_completion_does_not_reread_an_expired_token",
+            "rewrite_initial_request_owner_reclaims_undelivered_state",
+            "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites",
+            "rewrite_progress_replay_reclaims_state_after_bucket_recreation",
+            "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON Copier; real rewrite continuation and ProgressFunc with a one-MiB testing query; isolated local endpoint",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-025",
@@ -19878,26 +21014,160 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Source ordering/generations, maximum sources, same-bucket rules, metadata and checksums.",
+      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-ORDER-CLASS",
+          "description": "One/empty/repeated/32-source and nested construction preserves order and source storage class; mixed classes and invalid source requests fail without mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation"
+          ]
+        },
+        {
+          "id": "COMPOSE-GENERATIONS",
+          "description": "Selected source generations/conditions and atomic destination conditions; source replacement is never deleted; concurrent and checkpoint-time destination changes reject stale writes.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_destination_condition_is_rechecked_after_streaming"
+          ]
+        },
+        {
+          "id": "COMPOSE-BOUNDS-RECOVERY",
+          "description": "Checked aggregate size, pinned source bytes across overwrite/deletion, one-snapshot resolution and ephemeral restart cleanup use the bounded derived foundation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+          ]
+        },
+        {
+          "id": "COMPOSE-CONSTRUCTION-SDK",
+          "description": "Pinned official Go ComposerFrom ordered/generation-pinned source workflow.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "compose_storage_class_defaults_and_event_holds",
+        "compose_rejects_invalid_or_unsupported_input_without_mutation",
+        "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+        "compose_concurrent_create_if_absent_has_one_winner",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_destination_condition_is_rechecked_after_streaming",
+        "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+        "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_destination_condition_is_rechecked_after_streaming",
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-026",
@@ -19907,26 +21177,139 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "componentCount, no assumed MD5/ETag identity, nested compositions.",
+      "notes": "Declared documented metadata scope: nested/repeated component accumulation with int32 saturation and no 1024 limit, exact combined CRC32C, absent MD5, non-MD5 changeable ETags, JSON resource/list/fields and XML component-count headers, metadata update and restart preservation. Exact provider opaque ETag spelling and JSON wire header questions remain on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES. Copy/rewrite transformations belong to their own slices. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSITE-COUNT",
+          "description": "Nested/repeated sources exceed the obsolete 1024 limit and saturate componentCount at int32 maximum; ordinary reupload clears composite identity.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links"
+          ]
+        },
+        {
+          "id": "COMPOSITE-HASH",
+          "description": "CRC32C combination matches direct bytes for every split, arbitrary bounded component lists, empty/binary data and associativity; composites omit MD5.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+            "compose_order_checksums_metadata_fields_and_restart"
+          ]
+        },
+        {
+          "id": "COMPOSITE-REPRESENTATIONS",
+          "description": "Metadata/list/fields, XML GET/HEAD component count, non-MD5 JSON/XML ETags, metadata invalidation and restart equality are consistent; pinned SDK observes count/CRC32C and absent MD5.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+        "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+        "compose_order_checksums_metadata_fields_and_restart",
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+            "compose_order_checksums_metadata_fields_and_restart"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-027",
@@ -19936,26 +21319,146 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_OR_DISCOVERY_REQUIRES_CONFIRMATION",
-      "notes": "deleteSourceObjects is present in current schema/docs; validate hard-delete and failure atomicity semantics.",
+      "source_checked_at": "2026-10-23",
+      "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
+      "notes": "Declared documented JSON flag scope: omitted/false preserves sources; true permanently deletes selected live/noncurrent sources after successful composition, bypassing Object Versioning; failed composition preserves previous destination and sources. Local extra delete permission, held-source rejection, deduplication, destination-name exclusion and single-transaction safety behavior are separately recorded on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES, not claimed as provider wire parity. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-DELETE-DEFAULT",
+          "description": "Default/false composition preserves complete sources; JSON and pinned SDK observe unchanged source generations and bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETE-SUCCESS",
+          "description": "Successful hard deletion removes selected live/noncurrent sources permanently under versioning, releases physical blobs without restart, and preserves the newly published destination.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETE-FAILURE",
+          "description": "Missing/held/changed selected source, revoked source-delete grant and injected late source deletion failure leave previous destination and remaining sources intact; held noncurrent self-sources are rechecked and newer source generations are never deleted.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "test_ids": [
+        "compose_order_checksums_metadata_fields_and_restart",
+        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+        "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+        "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+        "compose_hold_added_after_streaming_preserves_destination_and_sources",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+        "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-028",

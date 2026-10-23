@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 282 | 0 | 16 | 0 | 0 | 0 |
-| behavior | 201 | 156 | 0 | 28 | 17 | 0 | 0 |
+| api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
+| behavior | 201 | 151 | 0 | 28 | 22 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 282 | 2 | 14 | 0 | 0 | 0 |
-| behavior | 156 | 18 | 25 | 2 | 0 | 0 |
+| api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
+| behavior | 151 | 23 | 25 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -166,8 +166,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-002 | objects.compose | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
@@ -176,7 +176,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
@@ -704,11 +704,11 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-020 | Listing folders as prefixes | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-021 | Version and soft-delete listing | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-022 | Context-based object listing | NOT_STARTED | P7 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-023 | Object copy semantics | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-024 | Rewrite continuation sessions | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-025 | Composite object construction | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-026 | Composite component metadata | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-027 | Compose deleteSourceObjects | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-023 | Object copy semantics | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-024 | Rewrite continuation sessions | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-025 | Composite object construction | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-026 | Composite component metadata | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-027 | Compose deleteSourceObjects | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-028 | Atomic object move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-029 | Object versioning | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft delete and hard-delete deadline | NOT_STARTED | P4 | EXACT | NONE | 0 |

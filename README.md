@@ -78,10 +78,13 @@ Bucket metadata PUT is delivered in its [documented replacement subset](docs/en/
 with [final verification](docs/en/evidence/bucket-metadata-put.md).
 The [basic JSON contract gate](docs/en/evidence/basic-json-contract.md) is closed
 for the frozen local profile, documented conditions/checksums/error envelopes
-and explicit remaining-gap mapping. Next implement **Object copy** (order 9),
-then bounded continuation rewrite and compose. Verify
-the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
-and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
+and explicit remaining-gap mapping. **Object copy** is available in its
+[declared local subset](docs/en/slices/object-copy.md), with
+[Rust and pinned Go evidence](docs/en/evidence/object-copy.md).
+[Compose](docs/en/slices/object-compose.md) passes scoped native and targeted Go
+checks. Copy, bounded continuation rewrite and compose pass the
+[final integrated Rust/Go/container/native-Docker gate](docs/en/evidence/derived-objects.md).
+The next slice is order 12, local HTTPS/TLS, followed by JSON CORS defaults
 and bucket-configured XML-read CORS, with actual-browser verification, before
 starting signed URLs.
 
@@ -162,9 +165,9 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Object content/custom metadata PATCH (merge/null clearing; `objects.patch`) | ✅ All scoped fields; merge and null clearing | 🚧 Merges metadata; no null clearing | 🚧 Replaces metadata map; null fields ignored |
 | Object content/custom metadata PUT (replacement/omission reset; `objects.update`) | ✅ All scoped fields; omitted fields reset | 🚧 No `contentEncoding` input; omitted fixed fields retained | ❌ |
 | Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
-| Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
-| Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
-| Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
+| Object copy (`objects.copy`) | 🚧 Verified generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds and checksums; full ACL/owner projection remains missing | ✅ | ✅ |
+| Object rewrite (`objects.rewrite`) | 🚧 Verified one-call/continuation, request-bound tokens, atomic publication, strict grants and restart/retry; full ACL/owner projection remains missing | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
+| Object compose (`objects.compose`) | ✅ Scoped ordered 1..32 pinned sources, nested component/CRC32C metadata without MD5, atomic conditions and source hard deletion | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
 | Single generation/metageneration mutation Match conditions, including failed-resource preservation | ✅ Object media/multipart/PATCH/PUT/delete and bucket PATCH/PUT/delete; zero create-if-absent and live-object rejection | 🚧 Upload generation conditions only; [upload](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), [object](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) and [bucket](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go), source review only | ❌ Conditions unused in [object](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) and [bucket](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py) handlers, source review only |
@@ -226,9 +229,19 @@ The scoped checkmarks above use recorded execution evidence:
 [range](docs/en/evidence/object-range.md) and
 [final integrated regressions](docs/en/evidence/resumable-upload.md).
 Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
-wire-edge gaps remain recorded in the ledger. Copy, rewrite
-and compose remain unavailable until implemented and verified; the new roadmap
-does not turn them into completed features.
+wire-edge gaps remain recorded in the ledger. Copy has scoped
+[local verification](docs/en/evidence/object-copy.md). The
+[compose verification](docs/en/evidence/object-compose.md) records native and
+targeted Go coverage, explicit 501 boundaries and local deletion safety rules.
+The [shared final gate](docs/en/evidence/derived-objects.md) passes all Rust/Go checks,
+both container architectures and the affected native/Docker guide journeys.
+Rewrite supports the declared
+[local contract](docs/en/slices/object-rewrite.md), including bounded continuation,
+request-bound tokens, immediate retry, strict permissions and restart recovery.
+Its method row remains PARTIAL for full ACL projection; the local session row
+is IMPLEMENTED/EXACT in its declared scope.
+Once rewrite mutation starts, it awaits its durable result across the configured
+request deadline so a timeout cannot hide a later publication.
 
 The pinned comparison source review covers
 [fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),

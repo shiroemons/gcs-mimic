@@ -27,6 +27,12 @@ pub struct ObjectGetParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
+    Copy(super::ObjectCopyParams),
+    Compose {
+        bucket: String,
+        name: String,
+        conditions: ObjectConditions,
+    },
     List(super::ObjectListParams),
     Update {
         bucket: String,
@@ -73,6 +79,12 @@ pub fn route_object_with_profile(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
+    if let Some(operation) = super::object_copy::route(method, uri, profile) {
+        return Some(operation);
+    }
+    if let Some(operation) = super::compose::route(method, uri, profile) {
+        return Some(operation);
+    }
     let (path, upload, download) =
         if let Some(path) = uri.path().strip_prefix("/upload/storage/v1/b/") {
             (path, true, false)
@@ -363,7 +375,10 @@ fn parse_object_query(
     }
 }
 
-fn integer(query: &mut BTreeMap<String, String>, key: &str) -> Result<Option<i64>, JsonError> {
+pub(super) fn integer(
+    query: &mut BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<i64>, JsonError> {
     query
         .remove(key)
         .map(|value| {
@@ -607,12 +622,17 @@ pub fn object_resource(
         "name": object.name, "bucket": object.bucket,
         "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
         "storageClass": object.storage_class,
-        "size": object.size.to_string(), "md5Hash": base64(&object.md5),
+        "size": object.size.to_string(),
         "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": object_etag(object),
         "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
         "timeFinalized": timestamp(object.time_created)?,
         "timeStorageClassUpdated": timestamp(object.time_created)?,
     });
+    if let Some(count) = object.component_count {
+        value["componentCount"] = json!(count);
+    } else {
+        value["md5Hash"] = json!(base64(&object.md5));
+    }
     if !object.content_type.is_empty() {
         value["contentType"] = json!(object.content_type);
     }
@@ -658,11 +678,15 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
             "x-goog-hash",
-            format!(
-                "crc32c={},md5={}",
-                base64(&object.crc32c.to_be_bytes()),
-                base64(&object.md5)
-            ),
+            if object.component_count.is_some() {
+                format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
+            } else {
+                format!(
+                    "crc32c={},md5={}",
+                    base64(&object.crc32c.to_be_bytes()),
+                    base64(&object.md5)
+                )
+            },
         ),
         ("x-goog-stored-content-length", object.size.to_string()),
         (
@@ -783,6 +807,9 @@ pub fn validate_object_media_encoding(
 }
 
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {
+    if object.component_count.is_some() {
+        return format!("\"c-{}-{}\"", object.generation, object.metageneration);
+    }
     format!(
         "\"o-{}-{}-{}\"",
         base64(&object.md5),

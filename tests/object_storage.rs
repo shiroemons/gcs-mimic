@@ -1436,7 +1436,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
+            "DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
         )
         .unwrap();
     // Force the second DDL statement to fail and verify the first statement rolls back.
@@ -1493,7 +1493,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        9
+        11
     );
 }
 
@@ -1553,6 +1553,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         size: 9,
         md5,
         crc32c: crc,
+        component_count: None,
         storage_class: "NEARLINE".into(),
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(1234),

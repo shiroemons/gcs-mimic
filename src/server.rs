@@ -53,8 +53,12 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[path = "server/copy.rs"]
+mod copy;
 #[path = "server/resumable.rs"]
 mod resumable;
+#[path = "server/rewrite.rs"]
+mod rewrite;
 
 #[derive(Clone, Copy, Default)]
 struct ObjectActivity {
@@ -208,6 +212,31 @@ async fn respond(
         return response;
     }
     if let Some(parsed) =
+        json::rewrite::route(request.method(), request.uri(), config.compat_profile)
+    {
+        let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match parsed {
+            Ok((operation, caller)) => rewrite::respond(
+                request, operation, caller, state, config, activity, deadline,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
+            Err(error) => Err(error),
+        };
+        activity.send_replace(ObjectActivity::default());
+        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
+    if let Some(parsed) =
         json::route_object_with_profile(request.method(), request.uri(), config.compat_profile)
     {
         let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
@@ -217,6 +246,8 @@ async fn respond(
                 &parsed,
                 Ok((
                     ObjectRequest::Insert { .. }
+                        | ObjectRequest::Copy(_)
+                        | ObjectRequest::Compose { .. }
                         | ObjectRequest::Multipart { .. }
                         | ObjectRequest::Resumable { .. },
                     _
@@ -394,9 +425,11 @@ async fn object_response(
     };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
+        ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
-        ObjectRequest::Insert { bucket, .. }
+        ObjectRequest::Compose { bucket, .. }
+        | ObjectRequest::Insert { bucket, .. }
         | ObjectRequest::Multipart { bucket, .. }
         | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
         ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
@@ -414,9 +447,11 @@ async fn object_response(
     if !matches!(
         operation,
         ObjectRequest::Insert { .. }
+            | ObjectRequest::Compose { .. }
             | ObjectRequest::Multipart { .. }
             | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
+            | ObjectRequest::Copy(_)
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -428,6 +463,112 @@ async fn object_response(
         ));
     }
     let mut value = match operation {
+        ObjectRequest::Copy(params) => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            for name in [
+                "content-md5",
+                "x-goog-hash",
+                "range",
+                "if-range",
+                "if-modified-since",
+                "if-unmodified-since",
+                "x-goog-gcs-idempotency-token",
+            ] {
+                if request.headers().contains_key(name) {
+                    return Err(JsonError::unsupported_object(name));
+                }
+            }
+            let source_access =
+                authorize_bucket(state, caller, auth::OBJECTS_GET, &params.source_bucket).await?;
+            let source = state
+                .catalog
+                .resolve_derived_source(
+                    &params.source_bucket,
+                    &params.source_name,
+                    params.source_generation,
+                    params.source_conditions,
+                    &source_access,
+                )
+                .await?;
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let (metadata, storage_class, expected) =
+                json::derived_metadata(&bytes, &source.object)?;
+            let source_location = if source.object.component_count.is_some() {
+                Some(
+                    state
+                        .catalog
+                        .get_bucket(&params.source_bucket)
+                        .await?
+                        .ok_or(ObjectError::BucketNotFound)?
+                        .location,
+                )
+            } else {
+                None
+            };
+            let projection = params.projection;
+            let record = copy::execute(
+                &state.catalog,
+                source,
+                crate::storage::DerivedDestination {
+                    bucket: params.bucket,
+                    name: params.name,
+                    content_type: String::new(),
+                    metadata,
+                    storage_class,
+                    expected,
+                    conditions: params.conditions,
+                    access,
+                    component_count: None,
+                },
+                source_location,
+                config,
+                deadline,
+                activity,
+                #[cfg(test)]
+                None,
+            )
+            .await?;
+            json::object_resource(&record, &state.api_base_url, projection)?
+        }
+        ObjectRequest::Compose {
+            bucket,
+            name,
+            conditions,
+        } => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            for header in [
+                "if-range",
+                "if-modified-since",
+                "if-unmodified-since",
+                "range",
+                "content-md5",
+                "x-goog-hash",
+            ] {
+                if request.headers().contains_key(header) {
+                    return Err(JsonError::unsupported_object(header));
+                }
+            }
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let body = json::compose::parse_compose(&bytes, &bucket, &name)?;
+            activity.send_modify(|progress| progress.awaiting_catalog = true);
+            let record = state
+                .catalog
+                .compose_object(
+                    crate::storage::DerivedDestination {
+                        bucket,
+                        name,
+                        conditions,
+                        access,
+                        metadata: body.destination,
+                        ..Default::default()
+                    },
+                    body.sources,
+                    body.delete_sources,
+                    max_bytes,
+                )
+                .await?;
+            json::object_resource(&record, &state.api_base_url, json::Projection::NoAcl)?
+        }
         ObjectRequest::Resumable {
             bucket,
             name,

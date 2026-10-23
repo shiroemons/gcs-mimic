@@ -1,0 +1,1280 @@
+Local checkout, home and temporary path prefixes were replaced with <checkout>, <user-home> and <temp>.
+Native release: unchanged affected guide blocks and integrated restart chain.
++ unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
++ cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling typenum v1.20.1
+   Compiling semver v1.0.28
+   Compiling httparse v1.10.1
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling cc v1.9.0
+   Compiling zmij v1.0.23
+   Compiling rustc_version v0.4.1
+   Compiling serde_core v1.0.229
+   Compiling smallvec v1.16.3
+   Compiling getrandom v0.4.3
+   Compiling crc32c v0.6.8
+   Compiling serde_json v1.0.154
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling http v1.5.0
+   Compiling cfg-if v1.0.5
+   Compiling hybrid-array v0.4.15
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling syn v3.0.9
+   Compiling http-body v1.1.0
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling crypto-common v0.2.2
+   Compiling signal-hook-registry v1.4.8
+   Compiling block-buffer v0.12.1
+   Compiling libsqlite3-sys v0.38.2
+   Compiling digest v0.11.3
+   Compiling md-5 v0.11.0
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 36.63s
+++ mktemp -d
++ native_dir=<temp>/tmp.vhLWtb47zi
++ native_pid=
++ work_dir=
++ trap 'if [[ -n "$native_pid" ]]; then kill -TERM "$native_pid" 2>/dev/null || true; wait "$native_pid" || true; fi; rm -rf "$native_dir"; if [[ -n "$work_dir" ]]; then rm -rf "$work_dir"; fi' EXIT
++ start_native
++ native_pid=8475
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.vhLWtb47zi/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ kill -0 8475
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ kill -0 8475
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ kill -0 8475
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ break
+++ jq -r 'select(.event=="ready") | .listen' <temp>/tmp.vhLWtb47zi/server.log
++ endpoint=http://127.0.0.1:62560
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:62560/_internal/ready
++ run_affected_blocks
++ run_blocks '## Create, inspect, list and delete buckets' 1
++ local 'heading=## Create, inspect, list and delete buckets' count=1
+++ awk -v 'heading=## Create, inspect, list and delete buckets' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:62560/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64   172k  29130 --:--:-- --:--:-- --:--:--  220k
+{"etag":"\"b-1792739281531-1792739281531-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:01.531Z","updated":"2026-10-23T07:08:01.531Z"}++ curl --disable --noproxy '*' --fail http://127.0.0.1:62560/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   267k      0 --:--:-- --:--:-- --:--:--  377k
+{"etag":"\"b-1792739281531-1792739281531-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:01.531Z","updated":"2026-10-23T07:08:01.531Z"}++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   181k      0 --:--:-- --:--:-- --:--:--  207k
+{"items":[{"etag":"\"b-1792739281531-1792739281531-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:01.531Z","updated":"2026-10-23T07:08:01.531Z"}],"kind":"storage#buckets"}+ run_blocks '## Upload, inspect, download and conditionally create an object' 1
++ local 'heading=## Upload, inspect, download and conditionally create an object' count=1
+++ awk -v 'heading=## Upload, inspect, download and conditionally create an object' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++++ mktemp -d
+++ work_dir=<temp>/tmp.DsMLmG3qwi
+++ printf 'Hello from gcs-mimic.\n'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temp>/tmp.DsMLmG3qwi/upload.txt 'http://127.0.0.1:62560/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   763  100   741  100    22  39598   1175 --:--:-- --:--:-- --:--:-- 42388
+++ jq . <temp>/tmp.DsMLmG3qwi/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792739281615606-1\"",
+  "generation": "1792739281615606",
+  "id": "demo-bucket/notes/hello.txt/1792739281615606",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792739281615606&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T07:08:01.615Z",
+  "timeFinalized": "2026-10-23T07:08:01.615Z",
+  "timeStorageClassUpdated": "2026-10-23T07:08:01.615Z",
+  "updated": "2026-10-23T07:08:01.615Z"
+}
++++ jq -r .generation <temp>/tmp.DsMLmG3qwi/object.json
+++ generation=1792739281615606
+++ curl --disable --noproxy '*' --fail http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   741  100   741    0     0   353k      0 --:--:-- --:--:-- --:--:--  723k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792739281615606-1\"",
+  "generation": "1792739281615606",
+  "id": "demo-bucket/notes/hello.txt/1792739281615606",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792739281615606&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T07:08:01.615Z",
+  "timeFinalized": "2026-10-23T07:08:01.615Z",
+  "timeStorageClassUpdated": "2026-10-23T07:08:01.615Z",
+  "updated": "2026-10-23T07:08:01.615Z"
+}
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792739281615606' --output <temp>/tmp.DsMLmG3qwi/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  12054      0 --:--:-- --:--:-- --:--:-- 22000
+++ cmp <temp>/tmp.DsMLmG3qwi/upload.txt <temp>/tmp.DsMLmG3qwi/download.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.DsMLmG3qwi/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temp>/tmp.DsMLmG3qwi/upload.txt 'http://127.0.0.1:62560/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ jq . <temp>/tmp.DsMLmG3qwi/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.DsMLmG3qwi/not-modified --write-out '%{http_code}' 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792739281615606'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.DsMLmG3qwi/not-modified
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.DsMLmG3qwi/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:62560/storage/v1/b/demo-bucket
+++ status=409
+++ test 409 = 409
+++ jq . <temp>/tmp.DsMLmG3qwi/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
++ run_blocks '## Copy an object with source and destination conditions' 1
++ local 'heading=## Copy an object with source and destination conditions' count=1
+++ awk -v 'heading=## Copy an object with source and destination conditions' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -X POST -H '\''Content-Type: application/json'\'' \
+  --data '\''null'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=$generation&ifSourceGenerationMatch=$generation&ifGenerationMatch=0" \
+  > "$work_dir/copied.json"
+jq -e --slurpfile source "$work_dir/object.json" \
+  '\''.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c'\'' \
+  "$work_dir/copied.json"
+copy_generation=$(jq -er .generation "$work_dir/copied.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=$copy_generation" \
+  --output "$work_dir/copied.txt"
+cmp "$work_dir/upload.txt" "$work_dir/copied.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/copy-condition.json" \
+  --write-out '\''%{http_code}'\'' -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0")
+test "$status" = 412
+curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=$copy_generation"'
+++ curl --disable --noproxy '*' --fail -X POST -H 'Content-Type: application/json' --data null 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=1792739281615606&ifSourceGenerationMatch=1792739281615606&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   741  100   737  100     4  24167    131 --:--:-- --:--:-- --:--:-- 23903100   741  100   737  100     4  23848    129 --:--:-- --:--:-- --:--:-- 23903
+++ jq -e --slurpfile source <temp>/tmp.DsMLmG3qwi/object.json '.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c' <temp>/tmp.DsMLmG3qwi/copied.json
+true
++++ jq -er .generation <temp>/tmp.DsMLmG3qwi/copied.json
+++ copy_generation=1792739281853191
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=1792739281853191' --output <temp>/tmp.DsMLmG3qwi/copied.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   9322      0 --:--:-- --:--:-- --:--:-- 11000
+++ cmp <temp>/tmp.DsMLmG3qwi/upload.txt <temp>/tmp.DsMLmG3qwi/copied.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.DsMLmG3qwi/copy-condition.json --write-out '%{http_code}' -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ curl --disable --noproxy '*' --fail -X DELETE 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=1792739281853191'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ run_blocks '## Rewrite an object and follow continuation tokens' 2
++ local 'heading=## Rewrite an object and follow continuation tokens' count=2
+++ awk -v 'heading=## Rewrite an object and follow continuation tokens' -v limit=2 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=$generation&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-one.json"
+jq -e '\''.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)'\'' \
+  "$work_dir/rewrite-one.json"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media" \
+  --output "$work_dir/rewrite-one.txt"
+cmp "$work_dir/upload.txt" "$work_dir/rewrite-one.txt"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt"
+dd if=/dev/zero of="$work_dir/rewrite-source.bin" bs=1048576 count=3
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/octet-stream'\'' \
+  --data-binary @"$work_dir/rewrite-source.bin" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-source.json"
+rewrite_url="$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}'\'' \
+  "$rewrite_url" > "$work_dir/rewrite-progress.json"
+jq -e '\''.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)'\'' \
+  "$work_dir/rewrite-progress.json"
+while ! jq -e '\''.done == true'\'' "$work_dir/rewrite-progress.json" >/dev/null; do
+  rewrite_token=$(jq -er '\''.rewriteToken'\'' "$work_dir/rewrite-progress.json")
+  curl --disable --noproxy '\''*'\'' --fail -X POST \
+    "$rewrite_url&rewriteToken=$rewrite_token" > "$work_dir/rewrite-next.json"
+  mv "$work_dir/rewrite-next.json" "$work_dir/rewrite-progress.json"
+done
+jq -e '\''.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)'\'' \
+  "$work_dir/rewrite-progress.json"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media" \
+  --output "$work_dir/rewrite-finished.bin"
+cmp "$work_dir/rewrite-source.bin" "$work_dir/rewrite-finished.bin"
+for rewrite_name in source finished; do
+  curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+    "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2F$rewrite_name.bin"
+done'
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=1792739281615606&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   860  100   860    0     0  22517      0 --:--:-- --:--:-- --:--:-- 22631
+++ jq -e '.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)' <temp>/tmp.DsMLmG3qwi/rewrite-one.json
+true
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media' --output <temp>/tmp.DsMLmG3qwi/rewrite-one.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   8409      0 --:--:-- --:--:-- --:--:-- 11000
+++ cmp <temp>/tmp.DsMLmG3qwi/upload.txt <temp>/tmp.DsMLmG3qwi/rewrite-one.txt
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ dd if=/dev/zero of=<temp>/tmp.DsMLmG3qwi/rewrite-source.bin bs=1048576 count=3
+3+0 records in
+3+0 records out
+3145728 bytes transferred in 0.000888 secs (3542486486 bytes/sec)
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/octet-stream' --data-binary @<temp>/tmp.DsMLmG3qwi/rewrite-source.bin 'http://127.0.0.1:62560/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 3072k  100   772  100 3072k   6709  26.0M --:--:-- --:--:-- --:--:-- 26.0M
+++ rewrite_url='http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}' 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   245  100   184  100    61   5372   1780 --:--:-- --:--:-- --:--:--  7205
+++ jq -e '.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)' <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+true
+++ jq -e '.done == true' <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
++++ jq -er .rewriteToken <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+++ rewrite_token=f71ba9d39fcce9ebcbf7496f315532ebdc5ccc70fbeffd3a850891d99cd88a52
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0&rewriteToken=f71ba9d39fcce9ebcbf7496f315532ebdc5ccc70fbeffd3a850891d99cd88a52'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   184  100   184    0     0  14983      0 --:--:-- --:--:-- --:--:-- 15333
+++ mv <temp>/tmp.DsMLmG3qwi/rewrite-next.json <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+++ jq -e '.done == true' <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
++++ jq -er .rewriteToken <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+++ rewrite_token=95297947a3538cb8d137bc4a1ce39f0c8a12264c48b69821d94d4b3cdf5e03a3
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0&rewriteToken=95297947a3538cb8d137bc4a1ce39f0c8a12264c48b69821d94d4b3cdf5e03a3'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   886  100   886    0     0  39397      0 --:--:-- --:--:-- --:--:-- 40272
+++ mv <temp>/tmp.DsMLmG3qwi/rewrite-next.json <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+++ jq -e '.done == true' <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+++ jq -e '.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)' <temp>/tmp.DsMLmG3qwi/rewrite-progress.json
+true
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media' --output <temp>/tmp.DsMLmG3qwi/rewrite-finished.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 3072k  100 3072k    0     0   101M      0 --:--:-- --:--:-- --:--:--  103M
+++ cmp <temp>/tmp.DsMLmG3qwi/rewrite-source.bin <temp>/tmp.DsMLmG3qwi/rewrite-finished.bin
+++ for rewrite_name in source finished
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ for rewrite_name in source finished
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ run_blocks '## Compose existing objects' 1
++ local 'heading=## Compose existing objects' count=1
+++ awk -v 'heading=## Compose existing objects' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'compose_dir=$(mktemp -d)
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"compose-demo-bucket"}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' --data-binary '\''1234'\'' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' --data-binary '\''56789'\'' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0" \
+  > "$compose_dir/object.json"
+jq -e '\''.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)'\'' \
+  "$compose_dir/object.json"
+printf '\''123456789'\'' > "$compose_dir/expected"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite?alt=media" > "$compose_dir/bytes"
+cmp "$compose_dir/expected" "$compose_dir/bytes"
+compose_status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  -o "$compose_dir/stale.json" -w '\''%{http_code}'\'' -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}]}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0")
+test "$compose_status" = 412
+jq -e '\''.error.errors[0].reason == "conditionNotMet"'\'' "$compose_dir/stale.json"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c"
+source_status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  -o "$compose_dir/missing.json" -w '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/first")
+test "$source_status" = 404
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined?alt=media" > "$compose_dir/joined"
+cmp "$compose_dir/expected" "$compose_dir/joined"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/composite"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/joined"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket"
+rm -rf "$compose_dir"'
++++ mktemp -d
+++ compose_dir=<temp>/tmp.NFbSV7768h
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"compose-demo-bucket"}' 'http://127.0.0.1:62560/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   415  100   385  100    30   245k  19607 --:--:-- --:--:-- --:--:--  405k
+{"etag":"\"b-1792739282608-1792739282608-1\"","id":"compose-demo-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"compose-demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:02.608Z","updated":"2026-10-23T07:08:02.608Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 1234 'http://127.0.0.1:62560/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   728  100     4  38803    213 --:--:-- --:--:-- --:--:-- 40666
+{"bucket":"compose-demo-bucket","contentType":"text/plain","crc32c":"9jr07g==","etag":"\"o-gdyb21LQTcIANtvYMT7QVQ==-1792739282647017-1\"","generation":"1792739282647017","id":"compose-demo-bucket/first/1792739282647017","kind":"storage#object","md5Hash":"gdyb21LQTcIANtvYMT7QVQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/compose-demo-bucket/o/first?generation=1792739282647017&alt=media","metageneration":"1","name":"first","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket/o/first","size":"4","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:02.647Z","timeFinalized":"2026-10-23T07:08:02.647Z","timeStorageClassUpdated":"2026-10-23T07:08:02.647Z","updated":"2026-10-23T07:08:02.647Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 56789 'http://127.0.0.1:62560/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   737  100   732  100     5  41778    285 --:--:-- --:--:-- --:--:-- 43352
+{"bucket":"compose-demo-bucket","contentType":"text/plain","crc32c":"g7Vl2A==","etag":"\"o-CZ6+pI6pZmp9ohdyZ5gxOA==-1792739282692357-1\"","generation":"1792739282692357","id":"compose-demo-bucket/second/1792739282692357","kind":"storage#object","md5Hash":"CZ6+pI6pZmp9ohdyZ5gxOA==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/compose-demo-bucket/o/second?generation=1792739282692357&alt=media","metageneration":"1","name":"second","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket/o/second","size":"5","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:02.692Z","timeFinalized":"2026-10-23T07:08:02.692Z","timeStorageClassUpdated":"2026-10-23T07:08:02.692Z","updated":"2026-10-23T07:08:02.692Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}' 'http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   866  100   735  100   131  24767   4414 --:--:-- --:--:-- --:--:-- 29862
+++ jq -e '.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)' <temp>/tmp.NFbSV7768h/object.json
+true
+++ printf 123456789
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     9  100     9    0     0   2601      0 --:--:-- --:--:-- --:--:--  3000
+++ cmp <temp>/tmp.NFbSV7768h/expected <temp>/tmp.NFbSV7768h/bytes
++++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.NFbSV7768h/stale.json -w '%{http_code}' -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}]}' 'http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0'
+++ compose_status=412
+++ test 412 = 412
+++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.NFbSV7768h/stale.json
+true
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}' 'http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   137  100    56  100    81    926   1340 --:--:-- --:--:-- --:--:--  2245100   137  100    56  100    81    881   1274 --:--:-- --:--:-- --:--:--  2140
+{"componentCount":2,"crc32c":"4waSgw==","name":"joined"}+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.NFbSV7768h/missing.json -w '%{http_code}' http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/first
+++ source_status=404
+++ test 404 = 404
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/joined?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     9  100     9    0     0   4936      0 --:--:-- --:--:-- --:--:--  9000
+++ cmp <temp>/tmp.NFbSV7768h/expected <temp>/tmp.NFbSV7768h/joined
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket/o/joined
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62560/storage/v1/b/compose-demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ rm -rf <temp>/tmp.NFbSV7768h
++ create_persistent_chain
++ curl --disable --noproxy '*' --fail --data-binary A 'http://127.0.0.1:62560/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=integration-a'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   752  100   751  100     1  35867     47 --:--:-- --:--:-- --:--:-- 37600
+{"bucket":"demo-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"4W3N7g==","etag":"\"o-f8VicOenD6gaWTW3Lqy+KQ==-1792739283080533-1\"","generation":"1792739283080533","id":"demo-bucket/integration-a/1792739283080533","kind":"storage#object","md5Hash":"f8VicOenD6gaWTW3Lqy+KQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/integration-a?generation=1792739283080533&alt=media","metageneration":"1","name":"integration-a","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/integration-a","size":"1","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:03.080Z","timeFinalized":"2026-10-23T07:08:03.080Z","timeStorageClassUpdated":"2026-10-23T07:08:03.080Z","updated":"2026-10-23T07:08:03.080Z"}+ curl --disable --noproxy '*' --fail --data-binary B 'http://127.0.0.1:62560/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=integration-b'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   752  100   751  100     1  37069     49 --:--:-- --:--:-- --:--:-- 37600
+{"bucket":"demo-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"8j0+Gg==","etag":"\"o-nV7WeP5XvMphAUCVevq1cQ==-1792739283112933-1\"","generation":"1792739283112933","id":"demo-bucket/integration-b/1792739283112933","kind":"storage#object","md5Hash":"nV7WeP5XvMphAUCVevq1cQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/integration-b?generation=1792739283112933&alt=media","metageneration":"1","name":"integration-b","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/integration-b","size":"1","storageClass":"STANDARD","timeCreated":"2026-10-23T07:08:03.112Z","timeFinalized":"2026-10-23T07:08:03.112Z","timeStorageClassUpdated":"2026-10-23T07:08:03.112Z","updated":"2026-10-23T07:08:03.112Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"integration-a"},{"name":"integration-b"}]}' 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-composite/compose?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   759  100   690  100    69  26829   2682 --:--:-- --:--:-- --:--:-- 30360
++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-composite/copyTo/b/demo-bucket/o/integration-copy?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   670  100   670    0     0  25466      0 --:--:-- --:--:-- --:--:-- 25769
++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-copy/rewriteTo/b/demo-bucket/o/integration-rewrite?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   783  100   783    0     0  23003      0 --:--:-- --:--:-- --:--:-- 23727
++ jq -e '.done == true' <temp>/tmp.DsMLmG3qwi/integration-rewrite-response.json
+true
++ jq .resource <temp>/tmp.DsMLmG3qwi/integration-rewrite-response.json
++ printf AB
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.DsMLmG3qwi/integration-composite.json
+true
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-composite.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    806      0 --:--:-- --:--:-- --:--:--  1000
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-composite-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.DsMLmG3qwi/integration-copy.json
+true
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-copy.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-copy?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0   1381      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-copy-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.DsMLmG3qwi/integration-rewrite.json
+true
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-rewrite.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62560/storage/v1/b/demo-bucket/o/integration-rewrite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    987      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-rewrite-bytes
++ kill -TERM 8475
++ wait 8475
++ native_pid=
++ start_native
++ native_pid=8736
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.vhLWtb47zi/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ kill -0 8736
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event=="ready")' <temp>/tmp.vhLWtb47zi/server.log
++ break
+++ jq -r 'select(.event=="ready") | .listen' <temp>/tmp.vhLWtb47zi/server.log
++ endpoint=http://127.0.0.1:62627
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:62627/_internal/ready
++ verify_persistent_chain
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   690  100   690    0     0   290k      0 --:--:-- --:--:-- --:--:--  336k
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-composite-after.json
++ cmp <temp>/tmp.DsMLmG3qwi/integration-composite-before.json <temp>/tmp.DsMLmG3qwi/integration-composite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    564      0 --:--:-- --:--:-- --:--:--   666
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-composite-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-copy
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   670  100   670    0     0   511k      0 --:--:-- --:--:-- --:--:--  654k
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-copy-after.json
++ cmp <temp>/tmp.DsMLmG3qwi/integration-copy-before.json <temp>/tmp.DsMLmG3qwi/integration-copy-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-copy?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    987      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-copy-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-rewrite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   682  100   682    0     0   539k      0 --:--:-- --:--:-- --:--:--  666k
++ jq -S . <temp>/tmp.DsMLmG3qwi/integration-rewrite-after.json
++ cmp <temp>/tmp.DsMLmG3qwi/integration-rewrite-before.json <temp>/tmp.DsMLmG3qwi/integration-rewrite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-rewrite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0   1626      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.DsMLmG3qwi/integration-expected <temp>/tmp.DsMLmG3qwi/integration-rewrite-bytes
++ cleanup_chain
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-copy
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-rewrite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-a
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/integration-b
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62627/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ kill -TERM 8736
++ wait 8736
++ native_pid=
++ printf '%s\n' 'PASS: unchanged copy/rewrite/compose guide blocks on native release; composite-copy-rewrite bytes and exact resources persist across restart; cleanup completed.'
+PASS: unchanged copy/rewrite/compose guide blocks on native release; composite-copy-rewrite bytes and exact resources persist across restart; cleanup completed.
++ [[ -n '' ]]
++ rm -rf <temp>/tmp.vhLWtb47zi
++ [[ -n <temp>/tmp.DsMLmG3qwi ]]
++ rm -rf <temp>/tmp.DsMLmG3qwi
+Docker final smoke image: unchanged affected guide blocks and integrated persistence chain.
++ export DOCKER_DEFAULT_PLATFORM=linux/amd64
++ DOCKER_DEFAULT_PLATFORM=linux/amd64
++ export COMPOSE_PROJECT_NAME=gcs-mimic-derived-guide-26222
++ COMPOSE_PROJECT_NAME=gcs-mimic-derived-guide-26222
++ export GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-amd64-7331
++ GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-amd64-7331
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:4443
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:4443
++ work_dir=
++ trap cleanup EXIT
++ docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}} {{.Config.User}}' gcs-mimic:bucket-smoke-amd64-7331
+sha256:06863a393ce91cbdd07f9ddb48885fb01d4a405d03279b44a635c35277cc07a6 linux/amd64 10001:10001
++ docker compose config --quiet
++ docker compose up -d --no-build --wait
+ Network gcs-mimic-derived-guide-26222_default Creating 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Creating 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Creating 
+ Network gcs-mimic-derived-guide-26222_default Creating 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Created 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Created 
+ Network gcs-mimic-derived-guide-26222_default Created 
+ Network gcs-mimic-derived-guide-26222_default Created 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Creating 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Created 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Starting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Started 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Waiting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ endpoint=http://127.0.0.1:55395
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ run_affected_blocks
++ run_blocks '## Create, inspect, list and delete buckets' 1
++ local 'heading=## Create, inspect, list and delete buckets' count=1
+++ awk -v 'heading=## Create, inspect, list and delete buckets' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55395/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64  28590   4728 --:--:-- --:--:-- --:--:-- 34692
+{"etag":"\"b-1792739586859-1792739586859-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:06.859Z","updated":"2026-10-23T07:13:06.859Z"}++ curl --disable --noproxy '*' --fail http://127.0.0.1:55395/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0  84719      0 --:--:-- --:--:-- --:--:-- 96750
+{"etag":"\"b-1792739586859-1792739586859-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:06.859Z","updated":"2026-10-23T07:13:06.859Z"}++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   110k      0 --:--:-- --:--:-- --:--:--  138k
+{"items":[{"etag":"\"b-1792739586859-1792739586859-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:06.859Z","updated":"2026-10-23T07:13:06.859Z"}],"kind":"storage#buckets"}+ run_blocks '## Upload, inspect, download and conditionally create an object' 1
++ local 'heading=## Upload, inspect, download and conditionally create an object' count=1
+++ awk -v 'heading=## Upload, inspect, download and conditionally create an object' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++++ mktemp -d
+++ work_dir=<temp>/tmp.MKX4nrPDBI
+++ printf 'Hello from gcs-mimic.\n'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temp>/tmp.MKX4nrPDBI/upload.txt 'http://127.0.0.1:55395/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   763  100   741  100    22  43164   1281 --:--:-- --:--:-- --:--:-- 44882
+++ jq . <temp>/tmp.MKX4nrPDBI/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792739586927752-1\"",
+  "generation": "1792739586927752",
+  "id": "demo-bucket/notes/hello.txt/1792739586927752",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792739586927752&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T07:13:06.927Z",
+  "timeFinalized": "2026-10-23T07:13:06.927Z",
+  "timeStorageClassUpdated": "2026-10-23T07:13:06.927Z",
+  "updated": "2026-10-23T07:13:06.927Z"
+}
++++ jq -r .generation <temp>/tmp.MKX4nrPDBI/object.json
+++ generation=1792739586927752
+++ curl --disable --noproxy '*' --fail http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   741  100   741    0     0   210k      0 --:--:-- --:--:-- --:--:--  241k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792739586927752-1\"",
+  "generation": "1792739586927752",
+  "id": "demo-bucket/notes/hello.txt/1792739586927752",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792739586927752&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T07:13:06.927Z",
+  "timeFinalized": "2026-10-23T07:13:06.927Z",
+  "timeStorageClassUpdated": "2026-10-23T07:13:06.927Z",
+  "updated": "2026-10-23T07:13:06.927Z"
+}
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792739586927752' --output <temp>/tmp.MKX4nrPDBI/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   2684      0 --:--:-- --:--:-- --:--:--  2750
+++ cmp <temp>/tmp.MKX4nrPDBI/upload.txt <temp>/tmp.MKX4nrPDBI/download.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.MKX4nrPDBI/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temp>/tmp.MKX4nrPDBI/upload.txt 'http://127.0.0.1:55395/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ jq . <temp>/tmp.MKX4nrPDBI/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.MKX4nrPDBI/not-modified --write-out '%{http_code}' 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792739586927752'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.MKX4nrPDBI/not-modified
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.MKX4nrPDBI/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:55395/storage/v1/b/demo-bucket
+++ status=409
+++ test 409 = 409
+++ jq . <temp>/tmp.MKX4nrPDBI/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
++ run_blocks '## Copy an object with source and destination conditions' 1
++ local 'heading=## Copy an object with source and destination conditions' count=1
+++ awk -v 'heading=## Copy an object with source and destination conditions' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -X POST -H '\''Content-Type: application/json'\'' \
+  --data '\''null'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=$generation&ifSourceGenerationMatch=$generation&ifGenerationMatch=0" \
+  > "$work_dir/copied.json"
+jq -e --slurpfile source "$work_dir/object.json" \
+  '\''.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c'\'' \
+  "$work_dir/copied.json"
+copy_generation=$(jq -er .generation "$work_dir/copied.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=$copy_generation" \
+  --output "$work_dir/copied.txt"
+cmp "$work_dir/upload.txt" "$work_dir/copied.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/copy-condition.json" \
+  --write-out '\''%{http_code}'\'' -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0")
+test "$status" = 412
+curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=$copy_generation"'
+++ curl --disable --noproxy '*' --fail -X POST -H 'Content-Type: application/json' --data null 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=1792739586927752&ifSourceGenerationMatch=1792739586927752&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   741  100   737  100     4  33677    182 --:--:-- --:--:-- --:--:-- 35285
+++ jq -e --slurpfile source <temp>/tmp.MKX4nrPDBI/object.json '.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c' <temp>/tmp.MKX4nrPDBI/copied.json
+true
++++ jq -er .generation <temp>/tmp.MKX4nrPDBI/copied.json
+++ copy_generation=1792739587056334
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=1792739587056334' --output <temp>/tmp.MKX4nrPDBI/copied.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  10451      0 --:--:-- --:--:-- --:--:-- 11000
+++ cmp <temp>/tmp.MKX4nrPDBI/upload.txt <temp>/tmp.MKX4nrPDBI/copied.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.MKX4nrPDBI/copy-condition.json --write-out '%{http_code}' -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ curl --disable --noproxy '*' --fail -X DELETE 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=1792739587056334'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ run_blocks '## Rewrite an object and follow continuation tokens' 2
++ local 'heading=## Rewrite an object and follow continuation tokens' count=2
+++ awk -v 'heading=## Rewrite an object and follow continuation tokens' -v limit=2 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'curl --disable --noproxy '\''*'\'' --fail -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=$generation&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-one.json"
+jq -e '\''.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)'\'' \
+  "$work_dir/rewrite-one.json"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media" \
+  --output "$work_dir/rewrite-one.txt"
+cmp "$work_dir/upload.txt" "$work_dir/rewrite-one.txt"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt"
+dd if=/dev/zero of="$work_dir/rewrite-source.bin" bs=1048576 count=3
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/octet-stream'\'' \
+  --data-binary @"$work_dir/rewrite-source.bin" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-source.json"
+rewrite_url="$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}'\'' \
+  "$rewrite_url" > "$work_dir/rewrite-progress.json"
+jq -e '\''.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)'\'' \
+  "$work_dir/rewrite-progress.json"
+while ! jq -e '\''.done == true'\'' "$work_dir/rewrite-progress.json" >/dev/null; do
+  rewrite_token=$(jq -er '\''.rewriteToken'\'' "$work_dir/rewrite-progress.json")
+  curl --disable --noproxy '\''*'\'' --fail -X POST \
+    "$rewrite_url&rewriteToken=$rewrite_token" > "$work_dir/rewrite-next.json"
+  mv "$work_dir/rewrite-next.json" "$work_dir/rewrite-progress.json"
+done
+jq -e '\''.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)'\'' \
+  "$work_dir/rewrite-progress.json"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media" \
+  --output "$work_dir/rewrite-finished.bin"
+cmp "$work_dir/rewrite-source.bin" "$work_dir/rewrite-finished.bin"
+for rewrite_name in source finished; do
+  curl --disable --noproxy '\''*'\'' --fail -X DELETE \
+    "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2F$rewrite_name.bin"
+done'
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=1792739586927752&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   860  100   860    0     0  29057      0 --:--:-- --:--:-- --:--:-- 29655
+++ jq -e '.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)' <temp>/tmp.MKX4nrPDBI/rewrite-one.json
+true
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media' --output <temp>/tmp.MKX4nrPDBI/rewrite-one.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0   5887      0 --:--:-- --:--:-- --:--:--  7333
+++ cmp <temp>/tmp.MKX4nrPDBI/upload.txt <temp>/tmp.MKX4nrPDBI/rewrite-one.txt
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ dd if=/dev/zero of=<temp>/tmp.MKX4nrPDBI/rewrite-source.bin bs=1048576 count=3
+3+0 records in
+3+0 records out
+3145728 bytes transferred in 0.000471 secs (6678828025 bytes/sec)
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/octet-stream' --data-binary @<temp>/tmp.MKX4nrPDBI/rewrite-source.bin 'http://127.0.0.1:55395/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 3072k  100   772  100 3072k  19739  76.7M --:--:-- --:--:-- --:--:-- 76.9M
+++ rewrite_url='http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}' 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   245  100   184  100    61   9707   3218 --:--:-- --:--:-- --:--:-- 13611
+++ jq -e '.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)' <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+true
+++ jq -e '.done == true' <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
++++ jq -er .rewriteToken <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+++ rewrite_token=ccbf0a8a79f37f395ef4972bacc9e56096bb85593807d1d128c3a478f108c17f
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0&rewriteToken=ccbf0a8a79f37f395ef4972bacc9e56096bb85593807d1d128c3a478f108c17f'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   184  100   184    0     0  17879      0 --:--:-- --:--:-- --:--:-- 18400
+++ mv <temp>/tmp.MKX4nrPDBI/rewrite-next.json <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+++ jq -e '.done == true' <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
++++ jq -er .rewriteToken <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+++ rewrite_token=0a08c1f112cee41e4b8f0b61173e70ab5ccb45c022204959c30c0bf48c279ac8
+++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0&rewriteToken=0a08c1f112cee41e4b8f0b61173e70ab5ccb45c022204959c30c0bf48c279ac8'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   886  100   886    0     0  75830      0 --:--:-- --:--:-- --:--:-- 80545
+++ mv <temp>/tmp.MKX4nrPDBI/rewrite-next.json <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+++ jq -e '.done == true' <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+++ jq -e '.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)' <temp>/tmp.MKX4nrPDBI/rewrite-progress.json
+true
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media' --output <temp>/tmp.MKX4nrPDBI/rewrite-finished.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100 3072k  100 3072k    0     0   175M      0 --:--:-- --:--:-- --:--:--  176M
+++ cmp <temp>/tmp.MKX4nrPDBI/rewrite-source.bin <temp>/tmp.MKX4nrPDBI/rewrite-finished.bin
+++ for rewrite_name in source finished
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ for rewrite_name in source finished
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ run_blocks '## Compose existing objects' 1
++ local 'heading=## Compose existing objects' count=1
+++ awk -v 'heading=## Compose existing objects' -v limit=1 '$0==heading {section=1;next} section && /^## / {exit} section && /^\x60\x60\x60sh$/ {code=1;next} code && /^\x60\x60\x60$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md
++ eval 'compose_dir=$(mktemp -d)
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"compose-demo-bucket"}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' --data-binary '\''1234'\'' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' --data-binary '\''56789'\'' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0" \
+  > "$compose_dir/object.json"
+jq -e '\''.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)'\'' \
+  "$compose_dir/object.json"
+printf '\''123456789'\'' > "$compose_dir/expected"
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite?alt=media" > "$compose_dir/bytes"
+cmp "$compose_dir/expected" "$compose_dir/bytes"
+compose_status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  -o "$compose_dir/stale.json" -w '\''%{http_code}'\'' -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}]}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0")
+test "$compose_status" = 412
+jq -e '\''.error.errors[0].reason == "conditionNotMet"'\'' "$compose_dir/stale.json"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c"
+source_status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  -o "$compose_dir/missing.json" -w '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/first")
+test "$source_status" = 404
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined?alt=media" > "$compose_dir/joined"
+cmp "$compose_dir/expected" "$compose_dir/joined"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/composite"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/joined"
+curl --disable --noproxy '\''*'\'' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket"
+rm -rf "$compose_dir"'
++++ mktemp -d
+++ compose_dir=<temp>/tmp.EaWgUoWnry
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"compose-demo-bucket"}' 'http://127.0.0.1:55395/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   415  100   385  100    30  83027   6469 --:--:-- --:--:-- --:--:--  101k
+{"etag":"\"b-1792739587441-1792739587441-1\"","id":"compose-demo-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"compose-demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:07.441Z","updated":"2026-10-23T07:13:07.441Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 1234 'http://127.0.0.1:55395/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   728  100     4   175k    986 --:--:-- --:--:-- --:--:--  178k
+{"bucket":"compose-demo-bucket","contentType":"text/plain","crc32c":"9jr07g==","etag":"\"o-gdyb21LQTcIANtvYMT7QVQ==-1792739587456122-1\"","generation":"1792739587456122","id":"compose-demo-bucket/first/1792739587456122","kind":"storage#object","md5Hash":"gdyb21LQTcIANtvYMT7QVQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/compose-demo-bucket/o/first?generation=1792739587456122&alt=media","metageneration":"1","name":"first","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket/o/first","size":"4","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:07.456Z","timeFinalized":"2026-10-23T07:13:07.456Z","timeStorageClassUpdated":"2026-10-23T07:13:07.456Z","updated":"2026-10-23T07:13:07.456Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 56789 'http://127.0.0.1:55395/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   737  100   732  100     5   200k   1402 --:--:-- --:--:-- --:--:--  239k
+{"bucket":"compose-demo-bucket","contentType":"text/plain","crc32c":"g7Vl2A==","etag":"\"o-CZ6+pI6pZmp9ohdyZ5gxOA==-1792739587469308-1\"","generation":"1792739587469308","id":"compose-demo-bucket/second/1792739587469308","kind":"storage#object","md5Hash":"CZ6+pI6pZmp9ohdyZ5gxOA==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/compose-demo-bucket/o/second?generation=1792739587469308&alt=media","metageneration":"1","name":"second","selfLink":"http://127.0.0.1:4443/storage/v1/b/compose-demo-bucket/o/second","size":"5","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:07.469Z","timeFinalized":"2026-10-23T07:13:07.469Z","timeStorageClassUpdated":"2026-10-23T07:13:07.469Z","updated":"2026-10-23T07:13:07.469Z"}++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}' 'http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   866  100   735  100   131  40509   7220 --:--:-- --:--:-- --:--:-- 48111
+++ jq -e '.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)' <temp>/tmp.EaWgUoWnry/object.json
+true
+++ printf 123456789
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     9  100     9    0     0   4677      0 --:--:-- --:--:-- --:--:--  9000
+++ cmp <temp>/tmp.EaWgUoWnry/expected <temp>/tmp.EaWgUoWnry/bytes
++++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.EaWgUoWnry/stale.json -w '%{http_code}' -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}]}' 'http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0'
+++ compose_status=412
+++ test 412 = 412
+++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.EaWgUoWnry/stale.json
+true
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}' 'http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   137  100    56  100    81   4137   5984 --:--:-- --:--:-- --:--:-- 10538
+{"componentCount":2,"crc32c":"4waSgw==","name":"joined"}+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.EaWgUoWnry/missing.json -w '%{http_code}' http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/first
+++ source_status=404
+++ test 404 = 404
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/joined?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     9  100     9    0     0   2484      0 --:--:-- --:--:-- --:--:--  3000
+++ cmp <temp>/tmp.EaWgUoWnry/expected <temp>/tmp.EaWgUoWnry/joined
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket/o/joined
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55395/storage/v1/b/compose-demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+++ rm -rf <temp>/tmp.EaWgUoWnry
++ create_persistent_chain
++ curl --disable --noproxy '*' --fail --data-binary A 'http://127.0.0.1:55395/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=integration-a'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   752  100   751  100     1   125k    171 --:--:-- --:--:-- --:--:--  146k
+{"bucket":"demo-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"4W3N7g==","etag":"\"o-f8VicOenD6gaWTW3Lqy+KQ==-1792739587641095-1\"","generation":"1792739587641095","id":"demo-bucket/integration-a/1792739587641095","kind":"storage#object","md5Hash":"f8VicOenD6gaWTW3Lqy+KQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/integration-a?generation=1792739587641095&alt=media","metageneration":"1","name":"integration-a","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/integration-a","size":"1","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:07.641Z","timeFinalized":"2026-10-23T07:13:07.641Z","timeStorageClassUpdated":"2026-10-23T07:13:07.641Z","updated":"2026-10-23T07:13:07.641Z"}+ curl --disable --noproxy '*' --fail --data-binary B 'http://127.0.0.1:55395/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=integration-b'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   752  100   751  100     1   203k    277 --:--:-- --:--:-- --:--:--  244k
+{"bucket":"demo-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"8j0+Gg==","etag":"\"o-nV7WeP5XvMphAUCVevq1cQ==-1792739587654180-1\"","generation":"1792739587654180","id":"demo-bucket/integration-b/1792739587654180","kind":"storage#object","md5Hash":"nV7WeP5XvMphAUCVevq1cQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/integration-b?generation=1792739587654180&alt=media","metageneration":"1","name":"integration-b","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/integration-b","size":"1","storageClass":"STANDARD","timeCreated":"2026-10-23T07:13:07.654Z","timeFinalized":"2026-10-23T07:13:07.654Z","timeStorageClassUpdated":"2026-10-23T07:13:07.654Z","updated":"2026-10-23T07:13:07.654Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"sourceObjects":[{"name":"integration-a"},{"name":"integration-b"}]}' 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-composite/compose?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   759  100   690  100    69  73584   7358 --:--:-- --:--:-- --:--:-- 84333
++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-composite/copyTo/b/demo-bucket/o/integration-copy?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   670  100   670    0     0  79600      0 --:--:-- --:--:-- --:--:-- 83750
++ curl --disable --noproxy '*' --fail -X POST 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-copy/rewriteTo/b/demo-bucket/o/integration-rewrite?ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   783  100   783    0     0  12273      0 --:--:-- --:--:-- --:--:-- 12428
++ jq -e '.done == true' <temp>/tmp.MKX4nrPDBI/integration-rewrite-response.json
+true
++ jq .resource <temp>/tmp.MKX4nrPDBI/integration-rewrite-response.json
++ printf AB
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.MKX4nrPDBI/integration-composite.json
+true
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-composite.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    366      0 --:--:-- --:--:-- --:--:--   400
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-composite-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.MKX4nrPDBI/integration-copy.json
+true
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-copy.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-copy?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    777      0 --:--:-- --:--:-- --:--:--  1000
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-copy-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ jq -e '.size == "2" and .componentCount == 2 and (has("md5Hash") | not)' <temp>/tmp.MKX4nrPDBI/integration-rewrite.json
+true
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-rewrite.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55395/storage/v1/b/demo-bucket/o/integration-rewrite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    983      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-rewrite-bytes
++ docker compose stop --timeout 15
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopping 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopped 
++ docker compose up -d --no-build --no-recreate --wait
+ Container gcs-mimic-derived-guide-26222-gcs-1 Starting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Started 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Waiting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ endpoint=http://127.0.0.1:55396
++ verify_persistent_chain
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   690  100   690    0     0  71163      0 --:--:-- --:--:-- --:--:-- 76666
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-composite-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-composite-before.json <temp>/tmp.MKX4nrPDBI/integration-composite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    263      0 --:--:-- --:--:-- --:--:--   285
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-composite-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-copy
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   670  100   670    0     0   303k      0 --:--:-- --:--:-- --:--:--  327k
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-copy-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-copy-before.json <temp>/tmp.MKX4nrPDBI/integration-copy-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-copy?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    676      0 --:--:-- --:--:-- --:--:--  1000
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-copy-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-rewrite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   682  100   682    0     0   375k      0 --:--:-- --:--:-- --:--:--  666k
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-rewrite-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-rewrite-before.json <temp>/tmp.MKX4nrPDBI/integration-rewrite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55396/storage/v1/b/demo-bucket/o/integration-rewrite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    401      0 --:--:-- --:--:-- --:--:--   500
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-rewrite-bytes
++ docker compose down
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopping 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopped 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Removing 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Removed 
+ Network gcs-mimic-derived-guide-26222_default Removing 
+ Network gcs-mimic-derived-guide-26222_default Removed 
++ docker compose up -d --no-build --wait
+ Network gcs-mimic-derived-guide-26222_default Creating 
+ Network gcs-mimic-derived-guide-26222_default Creating 
+ Network gcs-mimic-derived-guide-26222_default Created 
+ Network gcs-mimic-derived-guide-26222_default Created 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Creating 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Created 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Starting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Started 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Waiting 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ endpoint=http://127.0.0.1:55397
++ verify_persistent_chain
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   690  100   690    0     0  73100      0 --:--:-- --:--:-- --:--:-- 76666
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-composite-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-composite-before.json <temp>/tmp.MKX4nrPDBI/integration-composite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-composite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0    255      0 --:--:-- --:--:-- --:--:--   285
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-composite-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-copy
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   670  100   670    0     0   310k      0 --:--:-- --:--:-- --:--:--  327k
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-copy-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-copy-before.json <temp>/tmp.MKX4nrPDBI/integration-copy-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-copy?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0   1221      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-copy-bytes
++ for name in integration-composite integration-copy integration-rewrite
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-rewrite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   682  100   682    0     0   334k      0 --:--:-- --:--:-- --:--:--  666k
++ jq -S . <temp>/tmp.MKX4nrPDBI/integration-rewrite-after.json
++ cmp <temp>/tmp.MKX4nrPDBI/integration-rewrite-before.json <temp>/tmp.MKX4nrPDBI/integration-rewrite-after-sorted.json
++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-rewrite?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100     2  100     2    0     0   1199      0 --:--:-- --:--:-- --:--:--  2000
++ cmp <temp>/tmp.MKX4nrPDBI/integration-expected <temp>/tmp.MKX4nrPDBI/integration-rewrite-bytes
++ cleanup_chain
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-composite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-copy
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-rewrite
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-a
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/integration-b
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ for name in integration-composite integration-copy integration-rewrite integration-a integration-b notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:55397/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ printf '%s\n' 'PASS: unchanged copy/rewrite/compose guide blocks on the final Docker smoke image; composite-copy-rewrite bytes and exact resources persist across stop/start and down/up; cleanup completed.'
+PASS: unchanged copy/rewrite/compose guide blocks on the final Docker smoke image; composite-copy-rewrite bytes and exact resources persist across stop/start and down/up; cleanup completed.
++ cleanup
++ local status=0
++ [[ 0 != 0 ]]
++ docker compose down --volumes
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopping 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Stopped 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Removing 
+ Container gcs-mimic-derived-guide-26222-gcs-1 Removed 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Removing 
+ Network gcs-mimic-derived-guide-26222_default Removing 
+ Volume gcs-mimic-derived-guide-26222_gcs-data Removed 
+ Network gcs-mimic-derived-guide-26222_default Removed 
++ [[ -n <temp>/tmp.MKX4nrPDBI ]]
++ rm -rf <temp>/tmp.MKX4nrPDBI
++ exit 0

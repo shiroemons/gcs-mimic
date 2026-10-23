@@ -330,6 +330,7 @@ impl Catalog {
                     size: length,
                     md5,
                     crc32c: crc,
+                    component_count: None,
                     storage_class,
                     time_created: time,
                     updated: time,

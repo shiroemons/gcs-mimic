@@ -11,7 +11,8 @@ pub struct TestDir(pub PathBuf);
 
 #[allow(dead_code)]
 pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
-    connection.execute_batch("ALTER TABLE objects RENAME TO objects_with_versions;
+    connection.execute_batch("DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
+        ALTER TABLE objects RENAME TO objects_with_versions;
         CREATE TABLE objects (
             bucket TEXT NOT NULL COLLATE BINARY,
             name TEXT NOT NULL COLLATE BINARY,
