@@ -67,6 +67,82 @@ fn rewrite_one_call_empty_metadata_fields_and_same_name() {
 }
 
 #[test]
+fn abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart() {
+    let (dir, mut server, payload, source) = setup(false, 1048576 + 7);
+    let mut token = None;
+    for _ in 0..128 {
+        let first = multi(&server, "");
+        assert_eq!(first["done"], false);
+        token.get_or_insert(first["rewriteToken"].as_str().unwrap().to_owned());
+    }
+    for restart in [false, true] {
+        if restart {
+            server.stop();
+            server = Server::start(&dir, false);
+        }
+        server
+            .request(
+                "POST",
+                &format!("{BASE}?maxBytesRewrittenPerCall=1048576"),
+                ADMIN,
+                br#"{"storageClass":"NEARLINE"}"#,
+            )
+            .error(503, "backendError");
+        server.get("destination").error(404, "notFound");
+        let copied = server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/source/copyTo/b/test-bucket/o/copied",
+                ADMIN,
+                b"",
+            )
+            .json();
+        assert_eq!(copied["md5Hash"], source["md5Hash"]);
+        assert_eq!(server.get("copied?alt=media").body, payload);
+        let composed = server
+            .request(
+                "POST",
+                "/storage/v1/b/test-bucket/o/composed/compose",
+                ADMIN,
+                br#"{"sourceObjects":[{"name":"source"},{"name":"copied"}]}"#,
+            )
+            .json();
+        assert_eq!(composed["componentCount"], 2);
+        assert_eq!(server.get("composed?alt=media").body, payload.repeat(2));
+        let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        for table in ["derived_transfers", "rewrite_sessions"] {
+            assert_eq!(
+                connection
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                128
+            );
+        }
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM derived_transfers WHERE ephemeral = 1",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            std::fs::read_dir(dir.0.join("staging")).unwrap().count(),
+            256
+        );
+    }
+    let completed = server
+        .request("POST", &continue_path(&token.unwrap()), ADMIN, b"")
+        .json();
+    assert_eq!(completed["done"], true);
+    assert_eq!(server.get("destination?alt=media").body, payload);
+    assert_eq!(multi(&server, "")["done"], false);
+}
+
+#[test]
 fn rewrite_progress_retry_restart_and_completion_replay_publish_once() {
     let (dir, mut server, payload, _source) = setup(false, 2 * 1048576 + 17);
     let first = multi(&server, "&ifGenerationMatch=0");
