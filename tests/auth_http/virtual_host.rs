@@ -618,6 +618,61 @@ fn virtual_host_signed_response_overrides_bind_query_and_preserve_metadata() {
 }
 
 #[test]
+fn virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host() {
+    let (_config, _data, server) = fixture(true);
+    let port = server.address.split_once(':').unwrap().1;
+    for method in ["GET", "HEAD"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
+            .args([
+                "url",
+                "sign",
+                "--base-url",
+                &format!("http://{DOMAIN}:{port}"),
+                "--bucket",
+                BUCKET,
+                "--object",
+                "object",
+                "--method",
+                method,
+                "--expires",
+                "5m",
+                "--signer",
+                "viewer@example.invalid",
+                "--private-key",
+                "fixtures/signing/test-only-private.pem",
+                "--style",
+                "virtual-hosted",
+                "--query",
+                "response-content-type=text/csv",
+                "--query",
+                "response-content-disposition=attachment; filename=report.csv",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let url = String::from_utf8(output.stdout).unwrap();
+        let uri: Uri = url.trim().parse().unwrap();
+        assert_eq!(uri.authority().unwrap().as_str(), host(&server));
+        assert_eq!(uri.path(), "/object");
+        let reply = send(&server, method, url.trim(), "", b"");
+        reply.ok();
+        assert_eq!(reply.headers["content-type"], "text/csv");
+        assert_eq!(
+            reply.headers["content-disposition"],
+            "attachment; filename=report.csv"
+        );
+        assert_eq!(
+            reply.body,
+            if method == "HEAD" {
+                b"".as_slice()
+            } else {
+                b"hello world".as_slice()
+            }
+        );
+    }
+}
+
+#[test]
 fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants() {
     for member in ["allUsers", "allAuthenticatedUsers"] {
         let (_config, _data, server) = fixture(true);
@@ -641,6 +696,14 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
             request(&server, "GET", &host, "/object", "", b"").status,
             anonymous_status
         );
+        assert_eq!(
+            server.get("", &format!("/{BUCKET}/object")).status,
+            anonymous_status
+        );
+        assert_eq!(
+            server.get(NO_ROLES, &format!("/{BUCKET}/object")).ok().body,
+            b"hello world"
+        );
         server
             .request(
                 "PATCH",
@@ -652,6 +715,12 @@ fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_gra
         for method in ["GET", "HEAD"] {
             assert_eq!(
                 request(&server, method, &host, "/object", "", b"").status,
+                401
+            );
+            assert_eq!(
+                server
+                    .request(method, &format!("/{BUCKET}/object"), "", b"")
+                    .status,
                 401
             );
             assert_eq!(
