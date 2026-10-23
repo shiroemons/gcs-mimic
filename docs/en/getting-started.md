@@ -9,8 +9,10 @@ prefix/delimiter/paged listing, whole-object and single-range download and delet
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
+V4 RSA query signatures and bounded path-style XML PUT are implemented in the
+[signed private transfer journey](#signed-private-downloads-and-uploads).
 If-Range, transcoding, object IAM, testIamPermissions,
-conditional policies, ACLs, virtual-host routing, XML writes/listing, signed URLs,
+conditional policies, ACLs, virtual-host routing, XML listing,
 UBLA/PAP settings remain unavailable. JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
@@ -1093,7 +1095,8 @@ and do not use `ChunkSize=0` as a resumable workaround. Writer context cancellat
 does not cancel the server session; it remains until explicit cancellation or
 expiry. Resumable SDK results await final-source verification. The harness creates and
 cleans up its own random buckets. ACLs, token deduplication and unrestricted SDK support
-are not claimed. Ruby/Rails remains unverified.
+are not claimed. Pinned Ruby basic and signed methods are verified separately;
+Rails remains pending.
 Default Go SDK XML reads now work for the path-style GET subset, including
 selected generations, single ranges and generation/metageneration match headers;
 JSON reads remain available through `storage.WithJSONReads()`. The strict tests
@@ -1499,9 +1502,8 @@ Stored Cache-Control takes precedence on XML and publicly readable JSON media.
 Revocation affects new requests; it cannot recall bytes already downloaded or
 cached, and an already-open read may finish. XML GET supports one stored-byte
 range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
-Unsupported XML inputs/operations return 501. Strict signing attempts return
-400 `InvalidAuthentication`; permissive signature query parameters remain
-unsupported queries (501). ACLs,
+Unsupported XML inputs/operations return 501. V4 RSA query signatures support
+private GET/HEAD and bounded PUT in the standalone signed-URL journey below. ACLs,
 UBLA/PAP settings and virtual-host routing remain outside this subset.
 
 ### Strict SDK tests and cleanup
@@ -1550,7 +1552,7 @@ the pinned predefined `roles/storage.*` snapshot on JSON bucket/object and XML r
 User and service-account members match registry IDs exactly. Conditions,
 custom/basic roles and group/domain/federated/deleted principals are
 unsupported (501); malformed members or unknown roles return 400. Object IAM,
-`testIamPermissions`, ACLs, signed URLs, HMAC, XML writes/listing and UBLA/PAP
+`testIamPermissions`, ACLs, HMAC, XML listing and UBLA/PAP
 settings are unavailable. `allUsers` includes anonymous and registered callers;
 `allAuthenticatedUsers` requires a registered identity. An invalid token never
 falls back to anonymous access, even for a public object.
@@ -1567,6 +1569,170 @@ docker image rm "$GCS_MIMIC_IMAGE"
 rm -r "$work_dir"
 unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
 ```
+
+## Signed private downloads and uploads
+
+This standalone journey needs Bash, curl, jq and OpenSSL. Run it from the repository
+root. It uses a disposable strict registry/catalog and a local RSA key; it never
+calls Google IAM. The server receives only the public key. Native and source-built
+Docker paths run the same private GET/PUT and failure checks. HTTPS clients must
+add the exported CA shown above.
+
+```sh
+signed_work=$(mktemp -d)
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  -out "$signed_work/private.pem" 2> "$signed_work/keygen.log"
+openssl pkey -in "$signed_work/private.pem" -pubout -out "$signed_work/public.pem"
+jq -n --rawfile key "$signed_work/public.pem" '{identities:[{
+  id:"guide-signer@example.invalid", tokens:["guide-admin-token"], public_keys:[$key],
+  project_roles:{"local-project":["roles/storage.admin"]}
+}]}' > "$signed_work/identities.json"
+printf 'Signed private bytes.\n' > "$signed_work/input.txt"
+signed_sign() {
+  "$signed_binary" url sign --base-url "$2" --bucket signed-guide-bucket \
+    --object "$3" --method "$1" --expires 5m --signer guide-signer@example.invalid \
+    --private-key "$signed_work/private.pem" "${@:4}"
+}
+signed_curl() {
+  curl --disable --noproxy '*' --silent --show-error --max-time 15 "$@"
+}
+signed_journey() {
+  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
+    -H 'Content-Type: application/json' --data '{"name":"signed-guide-bucket"}' \
+    "$signed_endpoint/storage/v1/b?project=local-project" > "$signed_work/bucket.json"
+  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
+    --data-binary @"$signed_work/input.txt" \
+    "$signed_endpoint/upload/storage/v1/b/signed-guide-bucket/o?uploadType=media&name=private.txt" \
+    > "$signed_work/object.json"
+  test "$(signed_curl -o /dev/null -w '%{http_code}' \
+    "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
+  signed_get=$(signed_sign GET "$signed_endpoint" private.txt)
+  signed_curl --fail "$signed_get" > "$signed_work/download.txt"
+  cmp "$signed_work/input.txt" "$signed_work/download.txt"
+  signed_put=$(signed_sign PUT "$signed_endpoint" uploaded.txt \
+    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
+  signed_curl --fail -X PUT -H 'Content-Type: text/plain' \
+    -H 'x-goog-if-generation-match: 0' --data-binary @"$signed_work/input.txt" "$signed_put"
+  uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
+  signed_curl --fail "$uploaded_get" > "$signed_work/uploaded.txt"
+  cmp "$signed_work/input.txt" "$signed_work/uploaded.txt"
+  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT "$signed_get")" = 403
+  changed_object=${signed_get/\/private.txt/\/changed.txt}
+  test "$(signed_curl -o /dev/null -w '%{http_code}' "$changed_object")" = 403
+  test "$(signed_curl -o /dev/null -w '%{http_code}' \
+    -H 'Host: changed.invalid' "$signed_get")" = 403
+  expired_get=$(signed_sign GET "$signed_endpoint" private.txt --timestamp 20200101T000000Z)
+  test "$(signed_curl -o /dev/null -w '%{http_code}' "$expired_get")" = 400
+  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT \
+    -H 'Content-Type: changed' -H 'x-goog-if-generation-match: 0' "$signed_put")" = 403
+  test "$(signed_curl -o /dev/null -w '%{http_code}' -X PUT \
+    -H 'Content-Type: text/plain' -H 'x-goog-if-generation-match: 0' \
+    --data-binary @"$signed_work/input.txt" "$signed_put")" = 412
+  echo 'PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition'
+}
+```
+
+Build and run the native binary. The ephemeral listener differs from the default
+advertised API base; the helper receives the actual final client endpoint.
+
+```sh
+cargo build --locked
+signed_binary=./target/debug/gcs-mimic
+env -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
+  "$signed_binary" serve --scheme http --listen 127.0.0.1:0 \
+  --data-dir "$signed_work/native-data" --auth-mode strict \
+  --identity-file "$signed_work/identities.json" > "$signed_work/native.log" 2>&1 &
+signed_pid=$!
+for attempt in {1..100}; do
+  signed_address=$(jq -r 'select(.event == "ready") | .listen' "$signed_work/native.log")
+  if [ -n "$signed_address" ]; then break; fi
+  sleep 0.1
+done
+signed_endpoint="http://$signed_address"
+"$signed_binary" healthcheck --url "$signed_endpoint/_internal/ready"
+signed_journey
+kill -TERM "$signed_pid"
+wait "$signed_pid"
+```
+
+First build the source image using the earlier Compose build block. Retain the
+same `GCS_MIMIC_IMAGE` if you selected a custom tag. This isolated project uses
+the strict override with its registry mount replaced by the generated
+`identities.json`. The server never mounts `private.pem`; only the short-lived,
+network-disabled signing container reads it.
+
+```sh
+signed_project="gcs-mimic-signed-$$"
+export GCS_MIMIC_PORT=0
+cat > "$signed_work/compose.signed.yaml" <<EOF
+services:
+  gcs:
+    volumes:
+      - type: bind
+        source: $signed_work/identities.json
+        target: /etc/gcs-mimic/identities.json
+        read_only: true
+EOF
+signed_compose() {
+  docker compose -p "$signed_project" -f compose.yaml -f compose.http.yaml \
+    -f compose.strict.yaml -f "$signed_work/compose.signed.yaml" "$@"
+}
+signed_compose up -d --no-build --wait
+signed_endpoint="http://$(signed_compose port gcs 4443)"
+signed_sign() {
+  docker run --rm --network none --read-only --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=$signed_work/private.pem,dst=/key.pem,readonly" \
+    "${GCS_MIMIC_IMAGE:-gcs-mimic:dev}" url sign --base-url "$2" \
+    --bucket signed-guide-bucket --object "$3" --method "$1" --expires 5m \
+    --signer guide-signer@example.invalid --private-key /key.pem "${@:4}"
+}
+signed_journey
+signed_compose stop
+signed_compose start --wait
+signed_endpoint="http://$(signed_compose port gcs 4443)"
+uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
+signed_curl --fail "$uploaded_get" > "$signed_work/restarted.txt"
+cmp "$signed_work/input.txt" "$signed_work/restarted.txt"
+peer_get=$(signed_sign GET http://gcs:4443 uploaded.txt)
+peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker run --rm --read-only --network "${signed_project}_default" "$peer_image" \
+  --disable --noproxy '*' --silent --show-error --fail --max-time 15 "$peer_get" \
+  > "$signed_work/peer.txt"
+cmp "$signed_work/input.txt" "$signed_work/peer.txt"
+echo 'PASS: signed Docker restart and independently signed Compose peer URL'
+signed_compose down --volumes
+rm -r "$signed_work"
+unset GCS_MIMIC_PORT
+```
+
+The host PC and browser use the published loopback port; a Compose peer uses
+`gcs:4443`. A browser cannot resolve that Compose-only name. Sign a separate URL
+for each final host/port and never rewrite it afterward. With a dynamically
+published port, inspect the port again after restart and create a fresh signature.
+Signing changes no IAM policy. A signer needs create for new uploads and delete
+as well for overwrites.
+SHA256/Content-MD5 failures preserve the old object; sign headers to constrain
+metadata, digest declarations and conditions. SHA256 checking is incremental;
+the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
+Wire-level signed PUT CORS is tested; actual browser execution is next.
+
+Go storage v1.70.0 omits non-default ports from canonical Host. Prefer the helper
+for local ports or expose a default-port endpoint. Ruby Storage 1.62.1 signs
+`storage.googleapis.com` by default even with an emulator endpoint. Its pinned
+test uses `file.signed_url(version: :v4, method: "GET"/"PUT", issuer:, signing_key:,
+bucket_bound_hostname:)` with an explicit bucket/name File path because
+bucket-bound signing removes the normal bucket prefix. This preserves host:port
+before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
+SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Strict verification is unchanged.
+PAP is not modeled, so its interaction remains unverified.
+
+When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing
+options for PUT URLs. Go v1.70.0 substitutes a supplied header into the canonical
+payload and the emulator rejects that URL with 403 SignatureDoesNotMatch, even
+for a matching body; no object is changed. To bind SHA256 locally, use
+`gcs-mimic url sign --header 'x-goog-content-sha256:LOWERCASE_HEX_DIGEST'` and send
+the same header. The helper keeps the official query UNSIGNED-PAYLOAD rule and
+the server checks the streamed bytes. See SPEC-SIGNED-PAYLOAD.
 
 ## Native binary and configuration
 

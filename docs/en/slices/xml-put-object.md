@@ -2,6 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
+The subsequent [signed-upload contract](signed-upload.md) adds V4 RSA query
+authentication and bounded optional SHA256 validation. References below to
+signing/content SHA256 as unsupported describe this original slice.
+
 Contract checked: **2026-10-23**. Feature: `EXT-XML-022`. The feature ledger is
 the implementation-status source of truth; the full official method remains
 PARTIAL because this slice deliberately rejects advanced inputs.

@@ -1,5 +1,7 @@
 # Development and verification
 
+<!-- markdownlint-configure-file {"MD013": false} -->
+
 Requires rustup and curl for the explicit online freshness check. Python is not required. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
 ## Development commands and push checks
@@ -7,6 +9,7 @@ Requires rustup and curl for the explicit online freshness check. Python is not 
 Install [just](https://github.com/casey/just#installation) to use the checked-in
 `Justfile`; `just` lists the available recipes. The recipes are intended for
 macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
+the pinned Ruby/Bundler/gems from [the Ruby harness](../../sdk-tests/ruby/README.md),
 Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
 execute both Linux amd64 and arm64 containers, using emulation where needed.
 
@@ -18,7 +21,7 @@ just pre-push
 ```
 
 Run `just pre-push` on the final source before every push. It runs the Rust/shell
-checks, the complete Go SDK suite, and both container architectures in order,
+checks, the complete Go/Ruby SDK suites, and both container architectures in order,
 stopping at the first failure. Run `just check` while editing and reserve the
 SDK/container checks for the final source. The existing harnesses use isolated
 temporary data and Compose volumes. Dependency downloads and container pulls
@@ -30,6 +33,13 @@ filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly
 preserving its selected pinned/current-stable toolchain; CI does not require
 just. `scripts/test-check.sh` verifies command order and failure propagation
 without compiling or starting containers.
+
+`bash scripts/sdk-go.sh` remains Go-only for the existing CI job; the SDK recipe
+explicitly passes `--with-ruby`. It requires installed pinned Ruby gems and fails
+if they are absent. It runs the Ruby origin guard, permissive/strict basic methods
+and strict signed GET/PUT. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` verifies
+both languages with the exported local CA. Signature endpoint/payload caveats are
+recorded in [the signed-access evidence](evidence/signed-urls.md).
 
 No Git hook is installed and no commit or push is performed. Re-run the checks
 after changes. A local pass does not establish native amd64 or GitHub Actions
