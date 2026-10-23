@@ -1,0 +1,8 @@
+Local checkout and temporary-directory path prefixes are redacted.
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.65s
+=== RUN   TestPublicAccessPrevention
+--- PASS: TestPublicAccessPrevention (0.07s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.516s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

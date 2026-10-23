@@ -2371,11 +2371,15 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -2692,6 +2696,16 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "test_ids": [
@@ -2779,7 +2793,10 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
         "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
         {
@@ -3047,6 +3064,17 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3155,7 +3183,8 @@
         "SPEC-JSON-ETAG-WIRE: scoped GET validators and mixed query conditions pass; provider opaque tag/header/error parity remains open. Legacy bucket JSON etag can differ from HTTP; equal-revision same-millisecond incarnations can share a tag.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
+        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -3212,11 +3241,15 @@
         "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
-        "https://protobuf.dev/programming-guides/json/"
+        "https://protobuf.dev/programming-guides/json/",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. GET returns kind/resourceId/version 1/etag/bindings; requested versions omitted/1/3 work and userProject returns 501. Full policy/billing support, cloud duplicate/malformed-input normalization and SPEC-017 wire/missing-bucket parity remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -3398,6 +3431,15 @@
           "description": "SPEC-FIELDS-EDGES: establish undocumented empty/whitespace/wildcard/media/empty-parent/error/cap and session-override behavior; supported documented response selection passes.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
         }
       ],
       "test_ids": [
@@ -3429,7 +3471,9 @@
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "TestReadETagValidators",
-        "etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions"
+        "etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
       ],
       "verification": [
         {
@@ -3532,6 +3576,16 @@
           "test_ids": [
             "TestReadETagValidators"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3587,7 +3641,8 @@
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
-        "SPEC-JSON-ETAG-WIRE: IAM GET has a local HTTP validator formed by quoting the selected policy revision etag; provider header spelling and exhaustive error/header parity remain unverified."
+        "SPEC-JSON-ETAG-WIRE: IAM GET has a local HTTP validator formed by quoting the selected policy revision etag; provider header spelling and exhaustive error/header parity remain unverified.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -3664,11 +3719,15 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Bounded 64 KiB insert validates names/projects and supported metadata, enforcing local global uniqueness durably. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -3857,6 +3916,16 @@
             "bkt_http_query_body_name_and_route_boundaries",
             "bkt_err_001_envelope_content_type_and_catalog_mappings"
           ]
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "test_ids": [
@@ -3905,7 +3974,10 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
         {
@@ -4020,6 +4092,17 @@
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4064,7 +4147,8 @@
         "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults.",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -4111,11 +4195,15 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Expanded metadata admission can shorten a page independently of fields; select nextPageToken to traverse all results. Final bounded-list evidence: docs/en/evidence/cors.md and docs/en/evidence/cors-memory.txt.",
+      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Expanded metadata admission can shorten a page independently of fields; select nextPageToken to traverse all results. Final bounded-list evidence: docs/en/evidence/cors.md and docs/en/evidence/cors-memory.txt. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -4292,6 +4380,16 @@
             "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
             "cors-memory-smoke"
           ]
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "test_ids": [
@@ -4334,7 +4432,10 @@
         "bucket_cors_large_metadata_lists_page_without_loss",
         "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
         "cors-memory-smoke",
-        "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping"
+        "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
         {
@@ -4450,6 +4551,17 @@
           "test_ids": [
             "cors-memory-smoke"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4489,7 +4601,8 @@
         "projection=full omits acl, defaultObjectAcl and owner fields; ACLs and ownership are not implemented.",
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -4594,11 +4707,14 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://docs.cloud.google.com/storage/docs/json_api#partial-updates",
-        "https://docs.cloud.google.com/storage/docs/using-bucket-labels"
+        "https://docs.cloud.google.com/storage/docs/using-bucket-labels",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4844,6 +4960,17 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
         }
       ],
       "test_ids": [
@@ -4913,7 +5040,11 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
         "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
         {
@@ -5107,6 +5238,18 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5182,7 +5325,8 @@
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
+        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -5327,11 +5471,15 @@
         "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://docs.cloud.google.com/iam/docs/reference/rest/v1/Policy",
-        "https://protobuf.dev/programming-guides/json/"
+        "https://protobuf.dev/programming-guides/json/",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. PUT replaces bindings; unconditional versions omitted/0/1/3, explicit [] clearing, 1500 occurrences, 64 KiB body and decoded-byte etag CAS are verified. Full positive policy/billing/ACL semantics, cloud normalization/error parity and a missing-allocator startup fixture remain pending. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008",
@@ -5513,6 +5661,16 @@
           "description": "SPEC-FIELDS-EDGES: establish undocumented empty/whitespace/wildcard/media/empty-parent/error/cap and session-override behavior; supported documented response selection passes.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
         }
       ],
       "test_ids": [
@@ -5543,7 +5701,10 @@
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "obj_http_bad_hashes_and_unsupported_requests_never_publish"
+        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
       ],
       "verification": [
         {
@@ -5629,6 +5790,17 @@
             "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
             "obj_http_bad_hashes_and_unsupported_requests_never_publish"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5669,7 +5841,8 @@
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
-        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
+        "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -5751,11 +5924,14 @@
         "https://docs.cloud.google.com/storage/docs/json_api#patch",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
         "https://docs.cloud.google.com/storage/docs/tags-and-labels",
-        "https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto"
+        "https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; the API client update to v0.308.0 passes the full SDK suite and dependency check. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
+      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; the API client update to v0.308.0 passes the full SDK suite and dependency check. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -6001,6 +6177,17 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "id": "PAP-CONTRIBUTION",
+          "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
         }
       ],
       "test_ids": [
@@ -6068,7 +6255,11 @@
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
         "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
         {
@@ -6260,6 +6451,18 @@
             "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -6335,7 +6538,8 @@
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
-        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending."
+        "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -17628,26 +17832,146 @@
       "interface": "cross-cutting behavior",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
-      "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "status": "IMPLEMENTED",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
-        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
+        "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_BASED",
-      "notes": "Persist/enforce inherited or enforced behavior with local parent-policy fixtures.",
+      "source_checked_at": "2026-10-23",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "PAP-METADATA",
+          "description": "Persistent inherited/enforced metadata across insert/PATCH/PUT/GET/list/fields, both profiles, invalid inputs, conditions, permissions, restart and schema migration.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
+        },
+        {
+          "id": "PAP-PARENT",
+          "description": "Bounded validated local parent fixture enforces/reloads/releases inherited state without changing configured metadata or explicit enforcement.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects"
+          ]
+        },
+        {
+          "id": "PAP-ENFORCEMENT",
+          "description": "Both public principal sets are suppressed with stored policy/etag preservation, 412 public-submission rejection, reactivation and atomic post-admission enforcement.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        },
+        {
+          "id": "PAP-SIGNED-SDK",
+          "description": "Signer permissions and invalid-signature preservation work under PAP; pinned Go verifies metadata/IAM and signed GET/PUT over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "test_ids": [
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "TestPublicAccessPrevention"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-BUCKET-015",
@@ -31510,7 +31834,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped strict local bucket IAM allUsers predefined-role grants, including exact granted JSON mutation permissions, public/XML/JSON read classification, revocation, restart and fail-closed rejection of unsupported PAP/UBLA/ACL inputs. Full PAP/UBLA/ACL state machines remain separate rows; exact error-wire parity belongs to DESIGN-004/SPEC-017. Local cache fallback does not claim exhaustive XML method parity.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped strict local bucket IAM allUsers predefined-role grants, including exact granted JSON mutation permissions, public/XML/JSON read classification, revocation, restart and fail-closed rejection of unsupported UBLA/ACL inputs. PAP enforcement is now implemented in its own rows; full UBLA/ACL state machines remain separate rows; exact error-wire parity belongs to DESIGN-004/SPEC-017. Local cache fallback does not claim exhaustive XML method parity. Current PAP suppression/reactivation and renamed uniform-access negative-test evidence: docs/en/evidence/public-access-prevention.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -31558,10 +31882,18 @@
         },
         {
           "id": "DESIGN-012-RESTRICTIONS",
-          "description": "Unsupported PAP/UBLA/ACL settings fail explicitly before granting access; no unsupported restriction is accepted as a no-op.",
+          "description": "Unsupported UBLA/ACL settings fail explicitly before granting access; no unsupported restriction is accepted as a no-op.",
           "result": "PASS",
           "test_ids": [
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+            "xml::uniform_access_settings_fail_closed"
+          ]
+        },
+        {
+          "id": "PAP-PUBLIC-GRANTS",
+          "description": "Enforced PAP suppresses stored public grants without deleting them; nonpublic identities remain effective and disabling reactivates public access.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -31576,7 +31908,8 @@
         "guide-compose-public-reads",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "xml::xml_head_matches_get_headers_and_selected_metadata",
-        "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+        "xml::uniform_access_settings_fail_closed",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
       ],
       "verification": [
         {
@@ -31593,7 +31926,7 @@
             "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
             "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
             "xml::xml_head_matches_get_headers_and_selected_metadata",
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+            "xml::uniform_access_settings_fail_closed"
           ]
         },
         {
@@ -31612,6 +31945,16 @@
           "artifact": "docs/en/evidence/public-object-reads-guide.txt",
           "test_ids": [
             "guide-compose-public-reads"
+          ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "xml::uniform_access_settings_fail_closed",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -31634,7 +31977,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-013",
@@ -31664,7 +32007,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped registered local principals match allAuthenticatedUsers independently of project membership, while anonymous/unregistered callers do not. Public and project grants are additive and authenticated-only grants never classify data as anonymous-public. Unsupported access restrictions fail explicitly; Google identity validation, full PAP/UBLA/ACL and error-wire parity remain separate requirements.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Scoped registered local principals match allAuthenticatedUsers independently of project membership, while anonymous/unregistered callers do not. Public and project grants are additive and authenticated-only grants never classify data as anonymous-public. Unsupported access restrictions fail explicitly; Google identity validation, full UBLA/ACL and error-wire parity remain separate requirements. Current PAP suppression/reactivation and renamed uniform-access negative-test evidence: docs/en/evidence/public-access-prevention.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -31707,10 +32050,18 @@
         },
         {
           "id": "DESIGN-013-RESTRICTIONS",
-          "description": "Unsupported PAP/UBLA/ACL controls fail explicitly rather than installing unchecked public bindings.",
+          "description": "Unsupported UBLA/ACL controls fail explicitly rather than installing unchecked public bindings.",
           "result": "PASS",
           "test_ids": [
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+            "xml::uniform_access_settings_fail_closed"
+          ]
+        },
+        {
+          "id": "PAP-PUBLIC-GRANTS",
+          "description": "Enforced PAP suppresses stored public grants without deleting them; nonpublic identities remain effective and disabling reactivates public access.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -31720,7 +32071,8 @@
         "iam::iam_recreated_bucket_has_fresh_policy",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "guide-compose-public-reads",
-        "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+        "xml::uniform_access_settings_fail_closed",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
       ],
       "verification": [
         {
@@ -31732,7 +32084,7 @@
             "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
             "iam::iam_recreated_bucket_has_fresh_policy",
             "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed"
+            "xml::uniform_access_settings_fail_closed"
           ]
         },
         {
@@ -31751,6 +32103,16 @@
           "artifact": "docs/en/evidence/public-object-reads-guide.txt",
           "test_ids": [
             "guide-compose-public-reads"
+          ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "xml::uniform_access_settings_fail_closed",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -31773,7 +32135,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-014",
@@ -32387,25 +32749,78 @@
       "interface": "Public access prevention",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
-      "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "status": "IMPLEMENTED",
+      "target_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/public-access-prevention"
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Distinguish configured bucket state from effective inherited enforcement.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "PAP-CONFIGURATION",
+          "description": "Configured state round-trips with fields, conditions, required update/setIamPolicy permissions, migration and restart.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
+        },
+        {
+          "id": "PAP-PARENT-SIMULATION",
+          "description": "Validated bounded local project fixture overrides inherited, excludes other projects, reloads/releases on restart and cannot be bypassed.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects"
+          ]
+        },
+        {
+          "id": "PAP-ATOMIC-STATE",
+          "description": "Shared read/mutation/publication transactions observe effective enforcement after earlier authorization.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        }
+      ],
+      "test_ids": [
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-023",
@@ -32415,25 +32830,127 @@
       "interface": "Public access prevention",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/public-access-prevention"
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Existing public bindings remain stored but ineffective; disabling enforcement can reactivate them.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "PAP-STORED-GRANTS",
+          "description": "Both public principal sets lose JSON/XML access; public policy submission fails 412, stored bindings/etag survive, explicit principals work and disabling reactivates.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+          ]
+        },
+        {
+          "id": "PAP-PARENT-RESTART",
+          "description": "Parent enforcement/release preserves stored grants and explicit bucket enforcement across restart.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
+        },
+        {
+          "id": "PAP-PUBLICATION",
+          "description": "Post-admission PAP changes deny publication and preserve object/staging state.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        },
+        {
+          "id": "PAP-GO-POLICY",
+          "description": "Pinned official Go verifies stored IAM, denial/rejection and reactivation over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "test_ids": [
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "TestPublicAccessPrevention"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-024",
@@ -32443,25 +32960,68 @@
       "interface": "IAM/ACL mutation",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/public-access-prevention"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate documented 412 cases and default-object-ACL creation exceptions.",
+      "notes": "PAP rejects scoped public IAM policy submissions with documented HTTP 412, preserving bindings/etag; both public principal sets and bucket/parent enforcement pass Rust/Go. conditionNotMet/message are local choices under SPEC-PAP-EDGES. Default-object-ACL creation exceptions and ACL mutations remain unimplemented; no completion is claimed. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "PAP-IAM-REJECTION",
+          "description": "Bucket or parent enforcement rejects allUsers/allAuthenticatedUsers IAM policy submissions at 412 without altering stored bindings/etag.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "id": "PAP-ACL-EXCEPTIONS",
+          "description": "Implement ACL mutation rejection/default-object-ACL creation exception and establish exact provider reason/message/precedence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "TestPublicAccessPrevention"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "ACL mutation/default-object-ACL creation exceptions are unsupported; SPEC-PAP-EDGES records local reason/message and mixed-error precedence."
+      ],
+      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-025",
@@ -32471,26 +33031,118 @@
       "interface": "Signed URL authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
-        "https://docs.cloud.google.com/storage/docs/access-control/signed-urls"
+        "https://docs.cloud.google.com/storage/docs/access-control/signed-urls",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Do not reject a valid signed request solely because public access prevention is enforced.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "PAP-SIGNER-GRANTS",
+          "description": "Valid V4 RSA GET/HEAD/PUT works under PAP with nonpublic signer grants; public-only signers, viewer PUT, creator overwrite and invalid signatures fail without fallback or object mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+          ]
+        },
+        {
+          "id": "PAP-INHERITED-SIGNING",
+          "description": "Signed GET/PUT succeeds under effective inherited parent enforcement.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
+        },
+        {
+          "id": "PAP-OFFICIAL-SIGNER",
+          "description": "Unmodified pinned official Go signed GET/PUT works under PAP at a final default-port authority over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "test_ids": [
+        "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "TestPublicAccessPrevention"
+      ],
+      "verification": [
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS JSON metadata/IAM and XML V4 RSA signed GET/PUT",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-026",
@@ -39524,7 +40176,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Delivered private/public journey for the documented strict local HTTP scope: host and peer URLs, private denial, bucket allUsers and registered-only allAuthenticatedUsers grants, exact bytes/HEAD metadata, restart and revocation, plus pinned Go default/XML and explicit JSON reads. URL construction does not mutate policy. ACL/UBLA/PAP state machines, signatures, virtual-host routing and Ruby/Rails remain separately scheduled.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Delivered private/public journey for the documented strict local HTTP scope: host and peer URLs, private denial, bucket allUsers and registered-only allAuthenticatedUsers grants, exact bytes/HEAD metadata, restart and revocation, plus pinned Go default/XML and explicit JSON reads. URL construction does not mutate policy. ACL/UBLA, remaining signatures, virtual-host routing and Ruby/Rails remain separately scheduled. Scoped PAP is delivered separately. Current PAP suppression/reactivation and renamed uniform-access negative-test evidence: docs/en/evidence/public-access-prevention.md.",
       "dependencies": [
         "DESIGN-012",
         "DESIGN-013",
@@ -39559,9 +40211,17 @@
           "description": "Unsupported public-access restrictions and XML operations return explicit errors without mutation or body consumption; permissive reads are not treated as strict authorization evidence.",
           "result": "PASS",
           "test_ids": [
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+            "xml::uniform_access_settings_fail_closed",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
             "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
+          ]
+        },
+        {
+          "id": "PAP-PUBLIC-GRANTS",
+          "description": "Enforced PAP suppresses stored public grants without deleting them; nonpublic identities remain effective and disabling reactivates public access.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -39572,9 +40232,10 @@
         "TestXMLReadsPermissive",
         "TestPublicReadsGrantAndRevoke",
         "TestPublicReadsAllAuthenticatedUsers",
-        "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+        "xml::uniform_access_settings_fail_closed",
         "xml::xml_unsupported_operations_fail_before_reading_a_body",
-        "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
+        "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
       ],
       "verification": [
         {
@@ -39583,7 +40244,7 @@
           "verified_at": "2026-10-22",
           "artifact": "docs/en/evidence/public-object-reads-checks.txt",
           "test_ids": [
-            "xml::public_access_prevention_and_uniform_access_settings_fail_closed",
+            "xml::uniform_access_settings_fail_closed",
             "xml::xml_unsupported_operations_fail_before_reading_a_body",
             "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy"
           ]
@@ -39608,6 +40269,16 @@
           "artifact": "docs/en/evidence/public-object-reads-guide.txt",
           "test_ids": [
             "guide-compose-public-reads"
+          ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "xml::uniform_access_settings_fail_closed",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
         }
       ],
@@ -39634,7 +40305,7 @@
       ],
       "known_deviations": [],
       "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "UX-006",
@@ -39650,7 +40321,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Generated-key/public-only registry, native/source-built Docker helper GET/PUT, method/object/host/expiry/header/condition failures, restart and separately signed host/peer URLs pass the runnable guide. Dynamic restart ports are re-read and re-signed, never rewritten. PAP is not modeled, so UX-006 stays PARTIAL. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Generated-key/public-only registry, native/source-built Docker helper GET/PUT, method/object/host/expiry/header/condition failures, restart and separately signed host/peer URLs pass the runnable guide. Dynamic restart ports are re-read and re-signed, never rewritten. PAP enforced signed GET/PUT is verified through Rust/Go; copyable commands are in docs/en/slices/public-access-prevention.md. Final guide integration/execution is pending, so UX-006 stays PARTIAL. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -39666,14 +40337,25 @@
         },
         {
           "id": "UX-006-PAP-PENDING",
-          "description": "Validate valid signed access while public access prevention is enforced; DESIGN-025 is not modeled and remains unchanged.",
+          "description": "Copy PAP commands from docs/en/slices/public-access-prevention.md into the runnable guide and execute signed GET/PUT under enforced PAP on final native/container source; wire/Go behavior passes under DESIGN-025.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "UX-006-PAP-API",
+          "description": "Rust/Go verifies enforced-PAP signed GET/HEAD/PUT and invalid signatures; final guide execution remains pending.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "TestPublicAccessPrevention"
+          ]
         }
       ],
       "test_ids": [
         "signed_journey (native)",
-        "signed_journey (Docker/Compose)"
+        "signed_journey (Docker/Compose)",
+        "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "TestPublicAccessPrevention"
       ],
       "verification": [
         {
@@ -39685,11 +40367,29 @@
             "signed_journey (native)",
             "signed_journey (Docker/Compose)"
           ]
+        },
+        {
+          "command": "env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "PAP interaction remains unimplemented under DESIGN-025; actual signed browser transfers belong to delivery order 18."
+        "PAP API behavior passes under DESIGN-025, but final guide PAP addition/execution remains pending; actual signed browser transfers belong to delivery order 18."
       ],
       "implemented_in": "5f45d0935ad55b8199e278ca808aa126580e0999",
       "last_verified": "2026-10-23"

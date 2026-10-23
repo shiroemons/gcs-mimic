@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-PAP-EDGES",
+      "title": "PAP local parent policy and unverified input/error edges",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-BUCKET-014", "DESIGN-022", "DESIGN-023", "DESIGN-024", "DESIGN-025", "JSON-BUCKETS-002", "JSON-BUCKETS-003", "JSON-BUCKETS-005", "JSON-BUCKETS-006", "JSON-BUCKETS-008", "JSON-BUCKETS-011", "JSON-BUCKETS-013"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/public-access-prevention", "https://docs.cloud.google.com/storage/docs/using-public-access-prevention", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch", "https://docs.cloud.google.com/storage/docs/org-policy-constraints"],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Current bucket reference and pinned Discovery accept inherited or enforced, default inherited; unspecified is not a current documented JSON value. The local adapter rejects unspecified, null and other values with 400 invalidArgument. An omitted PATCH setting is preserved; PUT resets the configured state to inherited with other modeled defaults. Parent enforcement is a bounded startup identity-registry fixture, public_access_prevention_projects, representing the effective organization/project policy without contacting Google. Enforcement is immediate in catalog transactions, with no organization hierarchy or propagation/cache simulation. Existing public bindings and their etag remain stored; both public principal sets grant nothing, while explicit bearer/signer permissions remain effective. Public policy submissions fail with the documented 412; conditionNotMet and the message are local choices. A submitted policy still containing an existing public member is also rejected, consistently with the documentation's create/update restriction. Removing all public members remains allowed. ACL and UBLA input remains explicitly unsupported; no ACL enforcement is claimed.",
+      "required_resolution": "Revisit legacy unspecified/null acceptance, PUT omitted-field semantics and precise PAP JSON error reason/message/precedence with authoritative clarification or opted-in provider evidence. Keep parent policy fidelity LOCAL_SIMULATION and permissive authentication explicitly unauthenticated. Do not add organization APIs or propagation claims to this scope. Contract and evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md."
+    },
+    {
       "id": "SPEC-SIGNED-PAYLOAD",
       "title": "Optional SHA256 query header versus SDK payload substitution and exact failure errors",
       "status": "OPEN",

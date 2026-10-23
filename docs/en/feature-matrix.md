@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 137 | 0 | 32 | 32 | 0 | 0 |
+| behavior | 201 | 132 | 0 | 33 | 36 | 0 | 0 |
 | project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 137 | 36 | 26 | 2 | 0 | 0 |
+| behavior | 132 | 39 | 28 | 2 | 0 | 0 |
 | project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
 
 ## api_operation
@@ -512,7 +512,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-011 | Usage/access logging configuration | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | Default event-based hold | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-BUCKET-013 | Uniform access configuration | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-014 | Public access prevention | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-014 | Public access prevention | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft delete policy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-016 | Hard delete pause field | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-017 | Bucket soft-delete visibility and restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -639,10 +639,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-019 | Predefined ACL permission effects | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-020 | UBLA disables ACL operations and grants | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-021 | UBLA 90-day irreversible transition | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-022 | PAP effective inherited/enforced state | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-023 | PAP denies public grants without deleting them | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-024 | PAP public-grant mutation errors | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-025 | PAP permits valid signed access | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-022 | PAP effective inherited/enforced state | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| DESIGN-023 | PAP denies public grants without deleting them | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
+| DESIGN-024 | PAP public-grant mutation errors | PARTIAL | P2 | EXACT | EXACT | 0 |
+| DESIGN-025 | PAP permits valid signed access | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-026 | IAM policy version 3 conditions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAM policy etag concurrency | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissions effective result | NOT_STARTED | P2 | EXACT | NONE | 0 |
