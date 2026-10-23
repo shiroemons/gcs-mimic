@@ -120,19 +120,21 @@ if [[ $reference_only == 0 ]]; then
 fi
 
 request() {
-  local label=$1 method=$2 path=$3 body=${4-} content_type=${5:-application/json}
+  local label=$1 method=$2 path=$3 body=${4-} content_type=${5:-application/json} condition=${6-}
   local index target origin status result
   local args=()
   if [[ $method == POST || $method == PATCH || $method == PUT ]]; then args=(--data-binary "$body" --header "Content-Type: $content_type"); fi
+  if [[ -n $condition ]]; then args+=(--header "$condition"); fi
   for index in "${!targets[@]}"; do
     target=${targets[$index]}
     origin=${origins[$index]}
+    : >"$work/body"
     status=$(curl --noproxy '*' --proxy '' --globoff --path-as-is --silent --show-error \
       --connect-timeout 2 --max-time 15 --request "$method" ${args[@]+"${args[@]}"} \
       --dump-header "$work/headers" --output "$work/body" --write-out '%{http_code}' "$origin$path")
     [[ $status =~ ^[1-5][0-9][0-9]$ ]]
     result=$(jq -nSc --arg target "$target" --arg label "$label" --arg method "$method" \
-      --arg path "$path" --arg request_body "$body" --arg origin "$origin" --argjson status "$status" \
+      --arg path "$path" --arg request_body "$body" --arg condition "$condition" --arg origin "$origin" --argjson status "$status" \
       --rawfile headers "$work/headers" --rawfile body "$work/body" '
       def normalize:
         walk(if type == "object" then with_entries(
@@ -147,7 +149,8 @@ request() {
         | map(.key |= ascii_downcase | .value |= rtrimstr("\r"))
         | map(select(.key == "content-type" or .key == "content-length" or .key == "etag"
           or .key == "location" or .key == "www-authenticate" or (.key | startswith("x-goog-"))))) as $selected
-      | {target:$target, case:$label, request:{method:$method,path:$path,body:$request_body},
+      | {target:$target, case:$label, request:({method:$method,path:$path,body:$request_body}
+          + if $condition == "" then {} else {headers:[$condition]} end),
         status:$status, headers:$selected, body:$body,
         comparison:{status:$status,headers:($selected | map(
           if .key == "etag" and .value != "" then .value = "<etag>" else . end) | normalize),body:
@@ -376,6 +379,34 @@ put_bucket put-notmatch-success '{"labels":{"condition":"notmatch"}}' '?ifMetage
 put_bucket put-notmatch-failure '{"labels":{"condition":"denied"}}' '?ifMetagenerationNotMatch=3' compare-put-conditions
 request put-objects GET /storage/v1/b/compare-put/o
 request put-object-bytes GET '/storage/v1/b/compare-put/o/kept.txt?alt=media'
+
+request fields-bucket GET '/storage/v1/b/compare-put?fields=name'
+request fields-object GET '/storage/v1/b/compare-put/o/kept.txt?fields=name,size'
+request fields-list GET '/storage/v1/b/compare-put/o?fields=items(name),nextPageToken'
+request etag-none-bucket GET /storage/v1/b/compare-put '' application/json 'If-None-Match: *'
+request etag-none-object GET /storage/v1/b/compare-put/o/kept.txt '' application/json 'If-None-Match: *'
+request etag-none-media GET '/storage/v1/b/compare-put/o/kept.txt?alt=media' '' application/json 'If-None-Match: *'
+request etag-match-bucket GET /storage/v1/b/compare-put '' application/json 'If-Match: "stale"'
+request etag-match-object GET /storage/v1/b/compare-put/o/kept.txt '' application/json 'If-Match: "stale"'
+
+jq -es '
+  group_by(.target) | all(.[];
+    (map({key:.case,value:.}) | from_entries) as $rows
+    | if .[0].target | startswith("reference-") then
+        ([.[] | select(.case | startswith("fields-") or startswith("etag-"))] | length == 8)
+        and all(.[] | select(.case | startswith("fields-") or startswith("etag-")); .status == 200)
+        and ($rows["fields-bucket"].body | fromjson | keys | length > 1)
+        and ($rows["fields-object"].body | fromjson | keys | length > 2)
+      else
+        ($rows["fields-bucket"].body | fromjson) == {name:"compare-put"}
+        and ($rows["fields-object"].body | fromjson | keys) == ["name","size"]
+        and ($rows["fields-list"].body | fromjson) == {items:[{name:"kept.txt"}]}
+        and all(.[] | select(.case | startswith("etag-none-")); .status == 304 and .body == "")
+        and all(.[] | select(.case | startswith("etag-match-"));
+          .status == 412 and (.body | fromjson | .error.errors[0].reason) == "conditionNotMet")
+      end)
+' "$work/results.jsonl" >/dev/null
+echo 'FIELDS-ETAG-ASSERT reference backends ignore selectors/validators; mimic profiles select fields and enforce 304/412: PASS'
 
 # The pinned server.go registers bucket PATCH and its POST override, but no bucket PUT.
 # bucket.go updateBucket therefore cannot establish PUT replacement semantics.
