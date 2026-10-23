@@ -617,16 +617,29 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         assert!(validate_object_get_headers(&headers, true).is_ok());
         assert!(validate_object_get_headers(&headers, false).is_ok());
     }
-    for key in ["if-match", "if-none-match", "x-goog-encryption-key-sha256"] {
+    for key in ["if-match", "if-none-match"] {
         let mut headers = HeaderMap::new();
-        headers.insert(key, HeaderValue::from_static("value"));
+        headers.insert(key, HeaderValue::from_static("\"value\""));
+        assert!(validate_object_get_headers(&headers, false).is_ok());
+        assert!(validate_object_get_headers(&headers, true).is_ok());
         assert_eq!(
-            validate_object_get_headers(&headers, false)
+            parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
                 .status,
             StatusCode::NOT_IMPLEMENTED
         );
     }
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-goog-encryption-key-sha256",
+        HeaderValue::from_static("value"),
+    );
+    assert_eq!(
+        validate_object_get_headers(&headers, false)
+            .unwrap_err()
+            .status,
+        StatusCode::NOT_IMPLEMENTED
+    );
 }
 
 #[test]
