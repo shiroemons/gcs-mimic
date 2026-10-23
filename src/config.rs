@@ -65,6 +65,7 @@ pub struct Config {
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
     pub api_base_url: String,
+    pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
     pub max_object_bytes: u64,
     pub worker_threads: usize,
@@ -91,6 +92,7 @@ impl Default for Config {
             seed_dir: None,
             seed_project: "local-project".into(),
             api_base_url: "https://127.0.0.1:4443".into(),
+            xml_virtual_host_domains: Vec::new(),
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
             worker_threads: 2,
@@ -188,6 +190,30 @@ impl Config {
                     }
                     config.api_base_url = value.trim_end_matches('/').to_owned();
                 }
+                "xml_virtual_host_domains" => {
+                    if !value.is_empty() {
+                        for domain in value.split(',') {
+                            let domain = domain.trim().to_ascii_lowercase();
+                            validate_dns_name(&domain)?;
+                            if config.xml_virtual_host_domains.contains(&domain) {
+                                return Err(format!(
+                                    "duplicate xml_virtual_host_domains entry: {domain}"
+                                ));
+                            }
+                            if config.xml_virtual_host_domains.len() == 32 {
+                                return Err(
+                                    "xml_virtual_host_domains must contain at most 32 DNS names"
+                                        .into(),
+                                );
+                            }
+                            config.xml_virtual_host_domains.push(domain);
+                        }
+                        // The most specific configured suffix owns overlapping domains.
+                        config
+                            .xml_virtual_host_domains
+                            .sort_by_key(|d| std::cmp::Reverse(d.len()));
+                    }
+                }
                 "data_dir" => {
                     if value.is_empty() {
                         return Err("data_dir must not be empty".into());
@@ -255,6 +281,18 @@ impl Config {
         if !explicit_api_base_url {
             config.api_base_url = format!("{}://127.0.0.1:4443", config.scheme.as_str());
         }
+        let api: hyper::Uri = config
+            .api_base_url
+            .parse()
+            .map_err(|_| "invalid api_base_url")?;
+        if crate::xml::bucket_for_authority(
+            api.authority().unwrap().as_str(),
+            &config.xml_virtual_host_domains,
+        )
+        .is_some()
+        {
+            return Err("api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain".into());
+        }
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         match (config.auth_mode, &config.identity_file) {
             (AuthMode::Strict, None) => {
@@ -269,6 +307,28 @@ impl Config {
     }
 }
 
+pub(crate) fn validate_dns_name(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 253
+        || value.parse::<std::net::IpAddr>().is_ok()
+        || !value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Err(
+            "virtual-host domain must be a DNS name without scheme, port, wildcard or trailing dot"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
     value
         .parse::<u64>()
@@ -280,6 +340,87 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn virtual_host_domains_are_opt_in_bounded_and_follow_precedence() {
+        assert!(
+            Config::load(&[], &BTreeMap::new())
+                .unwrap()
+                .xml_virtual_host_domains
+                .is_empty()
+        );
+        let file =
+            std::env::temp_dir().join(format!("gcs-mimic-host-config-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"xml_virtual_host_domains":"file.invalid"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .xml_virtual_host_domains,
+            ["file.invalid"]
+        );
+        let env = BTreeMap::from([(
+            "GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS".into(),
+            "env.invalid".into(),
+        )]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
+            ["env.invalid"]
+        );
+        args.extend([
+            "--xml-virtual-host-domains".into(),
+            "EXAMPLE.invalid, storage.example.invalid".into(),
+        ]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().xml_virtual_host_domains,
+            ["storage.example.invalid", "example.invalid"]
+        );
+        *args.last_mut().unwrap() = String::new();
+        assert!(
+            Config::load(&args, &env)
+                .unwrap()
+                .xml_virtual_host_domains
+                .is_empty()
+        );
+        for invalid in [
+            "https://example.invalid",
+            "example.invalid:4443",
+            "*.example.invalid",
+            "example.invalid.",
+            "127.0.0.1",
+            "::1",
+            "bad_label.invalid",
+            "-bad.invalid",
+            "bad-.invalid",
+            "a,,b",
+            "a,A",
+            "a/b",
+        ] {
+            *args.last_mut().unwrap() = invalid.into();
+            assert!(Config::load(&args, &env).is_err(), "{invalid}");
+        }
+        *args.last_mut().unwrap() = (0..33)
+            .map(|i| format!("host{i}.invalid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(Config::load(&args, &env).is_err());
+        args[3] = "example.invalid".into();
+        args.extend([
+            "--api-base-url".into(),
+            "http://api.example.invalid:4443".into(),
+        ]);
+        assert!(
+            Config::load(&args, &env)
+                .unwrap_err()
+                .contains("api_base_url host selects an XML virtual bucket")
+        );
+        *args.last_mut().unwrap() = "http://example.invalid:4443".into();
+        assert!(Config::load(&args, &env).is_ok());
+        args[3] = "example.invalid,api.example.invalid".into();
+        *args.last_mut().unwrap() = "http://api.example.invalid:4443".into();
+        assert!(Config::load(&args, &env).is_ok());
+        std::fs::remove_file(file).unwrap();
+    }
 
     fn load_http(args: &[String], env: &BTreeMap<String, String>) -> Result<Config, String> {
         let mut args = args.to_vec();

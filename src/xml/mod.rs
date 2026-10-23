@@ -1,7 +1,7 @@
-//! Path-style XML objects. Shared authorization, generation selection and bytes live in storage.
+//! XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
-    config::CompatProfile,
+    config::Config,
     json::{self, JsonError},
     object::{ObjectConditions, ObjectRecord},
 };
@@ -159,22 +159,88 @@ pub(crate) fn reserved_path(path: &str) -> bool {
     })
 }
 
-/// Match reserved Google and emulator namespaces before interpreting a bucket path.
+pub(crate) fn virtual_bucket(headers: &HeaderMap, domains: &[String]) -> Option<String> {
+    let mut hosts = headers.get_all("host").iter();
+    let host = hosts.next()?.to_str().ok()?;
+    if hosts.next().is_some() {
+        return None;
+    }
+    bucket_for_authority(host, domains)
+}
+
+pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<String> {
+    let authority: hyper::http::uri::Authority = host.parse().ok()?;
+    if authority.as_str().contains('@')
+        || (authority.as_str().contains(':') && authority.port_u16().is_none())
+    {
+        return None;
+    }
+    let host = authority.host().to_ascii_lowercase();
+    for domain in domains {
+        if host == *domain {
+            return None;
+        }
+        if let Some(bucket) = host.strip_suffix(domain).and_then(|s| s.strip_suffix('.')) {
+            return Some(bucket.to_owned());
+        }
+    }
+    None
+}
+
+pub(crate) fn authority_error(uri: &Uri, headers: &HeaderMap, config: &Config) -> Option<Error> {
+    let authority = uri.authority()?;
+    if virtual_bucket(headers, &config.xml_virtual_host_domains).is_none()
+        && bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains).is_none()
+    {
+        return None;
+    }
+    let mut hosts = headers.get_all("host").iter();
+    if hosts
+        .next()
+        .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
+        && hosts.next().is_none()
+    {
+        return None;
+    }
+    Some(if crate::auth::signature::is_signed(uri.query()) {
+        Error::new(
+            StatusCode::FORBIDDEN,
+            "SignatureDoesNotMatch",
+            "The request authority does not match Host.",
+        )
+    } else {
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidArgument",
+            "The request authority does not match Host.",
+        )
+    })
+}
+
+/// Virtual hosts are XML-only; path-style reserves the JSON and emulator namespaces.
 pub(crate) fn route(
     method: &Method,
     uri: &Uri,
-    profile: CompatProfile,
+    headers: &HeaderMap,
+    config: &Config,
 ) -> Option<Result<ReadRequest, Error>> {
     let path = uri.path();
-    if reserved_path(path) {
+    let virtual_bucket = virtual_bucket(headers, &config.xml_virtual_host_domains);
+    if virtual_bucket.is_none() && reserved_path(path) {
         return None;
     }
     let path = path.strip_prefix('/')?;
-    let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
-    if json::validate_bucket_name_for_profile(bucket, profile).is_err() {
+    let (bucket, name) = match &virtual_bucket {
+        Some(bucket) => (bucket.as_str(), path),
+        None => path.split_once('/').unwrap_or((path, "")),
+    };
+    if virtual_bucket.is_none()
+        && json::validate_bucket_name_for_profile(bucket, config.compat_profile).is_err()
+    {
         return None;
     }
     Some((|| {
+        json::validate_bucket_name_for_profile(bucket, config.compat_profile)?;
         if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
             return Err(Error::unsupported());
         }

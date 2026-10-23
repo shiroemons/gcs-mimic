@@ -191,6 +191,149 @@ fn signed_private_download_uses_the_https_listener_host_and_port() {
     server.stop();
 }
 
+#[test]
+fn virtual_host_https_requires_a_matching_supplied_certificate() {
+    let dir = TestDir::new();
+    let certs = dir.0.join("tls");
+    fixtures(&certs);
+    fs::write(certs.join("virtual.ext"), "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1,DNS:dotted.bucket.storage.example.invalid\n").unwrap();
+    let generated = Command::new("openssl")
+        .current_dir(&certs)
+        .args([
+            "x509",
+            "-req",
+            "-in",
+            "server.csr",
+            "-CA",
+            "ca.pem",
+            "-CAkey",
+            "ca.key",
+            "-set_serial",
+            "5",
+            "-days",
+            "2",
+            "-sha256",
+            "-extfile",
+            "virtual.ext",
+            "-out",
+            "server.pem",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let identities = dir.0.join("identities.json");
+    let mut registry: serde_json::Value =
+        serde_json::from_slice(&fs::read("config/identities.json").unwrap()).unwrap();
+    registry["identities"][0]["public_keys"] =
+        serde_json::json!([include_str!("../fixtures/signing/test-only-public.pem")]);
+    fs::write(&identities, registry.to_string()).unwrap();
+    let options = [
+        "--xml-virtual-host-domains",
+        "storage.example.invalid",
+        "--auth-mode",
+        "strict",
+        "--identity-file",
+        identities.to_str().unwrap(),
+    ];
+    let server = Server::start(&dir.0.join("custom-data"), &certs, &options);
+    let ca = certs.join("ca.pem");
+    success(curl(
+        &server,
+        &ca,
+        &[
+            "-H",
+            "Authorization: Bearer local-admin-token",
+            "-H",
+            "Content-Type: application/json",
+            "--data",
+            r#"{"name":"dotted.bucket"}"#,
+        ],
+        "/storage/v1/b?project=local-project",
+    ));
+    let port = server.address.split_once(':').unwrap().1;
+    let host = format!("dotted.bucket.storage.example.invalid:{port}");
+    let connect = format!("{host}:{}", server.address);
+    let url = format!("https://{host}/%C3%A9//object");
+    for (method, args) in [
+        (
+            hyper::Method::PUT,
+            vec!["--request", "PUT", "--data-binary", "virtual TLS bytes"],
+        ),
+        (hyper::Method::GET, vec![]),
+    ] {
+        let signed = gcs_mimic::auth::signature::sign_url(
+            &url,
+            &method,
+            "local-admin@example.invalid",
+            include_bytes!("../fixtures/signing/test-only-private.pem"),
+            60,
+            std::time::SystemTime::now(),
+            hyper::HeaderMap::new(),
+        )
+        .unwrap();
+        let output = Command::new("curl")
+            .args([
+                "-q",
+                "--silent",
+                "--show-error",
+                "--fail",
+                "--noproxy",
+                "*",
+                "--max-time",
+                "4",
+                "--cacert",
+            ])
+            .arg(&ca)
+            .args(["--connect-to", &connect])
+            .args(args)
+            .arg(signed)
+            .output()
+            .unwrap();
+        let body = success(output);
+        if method == hyper::Method::GET {
+            assert_eq!(body, b"virtual TLS bytes");
+        }
+    }
+    server.stop();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(dir.0.join("embedded-data"))
+        .args(options);
+    let embedded = Server::launch(command, "https");
+    let ca = dir.0.join("embedded-ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let port = embedded.address.split_once(':').unwrap().1;
+    let host = format!("dotted.bucket.storage.example.invalid:{port}");
+    let output = Command::new("curl")
+        .args([
+            "-q",
+            "--silent",
+            "--show-error",
+            "--noproxy",
+            "*",
+            "--max-time",
+            "4",
+            "--cacert",
+        ])
+        .arg(ca)
+        .args(["--connect-to", &format!("{host}:{}", embedded.address)])
+        .arg(format!("https://{host}/object"))
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(60),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    embedded.stop();
+}
+
 fn tls_stream(
     server: &Server,
     ca: &Path,
