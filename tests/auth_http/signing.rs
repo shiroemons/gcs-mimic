@@ -29,6 +29,9 @@ mod put;
 #[path = "signing/overrides.rs"]
 mod overrides;
 
+#[path = "signing/pap.rs"]
+mod pap;
+
 fn sign(
     server: &Server,
     method: &Method,

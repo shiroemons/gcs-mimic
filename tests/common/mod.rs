@@ -30,7 +30,7 @@ pub fn load_http_config(
 
 #[allow(dead_code)]
 pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
-    connection.execute_batch("ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
+    connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
         ALTER TABLE objects RENAME TO objects_with_versions;
         CREATE TABLE objects (
             bucket TEXT NOT NULL COLLATE BINARY,

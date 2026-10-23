@@ -15,6 +15,7 @@ pub struct BucketRecord {
     pub cors: Vec<CorsRule>,
     pub versioning_enabled: bool,
     pub default_event_based_hold: bool,
+    pub public_access_prevention_enforced: bool,
     pub metageneration: i64,
     /// Millisecond precision; the catalog truncates sub-millisecond values.
     pub time_created: SystemTime,
@@ -28,6 +29,7 @@ pub struct BucketMetadataUpdate {
     pub storage_class: Option<String>,
     pub versioning_enabled: Option<bool>,
     pub default_event_based_hold: Option<bool>,
+    pub public_access_prevention_enforced: Option<bool>,
     pub location: Option<String>,
 }
 
@@ -185,6 +187,7 @@ pub enum CatalogError {
     NotFound,
     NotEmpty,
     PreconditionFailed,
+    PublicAccessPrevention,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
     InvalidMetadata(String),
@@ -199,6 +202,9 @@ impl fmt::Display for CatalogError {
             Self::NotFound => formatter.write_str("bucket not found"),
             Self::NotEmpty => formatter.write_str("bucket is not empty"),
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
+            Self::PublicAccessPrevention => {
+                formatter.write_str("public access prevention is enforced")
+            }
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)

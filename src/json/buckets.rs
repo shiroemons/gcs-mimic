@@ -21,7 +21,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "defaultObjectAcl",
     "encryption",
     "hierarchicalNamespace",
-    "iamConfiguration",
     "ipFilter",
     "lifecycle",
     "logging",
@@ -235,6 +234,10 @@ pub fn parse_insert_with_profile(
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
         versioning_enabled,
         default_event_based_hold,
+        public_access_prevention_enforced: parse_public_access_prevention(
+            body.get("iamConfiguration"),
+        )?
+        .unwrap_or(false),
         metageneration: 1,
         time_created: now,
         updated: now,
@@ -388,7 +391,37 @@ fn parse_bucket_update(
             "defaultEventBasedHold",
         )?,
         location,
+        public_access_prevention_enforced: parse_public_access_prevention(
+            body.get("iamConfiguration"),
+        )?,
     })
+}
+
+fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
+    let Some(value) = value else { return Ok(None) };
+    let config = value
+        .as_object()
+        .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
+    for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
+        if let Some(value) = config.get(field)
+            && !value.as_object().is_some_and(|setting| {
+                setting.get("enabled") == Some(&Value::Bool(false))
+                    && !setting.contains_key("lockedTime")
+            })
+        {
+            return Err(JsonError::unsupported(&format!("iamConfiguration.{field}")));
+        }
+    }
+    config
+        .get("publicAccessPrevention")
+        .map(|value| match value.as_str() {
+            Some("enforced") => Ok(true),
+            Some("inherited") => Ok(false),
+            _ => Err(JsonError::invalid_argument(
+                "publicAccessPrevention must be inherited or enforced",
+            )),
+        })
+        .transpose()
 }
 
 fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError> {
@@ -433,6 +466,7 @@ pub fn bucket_resource_with_profile(
         "timeCreated": timestamp(bucket.time_created)?, "updated": timestamp(bucket.updated)?,
         "etag": bucket_etag(bucket),
         "location": bucket.location, "locationType": bucket.location_type, "storageClass": bucket.storage_class,
+        "iamConfiguration": {"publicAccessPrevention": if bucket.public_access_prevention_enforced { "enforced" } else { "inherited" }},
     });
     if !bucket.labels.is_empty() {
         value["labels"] = json!(bucket.labels);

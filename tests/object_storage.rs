@@ -62,6 +62,7 @@ async fn setup(dir: &TestDir) -> Catalog {
             labels: BTreeMap::new(),
             versioning_enabled: false,
             default_event_based_hold: false,
+            public_access_prevention_enforced: false,
             cors: Vec::new(),
             metageneration: 1,
             time_created: UNIX_EPOCH,
@@ -1437,7 +1438,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
+            "ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; DROP TABLE bucket_policies; DROP TABLE policy_revision; DROP TABLE objects; DROP TABLE pending_blob_deletions; DROP TABLE object_generation; DROP TABLE startup_seed; PRAGMA user_version = 1;",
         )
         .unwrap();
     // Force the second DDL statement to fail and verify the first statement rolls back.
@@ -1494,7 +1495,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
 }
 

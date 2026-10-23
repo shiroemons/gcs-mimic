@@ -11,7 +11,13 @@ fn headers(values: &[(&str, &str)]) -> HeaderMap {
     headers
 }
 
-fn request(server: &Server, method: &str, url: &str, headers: &str, body: &[u8]) -> Reply {
+pub(super) fn request(
+    server: &Server,
+    method: &str,
+    url: &str,
+    headers: &str,
+    body: &[u8],
+) -> Reply {
     let uri: Uri = url.parse().unwrap();
     let mut raw = format!(
         "{method} {} HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\n{headers}\r\n",

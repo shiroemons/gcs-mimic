@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 136 | 0 | 31 | 34 | 0 | 0 |
+| behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
 | project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 136 | 37 | 26 | 2 | 0 | 0 |
+| behavior | 131 | 40 | 28 | 2 | 0 | 0 |
 | project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
 
 ## api_operation
@@ -512,7 +512,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-BUCKET-013 | 均一なバケットレベルアクセス設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-014 | 公開アクセス防止 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-014 | 公開アクセス防止 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-BUCKET-015 | Soft deleteポリシー | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-016 | 恒久削除一時停止フィールド | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-017 | バケットのSoft deleteと復元 | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -639,10 +639,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-019 | 定義済みACLの権限への反映 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-020 | UBLAによるACL操作・権限の無効化 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-021 | UBLAの90日経過後の解除不可制約 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-022 | 公開アクセス防止の継承・強制状態の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-023 | 公開アクセス防止による既存公開権限の抑止 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-024 | 公開アクセス防止時の公開権限追加エラー | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-025 | 公開アクセス防止下の有効な署名付きアクセス | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-022 | 公開アクセス防止の継承・強制状態の評価 | IMPLEMENTED | P2 | LOCAL_SIMULATION | LOCAL_SIMULATION | 0 |
+| DESIGN-023 | 公開アクセス防止による既存公開権限の抑止 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
+| DESIGN-024 | 公開アクセス防止時の公開権限追加エラー | PARTIAL | P2 | EXACT | EXACT | 0 |
+| DESIGN-025 | 公開アクセス防止下の有効な署名付きアクセス | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAMポリシーetagによる競合制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissionsの実効権限結果 | NOT_STARTED | P2 | EXACT | NONE | 0 |

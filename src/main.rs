@@ -163,6 +163,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let clock = Arc::new(SystemClock);
                 let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(io::Error::other)?;
+                catalog.configure_public_access_prevention(auth.public_access_prevention_projects()).await.map_err(io::Error::other)?;
                 let seed = match gcs_mimic::seed::import(&catalog, &config, clock.as_ref()).await {
                     Ok(seed) => seed,
                     Err(error) => {
