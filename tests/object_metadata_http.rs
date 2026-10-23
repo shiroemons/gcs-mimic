@@ -369,53 +369,49 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
             200
         );
     }
-    let before = server
-        .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-        .json();
-    let barrier = Arc::new(Barrier::new(3));
-    let threads: Vec<_> = (0..2)
-        .map(|_| {
-            let address = server.address.clone();
-            let barrier = barrier.clone();
-            let path = format!(
-                "/storage/v1/b/test-bucket/o/dir%2Ffile?ifMetagenerationMatch={}",
-                before["metageneration"].as_str().unwrap()
-            );
-            std::thread::spawn(move || {
-                barrier.wait();
-                request(
-                    &address,
-                    "PATCH",
-                    &path,
-                    br#"{"metadata":{"winner":"yes"}}"#,
-                )
-                .status
+    for method in ["PATCH", "PUT"] {
+        let before = server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json();
+        let barrier = Arc::new(Barrier::new(3));
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let address = server.address.clone();
+                let barrier = barrier.clone();
+                let path = format!(
+                    "/storage/v1/b/test-bucket/o/dir%2Ffile?ifMetagenerationMatch={}",
+                    before["metageneration"].as_str().unwrap()
+                );
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    request(&address, method, &path, br#"{"metadata":{"winner":"yes"}}"#).status
+                })
             })
-        })
-        .collect();
-    barrier.wait();
-    let mut statuses: Vec<_> = threads
-        .into_iter()
-        .map(|thread| thread.join().unwrap())
-        .collect();
-    statuses.sort();
-    assert_eq!(statuses, [200, 412]);
-    let after = server
-        .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
-        .json();
-    assert_eq!(
-        after["metageneration"]
-            .as_str()
-            .unwrap()
-            .parse::<i64>()
-            .unwrap(),
-        before["metageneration"]
-            .as_str()
-            .unwrap()
-            .parse::<i64>()
-            .unwrap()
-            + 1
-    );
+            .collect();
+        barrier.wait();
+        let mut statuses: Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        statuses.sort();
+        assert_eq!(statuses, [200, 412]);
+        let after = server
+            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .json();
+        assert_eq!(
+            after["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap(),
+            before["metageneration"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap()
+                + 1
+        );
+    }
     server.stop();
 }
 

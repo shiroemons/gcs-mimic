@@ -249,6 +249,240 @@ fn no_leaks(dir: &TestDir, expected: usize) {
 }
 
 #[test]
+fn obj_http_malformed_conditions_reject_every_object_method_without_mutation() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let original = server
+        .upload(
+            "name=existing",
+            &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
+        )
+        .json();
+    for key in [
+        "ifGenerationMatch",
+        "ifGenerationNotMatch",
+        "ifMetagenerationMatch",
+        "ifMetagenerationNotMatch",
+    ] {
+        for value in [
+            "",
+            "abc",
+            "%2B1",
+            "1.0",
+            "9223372036854775808",
+            "-9223372036854775809",
+            &format!("1&{key}=1"),
+        ] {
+            let query = format!("{key}={value}");
+            for upload in ["media", "multipart", "resumable"] {
+                server.request("POST", &format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{query}"), "", b"").error(400, "invalidParameter");
+            }
+            for method in ["GET", "PATCH", "PUT", "DELETE"] {
+                let body = if matches!(method, "PATCH" | "PUT") {
+                    b"{}".as_slice()
+                } else {
+                    b""
+                };
+                server
+                    .request(
+                        method,
+                        &format!("/storage/v1/b/test-bucket/o/existing?{query}"),
+                        "",
+                        body,
+                    )
+                    .error(400, "invalidParameter");
+            }
+            server
+                .get(&format!("existing?alt=media&{query}"))
+                .error(400, "invalidParameter");
+            assert_eq!(server.get("existing").json(), original);
+        }
+    }
+    assert_eq!(server.get("existing?alt=media").body, b"old");
+    no_leaks(&dir, 1);
+}
+
+#[test]
+fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    // A future high-water mark makes the forbidden next generation independent of wall time.
+    rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+        .unwrap()
+        .execute(
+            "UPDATE object_generation SET last_generation = 4000000000000000000",
+            [],
+        )
+        .unwrap();
+    for upload in ["media", "multipart"] {
+        for key in [
+            "ifGenerationMatch",
+            "ifGenerationNotMatch",
+            "ifMetagenerationMatch",
+            "ifMetagenerationNotMatch",
+        ] {
+            let original = server
+                .upload(
+                    "name=existing",
+                    &wire(br#"{"metadata":{"key":"old"}}"#, None, b"old", None),
+                )
+                .json();
+            let generation = original["generation"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap();
+            let condition = match key {
+                "ifGenerationMatch" => generation,
+                "ifGenerationNotMatch" => generation + 1,
+                "ifMetagenerationMatch" => 1,
+                _ => 2,
+            };
+            let body = if upload == "media" {
+                b"replacement".to_vec()
+            } else {
+                wire(br#"{"metadata":{"key":"new"}}"#, None, b"replacement", None)
+            };
+            let mut stream = socket(&server.address);
+            write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{key}={condition} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
+            stream.write_all(&body[..body.len() - 1]).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while std::fs::read_dir(dir.0.join("staging")).unwrap().count() != 1 {
+                assert!(
+                    Instant::now() < deadline,
+                    "upload must pass advisory checks"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            let current = if key.contains("Metageneration") {
+                server
+                    .request(
+                        "PATCH",
+                        "/storage/v1/b/test-bucket/o/existing",
+                        "",
+                        br#"{"metadata":{"key":"changed"}}"#,
+                    )
+                    .json()
+            } else {
+                server
+                    .upload(
+                        "name=existing",
+                        &wire(br#"{"metadata":{"key":"changed"}}"#, None, b"changed", None),
+                    )
+                    .json()
+            };
+            stream.write_all(&body[body.len() - 1..]).unwrap();
+            Reply::read(stream).error(412, "conditionNotMet");
+            assert_eq!(server.get("existing").json(), current);
+            assert_eq!(
+                server.get("existing?alt=media").body,
+                if key.contains("Metageneration") {
+                    b"old".as_slice()
+                } else {
+                    b"changed"
+                }
+            );
+            no_leaks(&dir, 1);
+        }
+    }
+}
+
+#[test]
+fn obj_http_media_and_multipart_independent_checksum_vectors_across_chunks() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    // MD5 vectors are independently generated with OpenSSL; CRC32C uses RFC 3720 B.4.
+    for (bytes, md5, crc32c) in [
+        (b"".as_slice(), "1B2M2Y8AsgTpgAmY7PhCfg==", "AAAAAA=="),
+        (b"123456789", "JfnnlDI7RTiF9RgfG2JNCw==", "4waSgw=="),
+        (&[0; 32], "cLyPS3KoaSFGi/joRB3OUQ==", "ipE2qg=="),
+    ] {
+        for upload in ["media", "multipart"] {
+            let body = if upload == "media" {
+                bytes.to_vec()
+            } else {
+                wire(b"{}", None, bytes, None)
+            };
+            let mut stream = socket(&server.address);
+            write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=vector HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nX-Goog-Hash: md5={md5},crc32c={crc32c}\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
+            for chunk in body.chunks(7) {
+                write!(stream, "{:x}\r\n", chunk.len()).unwrap();
+                stream.write_all(chunk).unwrap();
+                stream.write_all(b"\r\n").unwrap();
+            }
+            stream.write_all(b"0\r\n\r\n").unwrap();
+            let resource = Reply::read(stream).json();
+            assert_eq!(resource["md5Hash"], md5);
+            assert_eq!(resource["crc32c"], crc32c);
+            assert_eq!(server.get("vector?alt=media").body, bytes);
+            no_leaks(&dir, 1);
+        }
+    }
+}
+
+#[test]
+fn obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without_leaks() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir, 32, 30_000);
+    server.bucket();
+    let original = server
+        .upload(
+            "name=existing",
+            &wire(
+                br#"{"contentType":"text/old","cacheControl":"private","metadata":{"key":"old"}}"#,
+                None,
+                b"old",
+                None,
+            ),
+        )
+        .json();
+    for upload in ["media", "multipart"] {
+        let path = format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing");
+        for hash in ["md5=AAAAAAAAAAAAAAAAAAAAAA==", "crc32c=AAAAAA=="] {
+            let body = if upload == "media" {
+                b"new".to_vec()
+            } else {
+                wire(br#"{"metadata":{"key":"new"}}"#, None, b"new", None)
+            };
+            server.request("POST", &path, &format!("Content-Type: multipart/related; boundary=boundary\r\nX-Goog-Hash: {hash}\r\n"), &body).error(400, "invalid");
+            assert_eq!(server.get("existing").json(), original);
+            assert_eq!(server.get("existing?alt=media").body, b"old");
+            no_leaks(&dir, 1);
+        }
+        let body = if upload == "media" {
+            vec![b'x'; 33]
+        } else {
+            wire(b"{}", None, &[b'x'; 33], None)
+        };
+        server
+            .request(
+                "POST",
+                &path,
+                "Content-Type: multipart/related; boundary=boundary\r\n",
+                &body,
+            )
+            .error(413, "uploadTooLarge");
+        let mut stream = socket(&server.address);
+        write!(stream, "POST {path} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
+        let body = if upload == "media" {
+            b"new".to_vec()
+        } else {
+            wire(b"{}", None, b"new", None)
+        };
+        write!(stream, "{:x}\r\n", body.len()).unwrap();
+        stream.write_all(&body).unwrap();
+        stream.write_all(b"\r\ninvalid-chunk\r\n").unwrap();
+        assert_eq!(Reply::read(stream).status, 400);
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+        no_leaks(&dir, 1);
+    }
+}
+
+#[test]
 fn obj_multipart_http_round_trip_metadata_hashes_and_restart() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, 1_000_000, 30_000);
