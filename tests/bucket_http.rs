@@ -2663,6 +2663,115 @@ fn bkt_http_crud_metadata_conditions_and_errors() {
 }
 
 #[test]
+fn bkt_http_malformed_conditions_preserve_all_bucket_methods() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir);
+    let original = server.insert("conditional", "project").json();
+    for key in ["ifMetagenerationMatch", "ifMetagenerationNotMatch"] {
+        for value in [
+            "",
+            "abc",
+            "%2B1",
+            "1.0",
+            "9223372036854775808",
+            "-9223372036854775809",
+            &format!("1&{key}=1"),
+        ] {
+            for method in ["GET", "PATCH", "PUT", "DELETE"] {
+                server
+                    .request(
+                        method,
+                        &format!("/storage/v1/b/conditional?{key}={value}"),
+                        if matches!(method, "PATCH" | "PUT") {
+                            "{}"
+                        } else {
+                            ""
+                        },
+                    )
+                    .error(400, "invalidParameter");
+            }
+            assert_eq!(
+                server
+                    .request("GET", "/storage/v1/b/conditional", "")
+                    .json(),
+                original
+            );
+        }
+        // Bucket insertion declares no metageneration condition parameters.
+        let reply = server.request(
+            "POST",
+            &format!("/storage/v1/b?project=project&{key}=1"),
+            r#"{"name":"not-created"}"#,
+        );
+        reply.error(400, "invalidParameter");
+        assert_eq!(
+            reply.json()["error"]["message"],
+            format!("Unknown query parameter for this method: {key}")
+        );
+        server
+            .request("GET", "/storage/v1/b/not-created", "")
+            .error(404, "notFound");
+    }
+}
+
+#[test]
+fn bkt_http_conditional_delete_and_metadata_mutation_have_one_winner() {
+    for method in ["PATCH", "PUT"] {
+        for condition in ["ifMetagenerationMatch=1", "ifMetagenerationNotMatch=2"] {
+            let dir = TestDir::new();
+            let server = Server::start(&dir);
+            for _ in 0..12 {
+                server.insert("conditional", "project").json();
+                let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+                let address = server.address.clone();
+                let waiting = barrier.clone();
+                let mutation = std::thread::spawn(move || {
+                    waiting.wait();
+                    raw(
+                        &address,
+                        &format!(
+                            "{method} /storage/v1/b/conditional?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: local\r\nContent-Length: 2\r\n\r\n{{}}"
+                        ),
+                    )
+                });
+                barrier.wait();
+                let delete = server.request(
+                    "DELETE",
+                    &format!("/storage/v1/b/conditional?{condition}"),
+                    "",
+                );
+                let update = mutation.join().unwrap();
+                match (delete.status, update.status) {
+                    (204, 404) => {
+                        update.error(404, "notFound");
+                        server
+                            .request("GET", "/storage/v1/b/conditional", "")
+                            .error(404, "notFound");
+                    }
+                    (412, 200) => {
+                        delete.error(412, "conditionNotMet");
+                        assert_eq!(update.json()["metageneration"], "2");
+                        assert_eq!(
+                            server
+                                .request("GET", "/storage/v1/b/conditional", "")
+                                .json(),
+                            update.json()
+                        );
+                        assert_eq!(
+                            server
+                                .request("DELETE", "/storage/v1/b/conditional", "")
+                                .status,
+                            204
+                        );
+                    }
+                    statuses => panic!("exactly one mutation must succeed: {statuses:?}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn bkt_http_query_body_name_and_route_boundaries() {
     let dir = TestDir::new();
     let server = Server::start(&dir);
