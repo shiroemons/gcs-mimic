@@ -613,7 +613,7 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
         ("OPTIONS", OBJECT),
         ("GET", "/iam-bucket/object?acl"),
         ("GET", "/iam-bucket/object?uploads"),
-        ("GET", "/iam-bucket/object?response-content-type=text/plain"),
+        ("GET", "/iam-bucket/object?response-cache-control=no-cache"),
     ] {
         let request =
             format!("{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\n\r\n");

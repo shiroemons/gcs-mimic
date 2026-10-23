@@ -23621,7 +23621,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -23684,7 +23684,7 @@
         },
         {
           "id": "EXT-XML-012-PENDING",
-          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, remaining signing formats/edge parity, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
+          "description": "Implement and verify CSEK/encryption, requester user project, HTTP If-* validators, remaining signing formats/edge parity, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23707,6 +23707,19 @@
             "TestV4RSASignedDownload/SignedUpload",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "id": "EXT-XML-012-RESPONSE-OVERRIDES",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+          ]
         }
       ],
       "test_ids": [
@@ -23727,7 +23740,12 @@
         "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
         "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
         "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
-        "xml::xml_unsupported_operations_fail_before_reading_a_body"
+        "xml::xml_unsupported_operations_fail_before_reading_a_body",
+        "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+        "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+        "TestV4RSASignedDownload/ResponseOverrides",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -23817,6 +23835,28 @@
             "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
             "xml::xml_unsupported_operations_fail_before_reading_a_body"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-checks.txt",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23879,16 +23919,46 @@
           "test_ids": [
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Trusted HTTPS XML V4 GET/HEAD; official QueryParameters, default-port guarded dialer (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "Trusted HTTPS XML V4 GET; official File#signed_url query, bucket-bound final host and explicit bucket/name path (SPEC-RUBY-SIGNER-ENDPOINT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
-        "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark."
+        "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark.",
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -24034,7 +24104,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Response Content-Type/Content-Disposition overrides now pass public/bearer/signed GET/HEAD, retained generation, whole/range, CORS, metadata preservation and tamper/invalid/unknown/duplicate tests. Contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; local boundaries: SPEC-XML-RESPONSE-OVERRIDES.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -24073,7 +24143,7 @@
         },
         {
           "id": "EXT-XML-017-PENDING",
-          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, remaining signing formats/edge parity, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
+          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, remaining signing formats/edge parity, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24086,6 +24156,18 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
             "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "id": "EXT-XML-017-RESPONSE-OVERRIDES",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         }
       ],
@@ -24101,7 +24183,12 @@
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "TestV4RSASignedDownload"
+        "TestV4RSASignedDownload",
+        "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+        "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+        "TestV4RSASignedDownload/ResponseOverrides",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -24174,6 +24261,27 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-checks.txt",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24206,15 +24314,31 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Trusted HTTPS XML V4 GET/HEAD; official QueryParameters, default-port guarded dialer (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides"
+          ]
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
-        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size."
+        "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -33452,11 +33576,13 @@
       "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
-        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Sorted encoded query binds every parameter except X-Goog-Signature; add/remove/change and generation mutation fail. Duplicate decoded names reject locally. Valid signed response-* overrides return explicit 501; full overrides and duplicate-provider parity remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Full canonical strings pin decoded-name code-point order before encoding, including a, + and Unicode names; independent Go query signatures agree before explicit 501 for unsupported parameters. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Sorted decoded query names by code point then encoded names/values bind every parameter except X-Goog-Signature; query/generation and either response override mutation fail. The two documented overrides replace only response Content-Type/Content-Disposition for authorized public, bearer and V4 signed GET/HEAD, including retained generations and ranges. Unknown response-* and unsupported keys return 501; header-invalid values return XML 400 InvalidArgument. Duplicate decoded names and encoded aliases reject locally. Official canonical-request text does not define exact provider duplicate/ambiguous behavior; the existing provider-exactness acceptance stays pending and keeps this row PARTIAL under the completion policy. SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES retain unresolved local choices. Contract: docs/en/slices/xml-response-overrides.md; evidence: docs/en/evidence/xml-response-overrides.md. Previous canonical-string evidence remains in docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33473,7 +33599,7 @@
         },
         {
           "id": "DESIGN-035-MUTATION",
-          "description": "Query and generation tampering fail; valid unsupported response overrides return 501.",
+          "description": "Query and generation tampering fail; valid undocumented response-* parameters return 501.",
           "result": "PASS",
           "test_ids": [
             "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
@@ -33483,9 +33609,24 @@
         },
         {
           "id": "DESIGN-035-OVERRIDES-PENDING",
-          "description": "Implement response-* override semantics and establish exact duplicate/ambiguous query provider behavior.",
+          "description": "Establish exact provider duplicate/ambiguous decoded-name query behavior. Override semantics are delivered separately; the existing provider-exactness requirement remains pending under SPEC-SIGNING-EDGES.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-035-RESPONSE-OVERRIDES",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+          ]
         }
       ],
       "test_ids": [
@@ -33494,7 +33635,15 @@
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "TestV4RSASignedDownload",
-        "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
+        "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
+        "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+        "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+        "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+        "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+        "TestV4RSASignedDownload/ResponseOverrides",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -33540,6 +33689,30 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-checks.txt",
+          "test_ids": [
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -33557,12 +33730,42 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Trusted HTTPS XML V4 GET/HEAD; official QueryParameters, default-port guarded dialer (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "Trusted HTTPS XML V4 GET; official File#signed_url query, bucket-bound final host and explicit bucket/name path (SPEC-RUBY-SIGNER-ENDPOINT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [
-        "SPEC-SIGNING-EDGES: duplicate decoded query names reject locally; response overrides remain unsupported."
+        "SPEC-SIGNING-EDGES: duplicate decoded names and percent-encoded aliases reject locally; exact provider duplicate/ambiguous query semantics remain unverified.",
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {

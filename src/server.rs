@@ -1117,6 +1117,7 @@ async fn xml_response(
         .await
         .map_err(|error| anonymous_error(error.into(), caller))?;
     let mut headers = xml::media_headers(&record, reader.publicly_readable)?;
+    headers.extend(operation.response_overrides);
     json::validate_object_media_encoding(request.headers(), &record)?;
     let head = request.method() == Method::HEAD;
     let range = match json::object_media_range(request.headers(), record.size) {

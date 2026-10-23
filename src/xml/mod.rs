@@ -68,6 +68,7 @@ pub(crate) struct ReadRequest {
     pub name: String,
     pub generation: Option<i64>,
     pub conditions: ObjectConditions,
+    pub response_overrides: HeaderMap,
 }
 
 pub(crate) struct Error {
@@ -191,6 +192,37 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
+        let mut response_overrides = HeaderMap::new();
+        for (parameter, header) in [
+            ("response-content-type", "content-type"),
+            ("response-content-disposition", "content-disposition"),
+        ] {
+            if let Some(value) = query.remove(parameter) {
+                if value.is_empty()
+                    || value.trim() != value
+                    || value
+                        .bytes()
+                        .any(|byte| byte.is_ascii_control() && byte != b'\t')
+                {
+                    return Err(Error::new(
+                        StatusCode::BAD_REQUEST,
+                        "InvalidArgument",
+                        "Invalid response header override.",
+                    ));
+                }
+                let value = HeaderValue::from_str(&value)
+                    .ok()
+                    .filter(|value| value.to_str().is_ok())
+                    .ok_or_else(|| {
+                        Error::new(
+                            StatusCode::NOT_IMPLEMENTED,
+                            "NotImplemented",
+                            "Response override cannot be represented as a text XML header.",
+                        )
+                    })?;
+                response_overrides.insert(header, value);
+            }
+        }
         // Authentication validates credential fields from the original URI before using this operation.
         if query
             .keys()
@@ -203,6 +235,7 @@ pub(crate) fn route(
             name,
             generation,
             conditions: ObjectConditions::default(),
+            response_overrides,
         })
     })())
 }

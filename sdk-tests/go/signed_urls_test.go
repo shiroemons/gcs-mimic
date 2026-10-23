@@ -183,6 +183,38 @@ func TestV4RSASignedDownload(t *testing.T) {
 	client = &defaultClient
 	request("GET", defaultURL, "", "", http.StatusOK, payload)
 	request("GET", defaultURL+"&tampered=1", "", "", http.StatusForbidden, nil)
+	t.Run("ResponseOverrides", func(t *testing.T) {
+		for _, method := range []string{"GET", "HEAD"} {
+			signed, err := storage.SignedURL(bucket.BucketName(), attrs.Name, &storage.SignedURLOptions{
+				Scheme: storage.SigningSchemeV4, GoogleAccessID: "local-viewer@example.invalid", PrivateKey: key,
+				Method: method, Expires: time.Now().Add(5 * time.Minute), Hostname: portless.Host, Insecure: endpoint.Scheme == "http",
+				QueryParameters: url.Values{"response-content-disposition": {`attachment; filename="Go + file.csv"`}, "response-content-type": {"text/csv"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req, err := http.NewRequestWithContext(ctx, method, signed, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := defaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, readErr := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+			closeErr := res.Body.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatalf("read/close: %v / %v", readErr, closeErr)
+			}
+			if res.StatusCode != 200 || res.Header.Get("Content-Disposition") != `attachment; filename="Go + file.csv"` || res.Header.Get("Content-Type") != "text/csv" {
+				t.Fatalf("override response: %d %v %s", res.StatusCode, res.Header, body)
+			}
+			if method == "GET" && !bytes.Equal(body, payload) || method == "HEAD" && len(body) != 0 {
+				t.Fatalf("unexpected body %q", body)
+			}
+			request(method, strings.Replace(signed, "text%2Fcsv", "text%2Fhtml", 1), "", "", http.StatusForbidden, nil)
+		}
+	})
 	client = requestClient
 	signed := sign("GET", attrs.Name, query, []string{"x-required:one"})
 	request("GET", signed, "", "", http.StatusOK, payload)

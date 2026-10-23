@@ -351,7 +351,8 @@ fn unreserved(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~')
 }
 
-fn encode(raw: &str) -> String {
+/// Encode a literal query name or value using RFC 3986 unreserved bytes.
+pub fn encode_query_component(raw: &str) -> String {
     let mut result = String::new();
     for byte in raw.bytes() {
         if unreserved(byte) {
@@ -367,7 +368,13 @@ fn canonical_query(query: &BTreeMap<String, String>) -> String {
     query
         .iter()
         .filter(|(k, _)| k.as_str() != "X-Goog-Signature")
-        .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+        .map(|(k, v)| {
+            format!(
+                "{}={}",
+                encode_query_component(k),
+                encode_query_component(v)
+            )
+        })
         .collect::<Vec<_>>()
         .join("&")
 }
