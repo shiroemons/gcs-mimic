@@ -38,7 +38,9 @@ every other acl value is rejected.
 Projection defaults to full for PUT; both projections expose the same modeled
 subset without ACL/owner/ipFilter fields, so neither storage.buckets.getIamPolicy
 nor storage.buckets.getIpFilter is required. Ignored acl:[] does not require
-storage.buckets.setIamPolicy. Provider permission differences remain in SPEC-017.
+storage.buckets.setIamPolicy. SPEC-017 retains full-projection permission
+questions; SPEC-BUCKET-PUT explicitly retains whether getIpFilter is required
+for the modeled response and whether ignored acl:[] requires setIamPolicy.
 SPEC-BUCKET-PUT records omitted defaults,
 null scalars, acl wording, no-effect revisions and error precedence as open
 provider questions. SPEC-017 authentication wire questions also apply.
@@ -62,7 +64,7 @@ No provider bucket is contacted or authorized by this contract.
 | `bucket_put_full_resource_round_trip_preserves_unchanged_fields` | GET body returned with label edit in each profile | Accept rendered unchanged location; preserve other fields except revision, updated and etag |
 | `bucket_put_location_comparison_is_case_insensitive` | Same location in mixed case; relocation; legacy location:"US" | Accept unchanged rendered location ignoring ASCII case; relocation and legacy location:"US" return 501 without mutation |
 | `bucket_put_null_settings_follow_profile_defaults` | Null scalar/boolean settings | Native null booleans 400; legacy null booleans false; null/empty storageClass 400 in both |
-| `bucket_put_missing_bucket_validates_body_before_lookup` | Missing bucket and invalid/valid body, including 65 valid labels with/without a stale condition | Permissive invalid body 400 before lookup/conditions; valid body 404; strict permission check precedes parsing |
+| `bucket_put_missing_bucket_validates_body_before_lookup` | Missing bucket and invalid/valid body, including 65 valid labels with or without an ifMetagenerationMatch condition | Permissive invalid body 400 before lookup/conditions; valid body 404; strict permission check precedes parsing |
 | `bucket_put_rejects_get_only_generation_query_parameter` | generation and softDeleted=false queries on PUT versus GET | PUT 400 invalidParameter; GET retains generation 501 and softDeleted=false 200; state unchanged |
 
 Every successful PUT, including an identical resource or empty replacement of
@@ -159,29 +161,10 @@ Same-profile full-resource round trips are covered explicitly.
 
 ## Verification boundary
 
-The initial acceptance table was frozen before implementation in `ea302f9`;
-the cases above include subsequent input-boundary and precedence coverage.
-Verification on the check date used the committed Rust 1.99.1 toolchain.
-The label-count fix is `f806b68`; final Rust regression coverage is in `83c07c8`.
-
-| Command | Result |
-| --- | --- |
-| `cargo +1.99.1 test --locked --test bucket_http bucket_put_missing_bucket_validates_body_before_lookup` | PASS: missing lookup and 65-label validation, both profiles |
-| `cargo +1.99.1 test --locked --test bucket_http bucket_put` | PASS: 14 HTTP cases, both profiles |
-| `cargo +1.99.1 test --workspace --locked` | PASS: all workspace suites, zero failures or ignored tests; includes 54 bucket HTTP cases (14 PUT, 15 PATCH and GET regressions), 17 catalog cases and transaction-time PUT/PATCH authorization cases |
-| `cargo +1.99.1 fmt --all --check` | PASS |
-| `cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings` | PASS |
-| `npx --yes markdownlint-cli2 docs/en/slices/bucket-metadata-put.md` | PASS: zero issues; existing MD013 exemption retained for long tables/URLs |
-
-Targeted tests ran during implementation; the complete workspace, fmt and
-clippy checks ran on the final Rust source. HTTP execution required permission
-for loopback listeners outside the filesystem sandbox. The initial missing-bucket
-regression expected invalidArgument in both profiles and failed because legacy
-returns invalid. Correcting that expectation preserved the existing wire behavior;
-the rerun and all subsequent suites passed. No negative test was skipped or weakened.
-
+The [final integration evidence](../evidence/bucket-metadata-put.md) records
+the verified source, pinned inputs, commands, results and raw logs for Rust,
+official Go SDK, reference comparison, containers and native/Docker guide checks.
 HTTP cases are in tests/bucket_http.rs; clock/rollback cases in tests/catalog.rs;
-transaction-time authorization cases in src/storage/catalog.rs. Official SDK,
-reference execution, final container/guide checks and ledger/evidence updates
-are separately owned integration work. No real-cloud differential run,
-dependency change or complete-method compatibility claim belongs to this slice.
+transaction-time authorization cases in src/storage/catalog.rs.
+No real-cloud differential run or complete-method compatibility claim belongs
+to this slice.
