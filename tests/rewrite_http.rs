@@ -688,6 +688,49 @@ fn rewrite_completion_replay_rejects_recreated_buckets() {
 }
 
 #[test]
+fn rewrite_progress_replay_reclaims_state_after_bucket_recreation() {
+    let (dir, server, _payload, _source) = setup(false, 3 * 1048576 + 1);
+    let first = multi(&server, "");
+    let replay_path = continue_path(first["rewriteToken"].as_str().unwrap());
+    let second = server.request("POST", &replay_path, ADMIN, b"").json();
+    assert_eq!(second["done"], false);
+    assert_eq!(
+        server
+            .request("DELETE", "/storage/v1/b/test-bucket/o/source", ADMIN, b"")
+            .status,
+        204
+    );
+    assert_eq!(
+        server
+            .request("DELETE", "/storage/v1/b/test-bucket", ADMIN, b"")
+            .status,
+        204
+    );
+    server.bucket();
+    server
+        .request("POST", &replay_path, ADMIN, b"")
+        .error(412, "conditionNotMet");
+    for path in [
+        replay_path,
+        continue_path(second["rewriteToken"].as_str().unwrap()),
+    ] {
+        server.request("POST", &path, ADMIN, b"").error(410, "gone");
+    }
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
+        assert_eq!(
+            connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    server.get("destination").error(404, "notFound");
+}
+
+#[test]
 fn rewrite_composite_source_preserves_or_resets_component_count_without_md5() {
     let (dir, server, payload, source) = setup(false, 37);
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))

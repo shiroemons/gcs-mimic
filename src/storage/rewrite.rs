@@ -13,7 +13,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 pub(crate) use super::rewrite_token::RewriteBinding;
@@ -364,12 +364,14 @@ impl Catalog {
             .as_str()
             .to_owned();
         let result = token.clone();
+        // shortcut: crash before delivery leaves durable state until expiry; add a delivered marker for eager recovery.
         let owner = Arc::new(Mutex::new(None));
         let callback_owner = owner.clone();
         let catalog = self.clone();
         self.begin_derived_with_binding(segments, max_bytes, false, move |connection, transfer| {
             *callback_owner.lock().map_err(unavailable)? =
                 Some(catalog.guard_derived_request(&transfer.id));
+            // shortcut: rewrites share the derived pool; reserve capacity when copy/compose must survive abandonment.
             let count: i64 = connection
                 .query_row(
                     "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
@@ -454,24 +456,49 @@ impl Catalog {
         let session = self.rewrite_session(token).await?;
         let _guard = self.try_resumable_writer(&format!("rewrite:{}", session.id))?;
         let mut session = self.rewrite_session(token).await?;
-        if session.previous_token.as_deref() == Some(token) {
-            let replay = session.clone();
-            self.run_object(move |connection| {
+        let replay = session.previous_token.as_deref() == Some(token);
+        let checked = session.clone();
+        let source_check = source_access.clone();
+        let destination_check = destination_access.clone();
+        let source_result = self
+            .run_object(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
-                check_incarnations(&transaction, &replay)?;
-                super::objects::authorized_bucket(
-                    &transaction,
-                    &replay.binding.source_bucket,
-                    &source_access,
-                )?;
-                super::objects::authorized_bucket(
-                    &transaction,
-                    &replay.binding.destination_bucket,
-                    &destination_access,
-                )?;
+                if replay {
+                    check_incarnations(&transaction, &checked)?;
+                    super::objects::authorized_bucket(
+                        &transaction,
+                        &checked.binding.source_bucket,
+                        &source_check,
+                    )?;
+                    super::objects::authorized_bucket(
+                        &transaction,
+                        &checked.binding.destination_bucket,
+                        &destination_check,
+                    )?;
+                } else {
+                    check_source(&transaction, &checked, &source_check)?;
+                }
                 Ok(())
             })
-            .await?;
+            .await;
+        if let Err(error) = source_result {
+            if session
+                .response
+                .as_ref()
+                .is_none_or(|value| !value["resource"].is_object())
+                && matches!(
+                    error,
+                    ObjectError::PreconditionFailed
+                        | ObjectError::BucketNotFound
+                        | ObjectError::ObjectNotFound
+                )
+                && let Err(cleanup) = self.cancel_derived(&session.id).await
+            {
+                eprintln!("terminal rewrite cleanup failed: {cleanup}");
+            }
+            return Err(error.into());
+        }
+        if replay {
             return progress(
                 &session,
                 session
@@ -480,32 +507,6 @@ impl Catalog {
                     .ok_or_else(|| unavailable("missing rewrite replay"))?,
             )
             .map_err(Into::into);
-        }
-        let check_id = session.id.clone();
-        let source_check = source_access.clone();
-        let source_result = self
-            .run_object(move |connection| {
-                let session = connection
-                    .query_row(
-                        "SELECT * FROM rewrite_sessions WHERE id = ?1",
-                        [check_id],
-                        read,
-                    )
-                    .map_err(unavailable)?;
-                check_source(connection, &session, &source_check)
-            })
-            .await;
-        if let Err(error) = source_result {
-            if matches!(
-                error,
-                ObjectError::PreconditionFailed
-                    | ObjectError::BucketNotFound
-                    | ObjectError::ObjectNotFound
-            ) && let Err(cleanup) = self.cancel_derived(&session.id).await
-            {
-                eprintln!("terminal rewrite cleanup failed: {cleanup}");
-            }
-            return Err(error.into());
         }
         let current = self.get_derived(&session.id).await?;
         let target = session
@@ -523,6 +524,7 @@ impl Catalog {
             let validate_session = session.clone();
             let completed_session = session.clone();
             let (sender, receiver) = tokio::sync::oneshot::channel();
+            // shortcut: publish-time permission failures discard progress; specialize cleanup when retry must survive revocation.
             self.publish_derived_prepared(&id,destination,move |connection,record| {
                 if validate_session.deadline<=unix_millis(clock.now()).map_err(unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
                 let source = check_source(connection,&validate_session,&source_access)?;
@@ -532,6 +534,7 @@ impl Catalog {
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
                 connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(unavailable)?;
+                // shortcut: eviction follows creation deadlines; add completion ordering for recent-finish retention.
                 connection.execute("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))",[&session.id]).map_err(unavailable)?;
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
@@ -560,7 +563,6 @@ impl Catalog {
         now: i64,
     ) -> Result<Option<SystemTime>, CatalogError> {
         let mut after = String::new();
-        let mut busy = false;
         loop {
             let cursor = after.clone();
             let ids=self.run(move |connection| connection.prepare("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16").map_err(super::unavailable)?.query_map(params![now,cursor],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
@@ -573,7 +575,6 @@ impl Catalog {
                 let _guard = {
                     let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
                     if writers.contains(&key) || writers.len() >= 128 {
-                        busy = true;
                         continue;
                     }
                     writers.insert(key.clone());
@@ -598,24 +599,20 @@ impl Catalog {
                 .await?;
             }
         }
-        let next = self
-            .run(|connection| {
-                let deadline: Option<i64> = connection
-                    .query_row("SELECT min(deadline) FROM rewrite_sessions", [], |row| {
-                        row.get(0)
-                    })
-                    .map_err(super::unavailable)?;
-                deadline
-                    .map(system_time)
-                    .transpose()
-                    .map_err(super::unavailable)
-            })
-            .await?;
-        Ok(if busy {
-            Some(self.0.clock.now() + Duration::from_secs(1))
-        } else {
-            next
+        self.run(move |connection| {
+            let deadline: Option<i64> = connection
+                .query_row(
+                    "SELECT min(deadline) FROM rewrite_sessions WHERE deadline>?1",
+                    [now],
+                    |row| row.get(0),
+                )
+                .map_err(super::unavailable)?;
+            deadline
+                .map(system_time)
+                .transpose()
+                .map_err(super::unavailable)
         })
+        .await
     }
 }
 
@@ -756,7 +753,7 @@ mod tests {
                 .maintain_rewrite_sessions(604801000)
                 .await
                 .unwrap()
-                .is_some()
+                .is_none()
         );
         assert_eq!(
             catalog
@@ -768,7 +765,14 @@ mod tests {
                 .unwrap(),
             1
         );
+        catalog.0.maintenance_wake.notified().await;
         drop(guard);
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            catalog.0.maintenance_wake.notified(),
+        )
+        .await
+        .unwrap();
         assert!(
             catalog
                 .maintain_rewrite_sessions(604801000)
