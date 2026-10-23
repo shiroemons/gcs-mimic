@@ -175,7 +175,7 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
         let etag = &initial.headers["etag"];
         if legacy {
             assert_eq!(resource["etag"], "RVRhZw==");
-            assert_eq!(etag, "\"RVRhZw==\"");
+            assert!(etag.starts_with("\"b-"));
         } else {
             assert_eq!(resource["etag"], etag.as_str());
         }
@@ -200,6 +200,37 @@ fn json_etag_read_buckets_and_metadata_changes_in_both_profiles() {
         let updated = server.request("GET", BUCKET, &format!("If-None-Match: {etag}\r\n"), b"");
         assert_eq!(updated.status, 200);
         assert_ne!(updated.headers["etag"], *etag);
+        server
+            .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
+            .error(412, "conditionNotMet");
+        assert_eq!(server.request("DELETE", OBJECT, "", b"").status, 204);
+        assert!(matches!(
+            server.request("DELETE", BUCKET, "", b"").status,
+            200 | 204
+        ));
+        assert_eq!(
+            server
+                .request(
+                    "POST",
+                    "/storage/v1/b?project=local-project",
+                    "",
+                    br#"{"name":"range-bucket"}"#,
+                )
+                .status,
+            200
+        );
+        let recreated = server.request(
+            "GET",
+            &format!("{BUCKET}?fields=name"),
+            &format!("If-None-Match: {etag}\r\n"),
+            b"",
+        );
+        assert_eq!(recreated.status, 200);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&recreated.body).unwrap(),
+            serde_json::json!({"name":"range-bucket"})
+        );
+        assert_ne!(recreated.headers["etag"], *etag);
         server
             .request("GET", BUCKET, &format!("If-Match: {etag}\r\n"), b"")
             .error(412, "conditionNotMet");
@@ -342,9 +373,13 @@ fn json_etag_read_unsupported_combinations_lists_dates_and_writes() {
         }
     }
     for key in ["ifGenerationMatch", "ifGenerationNotMatch"] {
-        server
-            .get(&format!("&{key}=0"), "If-None-Match: *\r\n")
-            .error(501, "notImplemented");
+        for alt in ["json", "media"] {
+            for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
+                server
+                    .request("GET", &format!("{OBJECT}?alt={alt}&{key}=0"), header, b"")
+                    .error(501, "notImplemented");
+            }
+        }
     }
     for path in [
         format!("{BUCKET}/o"),
@@ -382,6 +417,62 @@ fn json_etag_read_unsupported_combinations_lists_dates_and_writes() {
         }
     }
     assert_eq!(server.get("", "").body, b"data");
+    server.stop();
+}
+
+#[test]
+fn json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    let original = server.setup("", b"data");
+    let etag = original["etag"].as_str().unwrap();
+    let modified = "If-Modified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n";
+    for path in [
+        OBJECT.to_owned(),
+        format!("{OBJECT}?alt=media"),
+        BUCKET.to_owned(),
+    ] {
+        let initial = server.request("GET", &path, "", b"");
+        let selected = &initial.headers["etag"];
+        not_modified(
+            &server,
+            &path,
+            &format!("If-None-Match: {selected}\r\n{modified}"),
+            selected,
+            "no-cache",
+        );
+        let unmatched = server.request(
+            "GET",
+            &path,
+            &format!("If-None-Match: \"other\"\r\n{modified}"),
+            b"",
+        );
+        assert_eq!(unmatched.status, 200);
+        assert_eq!(unmatched.body, initial.body);
+    }
+    for header in [
+        modified,
+        "If-Unmodified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n",
+        "If-Range: ignored\r\n",
+    ] {
+        let uploaded = server.request(
+            "POST",
+            "/upload/storage/v1/b/range-bucket/o?uploadType=media&name=other",
+            header,
+            b"other",
+        );
+        assert_eq!(uploaded.status, 200);
+        for path in [
+            format!("{BUCKET}/o"),
+            "/storage/v1/b?project=local-project".to_owned(),
+        ] {
+            assert_eq!(server.request("GET", &path, header, b"").status, 200);
+        }
+    }
+    assert_eq!(
+        server.get("", &format!("If-Match: {etag}\r\n")).body,
+        b"data"
+    );
     server.stop();
 }
 

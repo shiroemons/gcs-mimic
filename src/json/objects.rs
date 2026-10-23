@@ -498,9 +498,14 @@ pub(crate) fn validate_read_condition_headers(
     etags_supported: bool,
     query_conditions: bool,
 ) -> Result<(), JsonError> {
-    for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
-        if headers.contains_key(name) {
-            return Err(JsonError::unsupported_object(name));
+    if etags_supported {
+        for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
+            if name == "if-modified-since" && headers.contains_key("if-none-match") {
+                continue;
+            }
+            if headers.contains_key(name) {
+                return Err(JsonError::unsupported_object(name));
+            }
         }
     }
     for name in ["if-match", "if-none-match"] {

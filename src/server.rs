@@ -752,6 +752,7 @@ async fn object_response(
                 .await?;
             return Ok(boxed(read_metadata_response(
                 request.headers(),
+                &json::object_etag(&record),
                 json::object_resource(&record, &state.api_base_url, params.projection)?,
                 &fields,
             )?));
@@ -1087,6 +1088,7 @@ async fn bucket_response(
             }
             return read_metadata_response(
                 request.headers(),
+                &json::bucket_etag(&record),
                 json::bucket_resource_with_profile(
                     &record,
                     &state.api_base_url,
@@ -1207,17 +1209,11 @@ fn not_modified_response(
 
 fn read_metadata_response(
     headers: &hyper::HeaderMap,
+    etag: &str,
     mut value: serde_json::Value,
     fields: &json::Fields,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    let resource_etag = value["etag"].as_str().expect("resource has an ETag");
-    // The legacy bucket resource keeps its unquoted source encoding; HTTP uses entity-tag syntax.
-    let etag = if resource_etag.starts_with('"') {
-        resource_etag.to_owned()
-    } else {
-        format!("\"{resource_etag}\"")
-    };
-    if read_etag_not_modified(headers, &etag)? {
+    if read_etag_not_modified(headers, etag)? {
         return Ok(not_modified_response(
             &etag.parse().unwrap(),
             &hyper::header::HeaderValue::from_static("no-cache"),
