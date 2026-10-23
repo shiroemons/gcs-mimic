@@ -446,7 +446,7 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
     let mut server = Server::start(&dir);
     server.setup();
     let path = "/storage/v1/b/test-bucket/o/dir%2Ffile";
-    for _ in 0..12 {
+    for attempt in 0..12 {
         let before = server.request("GET", path, b"").json();
         let condition = format!(
             "{path}?ifMetagenerationMatch={}",
@@ -455,19 +455,42 @@ fn conditional_delete_and_metadata_patch_have_one_winner() {
         let barrier = Arc::new(Barrier::new(2));
         let address = server.address.clone();
         let waiting = barrier.clone();
-        let patch_path = condition.clone();
-        let patch = std::thread::spawn(move || {
+        let worker_path = condition.clone();
+        let (worker_method, main_method) = if attempt % 2 == 0 {
+            ("PATCH", "DELETE")
+        } else {
+            ("DELETE", "PATCH")
+        };
+        let patch_body = br#"{"metadata":{"winner":"patch"}}"#;
+        let worker = std::thread::spawn(move || {
             waiting.wait();
             request(
                 &address,
-                "PATCH",
-                &patch_path,
-                br#"{"metadata":{"winner":"patch"}}"#,
+                worker_method,
+                &worker_path,
+                if worker_method == "PATCH" {
+                    patch_body
+                } else {
+                    b""
+                },
             )
         });
         barrier.wait();
-        let delete = server.request("DELETE", &condition, b"");
-        let patch = patch.join().unwrap();
+        let main = server.request(
+            main_method,
+            &condition,
+            if main_method == "PATCH" {
+                patch_body
+            } else {
+                b""
+            },
+        );
+        let worker = worker.join().unwrap();
+        let (delete, patch) = if main_method == "DELETE" {
+            (main, worker)
+        } else {
+            (worker, main)
+        };
         match (delete.status, patch.status) {
             (204, 404) => {
                 patch.error(404, "notFound");

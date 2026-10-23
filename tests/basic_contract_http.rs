@@ -12,7 +12,7 @@ use std::{
 
 const OBJECT_METHODS: [&str; 5] = ["media", "multipart", "PATCH", "PUT", "DELETE"];
 const OLD_BYTES: &[u8] = b"original\0payload\xff";
-const NEW_BYTES: &[u8] = b"replacement\0bytes\xfe";
+const NEW_BYTES: &[u8] = HASH_BYTES;
 // Independently computed reference hashes for the standard ASCII check vector.
 const HASH_BYTES: &[u8] = b"123456789";
 const MD5: &str = "JfnnlDI7RTiF9RgfG2JNCw==";
@@ -279,6 +279,14 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                     assert_ne!(after.0["generation"], before.0["generation"]);
                     assert_eq!(after.0["metageneration"], "1");
                     assert_eq!(after.1, NEW_BYTES);
+                    assert_eq!(after.0["size"], NEW_BYTES.len().to_string());
+                    assert_eq!(after.0["md5Hash"], MD5);
+                    assert_eq!(after.0["crc32c"], CRC32C);
+                    if method == "multipart" {
+                        assert_eq!(after.0["metadata"], json!({"replace":"new"}));
+                    } else {
+                        assert!(after.0.get("metadata").is_none());
+                    }
                 } else {
                     for field in ["generation", "size", "md5Hash", "crc32c", "timeCreated"] {
                         assert_eq!(after.0[field], before.0[field], "{method} {field}");
@@ -294,7 +302,26 @@ fn object_condition_matrix(condition: &str, field: &str, not_match: bool) {
                         .to_string()
                     );
                     assert_eq!(after.0["metadata"]["replace"], "new");
+                    if method == "PATCH" {
+                        let mut expected = before.0["metadata"].clone();
+                        expected["replace"] = json!("new");
+                        assert_eq!(after.0["metadata"], expected);
+                    } else {
+                        assert_eq!(after.0["metadata"], json!({"replace":"new"}));
+                    }
                     assert_eq!(after.1, before.1);
+                }
+                for field in [
+                    "contentEncoding",
+                    "contentDisposition",
+                    "contentLanguage",
+                    "cacheControl",
+                ] {
+                    if method == "PATCH" {
+                        assert_eq!(after.0[field], before.0[field], "{field}");
+                    } else {
+                        assert!(after.0.get(field).is_none(), "{method} {field}");
+                    }
                 }
                 assert_eq!(after.0["contentType"], "text/replacement");
             }
@@ -370,6 +397,18 @@ fn bucket_condition_matrix(not_match: bool) {
                 assert_eq!(server.get(&path).json(), after);
                 assert_eq!(after["metageneration"], (current + 1).to_string());
                 assert_eq!(after["storageClass"], "COLDLINE");
+                for field in [
+                    "kind",
+                    "id",
+                    "name",
+                    "selfLink",
+                    "projectNumber",
+                    "location",
+                    "locationType",
+                    "timeCreated",
+                ] {
+                    assert_eq!(after[field], before[field], "{method} {field}");
+                }
                 assert_eq!(after["labels"]["replace"], "new");
                 if method == "PATCH" {
                     assert_eq!(after["labels"]["keep"], "original");
@@ -393,6 +432,85 @@ fn basic_contract_local_bucket_metageneration_not_match_mutations_use_412_withou
 }
 
 #[test]
+fn basic_contract_generation_match_zero_rejects_live_reads_and_metadata_mutations() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, &[]);
+    server.bucket("test-bucket");
+    let before = server.seed_object("existing");
+    for suffix in ["", "&alt=media"] {
+        server
+            .get(&format!(
+                "/storage/v1/b/test-bucket/o/existing?ifGenerationMatch=0{suffix}"
+            ))
+            .condition_failed();
+        assert_eq!(server.snapshot("existing"), before);
+    }
+    for method in ["PATCH", "PUT", "DELETE"] {
+        server
+            .mutate_object(method, "existing", "ifGenerationMatch=0")
+            .condition_failed();
+        assert_eq!(server.snapshot("existing"), before, "{method}");
+    }
+    server.stop();
+}
+
+#[test]
+fn basic_contract_multipart_metadata_only_checksums_validate_stored_bytes() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, &[]);
+    server.bucket("test-bucket");
+    for (field, hash) in [("md5Hash", MD5), ("crc32c", CRC32C)] {
+        let metadata = json!({"name": field, field: hash});
+        let body = format!(
+            "--boundary\r\nContent-Type: application/json\r\n\r\n{metadata}\r\n--boundary\r\nContent-Type: application/octet-stream\r\n\r\n123456789\r\n--boundary--\r\n"
+        );
+        let uploaded = server
+            .request(
+                "POST",
+                "/upload/storage/v1/b/test-bucket/o?uploadType=multipart",
+                "Content-Type: multipart/related; boundary=boundary\r\n",
+                body.as_bytes(),
+            )
+            .json();
+        assert_eq!(uploaded["md5Hash"], MD5);
+        assert_eq!(uploaded["crc32c"], CRC32C);
+        assert_eq!(uploaded["size"], HASH_BYTES.len().to_string());
+        assert_eq!(server.snapshot(field), (uploaded, HASH_BYTES.to_vec()));
+    }
+    server.stop();
+}
+
+#[test]
+fn basic_contract_single_request_resumable_checksums_validate_stored_bytes() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, &[]);
+    server.bucket("test-bucket");
+    for (name, hash) in [
+        ("md5", format!("md5={MD5}")),
+        ("crc32c", format!("crc32c={CRC32C}")),
+    ] {
+        let initiation = server.request(
+            "POST",
+            &format!("/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name={name}"),
+            "Content-Type: application/json\r\nX-Upload-Content-Type: application/octet-stream\r\n",
+            b"{}",
+        );
+        assert_eq!(initiation.status, 200);
+        let path = initiation.headers["location"]
+            .strip_prefix("http://127.0.0.1:4443")
+            .unwrap();
+        let uploaded = server.request("PUT", path,
+            &format!("Content-Type: application/octet-stream\r\nContent-Range: bytes 0-8/9\r\nX-Goog-Hash: {hash}\r\n"), HASH_BYTES,
+        ).json();
+        assert_eq!(uploaded["md5Hash"], MD5);
+        assert_eq!(uploaded["crc32c"], CRC32C);
+        assert_eq!(uploaded["size"], HASH_BYTES.len().to_string());
+        assert_eq!(server.snapshot(name), (uploaded, HASH_BYTES.to_vec()));
+    }
+    server.stop();
+}
+
+#[test]
 fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, &[]);
@@ -407,7 +525,11 @@ fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed
     {
         let name = format!("valid-{index}");
         let uploaded = server
-            .upload(&name, &format!("X-Goog-Hash: {hash}\r\n"), HASH_BYTES)
+            .upload(
+                &name,
+                &format!("Content-Type: application/octet-stream\r\nX-Goog-Hash: {hash}\r\n"),
+                HASH_BYTES,
+            )
             .json();
         assert_eq!(uploaded["md5Hash"], MD5);
         assert_eq!(uploaded["crc32c"], CRC32C);
@@ -424,7 +546,7 @@ fn basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed
     .enumerate()
     {
         let name = format!("invalid-{index}");
-        let headers = format!("X-Goog-Hash: {hash}\r\n");
+        let headers = format!("Content-Type: application/octet-stream\r\nX-Goog-Hash: {hash}\r\n");
         server.upload(&name, &headers, HASH_BYTES).error(400);
         server
             .get(&format!("/storage/v1/b/test-bucket/o/{name}"))
@@ -456,6 +578,13 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
         (
             "GET",
             "/storage/v1/b/test-bucket/o/missing-object".to_owned(),
+            "",
+            b"",
+            404,
+        ),
+        (
+            "GET",
+            "/storage/v1/b/test-bucket/o/%22q%5C%E6%97%A5".to_owned(),
             "",
             b"",
             404,
@@ -507,7 +636,7 @@ fn basic_contract_json_errors_keep_complete_envelopes_with_fields_selection() {
         (
             "POST",
             "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=bad-hash".to_owned(),
-            "X-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n",
+            "Content-Type: application/octet-stream\r\nX-Goog-Hash: md5=AAAAAAAAAAAAAAAAAAAAAA==\r\n",
             HASH_BYTES,
             400,
         ),
