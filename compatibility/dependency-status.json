@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-22T11:47:32Z",
-  "scope": "Resumable upload slice-end verification: eleven direct Rust crates, Rust/Go toolchains, pinned SDK graph, container inputs, BuildKit/SBOM generator and release Actions. Adopted the refreshed Rust builder index; all 31 inputs are CURRENT and application/SDK lockfiles are unchanged.",
+  "checked_at_utc": "2026-10-23T00:45:26Z",
+  "scope": "Go API client update verification: eleven direct Rust crates, Rust/Go toolchains, pinned SDK graph, container inputs, BuildKit/SBOM generator and release Actions. Adopted API client v0.308.0 with Storage v1.70.0 and the remaining module graph unchanged; all 31 inputs are CURRENT.",
   "freshness_check": {
-    "command": "just check-dependencies",
+    "command": "cargo +1.99.1 xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/resumable-upload-freshness.txt",
-    "follow_up": "All inputs report CURRENT with no exceptions after the Rust builder index refresh. Both selected platform manifests are unchanged; the source-built native ARM64 image passes its builder-stage compilation and runtime export. Both-architecture smoke and full guide execution remain separate final integration checks; remote CI, native AMD64 and release-platform execution remain pending."
+    "artifact": "docs/en/evidence/bucket-metadata-put-dependencies.txt",
+    "follow_up": "All inputs report CURRENT with no exceptions after adopting API client v0.308.0. Go vet and the full pinned SDK suite pass; the Dockerfile does not copy or build the SDK harness, so no container rebuild was run. Earlier container and guide evidence is retained; remote CI, native AMD64 and release-platform execution remain pending."
   },
   "toolchain": {
     "channel": "stable",
@@ -203,7 +203,7 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-22T05:37:19Z",
+      "checked_at_utc": "2026-10-23T00:43:51Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
@@ -224,16 +224,18 @@
           ]
         },
         {
-          "name": "google.golang.org/api", "current": "v0.307.0",
-          "latest_non_retracted_stable": "v0.307.0", "license": "BSD-3-Clause",
-          "compressed_module_bytes": 52393444, "minimum_go": "1.26.0",
+          "name": "google.golang.org/api", "current": "v0.308.0",
+          "latest_non_retracted_stable": "v0.308.0", "license": "BSD-3-Clause",
+          "compressed_module_bytes": 52400260, "minimum_go": "1.26.0",
           "purpose": "Official client options, pagination and JSON API error types.",
-          "maintenance": "Google-maintained generated client module, released 2026-10-21; stable freshness rechecked for the 2026-10-22 local slice.",
-          "source_revision": "fbb4c3c103847f35323cf2261403643400b22062",
+          "maintenance": "Google-maintained generated client module, released 2026-10-22; latest stable, non-prerelease and non-retracted status verified on 2026-10-23. BSD-3-Clause LICENSE is byte-identical to v0.307.0.",
+          "source_revision": "5767912fa9673119eee358c714d9cb93f0ff1ba5",
           "source_urls": [
             "https://proxy.golang.org/google.golang.org/api/@latest",
-            "https://proxy.golang.org/google.golang.org/api/@v/v0.307.0.mod",
-            "https://github.com/googleapis/google-api-go-client/tree/fbb4c3c103847f35323cf2261403643400b22062"
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.info",
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.mod",
+            "https://github.com/googleapis/google-api-go-client/releases/tag/v0.308.0",
+            "https://github.com/googleapis/google-api-go-client/tree/5767912fa9673119eee358c714d9cb93f0ff1ba5"
           ]
         }
       ],

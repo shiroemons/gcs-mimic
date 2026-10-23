@@ -2,6 +2,99 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## SDK API client update: 2026-10-23
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.308.0 and OAuth2 v0.37.0.
+`GOTOOLCHAIN=go1.27.3 go get google.golang.org/api@v0.308.0` followed by
+`go mod tidy` changed only the API version and its checksums; Storage and all
+indirect requirements are unchanged. The official release is dated 2026-10-22,
+is not a prerelease or retracted, and retains the byte-identical BSD-3-Clause
+LICENSE. Go vet and `just check-sdk` passed with 33 top-level tests and 73
+subtests, zero failures/skips (package time 3.278s). All 31 dependency inputs
+are CURRENT. See the [update evidence](../../docs/en/evidence/bucket-metadata-put.md#sdk-api-client-update)
+and [raw output](../../docs/en/evidence/bucket-metadata-put-sdk-update.txt).
+Historical sections below retain their original versions and execution records.
+
+## Bucket metadata PUT contract tests: 2026-10-23
+
+`TestBucketMetadataReplace` and `TestStrictAuthBucketMetadataReplace` exercise
+`google.golang.org/api/storage/v1` `Service.Buckets.Update`. The pinned generated
+client constructs HTTP PUT, whereas high-level `BucketHandle.Update` constructs
+PATCH. The tests contrast replacement with merge, verify modeled omission
+defaults, successful and failed match/not-match conditions, response/Attrs
+consistency, revisions, existing object bytes/generation, strict viewer denial,
+admin label replacement and IAM policy etag/bindings preservation. Failed
+conditions must report `conditionNotMet`, not only HTTP 412. Cleanup deletes
+every object generation so an interrupted journey with versioning enabled
+does not leave noncurrent objects behind.
+
+Pins remain Go 1.27.3, Storage v1.70.0, API v0.307.0 and OAuth2 v0.37.0.
+The raw API client was already required; `go.mod` and `go.sum` are unchanged.
+Guarded transports, explicit emulator origins, static local tokens and redirect
+rejection apply to every raw client request; no ADC or Google metadata-server
+discovery is used. The strict raw service does not change emulator environment
+variables or construct an unused high-level client.
+
+The targeted runner is
+`GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh`.
+It starts isolated native permissive and strict servers and cleans up both.
+Its existing test-name selector includes these tests automatically.
+
+The comparison source is fake-gcs-server v1.56.1, commit
+`896ece51e49eed0946089f3089f6343855c0d106`, archive SHA-256
+`13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc`.
+The pinned [router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go#L244-L253)
+registers bucket PATCH and POST with PATCH override, but no bucket PUT.
+The [bucket handler](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/bucket.go#L35-L68)
+parses only versioning/default hold and is not reached by PUT.
+
+`GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh`
+exercises both reference backends and both local profiles, including 32 PUTs
+per target. The script verifies the source archive digest before building the
+pinned reference and uses the committed Rust and Go toolchains.
+
+The local assertions check whole-map replacement; omitted/null/empty labels;
+STANDARD/false omission defaults; native null-boolean 400 versus legacy reset;
+null class 400; unsupported settings/ACL/billing query 501; malformed body and invalid
+projection/generation 400; missing bucket 404; condition failure 412 without
+mutation; one revision increment per success; and PUT/GET/list agreement with
+unchanged identity, placement, object list and bytes. Error cases check the
+first error reason as well as the status. Creation and post-upload GET resources
+must match in both local profiles; the uploaded object's metadata and event hold
+must survive disabling the default hold. Condition cases start from GET
+resources rather than POST responses.
+
+The committed reference assertions require:
+
+- All 32 PUT cases return HTTP 404 with the same JSON envelope: code 404,
+  message `Not Found`, domain `global`, reason `notFound`. This includes an
+  existing bucket, malformed JSON, null/empty metadata, unsupported settings,
+  projection, billing/ACL queries and passing/failing metageneration conditions.
+  No PUT replacement, input validation or condition enforcement is inferred.
+- Every PUT preserves the post-upload GET/list bucket resource and object bytes.
+  The reference retains fixed metageneration `1` and etag `RVRhZw==`; local
+  successful replacements increment metageneration and change the etag.
+- An explicit post-upload GET baseline isolates upload behavior from PUT,
+  including any backend-specific metadata changes during fixture creation.
+
+The [final bucket PUT evidence](../../docs/en/evidence/bucket-metadata-put.md)
+records the executed full SDK suite and comparison, source pins, raw logs and
+the remaining dependency-freshness and provider-parity limits.
+
+The reference has no successful PUT and therefore provides no omitted-field or
+null-scalar replacement contract. This section describes committed coverage,
+not execution on an uncommitted tree. Final SDK and comparison results, exact
+tested source revisions and complete output are recorded by the final
+integration evidence in `docs/en/evidence/bucket-metadata-put*.md`.
+
+This comparison is not a Google-service differential test. Google omitted/null
+defaults remain limited to the separately frozen local contract. No container
+build, getting-started run, upstream test suite or real Google bucket is used
+by these checks.
+MD013 remains disabled by the existing document directive for long commands and
+source links. The complete Go suite, container builds and getting-started
+journeys are separate final integration checks.
+
 ## Bucket metadata PATCH contract tests: 2026-10-23
 
 `TestBucketMetadataUpdate` and `TestStrictAuthBucketMetadataUpdate` add official

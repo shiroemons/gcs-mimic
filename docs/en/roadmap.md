@@ -60,6 +60,7 @@ remain in the named evidence files.
 | Runtime foundation | HTTP, configuration, probes, non-root container and injected clock | Current-source platform/CI and release claims need their own evidence | [Runtime/container](evidence/distroless.md) |
 | JSON bucket CRUD | Persistent create/get/list/delete, conditions and scoped paging | IAM/ACL, ownership and advanced settings | [Bucket verification](evidence/bucket-crud.md) |
 | Bucket metadata PATCH | Label merge/removal, supported default class, versioning/default holds, atomic conditions, strict permission, restart and HTTP/Go/native/Docker checks | Whole method and affected broad behavior rows remain PARTIAL for advanced settings and provider edge parity | [Final PATCH verification](evidence/bucket-metadata-patch.md) |
+| Bucket metadata PUT | Replacement/local omission defaults, settings effects, atomic conditions, strict permission, resource preservation and final Rust/Go/reference/container/native/Docker checks | Whole method remains PARTIAL; advanced fields, ACL/billing/projection and provider parity pending; API dependency update detected | [Final PUT verification](evidence/bucket-metadata-put.md) |
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
@@ -94,7 +95,7 @@ success stub does not complete a workflow.
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
 | 5 | Bucket create, get and delete | Declared native/compatibility creation, basic GET, empty deletion, versioning/default holds and HTTP/SDK/container/guide checks passed on 2026-10-22; both pinned reference backends compared | Delivered: named baseline with explicit intentional/strict/unsupported differences; broad bucket and versioning/hold rows remain PARTIAL; [final verification](evidence/bucket-core-parity.md) |
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
-| 7 | Bucket metadata PUT | Reconciled replacement/default semantics over the same fields; preserve objects, identity and IAM | Replace basic bucket settings with verified PUT semantics |
+| 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
 | 8 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
 | 9 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
 | 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
@@ -109,11 +110,19 @@ success stub does not complete a workflow.
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation slice is **bucket metadata PUT** within order 7:
-reconcile replacement, omitted/null/default and output-only semantics for the
-same labels/default-class subset, preserving objects, identity and IAM with
-atomic conditions, strict permission and restart evidence. Do not infer PUT
-semantics from PATCH.
+The next implementation slice is **Basic JSON contract** within order 8:
+freeze the basic local profile, implement supported response field selection
+and read ETag validators as separate small slices, and close named conditions,
+checksums and error gaps before copy/rewrite/compose. Keep existing broad cases
+and provider questions visible.
+Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
+covering the [frozen replacement contract](slices/bucket-metadata-put.md),
+Rust/Go checks, both reference backends and local profiles, both container
+architectures and affected native/Docker guide blocks with restart equality.
+Separate maintenance adopted API client v0.308.0 with Storage v1.70.0 unchanged;
+the full SDK suite passes and all 31 dependency inputs report CURRENT.
+The complete buckets.update row stays PARTIAL for advanced fields,
+ACL/billing/full projection and provider defaults/error parity.
 Order 6 is closed by [final PATCH evidence](evidence/bucket-metadata-patch.md),
 including effective versioning/default-hold changes, label merge/removal,
 clock/revision behavior, native/Docker guide checks and explicit pinned-reference

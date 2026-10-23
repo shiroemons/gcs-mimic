@@ -242,6 +242,21 @@ pub fn parse_bucket_patch(
     bytes: &[u8],
     profile: CompatProfile,
 ) -> Result<BucketMetadataUpdate, JsonError> {
+    parse_bucket_update(bytes, profile, false)
+}
+
+pub fn parse_bucket_replacement(
+    bytes: &[u8],
+    profile: CompatProfile,
+) -> Result<BucketMetadataUpdate, JsonError> {
+    parse_bucket_update(bytes, profile, true)
+}
+
+fn parse_bucket_update(
+    bytes: &[u8],
+    profile: CompatProfile,
+    replace: bool,
+) -> Result<BucketMetadataUpdate, JsonError> {
     let value: Value = serde_json::from_slice(bytes).map_err(|_| {
         JsonError::new(
             StatusCode::BAD_REQUEST,
@@ -254,6 +269,9 @@ pub fn parse_bucket_patch(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            if replace && *field == "acl" && body.get(*field) == Some(&json!([])) {
+                continue;
+            }
             if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
                 continue;
             }
@@ -296,19 +314,26 @@ pub fn parse_bucket_patch(
             let labels = value
                 .as_object()
                 .ok_or_else(|| JsonError::invalid_argument("labels must be an object or null"))?;
+            if replace && labels.len() > 64 {
+                return Err(JsonError::invalid_argument(
+                    "A bucket can have at most 64 labels",
+                ));
+            }
             labels
                 .iter()
                 .map(|(key, value)| {
-                    let value = if value.is_null() {
+                    let value = if value.is_null() && !replace {
                         None
                     } else {
                         Some(
                             value
                                 .as_str()
                                 .ok_or_else(|| {
-                                    JsonError::invalid_argument(
-                                        "Label values must be strings or null",
-                                    )
+                                    JsonError::invalid_argument(if replace {
+                                        "Label values must be strings"
+                                    } else {
+                                        "Label values must be strings or null"
+                                    })
                                 })?
                                 .to_owned(),
                         )

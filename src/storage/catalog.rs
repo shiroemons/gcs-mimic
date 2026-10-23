@@ -535,6 +535,45 @@ impl Catalog {
         if_metageneration_not_match: Option<i64>,
         access: &BucketAccess,
     ) -> Result<BucketRecord, CatalogError> {
+        self.update_bucket(
+            name,
+            update,
+            if_metageneration_match,
+            if_metageneration_not_match,
+            access,
+            false,
+        )
+        .await
+    }
+
+    pub async fn replace_bucket(
+        &self,
+        name: &str,
+        update: BucketMetadataUpdate,
+        if_metageneration_match: Option<i64>,
+        if_metageneration_not_match: Option<i64>,
+        access: &BucketAccess,
+    ) -> Result<BucketRecord, CatalogError> {
+        self.update_bucket(
+            name,
+            update,
+            if_metageneration_match,
+            if_metageneration_not_match,
+            access,
+            true,
+        )
+        .await
+    }
+
+    async fn update_bucket(
+        &self,
+        name: &str,
+        update: BucketMetadataUpdate,
+        if_metageneration_match: Option<i64>,
+        if_metageneration_not_match: Option<i64>,
+        access: &BucketAccess,
+        replace: bool,
+    ) -> Result<BucketRecord, CatalogError> {
         let name = name.to_owned();
         let access = access.clone();
         let clock = self.0.clock.clone();
@@ -564,11 +603,18 @@ impl Catalog {
             {
                 return Err(CatalogError::UnsupportedMetadata("location".into()));
             }
+            if replace {
+                record.labels.clear();
+                record.storage_class = "STANDARD".into();
+                record.versioning_enabled = false;
+                record.default_event_based_hold = false;
+            }
             if let Some(labels) = update.labels {
                 if let Some(labels) = labels {
                     for (key, value) in labels {
                         // Library callers can bypass adapter validation.
-                        if !valid_label(&key, true)
+                        if (replace && value.is_none())
+                            || !valid_label(&key, true)
                             || value
                                 .as_deref()
                                 .is_some_and(|value| !valid_label(value, false))
@@ -848,9 +894,18 @@ mod tests {
 
     #[tokio::test]
     async fn bucket_patch_rechecks_revocation_and_bucket_recreation() {
+        bucket_metadata_rechecks_revocation(false).await;
+    }
+
+    #[tokio::test]
+    async fn bucket_put_rechecks_revocation_and_bucket_recreation() {
+        bucket_metadata_rechecks_revocation(true).await;
+    }
+
+    async fn bucket_metadata_rechecks_revocation(replace: bool) {
         use crate::auth::{BUCKETS_UPDATE, Binding};
         let directory =
-            std::env::temp_dir().join(format!("gcs-mimic-patch-policy-{}", std::process::id()));
+            std::env::temp_dir().join(format!("gcs-mimic-policy-{replace}-{}", std::process::id()));
         let catalog = Catalog::open(&directory).await.unwrap();
         let record =
             crate::json::parse_insert(br#"{"name":"patch-policy"}"#, "project", UNIX_EPOCH)
@@ -891,7 +946,38 @@ mod tests {
         };
         assert_eq!(
             catalog
-                .patch_bucket("patch-policy", update.clone(), Some(99), None, &access)
+                .update_bucket(
+                    "patch-policy",
+                    update.clone(),
+                    Some(99),
+                    None,
+                    &access,
+                    replace
+                )
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(record.clone())
+        );
+        let invalid = BucketMetadataUpdate {
+            labels: Some(Some(std::collections::BTreeMap::from([(
+                "Bad".into(),
+                Some("value".into()),
+            )]))),
+            ..Default::default()
+        };
+        assert_eq!(
+            catalog
+                .update_bucket(
+                    "patch-policy",
+                    invalid.clone(),
+                    Some(99),
+                    None,
+                    &access,
+                    replace
+                )
                 .await,
             Err(CatalogError::Forbidden)
         );
@@ -908,7 +994,17 @@ mod tests {
         catalog.insert_bucket(replacement.clone()).await.unwrap();
         assert_eq!(
             catalog
-                .patch_bucket("patch-policy", update, None, None, &access)
+                .update_bucket("patch-policy", update, None, None, &access, replace)
+                .await,
+            Err(CatalogError::Forbidden)
+        );
+        assert_eq!(
+            catalog.get_bucket("patch-policy").await.unwrap(),
+            Some(replacement.clone())
+        );
+        assert_eq!(
+            catalog
+                .update_bucket("patch-policy", invalid, None, None, &access, replace)
                 .await,
             Err(CatalogError::Forbidden)
         );

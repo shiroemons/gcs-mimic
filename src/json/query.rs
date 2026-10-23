@@ -50,6 +50,10 @@ pub enum BucketRequest {
         bucket: String,
         params: GetParams,
     },
+    Update {
+        bucket: String,
+        params: GetParams,
+    },
     List(ListParams),
     Delete {
         bucket: String,
@@ -140,13 +144,11 @@ pub fn route_with_profile(
     let allowed = matches!(
         (bucket.is_some(), method),
         (false, &Method::GET | &Method::POST)
-            | (true, &Method::GET | &Method::DELETE | &Method::PATCH)
+            | (
+                true,
+                &Method::GET | &Method::DELETE | &Method::PATCH | &Method::PUT
+            )
     );
-    if bucket.is_some() && *method == Method::PUT {
-        return Some(Err(JsonError::unsupported(
-            "bucket metadata updates, including iamConfiguration",
-        )));
-    }
     if !allowed {
         let mut error = JsonError::new(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -154,7 +156,7 @@ pub fn route_with_profile(
             "HTTP method is not supported for this bucket endpoint",
         );
         error.allow = Some(if bucket.is_some() {
-            "GET, DELETE, PATCH"
+            "GET, DELETE, PATCH, PUT"
         } else {
             "GET, POST"
         });
@@ -245,7 +247,7 @@ fn parse(
                 start_after,
             }))
         }
-        (&Method::GET | &Method::PATCH, Some(bucket)) => {
+        (&Method::GET | &Method::PATCH | &Method::PUT, Some(bucket)) => {
             if *method == Method::GET {
                 unsupported(&query, &["generation"])?;
                 false_only(&mut query, "softDeleted")?;
@@ -253,6 +255,9 @@ fn parse(
                 unsupported(&query, &["predefinedAcl", "predefinedDefaultObjectAcl"])?;
             }
             let conditions = conditions(&mut query)?;
+            if *method == Method::PUT && !query.contains_key("projection") {
+                query.insert("projection".into(), "full".into());
+            }
             let projection = projection(&mut query)?;
             finish(query)?;
             let params = GetParams {
@@ -261,6 +266,8 @@ fn parse(
             };
             Ok(if *method == Method::PATCH {
                 BucketRequest::Patch { bucket, params }
+            } else if *method == Method::PUT {
+                BucketRequest::Update { bucket, params }
             } else {
                 BucketRequest::Get { bucket, params }
             })

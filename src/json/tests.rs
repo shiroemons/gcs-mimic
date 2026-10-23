@@ -85,7 +85,7 @@ fn bkt_route_002_path_decodes_only_after_splitting() {
 fn bkt_route_003_wrong_method_has_allow_header() {
     for (path, allow) in [
         ("/storage/v1/b", "GET, POST"),
-        ("/storage/v1/b/abc", "GET, DELETE, PATCH"),
+        ("/storage/v1/b/abc", "GET, DELETE, PATCH, PUT"),
     ] {
         for method in [Method::PUT, Method::PATCH, Method::HEAD, Method::OPTIONS] {
             if path.ends_with("/abc") && method == Method::PATCH {
@@ -96,9 +96,16 @@ fn bkt_route_003_wrong_method_has_allow_header() {
                 continue;
             }
             if path.ends_with("/abc") && method == Method::PUT {
-                let error = request(method, path).unwrap_err();
-                assert_eq!(error.status, StatusCode::NOT_IMPLEMENTED);
-                assert_eq!(error.reason, "notImplemented");
+                assert!(matches!(
+                    request(method, path).unwrap(),
+                    BucketRequest::Update {
+                        params: GetParams {
+                            projection: Projection::Full,
+                            ..
+                        },
+                        ..
+                    }
+                ));
                 continue;
             }
             let error = request(method, path).unwrap_err();

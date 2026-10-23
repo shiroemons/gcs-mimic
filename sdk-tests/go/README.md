@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and
-`google.golang.org/api` v0.307.0, verified on 2026-10-22. `go.sum` records module
+`google.golang.org/api` v0.308.0, verified on 2026-10-23. `go.sum` records module
 checksums; `go.mod` records the resolved graph. Go 1.21 or newer can download the
 pinned toolchain with `GOTOOLCHAIN=auto`. The `go 1.27.0` directive selects the
 language baseline and `toolchain go1.27.3` pins the verified stable patch release.
@@ -111,6 +111,38 @@ explicit CRC32C/MD5, rejected checksum mismatches, create-if-absent and
 conditioned overwrites, followed by Attrs and NewReader verification.
 Single-request upload invocation tokens require `ifGenerationMatch` and have no replay support;
 retrying a committed conditioned upload fails 412 instead of writing again.
+
+## Bucket metadata PUT
+
+`TestBucketMetadataReplace` uses the pinned `google.golang.org/api/storage/v1`
+`Service.Buckets.Update` JSON client, which sends PUT. The high-level
+`cloud.google.com/go/storage` `BucketHandle.Update` sends PATCH and is retained
+as the merge contrast. No modules or checksums change.
+
+The PUT journey replaces labels, sets the supported class/versioning/default
+hold fields, then verifies that omitted labels clear and omitted settings reset
+to STANDARD/false. Both metageneration conditions have success and 412 cases;
+failed requests preserve metadata. PUT responses agree with high-level Attrs,
+advance one metageneration, change the etag and preserve identity and existing
+object generations/bytes. `TestStrictAuthBucketMetadataReplace` verifies viewer
+403, admin label replacement and unchanged IAM policy etag/bindings and object bytes. Both clients
+reuse the origin-guarded HTTP harness and explicit emulator endpoints; strict
+tokens come only from the checked-in local fixture registry.
+
+Run only these journeys with:
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='^(TestBucketMetadataReplace|TestStrictAuthBucketMetadataReplace)$' bash scripts/sdk-go.sh
+```
+
+The raw comparison script additionally covers both compatibility profiles and
+both pinned reference backends, including null/empty fields, unsupported inputs,
+GET/list consistency, error reasons and unchanged object bytes/holds. The pinned reference has no
+bucket PUT route: every PUT in this corpus returns JSON 404 without changing the
+bucket, unlike its PATCH handler. This is a reference difference, not evidence
+of Google service behavior. [Verification](verification.md) describes the pins
+and committed coverage; final SDK and comparison execution results are recorded
+in `docs/en/evidence/bucket-metadata-put*.md`.
 
 ## Resumable Writer journeys
 
