@@ -131,7 +131,7 @@ impl Catalog {
                 })?;
                 transaction
                     .execute(
-                        "INSERT INTO parent_public_access_prevention VALUES (?1)",
+                        "INSERT OR IGNORE INTO parent_public_access_prevention VALUES (?1)",
                         [project],
                     )
                     .map_err(unavailable)?;

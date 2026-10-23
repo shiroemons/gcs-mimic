@@ -668,7 +668,8 @@ impl Catalog {
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
-            if (update.public_access_prevention_enforced.is_some() || (replace && record.public_access_prevention_enforced))
+            let pap = update.public_access_prevention_enforced.unwrap_or(!replace && record.public_access_prevention_enforced);
+            if pap != record.public_access_prevention_enforced
                 && let BucketAccess::Policy { identity, project, .. } = &access
             {
                 check_access(&transaction, &name, &record.project, &BucketAccess::Policy {

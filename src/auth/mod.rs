@@ -561,8 +561,14 @@ mod tests {
             bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
             storage::Catalog,
         };
-        let dir =
-            std::env::temp_dir().join(format!("gcs-mimic-pap-permissions-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "gcs-mimic-pap-permissions-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let catalog = Catalog::open(&dir).await.unwrap();
         let record = crate::json::parse_insert(
             br#"{"name":"pap-permissions"}"#,
@@ -599,6 +605,60 @@ mod tests {
                 catalog.get_bucket("pap-permissions").await.unwrap(),
                 Some(record.clone())
             );
+        }
+        for enforced in [false, true] {
+            catalog
+                .patch_bucket(
+                    "pap-permissions",
+                    BucketMetadataUpdate {
+                        public_access_prevention_enforced: Some(enforced),
+                        ..Default::default()
+                    },
+                    None,
+                    None,
+                    &BucketAccess::Unchecked,
+                )
+                .await
+                .unwrap();
+            for replace in [false, true] {
+                for value in [None, Some(enforced), Some(!enforced)] {
+                    let before = catalog
+                        .get_bucket("pap-permissions")
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let update = BucketMetadataUpdate {
+                        public_access_prevention_enforced: value,
+                        labels: Some(Some(BTreeMap::from([(
+                            "team".into(),
+                            Some("storage".into()),
+                        )]))),
+                        ..Default::default()
+                    };
+                    let result = if replace {
+                        catalog
+                            .replace_bucket("pap-permissions", update, None, None, &access)
+                            .await
+                    } else {
+                        catalog
+                            .patch_bucket("pap-permissions", update, None, None, &access)
+                            .await
+                    };
+                    let expected = value.unwrap_or(!replace && enforced);
+                    if expected == enforced {
+                        let after = result.unwrap();
+                        assert_eq!(after.public_access_prevention_enforced, enforced);
+                        assert_eq!(after.labels["team"], "storage");
+                        assert_eq!(after.metageneration, before.metageneration + 1);
+                    } else {
+                        assert_eq!(result, Err(CatalogError::Forbidden));
+                        assert_eq!(
+                            catalog.get_bucket("pap-permissions").await.unwrap(),
+                            Some(before)
+                        );
+                    }
+                }
+            }
         }
         catalog.close().await.unwrap();
         std::fs::remove_dir_all(dir).unwrap();

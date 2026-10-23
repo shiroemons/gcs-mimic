@@ -2127,7 +2127,7 @@ mod tests {
                 .unwrap();
             if parent {
                 catalog
-                    .configure_public_access_prevention(&["project".into()])
+                    .configure_public_access_prevention(&["project".into(), "project".into()])
                     .await
                     .unwrap();
             } else {

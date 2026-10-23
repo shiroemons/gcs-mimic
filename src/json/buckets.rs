@@ -403,7 +403,12 @@ fn parse_public_access_prevention(value: Option<&Value>) -> Result<Option<bool>,
         .as_object()
         .ok_or_else(|| JsonError::invalid_argument("iamConfiguration must be an object"))?;
     for field in ["uniformBucketLevelAccess", "bucketPolicyOnly"] {
-        if config.contains_key(field) {
+        if let Some(value) = config.get(field)
+            && !value.as_object().is_some_and(|setting| {
+                setting.get("enabled") == Some(&Value::Bool(false))
+                    && !setting.contains_key("lockedTime")
+            })
+        {
             return Err(JsonError::unsupported(&format!("iamConfiguration.{field}")));
         }
     }
