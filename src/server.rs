@@ -53,6 +53,8 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[path = "server/copy.rs"]
+mod copy;
 #[path = "server/resumable.rs"]
 mod resumable;
 
@@ -461,66 +463,39 @@ async fn object_response(
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let (metadata, storage_class, expected) =
                 json::derived_metadata(&bytes, &source.object)?;
-            let component_count = if source.object.component_count.is_some() {
-                let source_bucket = state
-                    .catalog
-                    .get_bucket(&params.source_bucket)
-                    .await?
-                    .ok_or(ObjectError::BucketNotFound)?;
-                let destination_bucket = state
-                    .catalog
-                    .get_bucket(&params.bucket)
-                    .await?
-                    .ok_or(ObjectError::BucketNotFound)?;
-                json::derived_component_count(
-                    &source.object,
-                    storage_class
-                        .as_deref()
-                        .unwrap_or(&destination_bucket.storage_class),
-                    source_bucket.location == destination_bucket.location,
+            let source_location = if source.object.component_count.is_some() {
+                Some(
+                    state
+                        .catalog
+                        .get_bucket(&params.source_bucket)
+                        .await?
+                        .ok_or(ObjectError::BucketNotFound)?
+                        .location,
                 )
             } else {
                 None
             };
-            let catalog = state.catalog.clone();
             let projection = params.projection;
-            let operation = tokio::spawn(async move {
-                let transfer = catalog
-                    .begin_derived_ephemeral(vec![source.whole()], max_bytes)
-                    .await?;
-                let mut owner = catalog.guard_derived_request(&transfer.id);
-                catalog.advance_derived(&transfer.id, u64::MAX).await?;
-                let result = catalog
-                    .publish_derived(
-                        &transfer.id,
-                        crate::storage::DerivedDestination {
-                            bucket: params.bucket,
-                            name: params.name,
-                            content_type: String::new(),
-                            metadata,
-                            storage_class,
-                            expected,
-                            conditions: params.conditions,
-                            access,
-                            component_count,
-                        },
-                        |_, _| Ok(()),
-                    )
-                    .await;
-                if result.is_ok() {
-                    owner.disarm();
-                }
-                result
-            });
-            let record = await_upload_catalog(
-                async {
-                    operation
-                        .await
-                        .map_err(|error| ObjectError::Unavailable(error.to_string()))?
+            let record = copy::execute(
+                &state.catalog,
+                source,
+                crate::storage::DerivedDestination {
+                    bucket: params.bucket,
+                    name: params.name,
+                    content_type: String::new(),
+                    metadata,
+                    storage_class,
+                    expected,
+                    conditions: params.conditions,
+                    access,
+                    component_count: None,
                 },
-                catalog_timeout,
+                source_location,
+                config,
                 deadline,
                 activity,
+                #[cfg(test)]
+                None,
             )
             .await?;
             json::object_resource(&record, &state.api_base_url, projection)?

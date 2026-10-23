@@ -35,6 +35,27 @@ fn media(server: &Server, bucket: &str, name: &str) -> Vec<u8> {
     reply.body
 }
 
+fn assert_no_transfer_files(dir: &TestDir) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let count = rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        let files = std::fs::read_dir(dir.0.join("staging")).unwrap().count();
+        if count == 0 && files == 0 {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "leaked transfers={count}, staging files={files}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     let (_dir, server) = setup(false);
@@ -171,12 +192,13 @@ fn copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes() {
 
 #[test]
 fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets() {
-    let (_dir, server) = setup(false);
+    let (dir, server) = setup(false);
     let source = server.put("source", b"source").json();
     let target = server.put("target", b"target").json();
     let generation = source["generation"].as_str().unwrap();
     for query in [
         "?ifSourceGenerationMatch=1".to_owned(),
+        "?ifSourceGenerationMatch=0".to_owned(),
         format!("?ifSourceGenerationNotMatch={generation}"),
         "?ifSourceMetagenerationMatch=2".to_owned(),
         "?ifSourceMetagenerationNotMatch=1".to_owned(),
@@ -190,6 +212,7 @@ fn copy_checks_all_source_and_destination_conditions_and_preserves_failed_target
     ] {
         copy(&server, "source", "target", &query, b"").error(412, "conditionNotMet");
         assert_eq!(server.get("target").json(), target);
+        assert_no_transfer_files(&dir);
     }
     copy(&server, "source", "missing", "?ifGenerationNotMatch=0", b"")
         .error(412, "conditionNotMet");
@@ -231,6 +254,17 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
     server.put("target", b"old").json();
     copy(&server, "source", "target", "", br#"{"crc32c":"AAAAAA=="}"#).error(400, "invalid");
     assert_eq!(media(&server, "test-bucket", "target"), b"old");
+    assert_no_transfer_files(&dir);
+    copy(
+        &server,
+        "source",
+        "target",
+        "",
+        br#"{"md5Hash":"AAAAAAAAAAAAAAAAAAAAAA=="}"#,
+    )
+    .error(400, "invalid");
+    assert_eq!(media(&server, "test-bucket", "target"), b"old");
+    assert_no_transfer_files(&dir);
     copy(
         &server,
         "source",
@@ -247,6 +281,8 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
         true
     );
     copy(&server, "source", "held", "", b"").error(403, "objectUnderActiveHold");
+    copy(&server, "held", "held", "", b"").error(403, "objectUnderActiveHold");
+    assert_no_transfer_files(&dir);
     assert!(
         copy(
             &server,
@@ -263,7 +299,7 @@ fn copy_validates_checksums_and_holds_without_inheriting_source_hold() {
 
 #[test]
 fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
-    let (_dir, server) = setup(false);
+    let (dir, server) = setup(false);
     server.put("source", b"source").json();
     for query in [
         "destinationPredefinedAcl=publicRead",
@@ -335,11 +371,12 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
             .error(501, "notImplemented");
     }
     server.get("target").error(404, "notFound");
+    assert_no_transfer_files(&dir);
 }
 
 #[test]
 fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite() {
-    let (_dir, server) = setup(true);
+    let (dir, server) = setup(true);
     server.put("source", b"source").json();
     let route = path("source", "test-bucket", "copy", "");
     server
@@ -363,6 +400,15 @@ fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite(
         .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
         .error(403, "forbidden");
     assert_eq!(server.get("copy").json(), first);
+    server
+        .request(
+            "POST",
+            &path("source", "test-bucket", "source", ""),
+            "Authorization: Bearer creator\r\n",
+            b"",
+        )
+        .error(403, "forbidden");
+    assert_no_transfer_files(&dir);
     server.request("POST", &route, ADMIN, b"").json();
     assert_eq!(media(&server, "test-bucket", "copy"), b"source");
 }
@@ -371,7 +417,8 @@ fn strict_copy_requires_source_read_destination_create_and_delete_for_overwrite(
 fn concurrent_copy_create_if_absent_publishes_exactly_one_generation() {
     use std::sync::{Arc, Barrier};
     let (_dir, server) = setup(false);
-    server.put("source", b"source").json();
+    let payload = vec![b's'; 200_003];
+    server.put("source", &payload).json();
     let barrier = Arc::new(Barrier::new(3));
     let threads: Vec<_> = (0..2)
         .map(|_| {
@@ -397,7 +444,7 @@ fn concurrent_copy_create_if_absent_publishes_exactly_one_generation() {
         .collect();
     statuses.sort();
     assert_eq!(statuses, [200, 412]);
-    assert_eq!(media(&server, "test-bucket", "target"), b"source");
+    assert_eq!(media(&server, "test-bucket", "target"), payload);
 }
 
 #[test]
@@ -436,4 +483,55 @@ fn copy_preserves_composite_identity_and_inherited_class_until_class_or_location
         media(&server, "asia-bucket", "different-location"),
         b"composite bytes"
     );
+}
+
+#[test]
+fn strict_cross_bucket_copy_uses_distinct_source_and_destination_grants() {
+    let (dir, server) = setup(true);
+    server.put("source", b"source").json();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            ADMIN,
+            br#"{"name":"target-bucket"}"#,
+        )
+        .json();
+    server
+        .request(
+            "PUT",
+            "/storage/v1/b/test-bucket/iam",
+            ADMIN,
+            br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#,
+        )
+        .json();
+    let route = path("source", "target-bucket", "copy", "");
+    server
+        .request("POST", &route, "Authorization: Bearer creator\r\n", b"")
+        .json();
+    let reverse = "/storage/v1/b/target-bucket/o/copy/copyTo/b/test-bucket/o/reverse";
+    server
+        .request("POST", reverse, "Authorization: Bearer creator\r\n", b"")
+        .error(403, "forbidden");
+    server
+        .request("POST", &route, "Authorization: Bearer viewer\r\n", b"")
+        .error(403, "forbidden");
+    server.request("PUT", "/storage/v1/b/target-bucket/iam", ADMIN, br#"{"bindings":[{"role":"roles/storage.objectCreator","members":["user:viewer@example.test"]}]}"#).json();
+    server
+        .request(
+            "POST",
+            &path("source", "target-bucket", "viewer-copy", ""),
+            "Authorization: Bearer viewer\r\n",
+            b"",
+        )
+        .json();
+    server
+        .request(
+            "POST",
+            &path("source", "test-bucket", "denied", ""),
+            "Authorization: Bearer viewer\r\n",
+            b"",
+        )
+        .error(403, "forbidden");
+    assert_no_transfer_files(&dir);
 }

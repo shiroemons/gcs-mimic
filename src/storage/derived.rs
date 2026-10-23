@@ -603,8 +603,35 @@ impl Catalog {
         validate: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
         complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
     ) -> Result<ObjectRecord, ObjectError> {
+        self.publish_derived_prepared(
+            id,
+            destination,
+            move |connection, record| validate(connection, record),
+            complete,
+            None,
+        )
+        .await
+    }
+
+    /// Adapter-derived fields must use the destination defaults selected by this transaction.
+    pub(crate) async fn publish_derived_prepared(
+        &self,
+        id: &str,
+        destination: DerivedDestination,
+        prepare: impl FnOnce(&Connection, &mut ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        complete: impl FnOnce(&Connection, &ObjectRecord) -> Result<(), ObjectError> + Send + 'static,
+        admission_deadline: Option<tokio::time::Instant>,
+    ) -> Result<ObjectRecord, ObjectError> {
         let permit = self.admit_object_upload()?;
         let guard = self.derived_guard(id)?;
+        let execution = self.0.execution.clone().acquire_owned();
+        let execution = match admission_deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, execution)
+                .await
+                .map_err(|_| unavailable("derived publication catalog admission timed out"))?,
+            None => execution.await,
+        }
+        .map_err(unavailable)?;
         let catalog = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {
@@ -612,7 +639,7 @@ impl Catalog {
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
             let clock = catalog.0.clock.clone();
-            let result = catalog.run_upload(move |connection| {
+            let result = catalog.run_upload_admitted(execution, move |connection| {
                 let (progress, md5, crc32c) = transfer(connection, &query, unix_millis(clock.now()).map_err(unavailable)?)?;
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
@@ -643,9 +670,9 @@ impl Catalog {
                     time_deleted: None, event_based_hold: default_hold,
                 };
                 destination.metadata.apply(&mut record)?;
-                let metadata = serde_json::to_string(&record.metadata).map_err(unavailable)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
-                validate(&transaction, &record)?;
+                prepare(&transaction, &mut record)?;
+                let metadata = serde_json::to_string(&record.metadata).map_err(unavailable)?;
                 let retired = objects::retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
                 transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(unavailable)?;
                 transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?9,?10,?11,?12,?13,?14,?15,?16,?17)", params![record.bucket, record.name, generation, record.content_type, record.size as i64, &md5[..], crc32c, record.storage_class, millis, query, record.content_encoding, record.content_disposition, record.content_language, record.cache_control, metadata, record.event_based_hold, record.component_count]).map_err(unavailable)?;

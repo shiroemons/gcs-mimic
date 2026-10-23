@@ -460,6 +460,14 @@ impl Catalog {
             .acquire_owned()
             .await
             .map_err(object_unavailable)?;
+        self.run_upload_admitted(execution, operation).await
+    }
+
+    pub(super) async fn run_upload_admitted<T: Send + 'static>(
+        &self,
+        execution: OwnedSemaphorePermit,
+        operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
+    ) -> Result<T, ObjectError> {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let _execution = execution;
