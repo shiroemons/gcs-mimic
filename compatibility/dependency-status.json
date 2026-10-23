@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-23T00:45:26Z",
-  "scope": "Go API client update verification: eleven direct Rust crates, Rust/Go toolchains, pinned SDK graph, container inputs, BuildKit/SBOM generator and release Actions. Adopted API client v0.308.0 with Storage v1.70.0 and the remaining module graph unchanged; all 31 inputs are CURRENT.",
+  "checked_at_utc": "2026-10-23T08:44:11Z",
+  "scope": "Local HTTPS/TLS verification: twelve direct Rust crates, Rust/Go/Ruby toolchains, pinned Go/Ruby SDK graphs and Bundler, container inputs, BuildKit/SBOM generator and release Actions. Added tokio-rustls 0.26.6 with ring/tls12 and Ruby 4.0.9, Bundler 4.0.23, Storage gem 1.62.1; all 35 checked inputs are CURRENT.",
   "freshness_check": {
-    "command": "cargo +1.99.1 xtask dependencies check",
+    "command": "cargo xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/bucket-metadata-put-dependencies.txt",
-    "follow_up": "All inputs report CURRENT with no exceptions after adopting API client v0.308.0. Go vet and the full pinned SDK suite pass; the Dockerfile does not copy or build the SDK harness, so no container rebuild was run. Earlier container and guide evidence is retained; remote CI, native AMD64 and release-platform execution remain pending."
+    "artifact": "docs/en/evidence/local-tls-dependencies.txt",
+    "follow_up": "All 35 inputs report CURRENT with no freshness exceptions. The detector checks the real direct Cargo resolution edges, including duplicate-named transitive package versions, and the Go/Ruby SDK manifests. The existing daily 03:17 UTC workflow fetches locked packages and runs the detector without an ecosystem runtime requirement. Scheduled remote execution and release-platform verification remain unobserved; runtime/container/SDK behavior is recorded separately by the TLS slice."
   },
   "toolchain": {
     "channel": "stable",
@@ -42,6 +42,16 @@
       "maintenance": "Official publisher patch release 2026-10-21; non-yanked stable status verified from the crates.io index on 2026-10-22. Reverts the timer runtime-handle removal.",
       "source_urls": ["https://index.crates.io/to/ki/tokio", "https://static.crates.io/crates/tokio/tokio-1.54.1.crate", "https://github.com/tokio-rs/tokio/releases/tag/tokio-1.54.1"],
       "resolution_constraints": "Newest stable checked independently of manifest ranges; Cargo.lock updates only Tokio from 1.54.0 to 1.54.1 with unchanged features and minimum Rust version."
+    },
+    {
+      "name": "tokio-rustls", "current": "0.26.6", "latest_non_yanked_stable": "0.26.6",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 29259, "minimum_rust": "1.71",
+      "purpose": "TLS 1.2/1.3 transport for the existing bounded Tokio/Hyper listener and verified HTTPS healthchecks.",
+      "features": ["ring", "tls12"],
+      "maintenance": "Rustls/Tokio integration publisher; release 0.26.6 published 2026-09-28. Latest non-yanked stable release verified from the official crates.io index on 2026-10-23.",
+      "source_urls": ["https://index.crates.io/to/ki/tokio-rustls", "https://static.crates.io/crates/tokio-rustls/tokio-rustls-0.26.6.crate", "https://docs.rs/crate/tokio-rustls/0.26.6/source/Cargo.toml.orig"],
+      "source_sha256": "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db",
+      "resolution_constraints": "Default features disabled; only ring and tls12 enabled. Cargo.lock pins rustls 0.23.46, rustls-pki-types 1.15.1 and ring 0.17.14. Reuse rustls-pki-types PEM parsing through re-exports; no additional direct parser, HTTP framework, certificate generator or platform trust-store dependency. The existing HTTP/1 limit is preserved."
     },
     {
       "name": "hyper", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
@@ -125,7 +135,7 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum"],
+  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock"],
   "docker": {
     "status": "PINNED",
     "digests": [
@@ -203,7 +213,7 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-23T00:43:51Z",
+      "checked_at_utc": "2026-10-23T08:44:11Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
@@ -224,6 +234,15 @@
           ]
         },
         {
+          "name": "golang.org/x/oauth2", "current": "v0.37.0",
+          "latest_non_retracted_stable": "v0.37.0", "license": "BSD-3-Clause",
+          "compressed_module_bytes": 158683, "minimum_go": "1.26.0",
+          "purpose": "Configure the official Go SDK's isolated HTTPS client while retaining its supported transport integration.",
+          "maintenance": "Go-maintained module released 2026-08-25; latest stable and non-retracted release verified by the official module proxy on 2026-10-23.",
+          "source_revision": "c624b89dadc3221560b7345c090bbe69e90808ee",
+          "source_urls": ["https://proxy.golang.org/golang.org/x/oauth2/@v/list", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.info", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.mod", "https://raw.githubusercontent.com/golang/oauth2/v0.37.0/LICENSE"]
+        },
+        {
           "name": "google.golang.org/api", "current": "v0.308.0",
           "latest_non_retracted_stable": "v0.308.0", "license": "BSD-3-Clause",
           "compressed_module_bytes": 52400260, "minimum_go": "1.26.0",
@@ -239,7 +258,38 @@
           ]
         }
       ],
-      "resolution_constraints": "go.mod and go.sum record the graph. Storage v1.70.0 requires the stable auth v0.24.1, replacing the earlier auth pseudo-version; transitive versions follow upstream requirements. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+      "resolution_constraints": "go.mod and go.sum record the graph. Storage v1.70.0 requires the stable auth v0.24.1, replacing the earlier auth pseudo-version; transitive versions follow upstream requirements. OAuth2 v0.37.0 was already present in the committed direct SDK requirements; this snapshot now records it explicitly. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+    },
+    {
+      "ecosystem": "ruby",
+      "manifest": "sdk-tests/ruby/Gemfile",
+      "checked_at_utc": "2026-10-23T08:44:11Z",
+      "toolchain": {
+        "version": "4.0.9",
+        "pin": "sdk-tests/ruby/.ruby-version",
+        "source_url": "https://www.ruby-lang.org/en/downloads.md",
+        "archive_url": "https://cache.ruby-lang.org/pub/ruby/4.0/ruby-4.0.9.tar.gz",
+        "archive_sha256": "c35350682ff050b79702d57ade4516e7336063f510155d19fb2fb5b3f3909511"
+      },
+      "bundler": {
+        "version": "4.0.23", "latest_non_yanked_stable": "4.0.23",
+        "license": "MIT", "compressed_gem_bytes": 471040, "minimum_ruby": ">= 3.2.0",
+        "minimum_rubygems": ">= 3.4.1",
+        "maintenance": "RubyGems-maintained Bundler release published 2026-10-14; official RubyGems metadata confirms stable and not yanked.",
+        "sha256": "407ba8a1d928f412847f819aa5f8b6aef7c59fb51feb517112af8a165487287b",
+        "source_urls": ["https://rubygems.org/api/v1/versions/bundler.json", "https://rubygems.org/api/v2/rubygems/bundler/versions/4.0.23.json", "https://rubygems.org/gems/bundler-4.0.23.gem"]
+      },
+      "direct_dependencies": [
+        {
+          "name": "google-cloud-storage", "current": "1.62.1", "latest_non_yanked_stable": "1.62.1",
+          "license": "Apache-2.0", "compressed_gem_bytes": 111616, "minimum_ruby": ">= 3.2",
+          "purpose": "Official Ruby client trusted local HTTPS bucket/object and resumable-upload verification without cloud credentials.",
+          "maintenance": "Google-maintained client release published 2026-10-01; official RubyGems metadata confirms stable and not yanked.",
+          "sha256": "10dbf2ebda3af1b4b841335364cb889827c6cb17bf6c9f8bc5313b6bef7a4d3c",
+          "source_urls": ["https://rubygems.org/api/v1/versions/google-cloud-storage.json", "https://rubygems.org/api/v2/rubygems/google-cloud-storage/versions/1.62.1.json", "https://rubygems.org/gems/google-cloud-storage-1.62.1.gem", "https://github.com/googleapis/google-cloud-ruby/tree/main/google-cloud-storage"]
+        }
+      ],
+      "resolution_constraints": "Gemfile uses exact direct pins and the official RubyGems registry; Gemfile.lock commits the complete graph, checksums, Ruby version and BUNDLED WITH version. The daily detector reads the real manifest, resolved direct lockfile pins, Bundler pin and .ruby-version, then compares official stable releases including new majors without requiring Ruby or Bundler on the checker host. RubyGems versions metadata excludes prereleases and yanked versions. Rails Active Storage remains a separate acceptance scope."
     }
   ],
   "github_actions": [

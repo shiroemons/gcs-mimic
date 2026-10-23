@@ -1,6 +1,8 @@
 # Dependency and Rust version policy
 
-Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTTP/TLS runtime, digest-pinned Docker inputs, a dated [dependency snapshot](../../compatibility/dependency-status.json), and Rust/Go/Ruby daily detection tooling. The official Go JSON bucket SDK harness has its own pinned module graph and CI lane; Ruby HTTPS verification has a pinned gem graph. Python is not required. Scheduled/remote CI execution is not verified; per-requirement progress is recorded only in the feature ledger.
 
 ## User requirement
 
@@ -102,9 +104,44 @@ Official sources checked on 2026-10-21:
 - <https://proxy.golang.org/google.golang.org/api/@latest>
 - <https://github.com/actions/setup-go/releases/tag/v7.0.0>
 
+## Official Ruby SDK example dependencies
+
+The local HTTPS scope adds `sdk-tests/ruby/Gemfile`, `Gemfile.lock` and
+`.ruby-version`. The verified 2026-10-23 inputs are Ruby 4.0.9, Bundler 4.0.23
+and `google-cloud-storage` 1.62.1. Commit the complete lockfile, including
+checksums and `BUNDLED WITH`; do not infer the active Bundler version from the
+host default. Run the isolated client workflow from
+[`sdk-tests/ruby/README.md`](../../sdk-tests/ruby/README.md).
+Rails Active Storage remains a separate compatibility scope.
+
+The daily detector reads the exact Ruby pin, direct Gemfile requirements,
+resolved lockfile versions and Bundler pin. It compares Ruby with the official
+downloads page's stable marker and gems with the official RubyGems versions
+API, selecting numeric stable releases across major versions and excluding
+prereleases and yanked entries. The versions API lists active releases; the
+initial selection also checks the version-specific API's `yanked` field.
+The supported manifest uses the official RubyGems source, exact gem pins and
+`ruby file: ".ruby-version"`; unsupported directives or lockfile mismatches
+fail explicitly. Metadata failures do not report `CURRENT`.
+The checker uses the existing bounded curl path and needs no Ruby installation.
+
+Official sources checked on 2026-10-23:
+
+- <https://www.ruby-lang.org/en/downloads.md>
+- <https://rubygems.org/api/v1/versions/bundler.json>
+- <https://rubygems.org/api/v2/rubygems/bundler/versions/4.0.23.json>
+- <https://rubygems.org/api/v1/versions/google-cloud-storage.json>
+- <https://rubygems.org/api/v2/rubygems/google-cloud-storage/versions/1.62.1.json>
+- <https://guides.rubygems.org/rubygems-org-api/>
+
 ## Daily update detection and bounded upgrade work
 
-Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go SDK scope, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day without cooldown. Scheduled execution has not been observed.
+Current command: `cargo xtask dependencies check`. Fetch all locked packages first (`cargo fetch --locked`), including foreign-target packages used by offline Cargo metadata. The Rust checker invokes curl for HTTPS with user curl configuration disabled, a 30-second timeout and an 8 MiB response cap; no Python or extra HTTP client dependency is required. It contacts official Rust, Cargo, Go, module proxy, Ruby, RubyGems, GitHub, Debian and Docker metadata. It discovers actual direct registry dependencies through offline Cargo metadata and compares all non-yanked stable releases, including new majors. It checks the declared Go and Ruby SDK scopes, Action pins (including setup-go), Docker index/platform digests, replacement tags, the Rust image's floating stable tag and Debian's current stable codename. Debian stable/trixie aliases have different APT suite contents/digests, so codename freshness is checked separately from selected-tag digest freshness. Network/parse failures exit 2; updates exit 1. Logs are actionable drift records; nothing is published automatically. `.github/workflows/dependency-check.yaml` schedules checks every calendar day at `03:17 UTC` without cooldown, fetching the locked Cargo graph before running the same detector. This includes the TLS and Ruby inputs automatically; scheduled remote execution has not been observed.
+
+Cargo version selection follows workspace members' resolved direct dependency
+edges. An older same-named transitive package remains part of the upstream graph;
+it does not make the direct package's resolution ambiguous or exempt that direct
+package from checking.
 
 Run it at every slice start and before release. Review failed runs and `compatibility/dependency-status.json` exceptions at least weekly. Update toolchain, manifests, lockfiles and snapshot together after validation. There are no current freshness exceptions.
 
@@ -167,6 +204,27 @@ Source: <https://docs.docker.com/build/building/best-practices/>
 Release gates require a successful check against the currently verified stable compiler, adoption of the latest direct dependencies or explicit visible exceptions, successful target-platform container smoke tests, and recorded version provenance.
 
 ## Dependency status evidence
+
+The local HTTPS slice adds `tokio-rustls` 0.26.6, published 2026-09-28 and
+verified on 2026-10-23 as the newest non-yanked stable release. Its license is
+`MIT OR Apache-2.0`, minimum Rust is 1.71, and the official compressed crate is
+29,259 bytes. Default features are disabled; `ring` and `tls12` provide the
+required TLS 1.2/1.3 transport without AWS-LC, certificate compression or another
+HTTP framework. The lockfile pins Rustls 0.23.46, rustls-pki-types 1.15.1 and
+ring 0.17.14. PEM parsing reuses the re-exported pki-types implementation.
+Certificate generation is an explicit test-fixture OpenSSL command rather
+than a new runtime dependency.
+
+The Ruby SDK gem is Apache-2.0 and 111,616 compressed bytes; Bundler is MIT and
+471,040 compressed bytes. Their official version-specific metadata, package
+SHA-256 values and exact toolchain/lockfile inputs are in the
+[snapshot](../../compatibility/dependency-status.json). These package sizes do
+not measure application binary or container growth. Existing Rust/Docker pins
+and the daily schedule remain in effect.
+The [local TLS freshness check](evidence/local-tls-dependencies.txt) completed on
+2026-10-23 with exit 0 and all 35 inputs `CURRENT`, including the new TLS and
+Ruby inputs. The Go HTTPS harness promotes the already-locked OAuth2 v0.37.0
+to a direct requirement; its version and remaining module graph are unchanged.
 
 The object media slice adds four direct crates, verified as the latest non-yanked stable
 releases on 2026-10-21. Compressed sizes describe registry packages, not binary-size growth.
