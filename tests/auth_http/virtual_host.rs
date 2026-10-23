@@ -1,0 +1,443 @@
+use super::*;
+use gcs_mimic::{auth::signature::sign_url, url::encode_object_name};
+use hyper::{HeaderMap, Method, Uri};
+use std::time::SystemTime;
+
+const DOMAIN: &str = "storage.example.invalid";
+const BUCKET: &str = "dotted.bucket";
+
+fn fixture(enabled: bool) -> (TestDir, TestDir, Server) {
+    let config = TestDir::new();
+    let data = TestDir::new();
+    let mut identities = registry();
+    for identity in identities["identities"].as_array_mut().unwrap() {
+        identity["public_keys"] =
+            json!([include_str!("../../fixtures/signing/test-only-public.pem")]);
+    }
+    let file = config.0.join("identities.json");
+    std::fs::write(&file, identities.to_string()).unwrap();
+    let (server, _) = Server::start(
+        &data,
+        &[
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            file.to_str().unwrap(),
+            "--xml-virtual-host-domains",
+            if enabled {
+                "example.invalid,storage.example.invalid"
+            } else {
+                ""
+            },
+            "--api-base-url",
+            "http://advertised.invalid/prefix",
+        ],
+    );
+    server.create_bucket(ADMIN, "project-a", BUCKET).ok();
+    server.upload(ADMIN, BUCKET, "object", b"hello world").ok();
+    (config, data, server)
+}
+
+fn request(
+    server: &Server,
+    method: &str,
+    host: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+) -> Reply {
+    let mut stream = server.stream();
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Length: {}\r\n{headers}\r\n",
+        body.len()
+    )
+    .unwrap();
+    stream.write_all(body).unwrap();
+    Reply::read_body(stream, method == "HEAD")
+}
+
+fn host(server: &Server) -> String {
+    format!(
+        "{BUCKET}.{DOMAIN}:{}",
+        server.address.split_once(':').unwrap().1
+    )
+}
+
+fn signed(method: &Method, authority: &str, path: &str, signer: &str) -> String {
+    sign_url(
+        &format!("http://{authority}{path}"),
+        method,
+        signer,
+        include_bytes!("../../fixtures/signing/test-only-private.pem"),
+        60,
+        SystemTime::now(),
+        HeaderMap::new(),
+    )
+    .unwrap()
+}
+
+fn send(server: &Server, method: &str, url: &str, headers: &str, body: &[u8]) -> Reply {
+    let uri: Uri = url.parse().unwrap();
+    request(
+        server,
+        method,
+        uri.authority().unwrap().as_str(),
+        uri.path_and_query().unwrap().as_str(),
+        headers,
+        body,
+    )
+}
+
+fn error(reply: &Reply, status: u16, code: &str) {
+    assert_eq!(
+        reply.status,
+        status,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    assert_eq!(
+        reply.headers["content-type"],
+        "application/xml; charset=UTF-8"
+    );
+    assert!(
+        String::from_utf8_lossy(&reply.body).contains(&format!("<Code>{code}</Code>")),
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+}
+
+#[test]
+fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    error(
+        &request(&server, "GET", &host, "/object", "", b""),
+        401,
+        "AuthenticationRequired",
+    );
+    error(
+        &request(&server, "GET", &host, "/object", NO_ROLES, b""),
+        403,
+        "AccessDenied",
+    );
+    error(
+        &request(&server, "PUT", &host, "/new", VIEWER, b"no"),
+        403,
+        "AccessDenied",
+    );
+    request(&server, "PUT", &host, "/new", CREATOR, b"new").ok();
+    error(
+        &request(&server, "PUT", &host, "/new", CREATOR, b"overwrite"),
+        403,
+        "AccessDenied",
+    );
+    assert_eq!(
+        request(&server, "GET", &host, "/new", VIEWER, b"")
+            .ok()
+            .body,
+        b"new"
+    );
+    for name in [
+        "object",
+        "é日/a b+%?#",
+        "a//b/",
+        "/leading",
+        "a/../b",
+        "storage/v1/b",
+        "_internal/ready",
+    ] {
+        let encoded = encode_object_name(name);
+        request(
+            &server,
+            "PUT",
+            &host,
+            &format!("/{encoded}"),
+            ADMIN,
+            name.as_bytes(),
+        )
+        .ok();
+        let virtual_read = request(&server, "GET", &host, &format!("/{encoded}"), VIEWER, b"");
+        let path_read = server.get(VIEWER, &format!("/{BUCKET}/{encoded}"));
+        assert_eq!(virtual_read.ok().body, path_read.ok().body);
+        for header in ["etag", "x-goog-generation", "content-length", "x-goog-hash"] {
+            assert_eq!(virtual_read.headers[header], path_read.headers[header]);
+        }
+        let head = request(&server, "HEAD", &host, &format!("/{encoded}"), VIEWER, b"");
+        head.ok();
+        assert!(head.body.is_empty());
+    }
+    let range = request(
+        &server,
+        "GET",
+        &host,
+        "/new",
+        &format!("{VIEWER}Range: bytes=1-2\r\n"),
+        b"",
+    );
+    assert_eq!(range.status, 206);
+    assert_eq!(range.body, b"ew");
+    error(
+        &request(&server, "GET", &host, "/", ADMIN, b""),
+        501,
+        "NotImplemented",
+    );
+    error(
+        &request(&server, "GET", &host, "/bad%GG", ADMIN, b""),
+        400,
+        "InvalidArgument",
+    );
+    error(
+        &request(&server, "GET", &host, "/%FF", ADMIN, b""),
+        400,
+        "InvalidArgument",
+    );
+    assert_eq!(
+        request(&server, "GET", &host, "/storage/v1/b", ADMIN, b"")
+            .ok()
+            .body,
+        b"storage/v1/b"
+    );
+}
+
+#[test]
+fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    for other in [
+        "dotted.bucket.unconfigured.invalid",
+        "dotted.bucket.evil-example.invalid",
+        DOMAIN,
+    ] {
+        assert_eq!(
+            request(
+                &server,
+                "GET",
+                other,
+                &format!("/{BUCKET}/object"),
+                VIEWER,
+                b""
+            )
+            .ok()
+            .body,
+            b"hello world"
+        );
+    }
+    assert_eq!(
+        request(
+            &server,
+            "GET",
+            "local",
+            &format!("/{BUCKET}/object"),
+            &format!("{VIEWER}Forwarded: host={host}\r\nX-Forwarded-Host: {host}\r\n"),
+            b""
+        )
+        .ok()
+        .body,
+        b"hello world"
+    );
+    let metadata = request(
+        &server,
+        "GET",
+        "local",
+        &format!("/storage/v1/b/{BUCKET}/o/object"),
+        &format!("{ADMIN}X-Forwarded-Host: {host}\r\n"),
+        b"",
+    )
+    .ok()
+    .json();
+    assert!(
+        metadata["selfLink"]
+            .as_str()
+            .unwrap()
+            .starts_with("http://advertised.invalid/prefix/")
+    );
+    error(
+        &request(
+            &server,
+            "GET",
+            &host,
+            &format!("/storage/v1/b/{BUCKET}/o/object"),
+            ADMIN,
+            b"",
+        ),
+        404,
+        "NoSuchKey",
+    );
+    error(
+        &request(&server, "GET", &host, "/_internal/ready", ADMIN, b""),
+        404,
+        "NoSuchKey",
+    );
+    assert_eq!(
+        request(
+            &server,
+            "GET",
+            &host.to_ascii_uppercase(),
+            "/object",
+            VIEWER,
+            b""
+        )
+        .ok()
+        .body,
+        b"hello world"
+    );
+    let (_config_off, _data_off, disabled) = fixture(false);
+    assert_eq!(
+        request(
+            &disabled,
+            "GET",
+            &host,
+            &format!("/{BUCKET}/object"),
+            VIEWER,
+            b""
+        )
+        .ok()
+        .body,
+        b"hello world"
+    );
+    assert_eq!(
+        request(&disabled, "GET", &host, "/object", VIEWER, b"").status,
+        501
+    );
+}
+
+#[test]
+fn virtual_host_signatures_bind_host_port_raw_path_and_addressing_style() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    let url = signed(&Method::GET, &host, "/object", "viewer@example.invalid");
+    assert_eq!(
+        send(&server, "GET", &url, "", b"").ok().body,
+        b"hello world"
+    );
+    let head = signed(&Method::HEAD, &host, "/object", "viewer@example.invalid");
+    assert!(send(&server, "HEAD", &head, "", b"").ok().body.is_empty());
+    let put = signed(&Method::PUT, &host, "/object", "admin@example.invalid");
+    send(
+        &server,
+        "PUT",
+        &put,
+        "Content-Type: text/plain\r\n",
+        b"signed new bytes",
+    )
+    .ok();
+    error(
+        &send(
+            &server,
+            "PUT",
+            &signed(&Method::PUT, &host, "/object", "viewer@example.invalid"),
+            "",
+            b"no",
+        ),
+        403,
+        "AccessDenied",
+    );
+    for changed in [
+        url.replace(BUCKET, "another.bucket"),
+        url.replace(&host, &format!("{host}0")),
+        url.replace("/object?", "/different?"),
+        url.replace(
+            &format!("{host}/object"),
+            &format!("{}/{BUCKET}/object", server.address),
+        ),
+    ] {
+        error(
+            &send(&server, "GET", &changed, "", b""),
+            403,
+            "SignatureDoesNotMatch",
+        );
+    }
+    let path_url = signed(
+        &Method::GET,
+        &server.address,
+        &format!("/{BUCKET}/object"),
+        "viewer@example.invalid",
+    );
+    let moved = path_url.replace(
+        &format!("{}/{BUCKET}/object", server.address),
+        &format!("{host}/object"),
+    );
+    error(
+        &send(&server, "GET", &moved, "", b""),
+        403,
+        "SignatureDoesNotMatch",
+    );
+    for name in ["é日/a b+%?#", "a//b/", "/leading", "a/../b"] {
+        let path = format!("/{}", encode_object_name(name));
+        let put = signed(&Method::PUT, &host, &path, "admin@example.invalid");
+        send(&server, "PUT", &put, "", name.as_bytes()).ok();
+        let get = signed(&Method::GET, &host, &path, "viewer@example.invalid");
+        assert_eq!(
+            send(&server, "GET", &get, "", b"").ok().body,
+            name.as_bytes()
+        );
+    }
+}
+
+#[test]
+fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    server.request("PATCH", &format!("/storage/v1/b/{BUCKET}"), ADMIN, &serde_json::to_vec(&json!({"cors":[{"origin":["https://app.invalid"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type"],"maxAgeSeconds":120}]})).unwrap()).ok();
+    let origin = "Origin: https://app.invalid\r\n";
+    let preflight = request(
+        &server,
+        "OPTIONS",
+        &host,
+        "/object",
+        &format!(
+            "{origin}Access-Control-Request-Method: PUT\r\nAccess-Control-Request-Headers: Content-Type\r\n"
+        ),
+        b"",
+    );
+    assert_eq!(preflight.status, 200);
+    assert_eq!(
+        preflight.headers["access-control-allow-origin"],
+        "https://app.invalid"
+    );
+    let denied = request(&server, "GET", &host, "/object", origin, b"");
+    error(&denied, 401, "AuthenticationRequired");
+    assert_eq!(
+        denied.headers["access-control-allow-origin"],
+        "https://app.invalid"
+    );
+    server
+        .request(
+            "PUT",
+            &format!("/storage/v1/b/{BUCKET}/iam"),
+            ADMIN,
+            &serde_json::to_vec(
+                &json!({"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}),
+            )
+            .unwrap(),
+        )
+        .ok();
+    let public = request(&server, "GET", &host, "/object", origin, b"");
+    assert_eq!(public.ok().body, b"hello world");
+    assert_eq!(
+        public.headers["access-control-allow-origin"],
+        "https://app.invalid"
+    );
+    let put = signed(&Method::PUT, &host, "/object", "admin@example.invalid");
+    let response = send(&server, "PUT", &put, origin, b"cors signed put");
+    response.ok();
+    assert_eq!(
+        response.headers["access-control-allow-origin"],
+        "https://app.invalid"
+    );
+    error(
+        &send(
+            &server,
+            "GET",
+            &format!(
+                "{}&tampered=1",
+                signed(&Method::GET, &host, "/object", "viewer@example.invalid")
+            ),
+            origin,
+            b"",
+        ),
+        403,
+        "SignatureDoesNotMatch",
+    );
+}

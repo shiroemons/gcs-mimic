@@ -230,7 +230,9 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
-    if json::cors::is_route(request.uri()) {
+    if xml::virtual_bucket(request.headers(), &config.xml_virtual_host_domains).is_none()
+        && json::cors::is_route(request.uri())
+    {
         let preflight = json::cors::is_preflight(request.method(), request.headers());
         let mut headers = match json::cors::response_headers(request.headers(), preflight) {
             Ok(headers) => headers,
@@ -260,7 +262,8 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), config.compat_profile) {
+    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), request.headers(), config)
+    {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;
         let cors = if has_origin {
@@ -319,6 +322,43 @@ async fn respond_routed(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
+    if let Some(parsed) = xml::route(request.method(), request.uri(), request.headers(), config) {
+        let head = request.method() == Method::HEAD;
+        let put = request.method() == Method::PUT;
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match xml::authenticate(
+            &state.auth,
+            request.method(),
+            request.uri(),
+            request.headers(),
+            state.clock.as_ref(),
+        ) {
+            Ok(caller) => match parsed {
+                Ok(operation) if put => {
+                    xml::put::respond(
+                        request, operation, caller, state, config, activity, deadline,
+                    )
+                    .await
+                }
+                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
+        };
+        if head || put || result.is_err() {
+            activity.send_replace(ObjectActivity::default());
+        }
+        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     if let Some(parsed) =
         json::resumable::session_route(request.method(), request.uri(), config.compat_profile)
     {
@@ -457,43 +497,6 @@ async fn respond_routed(
             .headers_mut()
             .insert("connection", "close".parse().unwrap());
         return boxed(response);
-    }
-    if let Some(parsed) = xml::route(request.method(), request.uri(), config.compat_profile) {
-        let head = request.method() == Method::HEAD;
-        let put = request.method() == Method::PUT;
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = match xml::authenticate(
-            &state.auth,
-            request.method(),
-            request.uri(),
-            request.headers(),
-            state.clock.as_ref(),
-        ) {
-            Ok(caller) => match parsed {
-                Ok(operation) if put => {
-                    xml::put::respond(
-                        request, operation, caller, state, config, activity, deadline,
-                    )
-                    .await
-                }
-                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error),
-        };
-        if head || put || result.is_err() {
-            activity.send_replace(ObjectActivity::default());
-        }
-        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
     }
     boxed(probe_or_unknown(&request, state))
 }

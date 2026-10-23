@@ -142,6 +142,29 @@ fn signing_cli_outputs_a_verified_final_host_url_and_repeated_headers() {
 }
 
 #[test]
+fn signing_cli_virtual_host_url_binds_final_bucket_host_and_port() {
+    let output = run(&["--style", "virtual-hosted"]);
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("https://example-bucket.localhost:4443/%C3%A9/a%20b?"));
+    let uri: Uri = text.trim().parse().unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "example-bucket.localhost:4443".parse().unwrap());
+    let auth =
+        Auth::strict(Registry::load(std::path::Path::new("config/identities.json")).unwrap());
+    assert!(
+        auth.authenticate_signed(&Method::GET, &uri, &headers, &Fixed)
+            .is_ok()
+    );
+    headers.insert("host", "localhost:4443".parse().unwrap());
+    assert!(
+        auth.authenticate_signed(&Method::GET, &uri, &headers, &Fixed)
+            .is_err()
+    );
+    assert!(!run(&["--style", "invalid"]).status.success());
+}
+
+#[test]
 fn signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options() {
     for extra in [
         &["--unknown", "x"][..],

@@ -15,6 +15,9 @@ mod cors;
 #[path = "auth_http/signing.rs"]
 mod signing;
 
+#[path = "auth_http/virtual_host.rs"]
+mod virtual_host;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{

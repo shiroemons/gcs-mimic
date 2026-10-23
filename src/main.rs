@@ -35,6 +35,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
   --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
@@ -58,23 +59,27 @@ HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_interna
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 const URL_PUBLIC_HELP: &str =
-    "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME
+    "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME [--style path|virtual-hosted]
 
-Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Every option is
-required exactly once, in any order. The object name is percent-encoded except for RFC 3986
+Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Base URL, bucket
+and object are required exactly once, in any order. The name is percent-encoded except for RFC 3986
 unreserved characters and '/'; if any '/'-separated segment is '.' or '..', '/' is encoded as %2F.
+Style defaults to path; virtual-hosted uses <bucket>.<base-domain>/<object>, without a base path.
+Enable the DNS base in --xml-virtual-host-domains; HTTPS needs a matching supplied certificate.
 No config file, environment, data directory or network is read, and no permission is changed.";
 
 const URL_SIGN_HELP: &str =
     "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
        --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
-       [--timestamp YYYYMMDDTHHMMSSZ]
+       [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
 
 Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
 Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
 Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
 Headers may repeat; Host is derived from the final URL and cannot be overridden.
+Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no path prefix.
+Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
 No Google IAM call, server configuration read or permission change occurs.";
 
 fn main() -> ExitCode {
@@ -272,7 +277,10 @@ fn url_public(args: &[String]) -> Result<String, String> {
                 "url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}"
             ));
         };
-        if !matches!(name.as_str(), "--base-url" | "--bucket" | "--object") {
+        if !matches!(
+            name.as_str(),
+            "--base-url" | "--bucket" | "--object" | "--style"
+        ) {
             return Err(format!(
                 "unknown url public option: {name}\n{URL_PUBLIC_HELP}"
             ));
@@ -287,7 +295,12 @@ fn url_public(args: &[String]) -> Result<String, String> {
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_PUBLIC_HELP}"))
     };
-    gcs_mimic::url::public_object_url(
+    let build = match options.get("--style").copied().unwrap_or("path") {
+        "path" => gcs_mimic::url::public_object_url,
+        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
+        _ => return Err("style must be path or virtual-hosted".into()),
+    };
+    build(
         required("--base-url")?,
         required("--bucket")?,
         required("--object")?,
@@ -320,6 +333,7 @@ fn url_sign(args: &[String]) -> Result<String, String> {
                     | "--signer"
                     | "--private-key"
                     | "--timestamp"
+                    | "--style"
             ) {
                 return Err(format!("unknown url sign option: {name}"));
             }
@@ -334,7 +348,12 @@ fn url_sign(args: &[String]) -> Result<String, String> {
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
     };
-    let url = gcs_mimic::url::public_object_url(
+    let build = match options.get("--style").copied().unwrap_or("path") {
+        "path" => gcs_mimic::url::public_object_url,
+        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
+        _ => return Err("style must be path or virtual-hosted".into()),
+    };
+    let url = build(
         required("--base-url")?,
         required("--bucket")?,
         required("--object")?,
