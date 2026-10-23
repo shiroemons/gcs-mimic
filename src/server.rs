@@ -5,7 +5,7 @@ use crate::{
     config::{CompatProfile, Config},
     http_conditions::{EtagError, etag_not_modified},
     json::{self, BucketRequest, JsonError, ObjectRequest},
-    object::{ObjectError, UploadChunk},
+    object::{ObjectConditions, ObjectError, UploadChunk},
     storage::Catalog,
     xml,
 };
@@ -661,11 +661,15 @@ async fn object_response(
             name,
             params,
         } => {
-            // Mixed conditions fail with 412 before a cache hit on the same selected snapshot.
+            // Match failures precede both query and HTTP cache validators on one snapshot.
             let mixed = request.headers().contains_key("if-match")
                 || request.headers().contains_key("if-none-match");
             let conditions = if mixed {
-                Default::default()
+                ObjectConditions {
+                    if_generation_not_match: None,
+                    if_metageneration_not_match: None,
+                    ..params.conditions
+                }
             } else {
                 params.conditions
             };
@@ -675,9 +679,6 @@ async fn object_response(
                     .catalog
                     .open_object_authorized(&bucket, &name, params.generation, conditions, &access)
                     .await?;
-                if mixed {
-                    crate::storage::check_conditions(Some(&record), params.conditions, false)?;
-                }
                 let mut headers = json::object_media_headers(&record)?;
                 if reader.publicly_readable {
                     headers.insert(
@@ -697,7 +698,10 @@ async fn object_response(
                     );
                 }
                 json::validate_object_media_encoding(request.headers(), &record)?;
-                if read_etag_not_modified(request.headers(), &json::object_etag(&record))? {
+                if read_etag_not_modified(request.headers(), &json::object_etag(&record))?
+                    || params.conditions.if_generation_not_match == Some(record.generation)
+                    || params.conditions.if_metageneration_not_match == Some(record.metageneration)
+                {
                     return Ok(boxed(not_modified_response(
                         &headers["etag"],
                         &headers["cache-control"],
@@ -744,14 +748,13 @@ async fn object_response(
                 .catalog
                 .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
                 .await?;
-            if mixed {
-                crate::storage::check_conditions(Some(&record), params.conditions, false)?;
-            }
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 &json::object_etag(&record),
                 json::object_resource(&record, &state.api_base_url, params.projection)?,
                 &fields,
+                params.conditions.if_generation_not_match == Some(record.generation)
+                    || params.conditions.if_metageneration_not_match == Some(record.metageneration),
             )?));
         }
         ObjectRequest::Delete {
@@ -1044,6 +1047,7 @@ async fn bucket_response(
                 ),
                 json::policy_resource(&policy, &bucket),
                 &fields,
+                false,
             );
         }
         BucketRequest::SetIam { bucket } => {
@@ -1086,12 +1090,12 @@ async fn bucket_response(
             {
                 return Err(CatalogError::PreconditionFailed.into());
             }
-            if conditions.if_metageneration_not_match == Some(record.metageneration) {
-                if request.headers().contains_key("if-match")
-                    || request.headers().contains_key("if-none-match")
-                {
-                    return Err(CatalogError::PreconditionFailed.into());
-                }
+            let query_not_modified =
+                conditions.if_metageneration_not_match == Some(record.metageneration);
+            if query_not_modified
+                && !request.headers().contains_key("if-match")
+                && !request.headers().contains_key("if-none-match")
+            {
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
             return read_metadata_response(
@@ -1104,6 +1108,7 @@ async fn bucket_response(
                     profile,
                 )?,
                 &fields,
+                query_not_modified,
             );
         }
         BucketRequest::List(params) => {
@@ -1220,8 +1225,9 @@ fn read_metadata_response(
     etag: &str,
     mut value: serde_json::Value,
     fields: &json::Fields,
+    query_not_modified: bool,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
-    if read_etag_not_modified(headers, etag)? {
+    if read_etag_not_modified(headers, etag)? || query_not_modified {
         return Ok(not_modified_response(
             &etag.parse().unwrap(),
             &hyper::header::HeaderValue::from_static("no-cache"),

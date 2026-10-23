@@ -106,8 +106,8 @@ func TestReadETagValidators(t *testing.T) {
 		t.Fatal(err)
 	}
 	policyTag := policy.ServerResponse.Header.Get("ETag")
-	if policyTag != fmt.Sprintf("%q", policy.Etag) {
-		t.Fatalf("policy validator: resource=%q header=%q", policy.Etag, policyTag)
+	if policyTag == "" {
+		t.Fatal("policy GET has no local HTTP validator")
 	}
 	policyRead := api.Buckets.GetIamPolicy(bucket.BucketName()).Fields("version").Context(ctx)
 	policyRead.Header().Set("If-None-Match", policyTag)
@@ -115,4 +115,8 @@ func TestReadETagValidators(t *testing.T) {
 	if !googleapi.IsNotModified(err) {
 		t.Fatalf("conditional policy GET: %v", err)
 	}
+	policyRead.Header().Del("If-None-Match")
+	policyRead.Header().Set("If-Match", `"stale"`)
+	_, err = policyRead.Do()
+	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
 }

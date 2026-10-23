@@ -465,9 +465,14 @@ fn json_etag_read_combined_query_conditions_use_one_selected_record() {
                     assert_eq!(reply.body, b"da");
                     assert_eq!(reply.headers["etag"], etag);
                 }
-                server
-                    .request("GET", &format!("{path}&{key}={failing}"), &headers, b"")
-                    .error(412, "conditionNotMet");
+                let failing_path = format!("{path}&{key}={failing}");
+                if key.ends_with("NotMatch") && expected != 412 {
+                    not_modified(&server, &failing_path, &headers, &etag, "no-cache");
+                } else {
+                    server
+                        .request("GET", &failing_path, &headers, b"")
+                        .error(412, "conditionNotMet");
+                }
             }
         }
         let all = conditions
@@ -532,6 +537,34 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
             b"",
         )
         .error(400, "invalidParameter");
+    for name in ["If-Modified-Since", "If-Unmodified-Since", "If-Range"] {
+        server
+            .request(
+                "GET",
+                &path,
+                &format!("{admin}{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
+                b"",
+            )
+            .error(501, "notImplemented");
+    }
+    not_modified(
+        &server,
+        &path,
+        &format!("{admin}If-None-Match: {etag}\r\nIf-Modified-Since: ignored\r\n"),
+        etag,
+        "no-cache",
+    );
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                &path,
+                &format!("{admin}If-Match: {etag}\r\nIf-Unmodified-Since: ignored\r\n"),
+                b""
+            )
+            .status,
+        200
+    );
     server
         .request("GET", &path, "If-None-Match: *\r\n", b"")
         .error(401, "required");

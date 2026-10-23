@@ -1279,7 +1279,7 @@ pub(super) fn retire_previous(
     }
 }
 
-pub(crate) fn check_conditions(
+fn check_conditions(
     record: Option<&ObjectRecord>,
     conditions: ObjectConditions,
     read: bool,
