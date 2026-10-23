@@ -132,3 +132,19 @@ fn compose_body_rejects_recognized_unsupported_and_unknown_semantics() {
         );
     }
 }
+
+#[test]
+fn compose_body_checks_final_custom_metadata_size_before_transfer() {
+    let body = |size| json!({"sourceObjects":[{"name":"source"}], "destination":{"metadata":{"k":"x".repeat(size)}}});
+    assert!(parse(body(8191)).is_ok());
+    assert_eq!(
+        parse(body(8192)).unwrap_err().status,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(
+        parse(
+            json!({"sourceObjects":[{"name":"source"}],"destination":{"metadata":{"removed":null}}})
+        )
+        .is_ok()
+    );
+}

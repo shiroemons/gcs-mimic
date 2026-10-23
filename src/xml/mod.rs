@@ -313,6 +313,9 @@ pub(crate) fn media_headers(
             })?,
         );
     }
+    if let Some(count) = record.component_count {
+        headers.insert("x-goog-component-count", HeaderValue::from(count));
+    }
     for (key, value) in &record.metadata {
         let key =
             HeaderName::from_bytes(format!("x-goog-meta-{key}").as_bytes()).map_err(|_| {

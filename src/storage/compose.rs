@@ -126,7 +126,7 @@ impl Catalog {
                                 &read_access,
                             )?;
                             if incarnation(connection, &checked_bucket)? != expected_incarnation {
-                                return Err(ObjectError::Forbidden);
+                                return Err(ObjectError::PreconditionFailed);
                             }
                             if delete_sources {
                                 if !delete {
@@ -174,7 +174,7 @@ impl Catalog {
             if result.is_err() {
                 match catalog.cancel_derived(&transfer.id).await {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
-                    Err(error) => return Err(error),
+                    Err(error) => eprintln!("deferred compose cleanup: {error}"),
                 }
             }
             result

@@ -189,6 +189,21 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     if let Some(key) = metadata.unchanged.keys().next() {
         return Err(JsonError::unsupported_object(key));
     }
+    if metadata
+        .update
+        .metadata
+        .as_ref()
+        .and_then(Option::as_ref)
+        .is_some_and(|entries| {
+            entries
+                .iter()
+                .filter_map(|(key, value)| value.as_ref().map(|value| key.len() + value.len()))
+                .sum::<usize>()
+                > 8192
+        })
+    {
+        return Err(JsonError::invalid_argument("Custom metadata exceeds 8 KiB"));
+    }
     Ok(ComposeRequest {
         sources,
         destination: metadata.update,

@@ -19,6 +19,7 @@ themselves; implementation status belongs only to `compatibility/features.json`.
 | [Object resource](https://docs.cloud.google.com/storage/docs/json_api/v1/objects) | Writable content/custom metadata, resource identity, storage class and componentCount representation |
 | [Request preconditions](https://docs.cloud.google.com/storage/docs/request-preconditions) | Source generation matching and destination atomic compare-and-swap, including create-if-absent zero |
 | [Data validation](https://docs.cloud.google.com/storage/docs/data-validation), [status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | Integrity and JSON error envelopes; no inferred provider error precedence |
+| [XML response headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers#xgoogcomponentcount) | XML GET/HEAD return x-goog-component-count only for composites; JSON's common-header reference does not document this header, so JSON exposes the resource field without adding the XML header |
 
 Raw [Discovery storage v1](https://storage.googleapis.com/$discovery/rest?version=v1)
 was re-fetched: revision `20261013`, SHA-256
@@ -61,7 +62,7 @@ ordinary objects as one. The same object listed twice contributes twice.
 | fields | Existing Object selector validates before mutation; filters successful Object only; errors remain complete; the pinned schema already permits componentCount |
 | projection | noAcl/full both render the supported metadata subset, omitting owner/ACL as required by compose; full-projection additional permission parity stays pending on the broad method |
 | Unsupported queries | destinationPredefinedAcl, kmsKeyName, userProject, dropContextGroups, unsupported condition variants and recognized unsupported common query semantics return explicit 501; malformed or duplicated supported parameters return 400 according to shared query rules |
-| Unsupported destination features | ACL/owner, contexts, customTime, customerEncryption/KMS, temporaryHold, retention, soft-delete fields and explicit storageClass changes return 501; they never silently alter or grant permissions |
+| Unsupported destination features | ACL/owner, contexts, customTime, customerEncryption/KMS, temporaryHold, retention, soft-delete fields and any explicit storageClass input return 501; they never silently alter or grant permissions |
 | Headers | Existing authentication, transport, telemetry and bounded invocation-token rules; customer encryption, billing, copy-source encryption, method override, write ETag/date conditions and unsupported X-Goog-* semantics fail closed; request Content-Type describes JSON and never becomes destination contentType |
 
 The absent/null/empty destination defaults and legacy unknown/output-only handling
@@ -110,6 +111,21 @@ the content's MD5. Metadata GET/list, selected-generation GET, whole/range media
 XML read headers, metadata updates, copy/rewrite and restart must preserve or
 render composite identity consistently; XML compose itself remains out of scope.
 Ordinary uploads retain MD5 and omit componentCount.
+
+JSON and XML composite validators share the local quoted
+`c-{generation}-{metageneration}` form. The wire tests verify equality and a
+metadata-update change; the exact provider's opaque spelling is not claimed and
+remains SPEC-COMPOSE-EDGES. Non-composite XML validators retain their earlier
+declared MD5 form.
+
+XML GET/HEAD additionally emit x-goog-component-count for composites only. JSON
+metadata/list/fields expose componentCount; the XML-only header is not added to
+JSON media responses. Custom metadata size is rejected by body validation before
+source transfer. A changed destination bucket incarnation returns local 412;
+cleanup errors are logged for deferred recovery without replacing the original
+precondition/authorization error. With source deletion enabled, a pinned source
+generation that disappears before publish returns 404 and never deletes a newer
+generation. These status/precedence rules remain local under SPEC-COMPOSE-EDGES.
 
 As in the frozen upload contract, a timeout or disconnected response after a
 complete request does not prove that publication failed: the owned operation may

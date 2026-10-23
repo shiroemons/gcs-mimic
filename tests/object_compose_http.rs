@@ -64,6 +64,19 @@ fn compose_order_checksums_metadata_fields_and_restart() {
     assert_eq!(xml.status, 200);
     assert_eq!(xml.body, b"123456789");
     assert!(!xml.headers["x-goog-hash"].contains("md5="));
+    assert_eq!(xml.headers["etag"], result["etag"].as_str().unwrap());
+    assert_eq!(xml.headers["x-goog-component-count"], "2");
+    let head = server.request("HEAD", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
+    assert_eq!(head.status, 200);
+    assert_eq!(head.headers["x-goog-component-count"], "2");
+    assert_eq!(head.headers["etag"], xml.headers["etag"]);
+    assert!(head.body.is_empty());
+    assert!(
+        !server
+            .request("GET", "/test-bucket/a", "", b"")
+            .headers
+            .contains_key("x-goog-component-count")
+    );
     let selected = server
         .request(
             "GET",
@@ -92,6 +105,12 @@ fn compose_order_checksums_metadata_fields_and_restart() {
         .json();
     assert_eq!(updated["componentCount"], 2);
     assert!(updated.get("md5Hash").is_none());
+    let updated_xml = server.request("GET", "/test-bucket/dir%2F%E9%9B%AA%25", "", b"");
+    assert_eq!(
+        updated_xml.headers["etag"],
+        updated["etag"].as_str().unwrap()
+    );
+    assert_ne!(updated_xml.headers["etag"], xml.headers["etag"]);
     server.stop();
     let server = Server::start(&dir, false);
     assert_eq!(server.get("dir%2F%E9%9B%AA%25").json(), updated);
@@ -232,6 +251,15 @@ fn compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination() 
         .json();
     assert_eq!(retained_destination["size"], "1");
     assert!(retained_destination.get("timeDeleted").is_some());
+    assert_eq!(object_effects_support::blobs(&dir), 3);
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     assert_eq!(
         server
             .request(
@@ -246,6 +274,15 @@ fn compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination() 
             .body,
         b"old"
     );
+    let old_source = compose(&server, "selected-old", json!({"sourceObjects":[{"name":"a","generation":a_old["generation"]}],"deleteSourceObjects":true})).json();
+    assert_eq!(old_source["componentCount"], 1);
+    assert_eq!(media(&server, "selected-old").body, b"old");
+    server
+        .get(&format!(
+            "a?generation={}",
+            a_old["generation"].as_str().unwrap()
+        ))
+        .error(404, "notFound");
 }
 
 #[test]
@@ -283,6 +320,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         json!({"retention":{}}),
         json!({"contexts":{}}),
         json!({"temporaryHold":true}),
+        json!({"storageClass":"STANDARD"}),
         json!({"storageClass":"NEARLINE"}),
     ] {
         compose(
@@ -467,4 +505,218 @@ fn compose_method_body_and_selector_boundaries() {
         )
         .json();
     assert_eq!(selected, json!({"name":"destination","componentCount":1}));
+}
+
+#[test]
+fn compose_rechecks_read_and_create_grants_after_streaming() {
+    let (dir, server) = setup(true);
+    server.put("a", b"source").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    // Revoke at the durable checkpoint to exercise publication checks without timing races.
+    connection.execute_batch("CREATE TRIGGER revoke_compose_grant AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE bucket_policies SET bindings = '[]' WHERE bucket = 'test-bucket'; END;").unwrap();
+    for (token, role) in [
+        ("creator", "roles/storage.objectViewer"),
+        ("viewer", "roles/storage.objectCreator"),
+    ] {
+        server.request("PUT", "/storage/v1/b/test-bucket/iam", AUTH, json!({"bindings":[{"role":role,"members":[format!("user:{token}@example.test")]}]}).to_string().as_bytes()).json();
+        server
+            .request(
+                "POST",
+                &format!("/storage/v1/b/test-bucket/o/revoked-{token}/compose"),
+                &format!("Authorization: Bearer {token}\r\n"),
+                sources(&["a"]).to_string().as_bytes(),
+            )
+            .error(403, "forbidden");
+        server
+            .get(&format!("revoked-{token}"))
+            .error(404, "notFound");
+        assert_eq!(media(&server, "a").body, b"source");
+    }
+    connection
+        .execute_batch("DROP TRIGGER revoke_compose_grant;")
+        .unwrap();
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
+fn compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions() {
+    let (dir, server) = setup(false);
+    let a = server.put("a", b"first").json();
+    let b = server.put("b", b"second").json();
+    let destination = server.put("destination", b"preserved").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    // Fail after the destination insert and the earlier source deletion have executed.
+    connection.execute_batch("CREATE TRIGGER fail_compose_delete BEFORE DELETE ON objects WHEN OLD.name = 'b' BEGIN SELECT RAISE(ABORT, 'injected compose delete failure'); END;").unwrap();
+    compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"a"},{"name":"b"}],"deleteSourceObjects":true}),
+    )
+    .error(503, "backendError");
+    connection
+        .execute_batch("DROP TRIGGER fail_compose_delete;")
+        .unwrap();
+    assert_eq!(server.get("destination").json(), destination);
+    assert_eq!(server.get("a").json(), a);
+    assert_eq!(server.get("b").json(), b);
+    assert_eq!(media(&server, "destination").body, b"preserved");
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn compose_strict_admin_can_replace_self_source_and_delete_other_sources() {
+    let (_dir, server) = setup(true);
+    let first = server.put("destination", b"a").json();
+    server.put("b", b"b").json();
+    let result = compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"destination"},{"name":"b"}],"deleteSourceObjects":true}),
+    )
+    .json();
+    assert_ne!(result["generation"], first["generation"]);
+    assert_eq!(media(&server, "destination").body, b"ab");
+    server.get("b").error(404, "notFound");
+    server
+        .get(&format!(
+            "destination?generation={}",
+            first["generation"].as_str().unwrap()
+        ))
+        .error(404, "notFound");
+}
+
+#[test]
+fn compose_hold_added_after_streaming_preserves_destination_and_sources() {
+    let (dir, server) = setup(false);
+    server.put("a", b"source").json();
+    let destination = server.put("destination", b"preserved").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("CREATE TRIGGER hold_compose_source AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET event_based_hold = 1 WHERE name = 'a'; END;").unwrap();
+    compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"a"}],"deleteSourceObjects":true}),
+    )
+    .error(403, "objectUnderActiveHold");
+    connection
+        .execute_batch("DROP TRIGGER hold_compose_source;")
+        .unwrap();
+    assert_eq!(server.get("a").json()["eventBasedHold"], true);
+    assert_eq!(media(&server, "a").body, b"source");
+    assert_eq!(server.get("destination").json(), destination);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
+fn compose_source_generation_change_never_deletes_the_replacement() {
+    let (dir, server) = setup(false);
+    let source = server.put("a", b"source").json();
+    let generation: i64 = source["generation"].as_str().unwrap().parse().unwrap();
+    let destination = server.put("destination", b"preserved").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("CREATE TRIGGER replace_compose_source AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET generation = generation + 1 WHERE name = 'a'; UPDATE object_generation SET last_generation = max(last_generation, (SELECT max(generation) FROM objects)); END;").unwrap();
+    compose(
+        &server,
+        "destination",
+        json!({"sourceObjects":[{"name":"a"}],"deleteSourceObjects":true}),
+    )
+    .error(404, "notFound");
+    connection
+        .execute_batch("DROP TRIGGER replace_compose_source;")
+        .unwrap();
+    assert_eq!(
+        server.get("a").json()["generation"],
+        (generation + 1).to_string()
+    );
+    assert_eq!(media(&server, "a").body, b"source");
+    assert_eq!(server.get("destination").json(), destination);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
+fn compose_destination_condition_is_rechecked_after_streaming() {
+    let (dir, server) = setup(false);
+    server.put("a", b"source").json();
+    let destination = server.put("destination", b"preserved").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("CREATE TRIGGER change_compose_destination AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET metageneration = metageneration + 1 WHERE name = 'destination'; END;").unwrap();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/destination/compose?ifMetagenerationMatch=1",
+            AUTH,
+            sources(&["a"]).to_string().as_bytes(),
+        )
+        .error(412, "conditionNotMet");
+    connection
+        .execute_batch("DROP TRIGGER change_compose_destination;")
+        .unwrap();
+    let after = server.get("destination").json();
+    assert_eq!(after["generation"], destination["generation"]);
+    assert_eq!(after["metageneration"], "2");
+    assert_eq!(media(&server, "destination").body, b"preserved");
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
+fn compose_incarnation_change_preserves_original_error_and_recovers_after_restart() {
+    let (dir, mut server) = setup(false);
+    let source = server.put("a", b"source").json();
+    let destination = server.put("destination", b"preserved").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("CREATE TRIGGER replace_compose_bucket AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE bucket_incarnations SET incarnation = CASE WHEN incarnation = '00000000000000000000000000000000' THEN '11111111111111111111111111111111' ELSE '00000000000000000000000000000000' END WHERE bucket = 'test-bucket'; END;
+        CREATE TRIGGER fail_compose_cleanup BEFORE DELETE ON derived_transfers BEGIN SELECT RAISE(ABORT, 'injected compose cleanup failure'); END;").unwrap();
+    compose(&server, "destination", sources(&["a"])).error(412, "conditionNotMet");
+    assert_eq!(server.get("destination").json(), destination);
+    assert_eq!(server.get("a").json(), source);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    connection
+        .execute_batch("DROP TRIGGER replace_compose_bucket; DROP TRIGGER fail_compose_cleanup;")
+        .unwrap();
+    server.stop();
+    let server = Server::start(&dir, false);
+    assert_eq!(server.get("destination").json(), destination);
+    assert_eq!(server.get("a").json(), source);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
 }
