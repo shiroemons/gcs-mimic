@@ -3,6 +3,28 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-XML-VIRTUAL-HOST",
+      "title": "Explicit local virtual-host domains and dotted-bucket extension",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-048",
+        "DESIGN-033",
+        "DESIGN-055",
+        "EXT-XML-012",
+        "EXT-XML-017",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/overview"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Official XML endpoints use bucket.storage.googleapis.com/object, with the bucket absent from the canonical URI and present in canonical Host. The endpoint guide explicitly excludes domain-named buckets from virtual-host addressing. The requested local extension nevertheless accepts dotted bucket prefixes under an explicit configured suffix, and tests supplied-certificate HTTPS for the exact dotted hostname. This is a deliberate emulator addressing extension, not a claim that Google serves dotted buckets this way. XML domain selection defaults off, accepts at most 32 validated DNS suffixes, is case-insensitive, uses the longest configured suffix and treats a configured base host itself as path-style. Only the actual single Host selects a virtual bucket; forwarded headers and advertised API URLs have no effect. Virtual hosts expose XML object names even under JSON/admin-looking paths, not JSON or helper operations; bucket-only operations remain XML 501. Standard Host/port and raw path signature binding stay exact and unchanged. The built-in certificate has no wildcard SAN, so matching supplied certificates are required for HTTPS virtual hosts; ordinary wildcard certificates do not cover dotted bucket prefixes. Contract and evidence: docs/en/slices/xml-virtual-host.md and docs/en/evidence/xml-virtual-host.md. An advertised API authority that would select a bucket is rejected at startup. When either side selects a virtual bucket, conflicting absolute-form target authority and Host are rejected before CORS/dispatch with XML 400 InvalidArgument for unsigned/bearer requests or 403 SignatureDoesNotMatch for signed requests. Matching authority succeeds; HEAD errors remain bodyless. Trailing-dot hosts and IPv6 literals deliberately remain path-style. Helper DNS hosts are lowercased before signing; underscore bucket names receive a DNS-specific helper error.",
+      "required_resolution": "Retain the explicit opt-in, dotted-bucket local extension and TLS/DNS deployment requirements in documentation. The requested local scope is frozen and verified; any future claim of Google domain-named-bucket, CNAME, arbitrary-host or proxy-derived routing parity requires separate authoritative evidence and its own acceptance scope. Do not infer JSON availability on bucket hosts or weaken actual Host/port signing to accommodate SDK defects."
+    },
+    {
       "id": "SPEC-SIGNED-PAYLOAD",
       "title": "Optional SHA256 query header versus SDK payload substitution and exact failure errors",
       "status": "OPEN",

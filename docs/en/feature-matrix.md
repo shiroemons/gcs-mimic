@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 137 | 0 | 32 | 32 | 0 | 0 |
+| behavior | 201 | 136 | 0 | 31 | 34 | 0 | 0 |
 | project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 137 | 36 | 26 | 2 | 0 | 0 |
+| behavior | 136 | 37 | 26 | 2 | 0 | 0 |
 | project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
 
 ## api_operation
@@ -403,17 +403,17 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | DELETE Object | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | Abort multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
+| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 6 |
 | EXT-XML-013 | GET Object / list parts | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-018 | Initiate resumable upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | Initiate XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | Complete XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-023 | Upload XML multipart part | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-024 | Copy Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-025 | Compose Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -748,7 +748,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-031 | V4 HMAC signed URL verification | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-033 | V4 canonical host and port | PARTIAL | P2 | EXACT | EXACT | 3 |
+| DESIGN-033 | V4 canonical host and port | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
 | DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
@@ -779,7 +779,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-047 | Path-style object endpoints | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-048 | Virtual-hosted-style object endpoints | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-048 | Virtual-hosted-style object endpoints | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-049 | Media endpoint versus metadata endpoint | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-050 | Website host/index/error routing | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-051 | JSON API CORS defaults | IMPLEMENTED | P2 | EXACT | EXACT | 0 |

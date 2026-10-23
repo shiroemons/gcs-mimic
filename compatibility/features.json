@@ -23621,7 +23621,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -23684,7 +23684,7 @@
         },
         {
           "id": "EXT-XML-012-PENDING",
-          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, remaining signing formats/edge parity, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
+          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, remaining signing formats/edge parity, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
           "result": "PENDING",
           "test_ids": []
         },
@@ -23707,17 +23707,36 @@
             "TestV4RSASignedDownload/SignedUpload",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "id": "EXT-XML-012-VIRTUAL",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes fixed advertised URLs or dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "TestV4RSAVirtualHostedURLs",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
         }
       ],
       "test_ids": [
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/SignedUpload",
+        "TestV4RSAVirtualHostedURLs",
         "TestXMLReadsPermissive",
         "TestXMLReadsStrict",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
         "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+        "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+        "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host_https_requires_a_matching_supplied_certificate",
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
         "xml::xml_head_matches_get_headers_and_selected_metadata",
@@ -23817,6 +23836,37 @@
             "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
             "xml::xml_unsupported_operations_fail_before_reading_a_body"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23879,10 +23929,40 @@
           "test_ids": [
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP XML; unmodified VirtualHostedStyle and BucketBoundHostname at default-port authority mapped by guarded dialer; explicit-port rejection retained (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Verified HTTPS XML with a supplied *.storage.example.invalid/listener SAN certificate; unmodified virtual and bucket-bound default-port signing, explicit-port rejection",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
@@ -24034,7 +24114,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -24073,7 +24153,7 @@
         },
         {
           "id": "EXT-XML-017-PENDING",
-          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, remaining signing formats/edge parity, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
+          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, remaining signing formats/edge parity, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -24087,21 +24167,36 @@
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "id": "EXT-XML-017-VIRTUAL",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes fixed advertised URLs or dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "TestV4RSAVirtualHostedURLs",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
         }
       ],
       "test_ids": [
-        "xml::xml_head_matches_get_headers_and_selected_metadata",
-        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+        "TestV4RSASignedDownload",
+        "TestV4RSAVirtualHostedURLs",
         "TestXMLReadsStrict",
-        "xml::xml_missing_resources_follow_effective_permission_disclosure",
-        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
-        "xml::xml_unsupported_operations_fail_before_reading_a_body",
-        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
-        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
-        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "TestV4RSASignedDownload"
+        "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+        "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+        "xml::xml_head_matches_get_headers_and_selected_metadata",
+        "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+        "xml::xml_missing_resources_follow_effective_permission_disclosure",
+        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+        "xml::xml_unsupported_operations_fail_before_reading_a_body"
       ],
       "verification": [
         {
@@ -24174,6 +24269,35 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24206,10 +24330,40 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP XML; unmodified VirtualHostedStyle and BucketBoundHostname at default-port authority mapped by guarded dialer; explicit-port rejection retained (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Verified HTTPS XML with a supplied *.storage.example.invalid/listener SAN certificate; unmodified virtual and bucket-bound default-port signing, explicit-port rejection",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size."
@@ -24354,7 +24508,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Ordinary Go Writer uses JSON Objects.Insert; official SignedURL PUT now verifies XML writes through the pinned Go/Ruby signers. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. V4 RSA signed PUT and declared SHA256 are implemented; full advanced XML PUT remains PARTIAL.",
+      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Ordinary Go Writer uses JSON Objects.Insert; official SignedURL PUT now verifies XML writes through the pinned Go/Ruby signers. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. V4 RSA signed PUT and declared SHA256 are implemented; full advanced XML PUT remains PARTIAL. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [
         "DESIGN-014",
         "DESIGN-052"
@@ -24615,15 +24769,34 @@
             "TestV4RSASignedDownload/SignedUpload",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "id": "EXT-XML-022-VIRTUAL",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes fixed advertised URLs or dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "TestV4RSAVirtualHostedURLs",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
         }
       ],
       "test_ids": [
         "TestV4RSASignedDownload/SignedUpload",
+        "TestV4RSAVirtualHostedURLs",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
         "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
         "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
         "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
         "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+        "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+        "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+        "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host_https_requires_a_matching_supplied_certificate",
         "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
         "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
         "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
@@ -24706,6 +24879,37 @@
             "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
             "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24736,6 +24940,36 @@
           "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP XML; unmodified VirtualHostedStyle and BucketBoundHostname at default-port authority mapped by guarded dialer; explicit-port rejection retained (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Verified HTTPS XML with a supplied *.storage.example.invalid/listener SAN certificate; unmodified virtual and bucket-bound default-port signing, explicit-port rejection",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
           ]
         }
       ],
@@ -33169,7 +33403,7 @@
       "interface": "XML canonical request",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -33178,10 +33412,10 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Virtual-host routing remains pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-033-HOST",
@@ -33196,10 +33430,16 @@
           ]
         },
         {
-          "id": "DESIGN-033-VIRTUAL-PENDING",
-          "description": "Implement virtual-host bucket routing and its canonical host/path cases.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "DESIGN-033-VIRTUAL",
+          "description": "Virtual-host bucket routing binds the object-only original canonical URI and actual bucket Host/port; helper, style transfer rejection, supplied-SAN HTTPS and official default-port Go signing pass without host rewriting.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "TestV4RSAVirtualHostedURLs",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
         },
         {
           "id": "DESIGN-033-SIGNED-SDK",
@@ -33214,11 +33454,16 @@
       "test_ids": [
         "TestV4RSASignedDownload",
         "TestV4RSASignedDownload/SignedUpload",
+        "TestV4RSAVirtualHostedURLs",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
         "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
         "signed_private_download_uses_the_https_listener_host_and_port",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+        "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
         {
@@ -33272,6 +33517,36 @@
             "signed_private_download_uses_the_https_listener_host_and_port",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -33318,12 +33593,40 @@
           "test_ids": [
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP XML; unmodified VirtualHostedStyle and BucketBoundHostname at default-port authority mapped by guarded dialer; explicit-port rejection retained (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Verified HTTPS XML with a supplied *.storage.example.invalid/listener SAN certificate; unmodified virtual and bucket-bound default-port signing, explicit-port rejection",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
         }
       ],
-      "known_deviations": [
-        "Virtual-host routing remains unavailable; SPEC-GO-SIGNER-PORT records the pinned SDK defect without relaxing server Host checks."
-      ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "known_deviations": [],
+      "implemented_in": "15aeea6c5bd518c464e4a1b6291c33768cd3a611",
       "last_verified": "2026-10-23"
     },
     {
@@ -34789,25 +35092,180 @@
       "interface": "XML endpoint",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/request-endpoints"
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/overview",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Route bucket.host/object consistently with path-style requests, including dots in bucket names.",
+      "notes": "Route bucket.host/object consistently with path-style requests, including dots in bucket names. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. EXACT covers the standard XML bucket-host contract; dotted prefixes are an additional declared local addressing extension. Advertised API host collisions are rejected at startup. Conflicting absolute-form authority/Host returns XML 400 for bearer/unsigned requests or 403 for signed requests.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-048-CONFIG",
+          "description": "Opt-in default disabled; CLI/environment/JSON precedence, empty override, DNS validation and 32-domain bound; case-insensitive boundary and longest suffix matching. Reject an advertised API origin that would select a virtual bucket.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
+          ]
+        },
+        {
+          "id": "DESIGN-048-ROUTING",
+          "description": "GET/HEAD/PUT and range equivalence over dotted local bucket prefixes; one-pass encoded/Unicode/repeated/leading paths and metadata; malformed path XML errors; bucket root remains unsupported.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style"
+          ]
+        },
+        {
+          "id": "DESIGN-048-ISOLATION",
+          "description": "Nonconfigured, lookalike and base hosts retain path-style routing; forwarded hosts ignored; advertised URLs unchanged; JSON/admin-looking virtual paths remain XML object names. Trailing-dot/IPv6 hosts remain path-style; conflicting absolute target authority is rejected before CORS/dispatch.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "id": "DESIGN-048-AUTH-CORS",
+          "description": "Shared strict bearer/signer permissions, creator create versus overwrite, public grants, no invalid-signature fallback, XML preflight and actual/error CORS.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules"
+          ]
+        },
+        {
+          "id": "DESIGN-048-SIGNING",
+          "description": "Original object-only raw canonical URI and actual bucket Host including port; host/port/path tamper rejection and both addressing-style transfer directions fail; private signed GET/HEAD/PUT and encoded paths succeed.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style"
+          ]
+        },
+        {
+          "id": "DESIGN-048-HELPERS",
+          "description": "Explicit virtual-host public/signing helper style constructs the final DNS host/port before signing, validates origin/no-prefix and preserves encoded names.",
+          "result": "PASS",
+          "test_ids": [
+            "url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "prints_virtual_host_url_with_dotted_bucket_and_explicit_port"
+          ]
+        },
+        {
+          "id": "DESIGN-048-TLS",
+          "description": "Supplied exact dotted-host SAN permits trusted HTTPS signed GET/PUT; embedded certificate fails hostname validation.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host_https_requires_a_matching_supplied_certificate"
+          ]
+        },
+        {
+          "id": "DESIGN-048-GO",
+          "description": "Pinned official unmodified VirtualHostedStyle GET/HEAD/PUT and BucketBoundHostname GET through a guarded default-port dialer; explicit-port signature defect remains asserted. Positive transfers also pass with a supplied wildcard-SAN HTTPS certificate.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        }
+      ],
+      "test_ids": [
+        "TestV4RSAVirtualHostedURLs",
+        "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
+        "prints_virtual_host_url_with_dotted_bucket_and_explicit_port",
+        "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+        "url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path",
+        "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+        "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+        "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+        "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host_https_requires_a_matching_supplied_certificate"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
+            "url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "prints_virtual_host_url_with_dotted_bucket_and_explicit_port",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP XML; unmodified VirtualHostedStyle and BucketBoundHostname at default-port authority mapped by guarded dialer; explicit-port rejection retained (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "Verified HTTPS XML with a supplied *.storage.example.invalid/listener SAN certificate; unmodified virtual and bucket-bound default-port signing, explicit-port rejection",
+          "command": "GCS_MIMIC_SDK_SCHEME=https GCS_MIMIC_TLS_CERT=<cert> GCS_MIMIC_TLS_KEY=<key> GCS_MIMIC_CA_CERT=<ca> GCS_MIMIC_GO_TEST_RUN='TestV4RSA' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "15aeea6c5bd518c464e4a1b6291c33768cd3a611",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-049",
@@ -35249,7 +35707,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
+      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that would select a virtual bucket; an explicitly configured base domain itself stays path-style.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -35303,18 +35761,29 @@
             "signed_journey (native)",
             "signed_journey (Docker/Compose)"
           ]
+        },
+        {
+          "id": "DESIGN-055-VIRTUAL",
+          "description": "Configured virtual-host routing reuses the scoped XML operation, permissions and canonical signing; domain routing never changes fixed advertised URLs or dispatches JSON on bucket hosts. The supported scope and dotted-host local extension are documented separately.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence"
+          ]
         }
       ],
       "test_ids": [
         "advertised_endpoint_precedence_and_validation",
         "bkt_http_crud_metadata_conditions_and_errors",
+        "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
         "obj_http_encoded_names_and_invalid_names",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
         "signed_journey (Docker/Compose)",
         "signed_journey (native)",
         "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
         "tls_native_container_journeys",
-        "tls_trust_versions_streaming_urls_and_restart"
+        "tls_trust_versions_streaming_urls_and_restart",
+        "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
       ],
       "verification": [
         {
@@ -35371,6 +35840,16 @@
             "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
             "tls_native_container_journeys",
             "tls_trust_versions_streaming_urls_and_restart"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-virtual-host-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence"
           ]
         }
       ],

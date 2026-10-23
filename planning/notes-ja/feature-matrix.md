@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 137 | 0 | 32 | 32 | 0 | 0 |
+| behavior | 201 | 136 | 0 | 31 | 34 | 0 | 0 |
 | project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 137 | 36 | 26 | 2 | 0 | 0 |
+| behavior | 136 | 37 | 26 | 2 | 0 | 0 |
 | project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
 
 ## api_operation
@@ -403,17 +403,17 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | マルチパート中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
+| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 6 |
 | EXT-XML-013 | アップロード済みパート一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-023 | XMLマルチパートのパート送信 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-024 | オブジェクトコピー | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -748,7 +748,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-030 | V4 RSA署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-031 | V4 HMAC署名付きURLの検証 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-032 | 署名付きURLの日時・有効期限制約 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-033 | V4の正規化対象Host・ポート | PARTIAL | P2 | EXACT | EXACT | 3 |
+| DESIGN-033 | V4の正規化対象Host・ポート | IMPLEMENTED | P2 | EXACT | EXACT | 5 |
 | DESIGN-034 | V4のパス符号化・Unicode処理 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-035 | V4クエリの並べ替え・符号化 | PARTIAL | P2 | EXACT | EXACT | 1 |
 | DESIGN-036 | V4署名対象ヘッダーの正規化 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
@@ -779,7 +779,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-047 | パス形式のオブジェクトURL | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-048 | 仮想ホスト形式のオブジェクトURL | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-048 | 仮想ホスト形式のオブジェクトURL | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-049 | メディア取得URLとメタデータURLの区別 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-050 | ウェブサイト用ホスト・index・エラーページの解決 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-051 | JSON API固有のCORS既定動作 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |

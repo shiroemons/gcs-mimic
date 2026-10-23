@@ -1,0 +1,11 @@
+Local checkout path prefixes are redacted as <checkout>; all other output is unchanged.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+=== RUN   TestV4RSASignedDownload
+=== RUN   TestV4RSASignedDownload/SignedUpload
+--- PASS: TestV4RSASignedDownload (0.31s)
+    --- PASS: TestV4RSASignedDownload/SignedUpload (0.05s)
+=== RUN   TestV4RSAVirtualHostedURLs
+--- PASS: TestV4RSAVirtualHostedURLs (0.20s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.807s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
