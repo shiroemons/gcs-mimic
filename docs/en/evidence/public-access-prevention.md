@@ -3,14 +3,14 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Verified **2026-10-23**, code commit
-`4611758c7d7047289c7426698e53a83d94ee1ff8` on
+`25b15bfeef203a0bcbe5dd7f51f75bed3cf00922` on
 `shiroemons/public-access-prevention`.
 The [slice contract](../slices/public-access-prevention.md) records source hashes,
 acceptance cases, parent-policy fixture and exact guide integration commands.
 
 | Command | Result | Raw evidence |
 | --- | --- | --- |
-| `env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace` | PASS, 635 tests; zero failed/ignored | [Rust](public-access-prevention-rust.txt) |
+| `env -u RUSTUP_TOOLCHAIN cargo test --locked --offline --workspace` | PASS, 639 tests; zero failed/ignored | [Rust](public-access-prevention-rust.txt) |
 | `env -u RUSTUP_TOOLCHAIN cargo fmt --all --check` | PASS | No output, exit 0 |
 | `env -u RUSTUP_TOOLCHAIN cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS | [Clippy](public-access-prevention-clippy.txt) |
 | `GCS_MIMIC_GO_TEST_RUN=TestPublicAccessPrevention bash scripts/sdk-go.sh` | PASS, Go vet and targeted Go test over HTTP | [Go HTTP](public-access-prevention-sdk.txt) |
@@ -48,7 +48,23 @@ exclude that raw log.
   observes PAP.
 - Post-admission enforcement is rechecked before shared reads/mutations and
   upload publication, with unchanged live bytes and cleaned staging files.
-  Both metadata mutation methods require update plus setIamPolicy permission.
+  HTTP tests deny resumable finalization for either public initiating principal,
+  copy/rewrite/compose under source or destination enforcement and continuation
+  of a previously admitted multi-call rewrite. Failed operations preserve
+  source/destination metadata, generation and bytes and delete no compose source.
+- Metadata mutations require update permission, adding setIamPolicy only when
+  the resulting configured PAP value changes. Unit coverage includes both
+  stored values, PATCH preservation, PUT implicit reset, label changes, revision
+  increments and atomic denial. The registry has no update-only predefined role,
+  so this specific authority is tested directly at the shared catalog boundary.
+- The exact Python 3.4.1 IAM configuration body with disabled UBLA passes
+  insert/PATCH/PUT. The disabled legacy alias also works; enabled UBLA,
+  lockedTime, malformed types and unsupported empty/null forms still return 501.
+  This is a source-derived wire test, not execution of the Python SDK.
+- A registered signer relying solely on allAuthenticatedUsers loses signed
+  GET/HEAD/PUT under PAP while metadata/generation/bytes survive. Suppressed
+  public admin grants cannot set PAP back to inherited. Direct catalog parent
+  fixtures deduplicate valid projects; registry duplicates remain invalid.
 
 Go 1.27.3 / storage v1.70.0 / API v0.308.0 verifies
 `BucketAttrs.PublicAccessPrevention` on create/get/update, public denial,
@@ -63,8 +79,12 @@ BEHAVIOR-BUCKET-014 and DESIGN-022 describe the requested effective-parent
 fixture subset with target/actual fidelity LOCAL_SIMULATION. DESIGN-023 and
 DESIGN-025 cover their scoped documented authorization behavior. The affected
 bucket metadata/IAM method rows retain PARTIAL status and existing broader
-pending cases. SPEC-PAP-EDGES preserves the local null/legacy/PUT/error choices;
-ACLs, UBLA, full organization policy and propagation are not implemented.
+pending cases. SPEC-PAP-EDGES preserves the local null/legacy/PUT/error and
+unchanged-value permission choices. Deprecated unspecified remains 400 in line
+with the current JSON enum; the Go enum retains it as a deprecated legacy value.
+Responses omit uniformBucketLevelAccess/bucketPolicyOnly, a known fields-parity
+deviation. ACLs, UBLA transitions, full organization policy and propagation are
+not implemented.
 DESIGN-024 is PARTIAL: scoped IAM 412 rejection passes, while ACL creation
 exceptions and exact provider reason/message/precedence remain pending.
 DESIGN-012/013 and UX-005 retain their status; their former combined unsupported

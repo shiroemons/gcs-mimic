@@ -18,8 +18,21 @@ defines `constraints/storage.publicAccessPrevention` as a boolean constraint.
 The [bucket resource](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets)
 accepts `inherited` and `enforced`, defaulting to `inherited`.
 [PATCH](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch)
-requires both `storage.buckets.update` and `storage.buckets.setIamPolicy` to
-change PAP. Insert retains its project `storage.buckets.create` check.
+and [PUT](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update)
+require `storage.buckets.update`, adding `storage.buckets.setIamPolicy` for PAP
+changes. The local comparison uses the resulting configured value: resending
+the stored value requires only update; an omitted PUT value requires the extra
+permission only when resetting enforced to inherited. Unchanged-value provider
+permission parity has not been measured; this interpretation is recorded in
+SPEC-PAP-EDGES. Insert retains its project `storage.buckets.create` check.
+
+The official Python `google-cloud-storage` **3.4.1**
+[`IAMConfiguration` constructor and setter](https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559)
+populate `uniformBucketLevelAccess: {"enabled": false}` and send the whole
+IAM configuration when PAP changes. The pinned `bucket.py` SHA256 is
+`107fffb144c6dc0615663297367235dcca18e88d8414fb80f2438fe4eb79704b`.
+The wire case reproduces that body exactly; no Python runtime/SDK execution is
+claimed and this historical source pin is not a latest-SDK claim.
 
 The existing Discovery revision `20261013`, SHA256
 `1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0`, and
@@ -38,12 +51,18 @@ Fresh fetched HTML hashes, checked on the contract date:
 | PAP management | `5506b058732760ee3a9b45a424b6c754c947588159942873f7a3d027daff1176` |
 | Bucket resource | `9afc8a00ab38410dce9a3067d1804a2596b18a0aa36f5e620b0a34ba485d444d` |
 | Organization constraints | `a920116fb5b042a86b38a01eff2d166c17c2350ee46e359460a261707e3a230c` |
+| Bucket PATCH permissions | `0180ec381d347d8a5e1381154856945beaf97613e560debc8eb9d888ec8f45a6` |
+| Bucket PUT permissions | `45746ebad0f3e26fa530aea94befe85fd9d94388978e69b4775e556cd95255bb` |
 
 SPEC-PAP-EDGES records local choices: current JSON values exclude legacy
 `unspecified`; null/invalid types return 400 `invalidArgument`; omitted PUT PAP
 resets to inherited; PAP policy rejection uses 412 `conditionNotMet`. Submitting
 an unchanged public binding under PAP also fails. Existing IAM, XML and signing
 gaps remain open; this slice does not establish provider message/error precedence.
+The official [Go v1.70.0 enum reference](https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest)
+deprecates `PublicAccessPreventionUnspecified` in favor of inherited. We retain
+400 for the legacy JSON spelling because the current bucket reference enumerates
+only inherited/enforced; older clients sending unspecified remain a known gap.
 
 ## Supported contract
 
@@ -51,14 +70,18 @@ gaps remain open; this slice does not establish provider message/error precedenc
 PUT, GET, list, projections and `fields` in both compatibility profiles. Response
 metadata reports configured state, never replaces `inherited` with effective
 parent enforcement. Empty/unknown IAM configuration children follow the existing
-forward-compatible ignored-input rule. Recognized `uniformBucketLevelAccess`
-and legacy `bucketPolicyOnly` children return 501 even if null, empty or false;
-ACLs and uniform access remain outside this slice.
+forward-compatible ignored-input rule. `uniformBucketLevelAccess` and legacy
+`bucketPolicyOnly` accept `{"enabled":false}` without `lockedTime` as a no-op,
+matching the modeled disabled state. Enabling them, empty/null configurations,
+invalid enabled types and any lockedTime return 501. Responses still omit these
+two fields; this fields-parity deviation is recorded in SPEC-PAP-EDGES. ACLs and
+uniform-access transitions remain outside this slice.
 
 PATCH preserves omitted PAP; PUT defaults omitted PAP to inherited like other
 modeled replacement fields. Every successful metadata mutation advances
 metageneration once. Match/NotMatch conditions and both required mutation
-permissions are checked in the same transaction. Failed updates preserve state.
+permissions for actual PAP changes are checked in the same transaction. Failed
+updates preserve state.
 Schema version **13** adds a checked boolean with an inherited default; existing
 catalogs migrate transactionally and reopen without changing objects or IAM.
 
@@ -99,8 +122,10 @@ Add the optional top-level field to the strict `identity_file`:
 
 This is **LOCAL_SIMULATION** of an already-resolved parent organization/project
 constraint. It supports at most 64 distinct valid project identifiers within the
-existing 64 KiB registry limit. The server loads it before seeding/listening and
-reloads it only on restart. An absent/empty list means no parent enforcement.
+existing 64 KiB registry limit. The registry rejects duplicates; direct catalog
+callers' duplicate valid projects are idempotently deduplicated. The server loads
+it before seeding/listening and reloads it only on restart. An absent/empty list
+means no parent enforcement.
 Removing a fixture on restart reactivates stored public bindings for inherited
 buckets; an explicitly enforced bucket remains enforced. The fixture is held in
 a connection-local temporary table, never serialized into bucket metadata.
@@ -113,14 +138,18 @@ propagation delay or external cache invalidation is simulated.
 | Test | Required behavior |
 | --- | --- |
 | `pap_metadata_insert_patch_update_fields_conditions_and_restart` | Both profiles, default/enforced insert, GET/list/fields, PATCH/PUT, omitted fields, atomic Match/NotMatch, revision and restart |
-| `pap_invalid_and_unsupported_settings_preserve_resources` | Invalid/legacy values 400; recognized UBLA/legacy alias 501; failed insert never creates a bucket; failed mutations preserve metadata |
+| `pap_invalid_and_unsupported_settings_preserve_resources` | Invalid/legacy values 400; unsupported UBLA/legacy enable, lock and malformed forms 501; failed insert never creates a bucket; failed mutations preserve metadata |
+| `pap_disabled_uniform_access_noop_matches_python_client` | Exact Python 3.4.1 IAM configuration body works on insert/PATCH/PUT; legacy disabled alias is a no-op |
 | `pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates` | Both public principal sets, anonymous/registered JSON and XML GET/HEAD/PUT/upload/list/delete denial, bearer success, policy preservation, 412 public submission, disable/reactivation and explicit bucket grant |
 | `pap_signed_get_head_put_use_signer_grants_and_reject_tampering` | Valid signed GET/HEAD/PUT under PAP, creator/overwrite requirements, public-only signer denial, explicit bucket signer success and invalid-signature preservation |
 | `pap_parent_fixture_inheritance_restart_and_release` | Existing/new buckets, inherited metadata versus enforcement, unaffected project, cannot bypass parent with inherited, signed GET/PUT, restart/release and explicit enforcement persistence |
 | `pap_migrates_version_twelve_and_persists_configured_state` | Version 12 upgrade to 13, inherited default, database constraint, persisted enforcement; existing older-schema migration corpus remains required |
 | `pap_is_rechecked_after_upload_admission_and_before_reads` | Bucket/parent enforcement after authorization denies all shared read/mutation paths and an admitted upload, preserving object and stored policy and removing staging files |
+| `pap_resumable_finalization_rechecks_public_initiator` | Both public principal sets can initiate before enforcement but cannot publish afterward, even through the session capability; existing object metadata/generation/bytes survive |
+| `pap_copy_rewrite_compose_recheck_public_source_and_destination_grants` | Public-only copy/rewrite/compose denied under source or destination PAP, including a pre-admitted multi-call rewrite; source/destination metadata/generation/bytes survive and compose deletes no source |
+| `pap_signed_requests_suppress_all_authenticated_users_grants` | Valid registered public-only signer GET/HEAD/PUT denied under PAP without changing object metadata/generation/bytes |
 | `pap_parent_fixture_rejects_malformed_and_unbounded_projects` | Reject malformed, duplicate, invalid and over-limit fixture projects |
-| `pap_mutations_require_update_and_set_iam_permissions` | Both mutation methods reject update-only authority without changing metadata |
+| `pap_mutations_require_update_and_set_iam_permissions` | Update-only authority can change labels while repeating either stored PAP value; both mutation methods reject actual PAP changes and PUT implicit resets atomically |
 | `TestPublicAccessPrevention` | Pinned Go BucketAttrs insert/get/update, anonymous denial, policy preservation/rejection, unmodified official signed GET/PUT at a guarded default-port authority, disable/reactivation |
 
 ## Commands for the runnable signed journey

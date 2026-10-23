@@ -1,7 +1,7 @@
 Local checkout and temporary-directory path prefixes are redacted.
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.34s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
 === RUN   TestPublicAccessPrevention
---- PASS: TestPublicAccessPrevention (0.12s)
+--- PASS: TestPublicAccessPrevention (0.08s)
 PASS
-ok  	gcs-mimic/sdk-tests/go	0.595s
+ok  	gcs-mimic/sdk-tests/go	0.372s
 ?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

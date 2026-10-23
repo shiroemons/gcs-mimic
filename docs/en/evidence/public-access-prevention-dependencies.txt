@@ -1,7 +1,7 @@
 Local checkout and temporary-directory path prefixes are redacted.
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask dependencies check`
-checked_at_unix_seconds=1792759525
+checked_at_unix_seconds=1792760740
 rust: CURRENT current=1.99.1 latest=1.99.1
 bytes: CURRENT current=1.12.1 latest=1.12.1
 crc32c: CURRENT current=0.6.8 latest=0.6.8

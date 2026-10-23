@@ -3184,7 +3184,7 @@
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -3642,7 +3642,7 @@
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
         "SPEC-JSON-ETAG-WIRE: IAM GET has a local HTTP validator formed by quoting the selected policy revision etag; provider header spelling and exhaustive error/header parity remain unverified.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -3718,6 +3718,7 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
@@ -3922,6 +3923,7 @@
           "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
           "result": "PASS",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state"
@@ -3929,6 +3931,7 @@
         }
       ],
       "test_ids": [
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_ins_001_defaults_and_server_owned_values",
         "bkt_http_query_body_name_and_route_boundaries",
@@ -4099,6 +4102,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state"
@@ -4148,7 +4152,7 @@
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -4602,7 +4606,7 @@
         "Tokens have a corruption checksum, not authentication or snapshot semantics; maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence. JSON zero behavior is unverified against the real service.",
         "Empty optional pageToken means the first page based on pinned SDK requests, not explicit upstream prose.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -4702,6 +4706,7 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
@@ -4966,6 +4971,7 @@
           "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
           "result": "PASS",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state",
@@ -4974,6 +4980,7 @@
         }
       ],
       "test_ids": [
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "TestBucketMetadataUpdate",
         "TestObjectMediaLifecycle",
         "TestObjectMultipartWriter",
@@ -5245,6 +5252,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state",
@@ -5326,7 +5334,7 @@
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -5842,7 +5850,7 @@
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -5918,6 +5926,7 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
@@ -6183,6 +6192,7 @@
           "description": "Scoped PAP metadata or IAM behavior passes; configured/effective state remain distinct and public policy submissions fail 412 without deleting grants. Broader method cases remain pending.",
           "result": "PASS",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state",
@@ -6191,6 +6201,7 @@
         }
       ],
       "test_ids": [
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "TestBucketMetadataReplace",
         "TestObjectMediaLifecycle",
         "TestObjectMultipartWriter",
@@ -6458,6 +6469,7 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
           "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state",
@@ -6539,7 +6551,7 @@
         "SPEC-008 local mutation 412 and combined/missing precedence; no ETag headers or historical-version condition semantics. Current scope clarification: Documented read ETags and selected-generation reads/deletes are delivered; only mixed/opaque-wire and historical selected-delete parity remain open under SPEC-008, SPEC-JSON-ETAG-WIRE and SPEC-VERSION-DELETE-CONDITIONS.",
         "SPEC-008/010: mixed-condition/missing precedence and checksum parser/mismatch reasons are local choices.",
         "Recognized unsupported semantics use local 501; production permission and complete status/header parity are not reproduced. Current scope clarification: Strict local permissions are delivered; real credential issuance, ACL/full projection, exact wire status/header and unsupported-field semantics remain pending.",
-        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error choices; ACL/UBLA and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
+        "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
       "last_verified": "2026-10-23",
@@ -17840,18 +17852,21 @@
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Unchanged PAP echoes require update only; disabled UBLA echoes are no-ops, including the Python 3.4.1 wire shape. HTTP coverage includes resumable finalization, copy/rewrite/compose and both public-only signer sets. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed legacy/null/PUT/error/permission/response-field/propagation parity; ACLs, UBLA transitions and organization APIs are outside this declared subset.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "PAP-METADATA",
-          "description": "Persistent inherited/enforced metadata across insert/PATCH/PUT/GET/list/fields, both profiles, invalid inputs, conditions, permissions, restart and schema migration.",
+          "description": "Persistent inherited/enforced metadata across insert/PATCH/PUT/GET/list/fields, both profiles, invalid inputs, conditions, restart and migration. Update-only callers may repeat stored PAP while changing labels; actual changes and implicit PUT resets require setIamPolicy and fail atomically without it.",
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
@@ -17862,7 +17877,7 @@
         },
         {
           "id": "PAP-PARENT",
-          "description": "Bounded validated local parent fixture enforces/reloads/releases inherited state without changing configured metadata or explicit enforcement.",
+          "description": "Bounded validated local parent fixture enforces/reloads/releases inherited state without changing configured metadata or explicit enforcement; direct catalog callers deduplicate valid projects, while registry duplicates remain invalid.",
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
@@ -17886,6 +17901,32 @@
             "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "id": "PAP-DISABLED-UNIFORM-ACCESS",
+          "description": "Exact Python google-cloud-storage 3.4.1 PAP body with disabled UBLA works on insert/PATCH/PUT; disabled legacy alias is a no-op. Enabled, lockedTime and malformed/empty/null configurations still fail explicitly. Source-derived wire coverage only; no Python SDK runtime claim.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources"
+          ]
+        },
+        {
+          "id": "PAP-TRANSFER-PUBLICATION",
+          "description": "Both public-only principal sets lose resumable finalization after admission and copy/rewrite/compose under source or destination enforcement, including multi-call rewrite continuation; metadata/generation/bytes survive and compose deletes no source.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants"
+          ]
+        },
+        {
+          "id": "PAP-AUTHENTICATED-PUBLIC-SIGNER",
+          "description": "A valid registered signer relying solely on allAuthenticatedUsers loses signed GET/HEAD/PUT under PAP without fallback or changes to object metadata/generation/bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -17898,6 +17939,10 @@
         "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
         "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
         "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+        "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
+        "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
         "TestPublicAccessPrevention"
       ],
       "verification": [
@@ -17915,7 +17960,11 @@
             "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
-            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants"
           ]
         },
         {
@@ -17970,7 +18019,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "implemented_in": "25b15bfeef203a0bcbe5dd7f51f75bed3cf00922",
       "last_verified": "2026-10-23"
     },
     {
@@ -32756,21 +32805,25 @@
         "https://docs.cloud.google.com/storage/docs/public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://docs.cloud.google.com/storage/docs/org-policy-constraints"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Unchanged PAP echoes require update only; disabled UBLA echoes are no-ops, including the Python 3.4.1 wire shape. HTTP coverage includes resumable finalization, copy/rewrite/compose and both public-only signer sets. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed legacy/null/PUT/error/permission/response-field/propagation parity; ACLs, UBLA transitions and organization APIs are outside this declared subset.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "PAP-CONFIGURATION",
-          "description": "Configured state round-trips with fields, conditions, required update/setIamPolicy permissions, migration and restart.",
+          "description": "Configured state round-trips with fields, conditions, migration and restart. Unchanged PAP needs update only; changes, including implicit PUT resets, also need setIamPolicy. Python 3.4.1 disabled-UBLA PAP body and legacy disabled alias work as no-ops; UBLA transitions remain unsupported.",
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
           ]
@@ -32786,7 +32839,7 @@
         },
         {
           "id": "PAP-ATOMIC-STATE",
-          "description": "Shared read/mutation/publication transactions observe effective enforcement after earlier authorization.",
+          "description": "Shared read/mutation/publication transactions observe effective enforcement after earlier authorization; direct parent-fixture callers deduplicate valid projects without a backend error.",
           "result": "PASS",
           "test_ids": [
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
@@ -32795,6 +32848,7 @@
       ],
       "test_ids": [
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "pap_migrates_version_twelve_and_persists_configured_state",
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
         "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
@@ -32809,6 +32863,7 @@
           "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
           "test_ids": [
             "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
@@ -32819,7 +32874,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "implemented_in": "25b15bfeef203a0bcbe5dd7f51f75bed3cf00922",
       "last_verified": "2026-10-23"
     },
     {
@@ -32841,14 +32896,14 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Unchanged PAP echoes require update only; disabled UBLA echoes are no-ops, including the Python 3.4.1 wire shape. HTTP coverage includes resumable finalization, copy/rewrite/compose and both public-only signer sets. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed legacy/null/PUT/error/permission/response-field/propagation parity; ACLs, UBLA transitions and organization APIs are outside this declared subset.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "PAP-STORED-GRANTS",
-          "description": "Both public principal sets lose JSON/XML access; public policy submission fails 412, stored bindings/etag survive, explicit principals work and disabling reactivates.",
+          "description": "Both public principal sets lose JSON/XML access and cannot disable PAP using suppressed public admin grants; public policy submission fails 412, stored bindings/etag survive, explicit principals work and disabling reactivates.",
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
@@ -32864,10 +32919,12 @@
         },
         {
           "id": "PAP-PUBLICATION",
-          "description": "Post-admission PAP changes deny publication and preserve object/staging state.",
+          "description": "Post-admission PAP changes deny publication and preserve object/staging state. HTTP resumable finalization and copy/rewrite/compose (including admitted multi-call continuation) reject both public-only principal sets under source or destination enforcement, preserving metadata/generation/bytes and compose sources.",
           "result": "PASS",
           "test_ids": [
-            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants"
           ]
         },
         {
@@ -32883,6 +32940,8 @@
         "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
         "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
         "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+        "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
         "TestPublicAccessPrevention"
       ],
       "verification": [
@@ -32894,7 +32953,9 @@
           "test_ids": [
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants"
           ]
         },
         {
@@ -32949,7 +33010,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "implemented_in": "25b15bfeef203a0bcbe5dd7f51f75bed3cf00922",
       "last_verified": "2026-10-23"
     },
     {
@@ -33020,7 +33081,7 @@
       "known_deviations": [
         "ACL mutation/default-object-ACL creation exceptions are unsupported; SPEC-PAP-EDGES records local reason/message and mixed-error precedence."
       ],
-      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "implemented_in": "25b15bfeef203a0bcbe5dd7f51f75bed3cf00922",
       "last_verified": "2026-10-23"
     },
     {
@@ -33043,17 +33104,18 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed provider input/error/propagation parity; ACL/UBLA and organization APIs are outside this declared subset.",
+      "notes": "Scoped PAP configured/effective state and authorization are implemented. Parent organization/project policy is a bounded startup fixture (LOCAL_SIMULATION); configured metadata remains inherited under parent enforcement. Existing public grants are preserved and overridden; signed/bearer nonpublic permissions remain effective. Unchanged PAP echoes require update only; disabled UBLA echoes are no-ops, including the Python 3.4.1 wire shape. HTTP coverage includes resumable finalization, copy/rewrite/compose and both public-only signer sets. Contract/evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md. SPEC-PAP-EDGES records unclaimed legacy/null/PUT/error/permission/response-field/propagation parity; ACLs, UBLA transitions and organization APIs are outside this declared subset.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "PAP-SIGNER-GRANTS",
-          "description": "Valid V4 RSA GET/HEAD/PUT works under PAP with nonpublic signer grants; public-only signers, viewer PUT, creator overwrite and invalid signatures fail without fallback or object mutation.",
+          "description": "Valid V4 RSA GET/HEAD/PUT works under PAP with nonpublic signer grants; signers relying solely on allUsers or allAuthenticatedUsers, viewer PUT, creator overwrite and invalid signatures fail without fallback or object mutation.",
           "result": "PASS",
           "test_ids": [
-            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants"
           ]
         },
         {
@@ -33075,6 +33137,7 @@
       ],
       "test_ids": [
         "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
         "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
         "TestPublicAccessPrevention"
       ],
@@ -33086,6 +33149,7 @@
           "artifact": "docs/en/evidence/public-access-prevention-rust.txt",
           "test_ids": [
             "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
           ]
         },
@@ -33141,7 +33205,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4611758c7d7047289c7426698e53a83d94ee1ff8",
+      "implemented_in": "25b15bfeef203a0bcbe5dd7f51f75bed3cf00922",
       "last_verified": "2026-10-23"
     },
     {
