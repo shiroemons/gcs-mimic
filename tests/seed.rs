@@ -1,7 +1,7 @@
 mod common;
 
 use common::TestDir;
-use gcs_mimic::{config::Config, object::ObjectConditions, storage::Catalog};
+use gcs_mimic::{object::ObjectConditions, storage::Catalog};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -17,7 +17,7 @@ fn command(data: &Path, seed: Option<&Path>) -> Command {
     let mut command = common::server_command();
     command
         .env("GCS_MIMIC_LISTEN", "127.0.0.1:0")
-        .args(["serve", "--data-dir"])
+        .args(["serve", "--scheme", "http", "--data-dir"])
         .arg(data);
     if let Some(seed) = seed {
         command.arg("--seed-dir").arg(seed);
@@ -135,17 +135,17 @@ fn seed_configuration_precedence_and_validation() {
     )
     .unwrap();
     let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
-    let defaults = Config::load(&[], &BTreeMap::new()).unwrap();
+    let defaults = common::load_http_config(&[], &BTreeMap::new()).unwrap();
     assert_eq!(defaults.seed_dir, None);
     assert_eq!(defaults.seed_project, "local-project");
-    let loaded = Config::load(&args, &BTreeMap::new()).unwrap();
+    let loaded = common::load_http_config(&args, &BTreeMap::new()).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("file-seed")));
     assert_eq!(loaded.seed_project, "file-project");
     let env = BTreeMap::from([
         ("GCS_MIMIC_SEED_DIR".into(), "env-seed".into()),
         ("GCS_MIMIC_SEED_PROJECT".into(), "env-project".into()),
     ]);
-    let loaded = Config::load(&args, &env).unwrap();
+    let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("env-seed")));
     assert_eq!(loaded.seed_project, "env-project");
     args.extend([
@@ -154,7 +154,7 @@ fn seed_configuration_precedence_and_validation() {
         "--seed-project".into(),
         "cli-project".into(),
     ]);
-    let loaded = Config::load(&args, &env).unwrap();
+    let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("cli-seed")));
     assert_eq!(loaded.seed_project, "cli-project");
     for (key, invalid) in [
@@ -165,14 +165,14 @@ fn seed_configuration_precedence_and_validation() {
         ("seed_project", &"x".repeat(257)),
     ] {
         let flag = format!("--{}", key.replace('_', "-"));
-        assert!(Config::load(&[flag, invalid.into()], &BTreeMap::new()).is_err());
+        assert!(common::load_http_config(&[flag, invalid.into()], &BTreeMap::new()).is_err());
         let env = BTreeMap::from([(
             format!("GCS_MIMIC_{}", key.to_ascii_uppercase()),
             invalid.into(),
         )]);
-        assert!(Config::load(&[], &env).is_err());
+        assert!(common::load_http_config(&[], &env).is_err());
         fs::write(&file, json!({key:invalid}).to_string()).unwrap();
-        assert!(Config::load(&args[..2], &BTreeMap::new()).is_err());
+        assert!(common::load_http_config(&args[..2], &BTreeMap::new()).is_err());
     }
 }
 

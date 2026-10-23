@@ -22,7 +22,14 @@ impl Server {
 
     fn start_options(dir: &TestDir, options: &[&str]) -> Self {
         let mut child = common::server_command()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .args(["--api-base-url", "https://advertised.invalid/api"])
             .args(options)
@@ -3027,7 +3034,14 @@ fn bkt_http_concurrent_duplicates_restart_and_exclusive_directory() {
         .json();
     let second = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
         .env_clear()
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
         .arg(&dir.0)
         .output()
         .unwrap();
@@ -3071,7 +3085,14 @@ fn bkt_http_failed_recovery_never_reports_ready() {
         };
         let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
             .env_clear()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(path)
             .output()
             .unwrap();

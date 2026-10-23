@@ -8,5 +8,6 @@ pub mod object;
 pub mod seed;
 pub mod server;
 pub mod storage;
+pub mod tls;
 pub mod url;
 pub mod xml;

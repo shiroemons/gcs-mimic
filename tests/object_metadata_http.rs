@@ -25,7 +25,14 @@ struct Reply {
 impl Server {
     fn start(dir: &TestDir) -> Self {
         let mut child = common::server_command()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .stdout(Stdio::piped())
             .spawn()

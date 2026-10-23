@@ -4,28 +4,36 @@ use gcs_mimic::{
     config::Config,
     server::{self, State},
     storage::Catalog,
+    tls,
 };
 use std::{
     collections::BTreeMap,
-    io::{self, Read, Write},
-    net::{SocketAddr, TcpStream, ToSocketAddrs},
+    io,
+    net::SocketAddr,
+    path::Path,
     process::ExitCode,
     sync::{Arc, atomic::AtomicBool},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
 Usage: gcs-mimic serve [--config PATH] [OPTIONS]
-       gcs-mimic healthcheck --url http://HOST:PORT/_internal/ready
+       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --listen IP:PORT             127.0.0.1:4443
+  --scheme MODE                https (http|https; one listener)
+  --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
+  --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
   --data-dir PATH              data (exclusive persistent catalog)
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
-  --api-base-url URL           http://127.0.0.1:4443 (fixed advertised endpoint)
+  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
   --max-connections N          32 (1..1024)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
@@ -39,9 +47,14 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
   GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
 
-HTTP/1 probes, JSON bucket CRUD and streaming JSON object media CRUD are available.
-Bucket metadata is limited to 64 KiB. Multipart, resumable and TLS are unavailable. Authentication is permissive by default;
-strict mode checks local bearer tokens against project-level predefined storage roles only.";
+HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
+Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
+Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
+identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
+development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 const URL_PUBLIC_HELP: &str =
     "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME
@@ -76,8 +89,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{HELP}");
             Ok(())
         }
-        [command, flag, url] if command == "healthcheck" && flag == "--url" => {
-            Ok(healthcheck(url)?)
+        [command, rest @ ..] if command == "healthcheck" => Ok(healthcheck(rest)?),
+        [command, kind] if command == "tls" && kind == "ca" => {
+            print!("{}", tls::DEVELOPMENT_CA_PEM);
+            Ok(())
         }
         [command, kind, help] if command == "url" && kind == "public" && help == "--help" => {
             println!("{URL_PUBLIC_HELP}");
@@ -92,6 +107,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|(key, _)| key.starts_with("GCS_MIMIC_"))
                 .collect();
             let config = Config::load(rest, &env)?;
+            // Validate supplied TLS material before touching the catalog, seed or listener.
+            let acceptor = tls::load_server(&config)?;
             // Load the registry before binding so a bad identity file never reaches readiness.
             let auth = match &config.identity_file {
                 Some(path) => Auth::strict(Registry::load(path)?),
@@ -144,8 +161,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     ready["identities"] = count.into();
                 }
                 ready["seed"] = seed;
+                ready["scheme"] = config.scheme.as_str().into();
+                ready["tls_handshake_timeout_ms"] = config.tls_handshake_timeout_ms.into();
                 println!("{ready}");
-                server::serve(listener, config, state, shutdown).await?;
+                server::serve_with_tls(listener, config, state, shutdown, acceptor).await?;
                 println!("{{\"event\":\"stopped\"}}");
                 Ok::<_, io::Error>(())
             })?;
@@ -254,51 +273,108 @@ fn url_public(args: &[String]) -> Result<String, String> {
     )
 }
 
-fn healthcheck(url: &str) -> io::Result<()> {
+fn healthcheck(args: &[String]) -> io::Result<()> {
+    let mut options = BTreeMap::new();
+    for pair in args.chunks(2) {
+        if pair.len() != 2 || !matches!(pair[0].as_str(), "--url" | "--ca-cert") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "healthcheck requires --url URL [--ca-cert PATH]",
+            ));
+        }
+        if pair[1].is_empty() || options.insert(pair[0].as_str(), pair[1].as_str()).is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "empty or duplicate healthcheck option",
+            ));
+        }
+    }
+    let url = options.get("--url").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "healthcheck requires --url URL",
+        )
+    })?;
     let invalid = || {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "expected http://HOST:PORT/_internal/health or /_internal/ready",
+            "expected http(s)://HOST:PORT/_internal/health or /_internal/ready",
         )
     };
-    let (authority, path) = url
-        .strip_prefix("http://")
-        .and_then(|v| v.split_once('/'))
-        .ok_or_else(invalid)?;
+    let uri: hyper::Uri = url.parse().map_err(|_| invalid())?;
+    let authority = uri.authority().ok_or_else(invalid)?.as_str();
+    let path = uri.path().strip_prefix('/').ok_or_else(invalid)?;
     if !matches!(path, "_internal/health" | "_internal/ready")
+        || !matches!(uri.scheme_str(), Some("http" | "https"))
+        || uri.port_u16().is_none()
+        || uri.query().is_some()
+        || url.contains('#')
         || authority.contains(['@', '\r', '\n'])
     {
         return Err(invalid());
     }
-    let addresses = authority.to_socket_addrs()?;
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let mut connected = Err(invalid());
-    for address in addresses.take(8) {
-        connected = TcpStream::connect_timeout(&address, remaining(deadline)?);
-        if connected.is_ok() {
-            break;
+    let client = match (uri.scheme_str(), options.get("--ca-cert")) {
+        (Some("https"), Some(path)) => Some(tls::client_config(Path::new(path))?),
+        (Some("https"), None) => Some(tls::development_client_config()?),
+        (_, Some(_)) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "--ca-cert requires an HTTPS healthcheck URL",
+            ));
         }
-    }
-    let mut stream = connected?;
+        _ => None,
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let result = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let addresses = tokio::net::lookup_host(authority).await?;
+            let mut connected = Err(invalid());
+            for address in addresses.take(8) {
+                connected = tokio::net::TcpStream::connect(address).await;
+                if connected.is_ok() {
+                    break;
+                }
+            }
+            let stream = connected?;
+            if let Some(client) = client {
+                let host = uri
+                    .host()
+                    .ok_or_else(invalid)?
+                    .trim_start_matches('[')
+                    .trim_end_matches(']');
+                let name = tokio_rustls::rustls::pki_types::ServerName::try_from(host.to_owned())
+                    .map_err(|_| invalid())?;
+                let stream = tokio_rustls::TlsConnector::from(client)
+                    .connect(name, stream)
+                    .await?;
+                probe_response(stream, authority, path).await
+            } else {
+                probe_response(stream, authority, path).await
+            }
+        })
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "probe deadline exceeded"))?
+    });
+    // DNS resolution uses blocking workers; a timed-out one-shot probe must not wait for them.
+    runtime.shutdown_background();
+    result
+}
+
+async fn probe_response(
+    mut stream: impl AsyncRead + AsyncWrite + Unpin,
+    authority: &str,
+    path: &str,
+) -> io::Result<()> {
     let request = format!("GET /{path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
-    let mut pending = request.as_bytes();
-    while !pending.is_empty() {
-        stream.set_write_timeout(Some(remaining(deadline)?))?;
-        let written = match stream.write(pending) {
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            result => result?,
-        };
-        if written == 0 {
-            return Err(io::ErrorKind::WriteZero.into());
-        }
-        pending = &pending[written..];
-    }
+    stream.write_all(request.as_bytes()).await?;
+    stream.flush().await?;
     let mut response = Vec::new();
     let mut buffer = [0; 1024];
     loop {
-        stream.set_read_timeout(Some(remaining(deadline)?))?;
         let available = buffer.len().min(16_385 - response.len());
-        let read = match stream.read(&mut buffer[..available]) {
+        let read = match stream.read(&mut buffer[..available]).await {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             result => result?,
         };
@@ -345,11 +421,4 @@ fn healthcheck(url: &str) -> io::Result<()> {
         return Err(io::Error::other("incomplete probe body"));
     }
     Ok(())
-}
-
-fn remaining(deadline: Instant) -> io::Result<Duration> {
-    deadline
-        .checked_duration_since(Instant::now())
-        .filter(|time| !time.is_zero())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "probe deadline exceeded"))
 }

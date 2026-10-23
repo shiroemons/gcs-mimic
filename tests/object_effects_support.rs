@@ -52,7 +52,14 @@ impl Server {
     ) -> Self {
         let mut command = common::server_command();
         command
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .arg("--catalog-wait-timeout-ms")
             .arg(catalog_milliseconds.to_string())
