@@ -373,7 +373,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "If-Match: \"x\"\r\n",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(412, "conditionNotMet");
     server
         .request(
             "GET",
