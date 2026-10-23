@@ -34,6 +34,10 @@ mod resumable_recovery;
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
+#[path = "derived.rs"]
+mod derived;
+pub use derived::{DerivedDestination, DerivedSegment, DerivedSource, DerivedTransfer};
+
 #[path = "policies.rs"]
 mod policies;
 use policies::{check_access, insert_policy};
@@ -151,6 +155,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(objects::VERSIONING_SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 10 {
+        expected
+            .execute_batch(derived::SCHEMA)
+            .map_err(unavailable)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
@@ -239,9 +248,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=9).contains(&version) {
+            if !(0..=10).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 9"
+                    "unsupported catalog schema version {version}; supported version is 10"
                 )));
             }
             if version == 2 {
@@ -342,6 +351,11 @@ impl Catalog {
             }
             if version < 9 {
                 objects::migrate_versioning(&mut connection)?;
+            }
+            if version < 10 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(derived::SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
             }
             resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
             objects::recover(&connection, &data_dir)?;
@@ -1245,7 +1259,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 9),
+                    ("user_version", 10),
                 ] {
                     assert_eq!(
                         connection
