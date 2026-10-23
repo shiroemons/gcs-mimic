@@ -96,7 +96,7 @@ success stub does not complete a workflow.
 | 5 | Bucket create, get and delete | Declared native/compatibility creation, basic GET, empty deletion, versioning/default holds and HTTP/SDK/container/guide checks passed on 2026-10-22; both pinned reference backends compared | Delivered: named baseline with explicit intentional/strict/unsupported differences; broad bucket and versioning/hold rows remain PARTIAL; [final verification](evidence/bucket-core-parity.md) |
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
 | 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
-| 8 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
+| 8 | Basic JSON contract | Frozen live-resource profile, documented single conditions/checksums/error envelopes, fields/read ETags and remaining-gap mapping passed final Rust/Go/reference/both-architecture containers and native/Docker guide checks on 2026-10-23 | Delivered: BEHAVIOR-COMMON-007/011 and BEHAVIOR-OBJECT-005 IMPLEMENTED in their declared scope; broad method rows remain PARTIAL; [final verification](evidence/basic-json-contract.md) |
 | 9 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
 | 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
 | 11 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
@@ -110,17 +110,17 @@ success stub does not complete a workflow.
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-Order 8 has delivered supported response field selection and JSON read ETag
-validators, with combined fields/condition ordering, pinned Go, both-architecture
-containers and native/Compose guide evidence in the
-[final verification](evidence/basic-json-fields-etag.md).
-The next implementation slice remains **Basic JSON contract** within order 8:
-freeze the complete basic local profile and reconcile the existing atomic
-generation/metageneration, supplied MD5/CRC32C rejection and error-order cases
-against SPEC-008, SPEC-009, SPEC-011 and SPEC-012. Map each remaining basic
-condition/checksum/error gap to a verified case or explicit deferred scope before
-copy/rewrite/compose. Completion conditions 1, 3 and 4 remain open; delivery of
-fields and read validators does not close the whole gate.
+Order 8 is closed by the [final basic JSON evidence](evidence/basic-json-contract.md).
+The [frozen live-resource contract](slices/basic-json-contract.md) maps completion
+conditions 1, 3 and 4 to executed cases and explicit broad-method/gap destinations;
+condition 2 retains its [fields/read-validator evidence](evidence/basic-json-fields-etag.md).
+Documented single conditions, full-byte checksum validation and error envelopes
+are IMPLEMENTED for their declared EXACT scopes. Mutation NotMatch status,
+mixed/missing-resource precedence, multipart header and multi-request resumable
+MD5 questions remain open; every original case, deviation and historical
+verification is preserved. Broad API methods remain PARTIAL.
+The next implementation slice is order 9 **Object copy**: generation-pinned
+source, metadata rules, strict permissions and atomic destination conditions.
 Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
 covering the [frozen replacement contract](slices/bucket-metadata-put.md),
 Rust/Go checks, both reference backends and local profiles, both container

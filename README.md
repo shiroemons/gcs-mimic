@@ -44,6 +44,9 @@ and protocol differences remain in the same feature ledger.
 | Workflow available in the documented scope | Main remaining boundary | Evidence |
 | --- | --- | --- |
 | Response field selection and JSON read ETag validators, including policy GET, combined query conditions, selected generations, ranges and restart | SPEC-FIELDS-EDGES, provider ETag/error/header parity, list/write/date validators and If-Range | [Fields and ETag verification](docs/en/evidence/basic-json-fields-etag.md) |
+| Generation/metageneration mutation Match conditions, create-if-absent and failed-resource preservation | Mutation NotMatch status, mixed/missing-resource precedence and streaming/resumable check timing remain named local rules or source questions | [Basic JSON contract](docs/en/evidence/basic-json-contract.md) |
+| Supplied MD5/CRC32C rejection with full failed-overwrite preservation | Documented media/multipart containers and resumable CRC32C; resumable MD5 only for one data request; Content-MD5 and parser/header edges remain pending | [Checksum verification](docs/en/evidence/basic-json-contract.md) |
+| JSON error envelopes, isolated 404/412/416 status/reason pairs and empty DELETE/304 bodies | Exact provider text/headers, DELETE status selection, parser/auth/hash reasons and mixed-error precedence remain pending | [Error verification](docs/en/evidence/basic-json-contract.md) |
 | Persistent JSON bucket/object round trip with checksums and atomic generation conditions | Advanced fields, full IAM/ACL and complete wire parity | [Media](docs/en/evidence/object-media.md) |
 | Prefix/delimiter/keyset listing and metadata PATCH/PUT | History, glob/context filters, full projection and legacy-input parity | [Listing and metadata](docs/en/evidence/object-list-metadata.md) |
 | Bounded JSON multipart upload with Go single-request Writer | MIME edge parity, response replay and advanced fields | [Multipart](docs/en/evidence/multipart.md) |
@@ -73,8 +76,10 @@ see the [final verification](docs/en/evidence/bucket-core-parity.md).
 Bucket metadata PATCH is available in its [documented subset](docs/en/slices/bucket-metadata-patch.md).
 Bucket metadata PUT is delivered in its [documented replacement subset](docs/en/slices/bucket-metadata-put.md),
 with [final verification](docs/en/evidence/bucket-metadata-put.md).
-Next close the basic CRUD/list/metadata/download contract
-gaps, then implement copy, bounded continuation rewrite and compose. Verify
+The [basic JSON contract gate](docs/en/evidence/basic-json-contract.md) is closed
+for the frozen local profile, documented conditions/checksums/error envelopes
+and explicit remaining-gap mapping. Next implement **Object copy** (order 9),
+then bounded continuation rewrite and compose. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
 and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
 and bucket-configured XML-read CORS, with actual-browser verification, before
@@ -162,9 +167,15 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
-| Generation/metageneration preconditions | 🚧 Atomic object upload/delete/metadata checks; scoped bucket checks | 🚧 Upload generation checks only | ❌ Not evaluated |
-| MD5 and CRC32C calculation for uploaded object bytes | ✅ Media/multipart/resumable metadata and download headers | ✅ | ✅ |
-| Supplied MD5/CRC32C validation | 🚧 Media `X-Goog-Hash`; multipart metadata/final JSON; resumable metadata/final whole-object `X-Goog-Hash`; no `Content-MD5` | 🚧 Multipart/resumable metadata checks | 🚧 Multipart/resumable metadata checks |
+| Single generation/metageneration mutation Match conditions, including failed-resource preservation | ✅ Object media/multipart/PATCH/PUT/delete and bucket PATCH/PUT/delete; zero create-if-absent and live-object rejection | 🚧 Upload generation conditions only; [upload](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), [object](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) and [bucket](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go), source review only | ❌ Conditions unused in [object](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) and [bucket](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py) handlers, source review only |
+| MD5/CRC32C calculation (media/multipart; resumable CRC32C and single-data-request MD5) | ✅ Exact full-byte resource encodings in the declared subset | ✅ | ✅ |
+| Supplied MD5/CRC32C rejection with failed-overwrite preservation in documented JSON containers | ✅ Media X-Goog-Hash, multipart metadata/final CRC32C, resumable CRC32C and single-data-request MD5; no Content-MD5 claim | 🚧 Metadata checks before publication; media/final X-Goog-Hash absent in [upload handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), source review only | 🚧 Metadata checks precede create but mismatch raises 409 Conflict; media/final X-Goog-Hash absent in [object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py), source review only |
+| JSON error envelopes, isolated 404/412/416 reasons and empty DELETE/304 bodies | ✅ Numeric code, message and errors entries; fields preserves errors; exact text/headers and local DELETE status excluded | 🚧 Envelope exists, but the [shared reason mapper](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/json_response.go) has no requestedRangeNotSatisfiable case, source review only | 🚧 Some full error objects; other [object failures](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) return only error.message, source review only |
+
+The [basic JSON evidence](docs/en/evidence/basic-json-contract.md) records the
+local condition/checksum/error verification and pinned source-file digests.
+The other-product cells for these three scopes use source review only; the
+existing executed reference corpus covers bucket metadata, fields and read ETags.
 
 #### Metadata update comparison criteria
 
