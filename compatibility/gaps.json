@@ -261,7 +261,7 @@
       ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "Unknown XML query keys and unsupported x-goog inputs return 501 NotImplemented; malformed query encoding, duplicate selectors and malformed numeric conditions return 400. x-goog-api-client and a single nonempty x-goog-gcs-idempotency-token are accepted as read telemetry without response replay; empty/repeated tokens return 400. JSON custom metadata that cannot be represented in HTTP or collides after case folding makes XML reads return 501 without changing stored metadata. Local XML ETags are quoted hexadecimal MD5; private default Cache-Control is private, max-age=0. Public defaults are public, max-age=3600, while nonpublic JSON remains no-cache. These local checks do not establish exhaustive Google error/header parity.",
+      "observed_evidence": "Unknown XML query keys and unsupported x-goog inputs return 501 NotImplemented; malformed query encoding, duplicate selectors and malformed numeric conditions return 400. x-goog-api-client and a single nonempty x-goog-gcs-idempotency-token are accepted as read telemetry without response replay; empty/repeated tokens return 400. JSON custom metadata that cannot be represented in HTTP or collides after case folding makes XML reads return 501 without changing stored metadata. Non-composite local XML ETags remain quoted hexadecimal MD5. Composite XML ETags use the same local non-MD5 generation/metageneration validator as JSON, with provider format pending under SPEC-COMPOSE-EDGES. Private default Cache-Control is private, max-age=0. Public defaults are public, max-age=3600, while nonpublic JSON remains no-cache. These local checks do not establish exhaustive Google error/header parity.",
       "required_resolution": "Retain complete XML method PARTIAL status and explicit rejection. Reconcile unknown-input and custom-metadata behavior with authorized provider evidence; SPEC-012 owns ETag/header/custom encoding parity, SPEC-015 owns JSON metadata/cache input parity, SPEC-017 owns authentication errors and SPEC-XML-PREFIX owns namespace routing. Accepted read retry telemetry must not be claimed as token-keyed response replay."
     },
     {
@@ -780,9 +780,36 @@
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "Objects/Buckets Discovery collection schemas have no etag. Generated SDK list IfNoneMatch helpers alone do not establish provider validation. Both lists explicitly reject ETag headers with 501; local tests verify rejection. See docs/en/slices/json-read-etag-validators.md.",
       "required_resolution": "Establish the collection validator contract before defining a local collection tag or enabling headers. Preserve list-method pending scope and explicit 501; the documented GET behavior scope covers supported etag-bearing resources only."
+    },
+    {
+      "id": "SPEC-COMPOSE-EDGES",
+      "title": "Compose hard-delete boundaries, JSON checksums and metadata defaults need provider clarification",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-OBJECTS-002"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
+        "https://docs.cloud.google.com/storage/docs/composite-objects",
+        "https://docs.cloud.google.com/storage/docs/composing-objects",
+        "https://docs.cloud.google.com/storage/quotas",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/copy.go"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The current JSON method and Discovery expose deleteSourceObjects, and the composing guide says hard deletion bypasses Object Versioning and soft delete. The permission list names storage.objects.delete only for destination overwrite; source-deletion permission, active holds, duplicate sources, destination-as-source, concurrent source changes and cross-object failure atomicity remain unspecified. The local safety contract requires delete permission, rejects any held selected source, deletes duplicate generations once, keeps the newly published destination, and joins publication/deletions in one catalog transaction. These are local safety choices, separate from the documented hard-delete success and failure-preservation scope. The JSON composite guide ignores supplied destination MD5/CRC32C, whereas pinned Go Composer.SendCRC32C and the RPC object_checksums field describe validation; JSON follows the guide without inferring RPC behavior. The JSON resource defines the serving application/octet-stream fallback; first-source contentType inheritance is expressly attributed to gcloud, not the JSON API. Null/empty/omitted destination metadata, unknown/output-only inputs and exhaustive error precedence remain local rules. Full acceptance decomposition: docs/en/slices/object-compose.md.",
+      "required_resolution": "Keep provider questions OPEN and outside the explicitly declared local acceptance scope; scoped completion does not claim full Google-service parity. Obtain authoritative clarification or explicitly authorized differential evidence for source-deletion permission/holds, duplicate/self sources, concurrent disappearance and all-or-nothing failure behavior, supplied JSON CRC32C versus RPC/SDK wording, destination MIME/default/null handling, unknown/output-only fields and error precedence. Composite JSON/XML ETags share a stable local quoted c-generation-metageneration form and change with metadata; the provider's opaque format remains unverified and is not a checksum identity claim. XML GET/HEAD emit x-goog-component-count only on composites as documented; JSON's common-header reference does not document it, so the adapter exposes componentCount in JSON resources without adding that XML header, and provider JSON header parity remains unverified. A changed bucket incarnation returns local 412; cleanup failures are logged for recovery without replacing the original error. Every explicit destination storageClass is rejected with 501, including an identical source class. Do not restore the obsolete 1024 component limit: current official quotas establish unlimited cumulative components with int32-saturating metadata. Preserve the separately declared local non-destructive safety rules; no real-cloud request is authorized by this gap."
     }
   ],
   "resolved_research_items": [
+    {
+      "title": "Composite component count and JSON deletion flag",
+      "resolution": "On 2026-10-23, official Cloud Storage quotas specify unlimited cumulative composite components, with componentCount saturating at 2147483647; the former 1024 limit is obsolete. Both JSON ComposeRequest in Discovery revision 20261013 and the objects.compose method expose deleteSourceObjects; it is not gRPC-only. Source pins and the exact documented/local scope are recorded in docs/en/slices/object-compose.md."
+    },
     {
       "title": "Full live Discovery reconciliation",
       "resolution": "Fetched revision20261013; recursive comparison against mirror20261009 changed only revision and etag. All87 methods and38 schemas match."

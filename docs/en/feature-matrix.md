@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 281 | 0 | 17 | 0 | 0 | 0 |
-| behavior | 201 | 155 | 0 | 29 | 17 | 0 | 0 |
+| api_operation | 298 | 280 | 1 | 17 | 0 | 0 | 0 |
+| behavior | 201 | 152 | 3 | 29 | 17 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 281 | 3 | 14 | 0 | 0 | 0 |
-| behavior | 155 | 19 | 25 | 2 | 0 | 0 |
+| api_operation | 280 | 4 | 14 | 0 | 0 | 0 |
+| behavior | 152 | 22 | 25 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -166,7 +166,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-002 | objects.compose | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
@@ -706,9 +706,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-022 | Context-based object listing | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | Object copy semantics | PARTIAL | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-024 | Rewrite continuation sessions | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-025 | Composite object construction | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-026 | Composite component metadata | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-027 | Compose deleteSourceObjects | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-025 | Composite object construction | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-026 | Composite component metadata | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-027 | Compose deleteSourceObjects | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-028 | Atomic object move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-029 | Object versioning | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft delete and hard-delete deadline | NOT_STARTED | P4 | EXACT | NONE | 0 |

@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 281 | 0 | 17 | 0 | 0 | 0 |
-| behavior | 201 | 155 | 0 | 29 | 17 | 0 | 0 |
+| api_operation | 298 | 280 | 1 | 17 | 0 | 0 | 0 |
+| behavior | 201 | 152 | 3 | 29 | 17 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 281 | 3 | 14 | 0 | 0 | 0 |
-| behavior | 155 | 19 | 25 | 2 | 0 | 0 |
+| api_operation | 280 | 4 | 14 | 0 | 0 | 0 |
+| behavior | 152 | 22 | 25 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -166,7 +166,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-OBJECTS-001 | objects.bulkRestore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-002 | objects.compose | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-003 | objects.copy | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
@@ -706,9 +706,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | コピー時の意味論 | PARTIAL | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-024 | rewriteの継続セッション | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-026 | 合成オブジェクトのメタデータ | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-025 | オブジェクト合成 | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-026 | 合成オブジェクトのメタデータ | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
+| BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-028 | オブジェクトの原子的移動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | NOT_STARTED | P4 | EXACT | NONE | 0 |

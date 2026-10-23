@@ -10,6 +10,7 @@
 
 mod body;
 mod buckets;
+pub mod compose;
 mod derived_metadata;
 mod error;
 mod fields;

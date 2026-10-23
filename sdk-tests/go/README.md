@@ -66,6 +66,18 @@ disabled. The HTTP transport disables proxies, rejects other request origins,
 pins `localhost` dialing to loopback, and refuses redirects, preventing fallback
 to Google or the metadata server. Each request and the whole test have deadlines.
 
+Compose coverage: `TestObjectCompose` uses ObjectHandle.ComposerFrom with ordered,
+repeated and generation-pinned sources, source/destination conditions, destination
+metadata, componentCount/CRC32C without MD5, self-source append and hard deletion.
+`TestObjectComposeStrictPermissions` verifies admin success and read-only/create-only
+denial. The JSON composite guide's ignored destination CRC32C rule is tested
+explicitly; the conflicting SDK/RPC wording remains a provider question in the
+[compose contract](../../docs/en/slices/object-compose.md). Run just these cases:
+
+```sh
+GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh
+```
+
 Bucket coverage: create with project, get identity/metageneration/creation time,
 project-scoped listing with a small page size, prefix filtering across four
 explicit one-item pages, duplicate create as `googleapi.Error` 409, delete,

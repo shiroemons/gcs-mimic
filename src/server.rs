@@ -220,6 +220,7 @@ async fn respond(
                 Ok((
                     ObjectRequest::Insert { .. }
                         | ObjectRequest::Copy(_)
+                        | ObjectRequest::Compose { .. }
                         | ObjectRequest::Multipart { .. }
                         | ObjectRequest::Resumable { .. },
                     _
@@ -400,7 +401,8 @@ async fn object_response(
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
-        ObjectRequest::Insert { bucket, .. }
+        ObjectRequest::Compose { bucket, .. }
+        | ObjectRequest::Insert { bucket, .. }
         | ObjectRequest::Multipart { bucket, .. }
         | ObjectRequest::Resumable { bucket, .. } => (auth::OBJECTS_CREATE, bucket),
         ObjectRequest::Get { bucket, .. } => (auth::OBJECTS_GET, bucket),
@@ -418,6 +420,7 @@ async fn object_response(
     if !matches!(
         operation,
         ObjectRequest::Insert { .. }
+            | ObjectRequest::Compose { .. }
             | ObjectRequest::Multipart { .. }
             | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
@@ -499,6 +502,45 @@ async fn object_response(
             )
             .await?;
             json::object_resource(&record, &state.api_base_url, projection)?
+        }
+        ObjectRequest::Compose {
+            bucket,
+            name,
+            conditions,
+        } => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            for header in [
+                "if-range",
+                "if-modified-since",
+                "if-unmodified-since",
+                "range",
+                "content-md5",
+                "x-goog-hash",
+            ] {
+                if request.headers().contains_key(header) {
+                    return Err(JsonError::unsupported_object(header));
+                }
+            }
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let body = json::compose::parse_compose(&bytes, &bucket, &name)?;
+            activity.send_modify(|progress| progress.awaiting_catalog = true);
+            let record = state
+                .catalog
+                .compose_object(
+                    crate::storage::DerivedDestination {
+                        bucket,
+                        name,
+                        conditions,
+                        access,
+                        metadata: body.destination,
+                        ..Default::default()
+                    },
+                    body.sources,
+                    body.delete_sources,
+                    max_bytes,
+                )
+                .await?;
+            json::object_resource(&record, &state.api_base_url, json::Projection::NoAcl)?
         }
         ObjectRequest::Resumable {
             bucket,

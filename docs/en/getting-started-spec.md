@@ -198,6 +198,18 @@ Ready means persistence recovery and initial seeding have finished. A running pr
 
 ## 4. First bucket/object workflow
 
+The runnable [compose journey](getting-started.md#compose-existing-objects) must
+upload two sources, compose their ordered bytes with destination
+ifGenerationMatch=0, verify componentCount/CRC32C and absent MD5, reject a stale
+destination condition without mutation, then compose with deleteSourceObjects
+and verify hard-deleted source generations. Run the block against the final
+native binary and Docker image. The pinned Go ComposerFrom tests additionally
+cover selected source generations, source conditions, destination metadata,
+strict get/create permissions and a self-source append with atomic source
+deletion. Restart and failed-mutation persistence belong in the wire tests.
+The [slice contract](slices/object-compose.md) records advanced rejected fields
+and local deletion safety rules; gRPC and XML compose are separate features.
+
 These requests use the deliberately permissive local profile.
 
 ```bash

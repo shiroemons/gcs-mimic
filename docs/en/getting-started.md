@@ -643,6 +643,69 @@ configurations as above or a common reachable DNS/proxy endpoint. A configured
 proxy prefix is retained in Location; the proxy must strip it before forwarding.
 Host, Forwarded and X-Forwarded-* never choose the advertised endpoint.
 
+## Compose existing objects
+
+Compose concatenates 1 to 32 sources in request order, all from one bucket and
+storage class. Sources can themselves be composites. Cumulative component counts
+are not limited to 1024; the reported count saturates at 2,147,483,647. A composite
+has CRC32C and componentCount, and omits md5Hash. Set destination contentType
+explicitly; the JSON adapter does not inherit a CLI's first-source MIME default.
+The [compose contract](slices/object-compose.md) separates documented behavior
+from local safety rules and unsupported ACL, encryption, billing and contexts.
+
+Continue with the same permissive endpoint. These commands use a separate bucket
+and remove it after verification.
+
+```sh
+compose_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"compose-demo-bucket"}' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary '1234' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=first"
+curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary '56789' \
+  "$endpoint/upload/storage/v1/b/compose-demo-bucket/o?uploadType=media&name=second"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"destination":{"contentType":"text/plain","metadata":{"workflow":"compose"}}}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0" \
+  > "$compose_dir/object.json"
+jq -e '.size == "9" and .componentCount == 2 and .crc32c == "4waSgw==" and (has("md5Hash") | not)' \
+  "$compose_dir/object.json"
+printf '123456789' > "$compose_dir/expected"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite?alt=media" > "$compose_dir/bytes"
+cmp "$compose_dir/expected" "$compose_dir/bytes"
+compose_status=$(curl --disable --noproxy '*' --silent --show-error \
+  -o "$compose_dir/stale.json" -w '%{http_code}' -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}]}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/composite/compose?ifGenerationMatch=0")
+test "$compose_status" = 412
+jq -e '.error.errors[0].reason == "conditionNotMet"' "$compose_dir/stale.json"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"sourceObjects":[{"name":"first"},{"name":"second"}],"deleteSourceObjects":true}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined/compose?ifGenerationMatch=0&fields=name,componentCount,crc32c"
+source_status=$(curl --disable --noproxy '*' --silent --show-error \
+  -o "$compose_dir/missing.json" -w '%{http_code}' \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/first")
+test "$source_status" = 404
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/compose-demo-bucket/o/joined?alt=media" > "$compose_dir/joined"
+cmp "$compose_dir/expected" "$compose_dir/joined"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/composite"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket/o/joined"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/compose-demo-bucket"
+rm -rf "$compose_dir"
+```
+
+`deleteSourceObjects=true` permanently deletes only the pinned source generations,
+including with bucket versioning enabled. The local implementation requires delete
+permission in strict mode and rejects a held source before changing any object.
+Duplicate entries contribute bytes twice and delete once; a source with the
+destination name follows normal overwrite/versioning rules and is excluded from
+source hard deletion. Publication and source removal
+share one catalog transaction. Failed conditions, missing sources and invalid
+requests leave the old destination and all source generations intact.
+
 ## List objects and conditionally change metadata
 
 Create a second object so a one-entry page has a continuation token. Prefix and

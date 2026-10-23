@@ -260,14 +260,18 @@ pub(crate) fn media_headers(
         } else {
             "private, max-age=0"
         });
-    let etag = format!(
-        "\"{}\"",
-        record
-            .md5
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    );
+    let etag = if record.component_count.is_some() {
+        json::object_etag(record)
+    } else {
+        format!(
+            "\"{}\"",
+            record
+                .md5
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        )
+    };
     let timestamp = json::timestamp(record.updated)?;
     let days = record
         .updated
@@ -308,6 +312,9 @@ pub(crate) fn media_headers(
                 )
             })?,
         );
+    }
+    if let Some(count) = record.component_count {
+        headers.insert("x-goog-component-count", HeaderValue::from(count));
     }
     for (key, value) in &record.metadata {
         let key =

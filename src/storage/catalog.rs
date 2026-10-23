@@ -30,6 +30,10 @@ mod resumable_maintenance;
 #[path = "resumable_recovery.rs"]
 mod resumable_recovery;
 
+#[path = "compose.rs"]
+mod compose;
+#[path = "compose_crc32c.rs"]
+mod compose_crc32c;
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};

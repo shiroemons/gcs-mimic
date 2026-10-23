@@ -28,6 +28,11 @@ pub struct ObjectGetParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
     Copy(super::ObjectCopyParams),
+    Compose {
+        bucket: String,
+        name: String,
+        conditions: ObjectConditions,
+    },
     List(super::ObjectListParams),
     Update {
         bucket: String,
@@ -75,6 +80,9 @@ pub fn route_object_with_profile(
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
     if let Some(operation) = super::object_copy::route(method, uri, profile) {
+        return Some(operation);
+    }
+    if let Some(operation) = super::compose::route(method, uri, profile) {
         return Some(operation);
     }
     let (path, upload, download) =
@@ -799,6 +807,9 @@ pub fn validate_object_media_encoding(
 }
 
 pub(crate) fn object_etag(object: &ObjectRecord) -> String {
+    if object.component_count.is_some() {
+        return format!("\"c-{}-{}\"", object.generation, object.metageneration);
+    }
     format!(
         "\"o-{}-{}-{}\"",
         base64(&object.md5),

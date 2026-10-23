@@ -120,6 +120,13 @@ pub struct ExpectedHashes {
     pub crc32c: Option<u32>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComposeSource {
+    pub name: String,
+    pub generation: Option<i64>,
+    pub if_generation_match: Option<i64>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ObjectError {
     BucketNotFound,
