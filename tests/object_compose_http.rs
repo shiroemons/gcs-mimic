@@ -720,3 +720,66 @@ fn compose_incarnation_change_preserves_original_error_and_recovers_after_restar
     );
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
 }
+
+#[test]
+fn compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed() {
+    let (dir, server) = setup(true);
+    let source = server.put("a", b"source").json();
+    server.request("PUT", "/storage/v1/b/test-bucket/iam", AUTH, br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["user:creator@example.test"]},{"role":"roles/storage.objectUser","members":["user:creator@example.test"]}]}"#).json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    // Leave read/create allowed so only the source-deletion recheck can reject publication.
+    connection.execute_batch("CREATE TRIGGER revoke_compose_delete AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE bucket_policies SET bindings = '[{\"role\":\"roles/storage.objectViewer\",\"members\":[\"user:creator@example.test\"]}]' WHERE bucket = 'test-bucket'; END;").unwrap();
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/test-bucket/o/destination/compose",
+            "Authorization: Bearer creator\r\n",
+            br#"{"sourceObjects":[{"name":"a"}],"deleteSourceObjects":true}"#,
+        )
+        .error(403, "forbidden");
+    connection
+        .execute_batch("DROP TRIGGER revoke_compose_delete;")
+        .unwrap();
+    server.get("destination").error(404, "notFound");
+    assert_eq!(server.get("a").json(), source);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}
+
+#[test]
+fn compose_same_name_noncurrent_source_hold_is_rechecked_before_publication() {
+    let (dir, server) = setup(false);
+    settings(&dir, true, false);
+    let old = server.put("destination", b"old").json();
+    let generation: i64 = old["generation"].as_str().unwrap().parse().unwrap();
+    let current = server.put("destination", b"current").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    // A held noncurrent self-source bypasses the ordinary live-destination hold check.
+    connection.execute_batch(&format!("CREATE TRIGGER hold_compose_self_source AFTER UPDATE OF offset ON derived_transfers BEGIN UPDATE objects SET event_based_hold = 1 WHERE name = 'destination' AND generation = {generation}; END;")).unwrap();
+    compose(&server,"destination",json!({"sourceObjects":[{"name":"destination","generation":generation.to_string()}],"deleteSourceObjects":true})).error(403,"objectUnderActiveHold");
+    connection
+        .execute_batch("DROP TRIGGER hold_compose_self_source;")
+        .unwrap();
+    assert_eq!(server.get("destination").json(), current);
+    assert_eq!(media(&server, "destination").body, b"current");
+    assert_eq!(
+        server
+            .get(&format!("destination?generation={generation}"))
+            .json()["eventBasedHold"],
+        true
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+}

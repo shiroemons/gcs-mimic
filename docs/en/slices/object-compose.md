@@ -19,7 +19,7 @@ themselves; implementation status belongs only to `compatibility/features.json`.
 | [Object resource](https://docs.cloud.google.com/storage/docs/json_api/v1/objects) | Writable content/custom metadata, resource identity, storage class and componentCount representation |
 | [Request preconditions](https://docs.cloud.google.com/storage/docs/request-preconditions) | Source generation matching and destination atomic compare-and-swap, including create-if-absent zero |
 | [Data validation](https://docs.cloud.google.com/storage/docs/data-validation), [status codes](https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes) | Integrity and JSON error envelopes; no inferred provider error precedence |
-| [XML response headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers#xgoogcomponentcount) | XML GET/HEAD return x-goog-component-count only for composites; JSON's common-header reference does not document this header, so JSON exposes the resource field without adding the XML header |
+| [XML response headers](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers) | XML GET/HEAD return x-goog-component-count only for composites; JSON's common-header reference does not document this header, so JSON exposes the resource field without adding the XML header |
 
 Raw [Discovery storage v1](https://storage.googleapis.com/$discovery/rest?version=v1)
 was re-fetched: revision `20261013`, SHA-256
@@ -77,6 +77,11 @@ Resolve at most 32 source metadata records and immutable blob handles under a
 short catalog snapshot. No SQL transaction or blocking worker waits for streaming.
 One admitted compose streams the pinned files in order with bounded 64 KiB chunks,
 one source transfer active at a time, reusing the eight derived/upload permits.
+The request-owned transfer has a fixed 15-minute lifetime from transfer creation;
+publication after that deadline returns local 410 and preserves the old objects.
+Raising object_request_timeout_ms does not extend this ephemeral lifetime. It is
+a local resource limit, not a guarantee of completing the maximum object size
+within that time or of interrupting a stalled filesystem call at a precise instant.
 CRC32C is combined from source CRC32Cs and lengths using the existing crc32c crate;
 property tests compare it with direct calculation, including empty/binary inputs,
 every split point, repeated sources and nested associativity. Never re-read all
@@ -191,8 +196,11 @@ concurrent source deletion or metadata changes during composition remains open;
 the local transaction must never delete a different generation than the pinned one.
 
 The checksum discrepancy between JSON guidance and the Go/RPC validation wording,
-JSON MIME inheritance/defaults, unknown/output-only inputs and complete error
-precedence likewise remain source questions. Keep the broad JSON method PARTIAL
-for these questions and explicitly rejected advanced settings even after the
-bounded core workflow passes. The obsolete 1024 limit is resolved by current
-official quotas; it must not become a local compatibility limit.
+JSON MIME inheritance/defaults, unknown/output-only inputs, JSON component-count
+header presence and complete error precedence likewise remain source questions
+outside the explicitly declared local acceptance scope. Every documented request
+field is implemented or explicitly rejected with a documented error. The four
+feature rows await the integrated final-source gate before scoped promotion;
+neither scoped completion nor explicit 501 responses claim full Google-service
+parity. The obsolete 1024 limit is resolved by current official quotas; it must
+not become a local compatibility limit.
