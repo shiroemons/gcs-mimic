@@ -10,6 +10,7 @@
 
 mod body;
 mod buckets;
+mod derived_metadata;
 mod error;
 mod fields;
 mod iam;
@@ -29,6 +30,7 @@ pub use buckets::{
     parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
     validate_bucket_name,
 };
+pub use derived_metadata::derived_metadata;
 pub use error::JsonError;
 pub use fields::Fields;
 pub(crate) use iam::policy_etag;

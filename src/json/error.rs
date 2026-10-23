@@ -163,6 +163,23 @@ impl From<ObjectError> for JsonError {
                 Self::new(StatusCode::NOT_FOUND, "notFound", "Bucket not found")
             }
             ObjectError::InvalidMetadata => Self::invalid_argument("Custom metadata exceeds 8 KiB"),
+            ObjectError::InvalidDerivedArgument(reason) => Self::invalid_argument(reason),
+            ObjectError::DerivedTransferIncomplete => {
+                Self::invalid_argument("Derived transfer is incomplete")
+            }
+            ObjectError::DerivedTransferNotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "notFound",
+                "Derived transfer not found",
+            ),
+            ObjectError::DerivedTransferExpired => {
+                Self::new(StatusCode::GONE, "gone", "Derived transfer expired")
+            }
+            ObjectError::DerivedTransferBusy => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Derived transfer is already in use",
+            ),
             ObjectError::UnsupportedMetadata(field) => Self::unsupported_object(&field),
             ObjectError::NotModified => {
                 Self::new(StatusCode::NOT_MODIFIED, "notModified", "Not modified")

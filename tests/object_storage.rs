@@ -1553,6 +1553,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         size: 9,
         md5,
         crc32c: crc,
+        component_count: None,
         storage_class: "NEARLINE".into(),
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(1234),
