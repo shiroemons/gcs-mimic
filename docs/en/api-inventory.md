@@ -29,6 +29,13 @@ The following counts describe separately tracked operation/transport units, not 
 
 The live JSON snapshot has 38 schema definitions. Per-property and per-parameter status inventories are separate files. Method presence is not evidence of full field, permission or error compatibility.
 
+`compatibility/upstream/json-schemas.json` also supplies runtime validation for
+JSON `fields` selectors over Bucket, Buckets, Object, Objects and Policy responses.
+Refreshing that inventory changes the accepted selectors and requires the
+renderer/schema regression test in `src/json/fields.rs`. Resumable uploads
+validate against it at initiation; later chunks use the persisted selector
+without schema revalidation.
+
 Storage Control has 39 direct RPCs in the current Google-owned proto and generated Go reference, which is broader than the shorter HTML RPC page. Insights has 14 and Batch Operations7 direct RPCs. The source manifest preserves digests and service registration information.
 
 Open specification questions are retained in `compatibility/gaps.json`. Full-context v1/v2 routes are distinct advertised API versions, not a source contradiction; each remains pending implementation and verification.

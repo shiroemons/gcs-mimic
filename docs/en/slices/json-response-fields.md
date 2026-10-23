@@ -2,12 +2,12 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Checked and verified on **2026-10-23**. Implementation commit: `0f01ee5`.
+Checked and verified on **2026-10-23**.
 This slice supplies the supported-resource subset of `BEHAVIOR-COMMON-004`.
-Integration should record the broader behavior as `PARTIAL` and preserve method
-statuses while the named edge contracts below remain unresolved. The integration
-task owns the feature/gap ledgers and generated matrices; this slice changes none
-of those shared files.
+The broader behavior should be recorded as `PARTIAL` during reconciliation
+while the named edge contracts below remain unresolved. Method statuses and
+generated matrices are owned by the
+[feature ledger](../../../compatibility/features.json).
 
 ## Scope
 
@@ -30,7 +30,9 @@ optional string alongside the existing upload options. Initiation still has an
 empty response body. Finalization renders and filters the completed object;
 the existing durable completion snapshot preserves that selected response
 across retries and restart. Older options without this optional property decode
-as no selection; the catalog schema version is unchanged.
+as no selection; the catalog schema version is unchanged. Later chunks parse the
+persisted selector's syntax without revalidating it against a refreshed Discovery
+schema, so a schema refresh cannot invalidate an already accepted selection.
 
 ## Sources and pins
 
@@ -67,7 +69,8 @@ and precedence between multiple invalid inputs were not differentially verified.
   nested parentheses are supported. Whole-parent selection wins over a narrower
   selection of that same parent; all selected children are still validated.
 - A terminal `*` selects every existing property at that level: `*`, `items(*)`
-  and `items/metadata/*` work. A wildcard followed by a path or sub-selector is
+  and `items/metadata/*` work. This is corroborated by the Drive guide, not
+  documented by the Storage reference. A wildcard followed by a path or sub-selector is
   explicitly unsupported, including when combined with a duplicate whole wildcard.
 - Validation uses response schemas, rather than the fields present in one
   resource, so an absent optional property is legal. An unknown property or a
@@ -110,8 +113,13 @@ was executed, not that unestablished provider edges were inferred.
 | FIELDS-014 | DELETE ignores fields and keeps empty 204; ordinary JSON media and XML reads remain intact; fields plus alt=media explicitly fails 501 | `fields_http::fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged` | PASS |
 | FIELDS-015 | Empty/whitespace selectors and wildcard children explicitly fail 501 pending contract resolution | `json::fields::tests::fields_reject_malformed_unknown_and_scalar_children`; `fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate` | PASS |
 | FIELDS-016 | Pinned Go generated bucket fields and high-level object iterator attribute selection return selected attributes | `TestPartialResponseFields` | PASS |
-| FIELDS-017 | Provider behavior for empty/whitespace selectors, wildcard children, media combination, exact error edges and local caps | No authorized provider fixture; named gap below | PENDING |
-| FIELDS-018 | Combined read ETag validator and fields interaction after the independent validator slice is integrated | Integration task; baseline metadata GET emits no ETag response header | PENDING |
+| FIELDS-017 | Provider behavior for terminal wildcards, empty enclosing maps/list elements, empty/whitespace selectors, wildcard children, media combination, exact error edges and local caps | No authorized provider fixture; named gap below | PENDING |
+| FIELDS-018 | Bucket/object GET computes and compares the complete resource ETag before filtering only the final 200 body; 304 is bodyless and 412 retains its complete error envelope | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
+| FIELDS-INPUT-ORDER | Malformed fields returns 400 before stale If-Match or matching If-None-Match evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
+| FIELDS-ROUTE-REJECTIONS | Wrong-root fields on bucket create/PATCH/PUT/list, object list, IAM GET/PUT and media/multipart/resumable insertion returns 400 without changing bucket/object/policy state | `fields_http::fields_invalid_selectors_leave_all_routes_unchanged` | PASS |
+| FIELDS-EMPTY-PARENT | Selecting a missing custom key retains the existing empty metadata parent; this is local behavior, not established provider parity | `fields_http::fields_invalid_selectors_leave_all_routes_unchanged` | PASS |
+| FIELDS-PERSISTED-SYNTAX | Persisted resumable selections are parsed without consulting the current schema; malformed syntax still fails | `json::fields::tests::fields_persisted_selection_does_not_depend_on_current_schema`; `fields_http::fields_resumable_final_response_survives_restart_and_replay` | PASS |
+| FIELDS-RENDERER-SCHEMA | Every key path rendered from populated bucket/object/list/policy fixtures validates against the pinned runtime schema | `json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas` | PASS |
 
 ## Explicit exclusions and named gaps
 
@@ -122,6 +130,12 @@ selector meaning, whitespace normalization, wildcard child selection or how
 child restriction also holds for overlapping selectors. The exact service error
 message/location, combined-invalid-input precedence and service limits remain
 unverified; local 400 `invalidParameter` mapping and the stated caps are explicit.
+Terminal-wildcard acceptance is Drive-corroborated, not Storage-documented.
+Retaining an empty enclosing map or empty list element when selected children
+are absent is also an unverified Storage edge. Syntax errors include the
+offending selector; unsupported selections use the neutral message prefix
+`Unsupported JSON API semantics`. Exact provider messages and locations remain
+unverified.
 Obtain authoritative clarification or an authorized provider fixture before
 changing those behaviors or claiming full partial-response parity.
 
@@ -131,22 +145,23 @@ additional query parameters with 400. Provider override behavior is unestablishe
 and belongs to the same gap. General cancellation/upload protocol behavior stays
 under the existing resumable contract.
 
-The independent ETag slice must compare the complete resource's ETag
-before pruning its body. It must preserve ETag/cache headers and empty 304/412
-responses even when `fields` excludes `etag`. This branch's hooks are immediately
-before JSON serialization; integration must carry the same mask to any new early
-metadata-success return path. No ETag-header interaction is claimed here.
+Read validators compare a record-derived ETag before pruning the metadata body.
+The ETag/cache headers and bodyless 304 are independent of `fields`; failed
+If-Match returns a complete, unfiltered 412 JSON error envelope. Malformed fields
+is a normal input error and returns 400 before either validator is evaluated,
+following [RFC 9110 section 13.2.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.2.1),
+checked on 2026-10-23. This is the selected local ordering; no provider
+differential execution is claimed.
 
 Full method compatibility, new resource fields, XML partial response, gRPC,
 container execution, the full Go suite, Ruby SDKs, real-cloud differential tests,
-performance measurements and getting-started journeys are outside this worker's
-verification. Source-built containers and combined validators are integration
-checks, not completed evidence from this slice.
+performance measurements and getting-started journeys are outside this slice's
+verification. Combined fields/read-validator HTTP cases are verified above.
 
-## Ledger updates for integration
+## Ledger reconciliation
 
 Add the acceptance cases above to `BEHAVIOR-COMMON-004`; set it from `NOT_STARTED`
-to `PARTIAL`, record the exact supported subset and retain FIELDS-017/018 pending.
+to `PARTIAL`, record the exact supported subset and retain FIELDS-017 pending.
 Add SPEC-FIELDS-EDGES to the gap ledger with the sources, local rejections and
 resolution requirement above. Preserve each method's existing status, cases,
 evidence, fidelity and unrelated gaps. Replace old notes that reject every
@@ -154,16 +169,16 @@ evidence, fidelity and unrelated gaps. Replace old notes that reject every
 
 | Feature rows | Acceptance cases to add |
 | --- | --- |
-| `JSON-BUCKETS-002`, `JSON-BUCKETS-005`, `JSON-BUCKETS-008`, `JSON-BUCKETS-013` | FIELDS-001/003/004/005/010/013/015; bucket GET additionally FIELDS-018 pending |
+| `JSON-BUCKETS-002`, `JSON-BUCKETS-005`, `JSON-BUCKETS-008`, `JSON-BUCKETS-013` | FIELDS-001/003/004/005/010/013/015; bucket GET additionally FIELDS-018 and FIELDS-INPUT-ORDER |
 | `JSON-BUCKETS-006` | FIELDS-001/002/003/004/006/010/015/016 |
 | `JSON-BUCKETS-003`, `JSON-BUCKETS-011` | FIELDS-001/003/004/007/013/015 |
-| `JSON-OBJECTS-005` | FIELDS-001/002/003/004/008/010/013/014/015; FIELDS-018 pending |
+| `JSON-OBJECTS-005` | FIELDS-001/002/003/004/008/010/013/014/015/018 and FIELDS-INPUT-ORDER |
 | `JSON-OBJECTS-007` | FIELDS-001/003/004/008/010/011/012/013/015 |
 | `JSON-OBJECTS-008` | FIELDS-001/002/003/004/009/010/015/016 |
 | `JSON-OBJECTS-010`, `JSON-OBJECTS-015` | FIELDS-001/003/004/008/010/013/015 |
 | `JSON-BUCKETS-001`, `JSON-OBJECTS-004` | FIELDS-014 (fields ignored; existing delete semantics retained) |
 
-Exact new Rust test IDs are the three `json::fields::tests::*` paths, five
+Exact Rust test IDs are the five `json::fields::tests::*` paths, eight
 `fields_http::*` paths and one `object_multipart_http::*` path listed in the
 acceptance table. The exact Go test is `TestPartialResponseFields` in
 `sdk-tests/go/fields_test.go`. Existing negative-test coverage for unsupported
@@ -176,13 +191,12 @@ Commands executed from the repository root on 2026-10-23:
 
 | Command | Result |
 | --- | --- |
-| `cargo +1.99.1 test --lib --locked --offline fields` | PASS; seven matching tests, including the three new parser/pruner cases |
-| `cargo +1.99.1 test --locked --offline --test fields_http --test object_multipart_http fields` | PASS; five new general HTTP cases and two matching multipart cases, including the new multipart selection case |
-| `cargo +1.99.1 test --workspace --locked --offline` | PASS; all workspace unit/integration/doc tests |
-| `cargo +1.99.1 test --workspace --locked --offline --quiet` | PASS on final source, including the overlapping wildcard-child rejection |
+| `cargo +1.99.1 test --lib fields --locked --offline` | PASS; 9 matching tests, including the 5 fields parser/pruner/schema cases |
+| `cargo +1.99.1 test --test fields_http --locked --offline` | PASS; all 8 HTTP cases |
+| `cargo +1.99.1 test --workspace --locked --offline` | PASS; 436 passed, 0 failed, 0 ignored across workspace unit/integration/doc tests |
 | `cargo +1.99.1 fmt --all --check` | PASS |
 | `cargo +1.99.1 clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
-| `GCS_MIMIC_GO_TEST_RUN=TestPartialResponseFields GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh` | PASS; Go vet and exactly the focused SDK test; Storage v1.70.0/API v0.308.0, no new Go dependencies |
+| `GCS_MIMIC_GO_TEST_RUN='TestPartialResponseFields\|TestReadETagValidators' GOPROXY=off GOFLAGS=-mod=readonly bash scripts/sdk-go.sh` | PASS; Go vet and the 2 focused SDK tests; Storage v1.70.0/API v0.308.0, no new Go dependencies |
 | `cargo +1.99.1 xtask dependencies check` | PASS; all 31 monitored compiler/crate/SDK/container/CI inputs CURRENT |
 | `npx --yes markdownlint-cli2 docs/en/slices/json-response-fields.md` | PASS; zero issues; MD013 disabled for the acceptance/evidence tables as in neighboring canonical slice documents |
 | `git diff --check` and `git diff --staged --check` | PASS |
