@@ -164,7 +164,9 @@ loopback API origins are supported too. No production credentials are used.
 
 Fetches use `cache: no-store` to observe configuration changes at the server.
 This does not claim that revocation invalidates browser or intermediary caches.
-The fixture creates no XML write or signed-URL claim.
+Real V4 RSA signed XML PUT/GET/HEAD, signer permission denials and restart are
+covered separately by the [signed browser journey](signed-browser.md), using
+the same trusted HTTPS method.
 
 The contract comes from Google's
 [CORS reference](https://docs.cloud.google.com/storage/docs/cross-origin), checked

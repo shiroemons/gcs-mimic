@@ -1,0 +1,70 @@
+Local path prefixes, if present, are redacted as <checkout> or <temporary-directory>; no other output is changed.
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+PASS: distinct trusted HTTPS browser and API origins
+API origin: https://gcs:54477; browser origin: https://127.0.0.1:54614; profile: strict; phase: initial
+PASS: POST /storage/v1/b returns 200
+PASS: PUT /storage/v1/b/signed-browser-strict/iam returns 200
+PASS: signed PUT with non-simple Content-Type and signed metadata passes browser preflight
+PASS: JSON confirms stored metageneration, signed Content-Type and metadata
+PASS: signed GET returns exact uploaded bytes
+PASS: signed GET exposes stored signed upload metadata
+PASS: configured ETag, generation and hash are readable
+PASS: non-exposed metageneration is hidden
+PASS: configured ETag, generation and hash are readable
+PASS: non-exposed metageneration is hidden
+PASS: independently signed HEAD returns uploaded length
+PASS: configured ETag, generation and hash are readable
+PASS: non-exposed metageneration is hidden
+PASS: signed response overrides are readable
+PASS: PATCH /storage/v1/b/signed-browser-strict returns 200
+PASS: disallowed origin blocks signed GET in browser
+PASS: PATCH /storage/v1/b/signed-browser-strict returns 200
+PASS: JSON confirms stored metageneration, signed Content-Type and metadata
+PASS: signed GET returns exact uploaded bytes
+PASS: signed GET exposes stored signed upload metadata
+PASS: configured ETag, generation and hash are readable
+PASS: non-exposed metageneration is hidden
+PASS: PATCH /storage/v1/b/signed-browser-strict returns 200
+PASS: disallowed origin blocks signed PUT in browser
+PASS: denied origin leaves object bytes and complete metadata unchanged via JSON reads
+PASS: denied attempts publish no new object
+PASS: PATCH /storage/v1/b/signed-browser-strict returns 200
+PASS: same signed PUT succeeds after restoring the allowed origin
+PASS: disallowed request header blocks signed PUT preflight
+PASS: denied request header preserves existing object
+PASS: denied attempts publish no new object
+PASS: same signed PUT succeeds after removing the disallowed request header
+PASS: disallowed method blocks preflight
+PASS: denied method preserves existing object
+PASS: denied attempts publish no new object
+PASS: same signed URL and headers succeed with the allowed PUT method
+PASS: PUT /storage/v1/b/signed-browser-strict/iam returns 200
+PASS: allowed preflight does not grant viewer upload permission: browser reads 403 AccessDenied
+PASS: viewer cannot publish a new object: browser reads 403 AccessDenied
+PASS: permission denial preserves bytes and metadata
+PASS: denied attempts publish no new object
+PASS: PUT /storage/v1/b/signed-browser-strict/iam returns 200
+PASS: tampered signed URL is denied: browser reads 403 SignatureDoesNotMatch
+PASS: expired signed URL is denied: browser reads 400 ExpiredToken
+PASS: changed signed header is denied after successful preflight: browser reads 403 SignatureDoesNotMatch
+PASS: anonymous private XML GET is denied despite matching CORS: browser reads 401 AuthenticationRequired
+PASS: anonymous XML PUT is denied despite matching CORS: browser reads 401 AuthenticationRequired
+PASS: invalid signatures and anonymous requests preserve bytes and metadata
+PASS: denied attempts publish no new object
+Restart the strict emulator on the same data directory, prepare fresh URLs and run restart.
+PASS: strict initial signed browser verification completed
+
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+PASS: distinct trusted HTTPS browser and API origins
+API origin: https://gcs:54477; browser origin: https://127.0.0.1:54614; profile: strict; phase: restart
+PASS: bucket CORS survives restart
+PASS: JSON confirms stored metageneration, signed Content-Type and metadata
+PASS: signed GET returns exact uploaded bytes
+PASS: signed GET exposes stored signed upload metadata
+PASS: configured ETag, generation and hash are readable
+PASS: non-exposed metageneration is hidden
+PASS: delete uploaded object after restart
+PASS: delete disposable bucket after restart
+PASS: strict restart signed browser verification completed
+
+{"kind":"storage#buckets"}

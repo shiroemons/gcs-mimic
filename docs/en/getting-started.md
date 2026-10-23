@@ -1011,6 +1011,37 @@ verifies JSON uploads/CRUD, ETag/Location, XML allow/deny, strict permission den
 and restart without disabling TLS verification. Configuration changes affect
 new uncached requests; previous browser caches can persist until expiry.
 
+### Signed browser upload and download
+
+The [signed Chromium journey](evidence/signed-browser.md) runs real V4 RSA XML
+PUT/GET/HEAD from `https://127.0.0.1:54614`, with trusted HTTPS, exposed headers,
+permission/signature denials and persisted bytes after restart. Use the strict
+server with `config/identities.json` and the isolated browser container from that
+journey. Generate URLs on the native host for the exact API host and port the
+browser will use, then run the browser in the container:
+
+```sh
+GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+  prepare https://gcs:54477 signed-browser-strict initial > target/signed-browser-run/initial.json
+docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
+  run target/signed-browser-run/initial.json
+```
+
+After SIGINT and restart with the same data directory and browser origin,
+generate fresh URLs and verify persistence and cleanup:
+
+```sh
+GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+  prepare https://gcs:54477 signed-browser-strict restart > target/signed-browser-run/restart.json
+docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
+  run target/signed-browser-run/restart.json
+```
+
+Preparation uses the public test-only fixture key and grants no permissions.
+The page grants and revokes disposable bucket access to prove that CORS never
+grants object access. Successful signed URLs are used unchanged; no host rewrite
+or TLS verification bypass is used. Keep the generated manifests private.
+
 ## Stop, restart and deliberate reset
 
 ```sh
