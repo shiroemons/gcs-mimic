@@ -128,3 +128,90 @@ power-loss durability and new performance/resource measurements remain outside
 this delivery. No cloud resource, credential-dependent Docker step or publication
 was used. The next slice is **Basic JSON contract**, starting with supported
 response field selection and read ETag validators as separate small steps.
+
+## SDK API client update
+
+Verified on **2026-10-23** after the integration run above. Adopted
+`google.golang.org/api` **v0.308.0** with the pinned Go **1.27.3** toolchain using
+`go get google.golang.org/api@v0.308.0` and `go mod tidy` in `sdk-tests/go`.
+Storage **v1.70.0**, OAuth2 **v0.37.0** and every indirect requirement remain
+unchanged. Only the API requirement and its module checksums changed.
+The verified module inputs and dependency snapshot are committed as
+`4d18f4f7d999dacd0cc989f9f1f8e9c509a043c1`; application and test source are
+unchanged by this update.
+The earlier integration inputs and SDK logs retain their original versions;
+this update supersedes the stale-pin result above. The refreshed
+[dependency log](bucket-metadata-put-dependencies.txt) reports the current graph.
+
+Official upstream checks at `2026-10-23T00:43:51Z`:
+
+- The [module proxy info](https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.info)
+  identifies tag commit `5767912fa9673119eee358c714d9cb93f0ff1ba5` and module
+  time `2026-10-22T17:26:34Z`; `@latest` returns the same release.
+- The [official release](https://github.com/googleapis/google-api-go-client/releases/tag/v0.308.0)
+  was published on **2026-10-22** at `17:26:56Z`, with `draft: false` and
+  `prerelease: false`. Its change is automatic regeneration of Discovery clients.
+- The [highest release's go.mod](https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.mod)
+  retracts only v0.258.0, not this version. `go list -m -json -retracted`
+  reports no `Retracted` field for v0.308.0. Its minimum Go remains 1.26.0.
+- The [v0.308.0 LICENSE](https://github.com/googleapis/google-api-go-client/blob/5767912fa9673119eee358c714d9cb93f0ff1ba5/LICENSE)
+  remains BSD-3-Clause and is byte-identical to v0.307.0 (`cmp` exit 0).
+  Both license files have SHA-256
+  `110244b02140866ee37d17fa7449436a377ec3b85a481fbb208f4c87964382de`.
+  The compressed module archive is 52,400,260 bytes.
+
+Updated application-test input SHA-256:
+
+| File | SHA-256 |
+| --- | --- |
+| `sdk-tests/go/go.mod` | `93a6051f221a20bf7586e846469c8012d0ea5e1d0512e9e9587772bb1d7d524e` |
+| `sdk-tests/go/go.sum` | `1fe4e981f7239be32bec257908d18fea019b970e85ec86ffdcf559094d01fc38` |
+
+| Command | Result |
+| --- | --- |
+| `cd sdk-tests/go && GOTOOLCHAIN=go1.27.3 go vet ./...` | PASS, exit 0 |
+| `just check-sdk` with cloud credential/metadata-host variables cleared and pinned Go selected | PASS, exit 0: runner vet, 33 top-level tests and 73 subtests, zero failures/skips; package time 3.278s |
+| `cargo +1.99.1 xtask dependencies check` | PASS, exit 0: all 31 inputs CURRENT, including API v0.308.0 |
+| `cargo +1.99.1 xtask compatibility render` and `cargo +1.99.1 xtask compatibility check` | PASS, exit 0: 591 feature rows, 401 parameter locations and 357 fields; regenerated matrices have no content change |
+
+The standalone vet, full SDK suite, dependency check and compatibility check each
+ran once for this update. Complete output is in the
+[SDK update log](bucket-metadata-put-sdk-update.txt) and separate refreshed
+[dependency log](bucket-metadata-put-dependencies.txt). Local path prefixes are
+replaced as declared on each log's first line. The SDK run starts isolated native
+permissive and strict servers, uses guarded local transports and fixture tokens,
+and makes no Google Cloud or metadata-server calls. No tests were changed.
+
+Updated 41 current `sdk_evidence` entries on these 33 rows to API v0.308.0,
+the new run date, command and raw artifact, only for test IDs present in this run:
+
+- JSON-BUCKETS-001, JSON-BUCKETS-002, JSON-BUCKETS-003, JSON-BUCKETS-005,
+  JSON-BUCKETS-008, JSON-BUCKETS-011 and JSON-BUCKETS-013.
+- JSON-OBJECTS-004, JSON-OBJECTS-005, JSON-OBJECTS-007, JSON-OBJECTS-008 and
+  JSON-OBJECTS-010.
+- BEHAVIOR-BUCKET-012, BEHAVIOR-OBJECT-002, BEHAVIOR-OBJECT-010,
+  BEHAVIOR-OBJECT-011, BEHAVIOR-OBJECT-012, BEHAVIOR-OBJECT-014,
+  BEHAVIOR-OBJECT-021, BEHAVIOR-OBJECT-029 and BEHAVIOR-OBJECT-035.
+- EXT-XML-012, EXT-XML-017, DESIGN-004, DESIGN-012, DESIGN-013, DESIGN-014,
+  DESIGN-016, DESIGN-027, DESIGN-047, DESIGN-057, DESIGN-082 and UX-005.
+
+Historical `verification` records, older SDK graph records, source references,
+acceptance results, statuses and known deviations are unchanged. The current
+SDK records describe this native run; earlier legacy-profile verification stays
+in its original records. The dependency snapshot and current README, SDK,
+development, getting-started and roadmap version/completion statements are
+updated without rewriting historical evidence.
+
+The [Dockerfile](../../../Dockerfile) copies Cargo inputs, Rust/xtask source and
+licenses, builds the Rust application, then copies only the binary and license
+bundle into the runtime. It neither copies nor builds `sdk-tests/go`; container
+inputs and application source are unaffected. No container rebuild, guide run,
+reference comparison, real-cloud differential test or additional Rust suite was
+run for this harness-only update. Existing provider-parity and broad feature
+limits remain open; the next implementation slice remains **Basic JSON contract**.
+
+Markdown validation keeps the existing prose exemptions. The first default run
+reported eight MD013 line-length issues in `docs/en/development.md`, whose long
+paragraphs predate this version-only change. That file is checked separately
+with only MD013 disabled; the other six changed Markdown files use their existing
+rules. The initial diagnostic and final lint output are retained in the raw log.

@@ -1,8 +1,8 @@
 Local checkout, home and temporary path prefixes are replaced with <checkout>, <user-home> and <temp>; other output is unchanged.
 Command: cargo +1.99.1 xtask dependencies check
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask dependencies check`
-checked_at_unix_seconds=1792715157
+checked_at_unix_seconds=1792716326
 rust: CURRENT current=1.99.1 latest=1.99.1
 bytes: CURRENT current=1.12.1 latest=1.12.1
 crc32c: CURRENT current=0.6.8 latest=0.6.8
@@ -33,6 +33,6 @@ Go language baseline: CURRENT current=1.27.0 latest=1.27.0
 Go toolchain: CURRENT current=1.27.3 latest=1.27.3
 cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
 golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
-google.golang.org/api: UPDATE_AVAILABLE current=v0.307.0 latest=v0.308.0
+google.golang.org/api: CURRENT current=v0.308.0 latest=v0.308.0
 
-Command exit status: 1 (UPDATE_AVAILABLE)
+Command exit status: 0

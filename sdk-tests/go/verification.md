@@ -2,6 +2,19 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## SDK API client update: 2026-10-23
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.308.0 and OAuth2 v0.37.0.
+`GOTOOLCHAIN=go1.27.3 go get google.golang.org/api@v0.308.0` followed by
+`go mod tidy` changed only the API version and its checksums; Storage and all
+indirect requirements are unchanged. The official release is dated 2026-10-22,
+is not a prerelease or retracted, and retains the byte-identical BSD-3-Clause
+LICENSE. Go vet and `just check-sdk` passed with 33 top-level tests and 73
+subtests, zero failures/skips (package time 3.278s). All 31 dependency inputs
+are CURRENT. See the [update evidence](../../docs/en/evidence/bucket-metadata-put.md#sdk-api-client-update)
+and [raw output](../../docs/en/evidence/bucket-metadata-put-sdk-update.txt).
+Historical sections below retain their original versions and execution records.
+
 ## Bucket metadata PUT contract tests: 2026-10-23
 
 `TestBucketMetadataReplace` and `TestStrictAuthBucketMetadataReplace` exercise

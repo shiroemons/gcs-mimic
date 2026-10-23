@@ -95,7 +95,7 @@ success stub does not complete a workflow.
 | 4 | Resumable upload | Declared initiation/chunk/status/retry/finalization/cancel/expiry/Location cases, normal pinned Go Writer, native buffering measurements and selected process-kill recovery passed on 2026-10-22 | Delivered: BEHAVIOR-OBJECT-010 through BEHAVIOR-OBJECT-014 and DESIGN-057 IMPLEMENTED; JSON-OBJECTS-007 and DESIGN-082 remain PARTIAL; [final verification](evidence/resumable-upload.md) |
 | 5 | Bucket create, get and delete | Declared native/compatibility creation, basic GET, empty deletion, versioning/default holds and HTTP/SDK/container/guide checks passed on 2026-10-22; both pinned reference backends compared | Delivered: named baseline with explicit intentional/strict/unsupported differences; broad bucket and versioning/hold rows remain PARTIAL; [final verification](evidence/bucket-core-parity.md) |
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
-| 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) records API dependency drift |
+| 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
 | 8 | Basic JSON contract | Existing CRUD, upload, metadata, list, range and delete workflows; supported response field selection and read ETag validators; conditions, checksums and errors | Close named basic-operation gaps before expanding protocols |
 | 9 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
 | 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
@@ -119,8 +119,8 @@ Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
 covering the [frozen replacement contract](slices/bucket-metadata-put.md),
 Rust/Go checks, both reference backends and local profiles, both container
 architectures and affected native/Docker guide blocks with restart equality.
-The online dependency check detects API client v0.308.0; the tested v0.307.0
-graph remains pinned and its update is separate maintenance work.
+Separate maintenance adopted API client v0.308.0 with Storage v1.70.0 unchanged;
+the full SDK suite passes and all 31 dependency inputs report CURRENT.
 The complete buckets.update row stays PARTIAL for advanced fields,
 ACL/billing/full projection and provider defaults/error parity.
 Order 6 is closed by [final PATCH evidence](evidence/bucket-metadata-patch.md),
