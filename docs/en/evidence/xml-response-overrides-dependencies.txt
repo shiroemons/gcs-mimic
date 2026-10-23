@@ -1,8 +1,8 @@
 Local machine path prefixes are redacted as <checkout>, <temporary> or <user-home>.
 
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask dependencies check`
-checked_at_unix_seconds=1792759192
+checked_at_unix_seconds=1792760021
 rust: CURRENT current=1.99.1 latest=1.99.1
 bytes: CURRENT current=1.12.1 latest=1.12.1
 crc32c: CURRENT current=0.6.8 latest=0.6.8

@@ -42,13 +42,19 @@ selected-generation reader remain in effect.
 
 ## Validation and failure behavior
 
-Values must be representable as an HTTP HeaderValue. CR, LF, NUL, DEL and other
-invalid controls return XML 400 `InvalidArgument`; HEAD suppresses the XML body.
-Empty values, HTAB and valid UTF-8 bytes are accepted by this local validation.
-This does not validate the full MIME or Content-Disposition grammar. Prefer
-standards-compliant media types and disposition syntax, including encoded
-filename parameters where needed. Exact provider grammar, empty/non-ASCII
-handling and error precedence remain SPEC-XML-RESPONSE-OVERRIDES.
+Values must be nonempty and have no leading or trailing whitespace. These
+violations, CR, LF, NUL, DEL and other invalid controls return XML 400
+`InvalidArgument`; HEAD suppresses the XML body. Interior HTAB remains allowed.
+Values that cannot be represented as text HTTP headers, including raw non-ASCII
+values, return 501 `NotImplemented`. These are explicit local choices under
+SPEC-XML-RESPONSE-OVERRIDES, pending authoritative Google evidence.
+This does not validate the full MIME or Content-Disposition grammar. Use ASCII
+disposition values or RFC 5987 syntax such as
+`attachment; filename*=UTF-8''%C3%A9.csv` for non-ASCII filenames. The percent
+escapes belong to the header value and must survive the query's single decode.
+Exact provider grammar, whitespace/non-ASCII handling and error precedence
+remain unresolved. Failed 404/412/416 reads retain their XML error Content-Type
+and do not receive either response override.
 
 The official XML inventory does not list S3's `response-cache-control`,
 `response-content-language`, `response-content-encoding` or `response-expires`.
@@ -64,7 +70,8 @@ includes every subsequent query parameter except the signature and specifies
 lexicographical name order by code point. The existing implementation decodes
 names, sorts them, then encodes names and values. Overrides therefore participate
 in the signature automatically. Changing either override on a valid signed
-GET/HEAD returns 403 `SignatureDoesNotMatch`, including on a public object.
+GET/HEAD, appending an override to a URL signed without it, or removing a signed
+override returns 403 `SignatureDoesNotMatch`, including on a public object.
 Signature authentication precedes operation validation and never falls back to
 an anonymous grant.
 
@@ -91,8 +98,10 @@ gcs-mimic url sign --base-url https://localhost:4443 --bucket example-bucket \
   --query 'response-content-type=text/csv'
 ```
 
-The helper encodes reserved bytes before signing. It rejects missing `=`, empty
-names, duplicate names and attempts to supply reserved signing parameters.
+The helper uses the signature module's RFC 3986 query-component encoder for
+literal names and values, including reserved bytes, before signing. It rejects
+missing `=`, empty names, duplicate names and attempts to supply reserved signing
+parameters.
 The first `=` separates the name from the value; subsequent equals signs are
 part of the value. Existing URL signing still binds the final host and port.
 
@@ -110,10 +119,12 @@ preservation have [executed evidence](../evidence/xml-response-overrides.md).
 Wire tests cover both override headers on whole/range GET and HEAD, private
 bearer and V4 signer access, anonymous public access, retained-generation
 selection, matching cache/hash/ETag metadata, CORS exposure, value mutation,
-CR/LF/control rejection, duplicate encoded aliases, unsupported query rejection
+CR/LF/control and empty/edge-whitespace rejection, raw non-ASCII 501, duplicate
+encoded aliases, unsupported query rejection, error-response header preservation
 and unchanged current/retained metadata. CLI tests verify encoding and signing
-with repeated query options. Official Go/Ruby signer cases exercise their
-documented query options with existing endpoint adaptations.
+with repeated query options; actual CLI-to-server GET/HEAD round trips preserve
+RFC 5987 disposition escapes and exact bytes. Official Go/Ruby signer cases
+exercise their documented query options with existing endpoint adaptations.
 
 No real Google differential requests, container builds, guide walkthrough,
 browser/Rails execution or new resource measurements run in this slice.

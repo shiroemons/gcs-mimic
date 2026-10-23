@@ -23710,13 +23710,15 @@
         },
         {
           "id": "EXT-XML-012-RESPONSE-OVERRIDES",
-          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure; reject signed value tampering, invalid header controls, decoded duplicate aliases and undocumented queries. Official SDK query signing passes under recorded endpoint adaptations.",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
           "result": "PASS",
           "test_ids": [
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
             "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
             "TestV4RSASignedDownload/ResponseOverrides",
-            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         }
       ],
@@ -23741,7 +23743,9 @@
         "xml::xml_unsupported_operations_fail_before_reading_a_body",
         "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
         "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
-        "TestV4RSASignedDownload/ResponseOverrides"
+        "TestV4RSASignedDownload/ResponseOverrides",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -23839,7 +23843,9 @@
           "artifact": "docs/en/evidence/xml-response-overrides-checks.txt",
           "test_ids": [
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
-            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names"
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         },
         {
@@ -23950,9 +23956,9 @@
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark.",
-        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, validation/errors and undocumented response-* rejection are explicit local choices pending provider clarification."
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "d8b75981c35d2ab19c0966e8450f666a722c47ea",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -24154,12 +24160,14 @@
         },
         {
           "id": "EXT-XML-017-RESPONSE-OVERRIDES",
-          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure; reject signed value tampering, invalid header controls, decoded duplicate aliases and undocumented queries. Official SDK query signing passes under recorded endpoint adaptations.",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
           "result": "PASS",
           "test_ids": [
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
             "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
-            "TestV4RSASignedDownload/ResponseOverrides"
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         }
       ],
@@ -24178,7 +24186,9 @@
         "TestV4RSASignedDownload",
         "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
         "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
-        "TestV4RSASignedDownload/ResponseOverrides"
+        "TestV4RSASignedDownload/ResponseOverrides",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -24259,7 +24269,9 @@
           "artifact": "docs/en/evidence/xml-response-overrides-checks.txt",
           "test_ids": [
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
-            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names"
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         },
         {
@@ -24324,9 +24336,9 @@
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
-        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, validation/errors and undocumented response-* rejection are explicit local choices pending provider clarification."
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "d8b75981c35d2ab19c0966e8450f666a722c47ea",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -33603,7 +33615,7 @@
         },
         {
           "id": "DESIGN-035-RESPONSE-OVERRIDES",
-          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure; reject signed value tampering, invalid header controls, decoded duplicate aliases and undocumented queries. Official SDK query signing passes under recorded endpoint adaptations.",
+          "description": "Apply response-content-type and response-content-disposition to authorized public/bearer/V4 signed GET/HEAD, full/range reads and retained generations; preserve stored metadata, Cache-Control, ETag, hashes and CORS exposure. Reject signed override value changes, additions and removals; reject empty/edge-whitespace values and invalid controls with 400, unrepresentable text-header/non-ASCII values with local 501, decoded duplicate aliases and undocumented queries. Keep overrides absent from 404/412/416 errors. CLI-to-server GET/HEAD preserves RFC 5987 disposition escapes; official SDK query signing passes under recorded endpoint adaptations.",
           "result": "PASS",
           "test_ids": [
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
@@ -33611,7 +33623,9 @@
             "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
             "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
             "TestV4RSASignedDownload/ResponseOverrides",
-            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         }
       ],
@@ -33627,7 +33641,9 @@
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
         "TestV4RSASignedDownload/ResponseOverrides",
-        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
       ],
       "verification": [
         {
@@ -33683,7 +33699,9 @@
             "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
             "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
             "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
-            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options"
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
         },
         {
@@ -33745,9 +33763,9 @@
       ],
       "known_deviations": [
         "SPEC-SIGNING-EDGES: duplicate decoded names and percent-encoded aliases reject locally; exact provider duplicate/ambiguous query semantics remain unverified.",
-        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, validation/errors and undocumented response-* rejection are explicit local choices pending provider clarification."
+        "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "d8b75981c35d2ab19c0966e8450f666a722c47ea",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {

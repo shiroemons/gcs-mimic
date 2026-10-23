@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Checked **2026-10-23**. Code commit:
-`d8b75981c35d2ab19c0966e8450f666a722c47ea`.
+`80e3074801d9dd30865fe23bf054b999b951e996`.
 The [slice contract](../slices/xml-response-overrides.md) defines the supported
 query parameters, validation, duplicate rules, helper and remaining boundaries.
 
@@ -11,9 +11,9 @@ query parameters, validation, duplicate rules, helper and remaining boundaries.
 
 | Command | Result | Artifact |
 | --- | --- | --- |
-| `cargo test --locked --offline --test auth_http response_overrides -- --nocapture` | PASS, both new wire tests; also included in the full suite below | [Rust output](xml-response-overrides-checks.txt) |
+| `cargo test --locked --offline --test auth_http response_overrides -- --nocapture` | PASS, four wire tests; also included in the full suite below | [Rust output](xml-response-overrides-checks.txt) |
 | `cargo test --locked --offline --test sign_url_cli` | PASS, three CLI tests; also included in the full suite below | [Rust output](xml-response-overrides-checks.txt) |
-| `just check` | PASS, 628 Rust tests, zero failed/ignored; fmt, Clippy, ledger and shell/publication-policy checks | [Rust output](xml-response-overrides-checks.txt) |
+| `just check` | PASS, 630 Rust tests, zero failed/ignored; fmt, Clippy, ledger and shell/publication-policy checks | [Rust output](xml-response-overrides-checks.txt) |
 | `GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh --with-ruby` | PASS, Go vet and all 44 top-level tests including ResponseOverrides; Ruby origin guard, permissive/strict API and signed cases | [SDK output](xml-response-overrides-sdk.txt) |
 | `cargo xtask dependencies check` | PASS, all 36 inputs CURRENT; no dependency or toolchain changes | [Freshness output](xml-response-overrides-dependencies.txt) |
 | `cargo xtask compatibility render`, `validate`, `check`; Markdown lint | PASS, 591 rows and both generated views; four Markdown files | [Documentation output](xml-response-overrides-docs.txt) |
@@ -33,23 +33,37 @@ All other rules remain enabled; the lint configuration is external to the repo.
 checks full and range GET/HEAD, public/bearer/signed callers, retained generation
 selection after a live overwrite, exact bytes/lengths, override values with
 spaces/plus/quotes, Cache-Control, ETag, hashes, generation/metageneration,
-stored byte headers, custom metadata and configured CORS exposure. Changing
-either signed override returns 403, including after a public grant. JSON reads
+stored byte headers, custom metadata and configured CORS exposure. Changing or
+removing a signed override, or adding one to a URL signed without it, returns
+403 SignatureDoesNotMatch, including after a public grant. JSON reads
 prove that both current and retained generation metadata remain unchanged.
 
 `signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names`
 checks both override names with CRLF injection, separate CR/LF, NUL, DEL and
-another invalid control, across signed/bearer GET/HEAD. Failures are 400
-InvalidArgument with no injected header and bodyless HEAD. Raw duplicate names
+another invalid control, empty values and leading/trailing spaces or HTAB,
+across signed/bearer GET/HEAD. Failures are 400 InvalidArgument with no injected
+header and bodyless HEAD. Raw non-ASCII values return 501 NotImplemented rather
+than being classified as malformed; HEAD remains bodyless. Raw duplicate names
 and percent-encoded aliases reject with local unsigned InvalidArgument or strict
 signed InvalidAuthentication. Undocumented response-* names and other unsupported
 queries return 501 for both authorized bearer and valid signed requests.
 
+`signing::overrides::xml_response_overrides_from_cli_reach_the_server` signs
+GET/HEAD URLs through the actual CLI and requests the strict server with those
+unchanged URLs. Both override headers, RFC 5987 filename escapes, exact GET
+bytes, bodyless HEAD and unchanged stored content type pass.
+
+`signing::overrides::xml_response_overrides_are_absent_from_error_responses`
+checks valid bearer and signed requests that fail with 404 NoSuchKey, 412
+PreconditionFailed and 416 InvalidRange. XML error Content-Type remains intact
+and Content-Disposition is absent; the signed condition header is bound to
+the signature.
+
 The three `sign_url_cli` tests exercise repeated literal query options, reserved
-character/Unicode/percent encoding, independent authentication of the resulting
-URL, malformed/duplicate options and reserved signing field rejection. Existing
-query sorting, path/header binding, malformed-field and other negative tests
-remain in the full suite.
+character/Unicode object-path/percent encoding, RFC 5987 ASCII disposition values,
+independent authentication of the resulting URL, malformed/duplicate options and
+reserved signing field rejection. Existing query sorting, path/header binding,
+malformed-field and other negative tests remain in the full suite.
 
 `TestV4RSASignedDownload/ResponseOverrides` uses unmodified official Go
 `storage.SignedURL(QueryParameters: ...)` for a private object. GET/HEAD return
@@ -74,9 +88,9 @@ unchanged; the XML-specific references define this slice.
 
 | Source | SHA256 |
 | --- | --- |
-| [GET Object](https://docs.cloud.google.com/storage/docs/xml-api/get-object-download) | `f6e28a1cba774bbdd1d31ad4aef44a579bf6ab49cf8f22cf25c7027b90797c80` |
-| [XML headers and query parameters](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers) | `9e5c413d52313c0a9216d9a4c5490c757ac62eb9ef1a8eb36bfc84952a8e9f09` |
-| [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests) | `ab67caa21e0b202d412bd6c83f360711a0149160c08070234f96fe569741e7aa` |
+| [GET Object](https://docs.cloud.google.com/storage/docs/xml-api/get-object-download) | `e4e68da48af6def3e8a4a53d8672c53acd548f130d5bd4c94ced8344308996eb` |
+| [XML headers and query parameters](https://docs.cloud.google.com/storage/docs/xml-api/reference-headers) | `e11827c917a480523193f558e89a207c4e0387018245bafcaa0a3e165c92a49d` |
+| [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests) | `400ef61b3d9408d34c996acf33812f0ed1482d50e6ba976a9dd15281af70b70a` |
 
 ## Ledger decision and limits
 
@@ -90,7 +104,8 @@ would require removing an unresolved original requirement, prohibited by the
 EXT-XML-012 and EXT-XML-017 add passing response override cases and remove
 overrides from their unsupported-input lists while keeping all other pending
 scope. SPEC-XML-RESPONSE-OVERRIDES records the explicit anonymous/permissive/HEAD
-extension beyond the documented authenticated GET wording, HeaderValue-only
+extension beyond the documented authenticated GET wording, local empty/edge-whitespace
+400 rejection, unrepresentable text-header/non-ASCII 501, incomplete header grammar
 validation and undocumented query rejection. Their exact provider behavior
 remains unresolved. No status/fidelity promotion conceals these choices.
 
