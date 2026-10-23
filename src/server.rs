@@ -266,8 +266,11 @@ async fn respond(
         return response;
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
-    if let Some((bucket, _)) = xml::object_path(request.uri(), request.headers(), config)
-        .filter(|(_, name)| !name.is_empty())
+    if let Some((bucket, _)) =
+        xml::object_path(request.uri(), request.headers(), config).filter(|(bucket, name)| {
+            !name.is_empty()
+                && json::validate_bucket_name_for_profile(bucket, config.compat_profile).is_ok()
+        })
     {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;

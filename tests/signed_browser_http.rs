@@ -435,6 +435,10 @@ fn signed_encoded_paths_keep_preflight_transfer_and_error_cors() {
         reply.status(200);
         reply.cors(true, false);
         assert_eq!(reply.body, b"encoded bytes");
+        assert_eq!(
+            server.json("GET", &format!("{BUCKET}/o/folder%2Fa%20b"), Value::Null)["name"],
+            "folder/a b"
+        );
         let reply = server.request("GET", &get.replace("%20b", "%20c"), &origin(ORIGIN), b"");
         reply.error(403, "SignatureDoesNotMatch", false);
         reply.cors(true, false);
@@ -448,10 +452,12 @@ fn signed_invalid_object_names_keep_error_cors_without_bypassing_validation() {
     for virtual_host in [false, true] {
         for method in ["GET", "HEAD", "PUT"] {
             let url = server.sign(virtual_host, method, ".");
-            let preflight = preflight(&server, &url, ORIGIN, method, "");
-            preflight.status(200);
-            preflight.cors(true, true);
             for source in [ORIGIN, DENIED] {
+                for candidate in [&url, &server.url(virtual_host, "%ZZ")] {
+                    let reply = preflight(&server, candidate, source, method, "");
+                    reply.status(200);
+                    reply.cors(source == ORIGIN, true);
+                }
                 let reply = server.request(method, &url, &origin(source), b"");
                 reply.error(400, "InvalidArgument", method == "HEAD");
                 reply.cors(source == ORIGIN, false);
@@ -465,6 +471,28 @@ fn signed_invalid_object_names_keep_error_cors_without_bypassing_validation() {
                 assert_eq!(server.metadata(), before);
             }
         }
+    }
+}
+
+#[test]
+fn invalid_virtual_host_bucket_names_reject_preflight_without_cors() {
+    let (_config, _data, server) = fixture();
+    let url = server
+        .url(true, "object")
+        .replace("browser-bucket.", "bad_.");
+    for source in [ORIGIN, DENIED] {
+        let reply = preflight(&server, &url, source, "PUT", "");
+        reply.error(400, "InvalidArgument", false);
+        assert!(!reply.headers.contains_key("vary"));
+        assert!(
+            reply
+                .headers
+                .keys()
+                .all(|name| !name.starts_with("access-control-"))
+        );
+        let reply = server.request("GET", &url, &origin(source), b"");
+        reply.error(400, "InvalidArgument", false);
+        assert!(!reply.headers.contains_key("vary"));
     }
 }
 
