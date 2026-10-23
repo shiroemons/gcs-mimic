@@ -6,6 +6,63 @@ use support::{Server, common::TestDir};
 const ADMIN: &str = "Authorization: Bearer admin\r\n";
 
 #[test]
+fn fields_read_etag_validators_use_the_complete_resource() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    server.put("file", b"data").json();
+    for (path, name) in [
+        ("/storage/v1/b/test-bucket", "test-bucket"),
+        ("/storage/v1/b/test-bucket/o/file", "file"),
+    ] {
+        let full = server.request("GET", path, "", b"");
+        let etag = full.json()["etag"].as_str().unwrap().to_owned();
+        assert_eq!(full.headers["etag"], etag);
+        let selected = format!("{path}?fields=name");
+        for headers in [String::new(), format!("If-Match: {etag}\r\n")] {
+            let reply = server.request("GET", &selected, &headers, b"");
+            assert_eq!(reply.json(), json!({"name":name}));
+            assert_eq!(reply.headers["etag"], etag);
+        }
+        let cached = server.request("GET", &selected, &format!("If-None-Match: {etag}\r\n"), b"");
+        assert_eq!(cached.status, 304);
+        assert_eq!(cached.headers["etag"], etag);
+        assert!(cached.body.is_empty());
+        let failed = server.request("GET", &selected, "If-Match: \"stale\"\r\n", b"");
+        failed.error(412, "conditionNotMet");
+        let error: serde_json::Value = serde_json::from_slice(&failed.body).unwrap();
+        assert_eq!(error["error"]["code"], 412);
+        assert!(error["error"]["message"].is_string());
+        assert_eq!(error["error"]["errors"].as_array().unwrap().len(), 1);
+    }
+    server.stop();
+}
+
+#[test]
+fn fields_invalid_selection_precedes_read_etag_evaluation() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    server.bucket();
+    server.put("file", b"data").json();
+    for path in [
+        "/storage/v1/b/test-bucket",
+        "/storage/v1/b/test-bucket/o/file",
+    ] {
+        let full = server.request("GET", path, "", b"").json();
+        let etag = full["etag"].as_str().unwrap();
+        for headers in [
+            "If-Match: \"stale\"\r\n".to_owned(),
+            format!("If-None-Match: {etag}\r\n"),
+        ] {
+            server
+                .request("GET", &format!("{path}?fields=name,"), &headers, b"")
+                .error(400, "invalidParameter");
+        }
+    }
+    server.stop();
+}
+
+#[test]
 fn fields_bucket_methods_and_policy_preserve_mutations() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, true);

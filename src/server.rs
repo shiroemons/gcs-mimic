@@ -753,6 +753,7 @@ async fn object_response(
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 json::object_resource(&record, &state.api_base_url, params.projection)?,
+                &fields,
             )?));
         }
         ObjectRequest::Delete {
@@ -1092,6 +1093,7 @@ async fn bucket_response(
                     params.projection,
                     profile,
                 )?,
+                &fields,
             );
         }
         BucketRequest::List(params) => {
@@ -1205,7 +1207,8 @@ fn not_modified_response(
 
 fn read_metadata_response(
     headers: &hyper::HeaderMap,
-    value: serde_json::Value,
+    mut value: serde_json::Value,
+    fields: &json::Fields,
 ) -> Result<Response<Full<Bytes>>, JsonError> {
     let resource_etag = value["etag"].as_str().expect("resource has an ETag");
     // The legacy bucket resource keeps its unquoted source encoding; HTTP uses entity-tag syntax.
@@ -1220,6 +1223,7 @@ fn read_metadata_response(
             &hyper::header::HeaderValue::from_static("no-cache"),
         ));
     }
+    fields.apply(&mut value);
     Ok(Response::builder()
         .header("content-type", "application/json; charset=UTF-8")
         .header("etag", etag)
