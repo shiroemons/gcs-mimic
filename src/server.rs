@@ -3,6 +3,7 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     config::{CompatProfile, Config},
+    http_conditions::{EtagError, etag_not_modified},
     json::{self, BucketRequest, JsonError, ObjectRequest},
     object::{ObjectError, UploadChunk},
     storage::Catalog,
@@ -406,6 +407,15 @@ async fn object_response(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = authorize_bucket(state, caller, permission, bucket).await?;
+    let read_conditions = match &operation {
+        ObjectRequest::Get { params, .. } => Some(params.conditions),
+        _ => None,
+    };
+    json::validate_read_condition_headers(
+        request.headers(),
+        read_conditions.is_some(),
+        read_conditions.is_some_and(|conditions| conditions != Default::default()),
+    )?;
     if !matches!(
         operation,
         ObjectRequest::Insert { .. }
@@ -687,6 +697,12 @@ async fn object_response(
                     );
                 }
                 json::validate_object_media_encoding(request.headers(), &record)?;
+                if read_etag_not_modified(request.headers(), &json::object_etag(&record))? {
+                    return Ok(boxed(not_modified_response(
+                        &headers["etag"],
+                        &headers["cache-control"],
+                    )));
+                }
                 let range = match json::object_media_range(request.headers(), record.size) {
                     Ok(range) => range,
                     Err(error) => {
@@ -734,7 +750,10 @@ async fn object_response(
                     &access,
                 )
                 .await?;
-            json::object_resource(&record, &state.api_base_url, params.projection)?
+            return Ok(boxed(read_metadata_response(
+                request.headers(),
+                json::object_resource(&record, &state.api_base_url, params.projection)?,
+            )?));
         }
         ObjectRequest::Delete {
             bucket,
@@ -943,6 +962,15 @@ async fn bucket_response(
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
     };
+    let read_conditions = match &operation {
+        BucketRequest::Get { params, .. } => Some(params.conditions),
+        _ => None,
+    };
+    json::validate_read_condition_headers(
+        request.headers(),
+        read_conditions.is_some(),
+        read_conditions.is_some_and(|conditions| conditions != Default::default()),
+    )?;
     if !matches!(
         operation,
         BucketRequest::Insert(_)
@@ -1056,12 +1084,15 @@ async fn bucket_response(
             if conditions.if_metageneration_not_match == Some(record.metageneration) {
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
-            json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?
+            return read_metadata_response(
+                request.headers(),
+                json::bucket_resource_with_profile(
+                    &record,
+                    &state.api_base_url,
+                    params.projection,
+                    profile,
+                )?,
+            );
         }
         BucketRequest::List(params) => {
             let limit = params.max_results as usize;
@@ -1151,6 +1182,50 @@ fn bucket_catalog_error(
         }
     }
     error.into()
+}
+
+fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool, JsonError> {
+    etag_not_modified(headers, etag).map_err(|error| match error {
+        EtagError::Invalid => JsonError::invalid_parameter("Invalid ETag precondition header"),
+        EtagError::PreconditionFailed => ObjectError::PreconditionFailed.into(),
+    })
+}
+
+fn not_modified_response(
+    etag: &hyper::header::HeaderValue,
+    cache_control: &hyper::header::HeaderValue,
+) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header("etag", etag)
+        .header("cache-control", cache_control)
+        .body(Full::new(Bytes::new()))
+        .unwrap()
+}
+
+fn read_metadata_response(
+    headers: &hyper::HeaderMap,
+    value: serde_json::Value,
+) -> Result<Response<Full<Bytes>>, JsonError> {
+    let resource_etag = value["etag"].as_str().expect("resource has an ETag");
+    // The legacy bucket resource keeps its unquoted source encoding; HTTP uses entity-tag syntax.
+    let etag = if resource_etag.starts_with('"') {
+        resource_etag.to_owned()
+    } else {
+        format!("\"{resource_etag}\"")
+    };
+    if read_etag_not_modified(headers, &etag)? {
+        return Ok(not_modified_response(
+            &etag.parse().unwrap(),
+            &hyper::header::HeaderValue::from_static("no-cache"),
+        ));
+    }
+    Ok(Response::builder()
+        .header("content-type", "application/json; charset=UTF-8")
+        .header("etag", etag)
+        .header("cache-control", "no-cache")
+        .body(Full::new(Bytes::from(value.to_string())))
+        .unwrap())
 }
 
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {

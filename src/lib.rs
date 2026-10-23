@@ -2,6 +2,7 @@ pub mod auth;
 pub mod bucket;
 pub mod clock;
 pub mod config;
+mod http_conditions;
 pub mod json;
 pub mod object;
 pub mod seed;
