@@ -104,6 +104,7 @@ pub fn route_with_profile(
                 return Err(error);
             }
             let mut query = parse_query(uri.query().unwrap_or_default())?;
+            super::Fields::take(&mut query, "Policy")?;
             common(&mut query)?;
             if *method == Method::GET {
                 if let Some(version) = query.remove("optionsRequestedPolicyVersion")
@@ -179,6 +180,18 @@ fn parse(
     seed_project: &str,
 ) -> Result<BucketRequest, JsonError> {
     let mut query = parse_query(raw)?;
+    if method == Method::DELETE {
+        query.remove("fields");
+    } else {
+        super::Fields::take(
+            &mut query,
+            if bucket.is_none() && method == Method::GET {
+                "Buckets"
+            } else {
+                "Bucket"
+            },
+        )?;
+    }
     common(&mut query)?;
     match (method, bucket) {
         (&Method::POST, None) => {
@@ -303,7 +316,6 @@ fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonError> {
     unsupported(
         query,
         &[
-            "fields",
             "key",
             "oauth_token",
             "quotaUser",

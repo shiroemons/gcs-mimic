@@ -6,6 +6,9 @@
 !LICENSE-APACHE
 !src/
 !src/**
+!compatibility/
+!compatibility/upstream/
+!compatibility/upstream/json-schemas.json
 !xtask/
 !xtask/Cargo.toml
 !xtask/src/

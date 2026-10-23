@@ -247,7 +247,9 @@ fn obj_query_001_required_upload_and_unsupported_types() {
                 )
                 .unwrap_err()
                 .status,
-                if ["contentEncoding", "kmsKeyName", "predefinedAcl"].contains(&key) {
+                if ["contentEncoding", "kmsKeyName", "predefinedAcl"].contains(&key)
+                    || (key == "fields" && !value.is_empty())
+                {
                     StatusCode::BAD_REQUEST
                 } else {
                     StatusCode::NOT_IMPLEMENTED
