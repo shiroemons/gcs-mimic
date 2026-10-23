@@ -1,0 +1,14 @@
+Local checkout path prefixes are redacted as <checkout>; remaining output is unchanged.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility render`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility validate`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: docs/en/slices/xml-put-object.md docs/en/evidence/xml-put-object.md
+Linting: 2 files
+Summary: 0 issues in 0 files

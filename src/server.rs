@@ -61,7 +61,7 @@ mod resumable;
 mod rewrite;
 
 #[derive(Clone, Copy, Default)]
-struct ObjectActivity {
+pub(crate) struct ObjectActivity {
     awaiting_catalog: bool,
     deadline: Option<tokio::time::Instant>,
 }
@@ -218,9 +218,9 @@ async fn serve_connection(
     .await;
 }
 
-type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
+pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
 
-fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
+pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
 }
 
@@ -460,6 +460,7 @@ async fn respond_routed(
     }
     if let Some(parsed) = xml::route(request.method(), request.uri(), config.compat_profile) {
         let head = request.method() == Method::HEAD;
+        let put = request.method() == Method::PUT;
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
         activity.send_replace(ObjectActivity {
@@ -474,12 +475,18 @@ async fn respond_routed(
             state.clock.as_ref(),
         ) {
             Ok(caller) => match parsed {
+                Ok(operation) if put => {
+                    xml::put::respond(
+                        request, operation, caller, state, config, activity, deadline,
+                    )
+                    .await
+                }
                 Ok(operation) => xml_response(request, operation, caller, state, activity).await,
                 Err(error) => Err(error),
             },
             Err(error) => Err(error),
         };
-        if head || result.is_err() {
+        if head || put || result.is_err() {
             activity.send_replace(ObjectActivity::default());
         }
         let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
@@ -491,7 +498,7 @@ async fn respond_routed(
     boxed(probe_or_unknown(&request, state))
 }
 
-fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
+pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
     if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
         auth::AuthFailure::LoginRequired.into()
     } else {
@@ -505,7 +512,7 @@ fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
 /// the owner it observes in its own transaction: the bucket can be deleted and recreated under
 /// another project after this lookup. Permissive mode returns `Unchecked` without catalog
 /// access. Anonymous callers have no project grants and are evaluated against bucket policy.
-async fn authorize_bucket(
+pub(crate) async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
     permission: &str,
@@ -1161,7 +1168,7 @@ async fn xml_response(
     Ok(response)
 }
 
-async fn stream_upload(
+pub(crate) async fn stream_upload(
     mut body: Incoming,
     sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
     max_bytes: u64,
@@ -1193,7 +1200,7 @@ async fn stream_upload(
     Ok(())
 }
 
-async fn await_upload_catalog<T, E: From<ObjectError>>(
+pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     operation: impl Future<Output = Result<T, E>>,
     timeout: Duration,
     request_deadline: tokio::time::Instant,

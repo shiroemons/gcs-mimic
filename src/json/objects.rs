@@ -841,7 +841,7 @@ pub(super) fn base64(bytes: &[u8]) -> String {
     result
 }
 
-pub(super) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
+pub(crate) fn decode_hash<const N: usize>(raw: &str) -> Result<[u8; N], JsonError> {
     let invalid = || JsonError::invalid_parameter("Invalid base64 checksum");
     if raw.len() != N.div_ceil(3) * 4 {
         return Err(invalid());

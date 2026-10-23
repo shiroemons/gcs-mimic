@@ -1,4 +1,4 @@
-//! Path-style XML object reads. Shared authorization, generation selection and bytes live in storage.
+//! Path-style XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
     config::CompatProfile,
@@ -15,6 +15,7 @@ use std::time::UNIX_EPOCH;
 
 mod cors;
 pub(crate) use cors::cors;
+pub(crate) mod put;
 
 pub(crate) fn authenticate<'a>(
     auth: &'a crate::auth::Auth,
@@ -173,12 +174,15 @@ pub(crate) fn route(
         return None;
     }
     Some((|| {
-        if !matches!(*method, Method::GET | Method::HEAD) || name.is_empty() {
+        if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
             return Err(Error::unsupported());
         }
         let name = json::decode(name, false)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
+        if *method == Method::PUT && !query.is_empty() {
+            return Err(Error::unsupported());
+        }
         let generation = query
             .remove("generation")
             .map(|value| number(&value, false))

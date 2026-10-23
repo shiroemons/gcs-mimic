@@ -6,6 +6,9 @@ mod iam;
 #[path = "auth_http/xml.rs"]
 mod xml;
 
+#[path = "auth_http/xml_put.rs"]
+mod xml_put;
+
 #[path = "auth_http/cors.rs"]
 mod cors;
 

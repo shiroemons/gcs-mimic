@@ -24202,25 +24202,232 @@
       "interface": "PUT Object",
       "phase": "P2",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods"
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Task variant in the official XML method overview; detailed field/parameter contract must be pinned before implementation.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Go storage v1.70.0 writes JSON Objects.Insert, so Rust raw HTTP covers XML PUT without a new SDK write claim. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication.",
+      "dependencies": ["DESIGN-014", "DESIGN-052"],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "EXT-XML-022-FRAMING",
+          "description": "Require Content-Length including zero or chunked transfer; missing both returns 411 MissingContentLength; stream exact multiple-buffer bytes through existing bounded storage.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-TYPE",
+          "description": "Accept a single valid Content-Type, preserve it through JSON/XML reads and restart, default to application/octet-stream and reject malformed/duplicate values before reading bodies.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-MD5",
+          "description": "Decode Content-MD5 directly as exactly one canonical base64 MD5; reject embedded hash lists, algorithm prefixes, noncanonical padding and conflicting declarations with 400 InvalidDigest; duplicate fields return 400 ExcessHeaderValues and mismatched bytes 400 BadDigest without publication.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-HASH",
+          "description": "Validate x-goog-hash MD5 and big-endian CRC32C separately, comma-combined or in repeated fields; reject duplicate algorithms, malformed values and mismatches under the explicit local checksum-error mapping; unknown algorithms return 501.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-CACHE-CONTROL",
+          "description": "Persist Cache-Control and return it through XML GET and JSON metadata GET; reject duplicate fields and reset omitted metadata on overwrite.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-DISPOSITION",
+          "description": "Persist a representable Content-Disposition through XML/JSON metadata and restart; reset omitted fields on replacement.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-ENCODING",
+          "description": "Persist Content-Encoding as metadata for unchanged stored bytes; XML GET with accepted gzip and JSON metadata agree; stored-content-encoding is gzip or identity after replacement.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+        },
+        {
+          "id": "EXT-XML-022-CONTENT-LANGUAGE",
+          "description": "Persist representable Content-Language through XML/JSON reads and restart; reset it when omitted on replacement.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+        },
+        {
+          "id": "EXT-XML-022-CUSTOM-METADATA",
+          "description": "Normalize custom HTTP metadata keys to lowercase, preserve empty/ASCII values, enforce the 8192-byte stored suffix/value limit and reject empty names, repeated case-folded keys and non-ASCII values under the local representability rule.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-GENERATION-MATCH",
+          "description": "Enforce decimal signed-64-bit generation match including zero create-if-absent before body reads and atomically at publication; malformed/duplicate conditions fail without mutation.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+        },
+        {
+          "id": "EXT-XML-022-METAGENERATION-MATCH",
+          "description": "Accept one positive decimal metageneration condition alone or paired with generation match, reject malformed/duplicate values and preserve state for stale conditions.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+        },
+        {
+          "id": "EXT-XML-022-CONTINUE",
+          "description": "Hyper sends 100-continue only after the adapter accepts headers, authorization, conditions and admission; unsupported/auth/size rejections send final XML errors without reading an advertised body.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state", "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-RESPONSE",
+          "description": "Return empty 200, quoted lowercase hexadecimal MD5 ETag, generation, metageneration, whole-object hashes and stored length/encoding, consistent with subsequent XML GET.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-UNSUPPORTED",
+          "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, requester billing, retention/hold, resumable, copy, signing/payload, custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 501 XML NotImplemented.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"]
+        },
+        {
+          "id": "EXT-XML-022-AUTHORIZATION",
+          "description": "Strict local tokens require create and delete for live overwrite through project-plus-bucket grants; allUsers anonymous and allAuthenticatedUsers registered-only writes are distinct; invalid/unsupported credentials never fall back. Permissive writes retain storage semantics.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-ERRORS",
+          "description": "Use XML errors with local 400 InvalidAuthentication/InvalidDigest/BadDigest/EntityTooLarge, 401 AuthenticationRequired, 403 AccessDenied, authorized 404 NoSuchBucket, 411 MissingContentLength, 412 PreconditionFailed, 501 NotImplemented and 503 ServiceUnavailable.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-PRESERVATION",
+          "description": "Rejected headers, permissions, conditions, checksum failures and size excess preserve previous live bytes, metadata, object/history count and generation counter; abandoned blobs/staging are reclaimed.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-SIZE",
+          "description": "Configured max bytes succeeds for Content-Length and multi-chunk bodies, while max+1 fails before reading a known-size body or during streaming without replacing prior state.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+        },
+        {
+          "id": "EXT-XML-022-CONCURRENCY",
+          "description": "Two uploads admitted before EOF with the same generation match have exactly one winner, including create-if-absent; failed publication consumes no generation and never overwrites the winner.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic"]
+        },
+        {
+          "id": "EXT-XML-022-INTERRUPTION",
+          "description": "Incomplete disconnect, graceful shutdown, process termination, trailers, body inactivity and overall request deadline before EOF cannot publish; recovery preserves prior state and removes abandoned files.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts", "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish"]
+        },
+        {
+          "id": "EXT-XML-022-VERSIONING",
+          "description": "Versioning-enabled overwrite retains historical generations consistently with JSON uploads, including selected old bytes after restart.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+        },
+        {
+          "id": "EXT-XML-022-DEFAULT-HOLD",
+          "description": "The bucket's current default event hold applies at publication, blocks subsequent overwrite without mutation and survives restart.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+        },
+        {
+          "id": "EXT-XML-022-CORS",
+          "description": "Reuse bucket-configured XML PUT preflight and actual-response rules on success and errors; denied origin/header rules emit no allow grant and successful preflight confers no write permission. JSON CORS remains unchanged.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials"]
+        },
+        {
+          "id": "EXT-XML-022-RESTART",
+          "description": "Committed XML uploads retain bytes, every supported metadata field, checksums, generation/history and hold state across restart using the existing commit/recovery protocol.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads", "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts"]
+        },
+        {
+          "id": "EXT-XML-022-ADMISSION",
+          "description": "Reuse the two-slot 64 KiB chunk bridge and eight-upload admission limit; the ninth incomplete upload is rejected before 100-continue and aborted requests release capacity without publishing.",
+          "result": "PASS",
+          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries", "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"]
+        },
+        {
+          "id": "EXT-XML-022-PENDING",
+          "description": "Implement and verify the full official advanced contract: signed authentication/payload rules, ACLs, CSEK/CMEK, class overrides, requester billing, retention/explicit holds, custom time and other upload variants; establish exact metadata/CRC/error/header/framing/unknown-input parity under SPEC-XML-PUT-EDGES and existing SPEC-XML-INPUTS, SPEC-012/017, SPEC-XML-PREFIX/PATH-ERROR. Post-EOF commit outcome may be unknown after timeout/disconnect/shutdown; all fsync boundaries, power loss, dedicated resource measurements and integrated signed-browser/container/SDK verification remain unclaimed.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+        "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+        "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+        "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+        "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+        "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+        "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+        "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+        "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+        "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+        "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads",
+        "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
+        "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/xml-put-object-checks.txt",
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+            "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+            "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads",
+            "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
+            "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "Full official PUT remains PARTIAL: signing/payload verification, ACLs, encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
+        "SPEC-XML-PUT-EDGES: CRC32C malformed values use local 400 InvalidDigest rather than the separately documented InvalidCrc, and all checksum mismatches use BadDigest; duplicate/conflicting declarations, non-ASCII/custom metadata accounting, framing/trailers, exact headers and mixed-error precedence need provider evidence.",
+        "Existing SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017 local addressing, unknown-input, ETag and authentication/permission precedence rules apply unchanged; retry tokens require generation match without response replay.",
+        "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and integrated signed-browser/container/SDK execution remain unverified.",
+        "Go storage v1.70.0 OpenWriter uses JSON Objects.Insert; XML PUT is covered by Rust raw HTTP tests without a new official SDK XML-write claim."
+      ],
+      "implemented_in": "9ee0eacead613908063c1c0d514053eed083ec18",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "EXT-XML-023",
