@@ -407,7 +407,7 @@ pub fn parse_object_upload_headers(
     conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers)?;
-    validate_read_condition_headers(headers, false, false)?;
+    validate_read_condition_headers(headers, false)?;
     // shortcut: tokens rely on generation checks; add response replay for strict retry fidelity.
     if headers.contains_key("x-goog-gcs-idempotency-token")
         && conditions.if_generation_match.is_none()
@@ -492,11 +492,10 @@ pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(
     Ok(())
 }
 
-/// Keep unsupported condition combinations explicit instead of inventing provider precedence.
+/// Keep unsupported conditional headers explicit on routes without validators.
 pub(crate) fn validate_read_condition_headers(
     headers: &HeaderMap,
     etags_supported: bool,
-    query_conditions: bool,
 ) -> Result<(), JsonError> {
     if etags_supported {
         for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
@@ -511,15 +510,8 @@ pub(crate) fn validate_read_condition_headers(
         }
     }
     for name in ["if-match", "if-none-match"] {
-        if headers.contains_key(name) {
-            if !etags_supported {
-                return Err(JsonError::unsupported_object(name));
-            }
-            if query_conditions {
-                return Err(JsonError::unsupported_object(
-                    "combined ETag and generation/metageneration preconditions",
-                ));
-            }
+        if headers.contains_key(name) && !etags_supported {
+            return Err(JsonError::unsupported_object(name));
         }
     }
     Ok(())

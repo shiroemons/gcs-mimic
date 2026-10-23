@@ -32,6 +32,7 @@ mod resumable_recovery;
 
 #[path = "objects.rs"]
 mod objects;
+pub(crate) use objects::check_conditions;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
 
 #[path = "policies.rs"]

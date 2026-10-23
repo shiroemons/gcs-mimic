@@ -344,7 +344,7 @@ fn json_etag_read_authorization_precedes_validators() {
 }
 
 #[test]
-fn json_etag_read_unsupported_combinations_lists_dates_and_writes() {
+fn json_etag_read_unsupported_lists_dates_and_writes() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
     server.setup("", b"data");
@@ -363,28 +363,10 @@ fn json_etag_read_unsupported_combinations_lists_dates_and_writes() {
                 )
                 .error(501, "notImplemented");
         }
-        for key in ["ifMetagenerationMatch", "ifMetagenerationNotMatch"] {
-            for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
-                let separator = if path.contains('?') { '&' } else { '?' };
-                server
-                    .request("GET", &format!("{path}{separator}{key}=1"), header, b"")
-                    .error(501, "notImplemented");
-            }
-        }
-    }
-    for key in ["ifGenerationMatch", "ifGenerationNotMatch"] {
-        for alt in ["json", "media"] {
-            for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
-                server
-                    .request("GET", &format!("{OBJECT}?alt={alt}&{key}=0"), header, b"")
-                    .error(501, "notImplemented");
-            }
-        }
     }
     for path in [
         format!("{BUCKET}/o"),
         "/storage/v1/b?project=local-project".into(),
-        format!("{BUCKET}/iam"),
     ] {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             server
@@ -417,6 +399,174 @@ fn json_etag_read_unsupported_combinations_lists_dates_and_writes() {
         }
     }
     assert_eq!(server.get("", "").body, b"data");
+    server.stop();
+}
+
+#[test]
+fn json_etag_read_combined_query_conditions_use_one_selected_record() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, false);
+    let object = server.setup("", b"data");
+    let generation: i64 = object["generation"].as_str().unwrap().parse().unwrap();
+    for (path, conditions, success) in [
+        (
+            format!("{OBJECT}?alt=json"),
+            vec![
+                ("ifGenerationMatch", generation, 0),
+                ("ifGenerationNotMatch", generation + 1, generation),
+                ("ifMetagenerationMatch", 1, 2),
+                ("ifMetagenerationNotMatch", 2, 1),
+            ],
+            200,
+        ),
+        (
+            format!("{OBJECT}?alt=media"),
+            vec![
+                ("ifGenerationMatch", generation, 0),
+                ("ifGenerationNotMatch", generation + 1, generation),
+                ("ifMetagenerationMatch", 1, 2),
+                ("ifMetagenerationNotMatch", 2, 1),
+            ],
+            206,
+        ),
+        (
+            format!("{BUCKET}?fields=name"),
+            vec![
+                ("ifMetagenerationMatch", 1, 2),
+                ("ifMetagenerationNotMatch", 2, 1),
+            ],
+            200,
+        ),
+    ] {
+        let etag = server.request("GET", &path, "", b"").headers["etag"].clone();
+        for (key, passing, failing) in &conditions {
+            for (headers, expected) in [
+                (format!("If-Match: {etag}\r\n"), success),
+                ("If-Match: \"stale\"\r\n".into(), 412),
+                (format!("If-None-Match: {etag}\r\n"), 304),
+                ("If-None-Match: \"stale\"\r\n".into(), success),
+                (
+                    format!("If-Match: \"stale\"\r\nIf-None-Match: {etag}\r\n"),
+                    412,
+                ),
+                (
+                    format!("If-Match: {etag}\r\nIf-None-Match: {etag}\r\n"),
+                    304,
+                ),
+            ] {
+                let headers = format!("{headers}Range: bytes=0-1\r\n");
+                let reply =
+                    server.request("GET", &format!("{path}&{key}={passing}"), &headers, b"");
+                assert_eq!(reply.status, expected, "{path} {key}={passing} {headers}");
+                if expected == 304 {
+                    assert!(reply.body.is_empty());
+                    assert_eq!(reply.headers["etag"], etag);
+                } else if expected == 206 {
+                    assert_eq!(reply.body, b"da");
+                    assert_eq!(reply.headers["etag"], etag);
+                }
+                server
+                    .request("GET", &format!("{path}&{key}={failing}"), &headers, b"")
+                    .error(412, "conditionNotMet");
+            }
+        }
+        let all = conditions
+            .iter()
+            .map(|(key, passing, _)| format!("&{key}={passing}"))
+            .collect::<String>();
+        let reply = server.request(
+            "GET",
+            &format!("{path}{all}"),
+            &format!("If-Match: {etag}\r\n"),
+            b"",
+        );
+        assert_eq!(reply.status, 200);
+    }
+    server.stop();
+}
+
+#[test]
+fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, true);
+    let admin = "Authorization: Bearer local-admin-token\r\n";
+    server.setup(admin, b"data");
+    let path = format!("{BUCKET}/iam");
+    let initial = server.request("GET", &path, admin, b"");
+    assert_eq!(initial.status, 200);
+    let policy: Value = serde_json::from_slice(&initial.body).unwrap();
+    let etag = &initial.headers["etag"];
+    assert_eq!(*etag, format!("\"{}\"", policy["etag"].as_str().unwrap()));
+    let selected = format!("{path}?fields=version");
+    let reply = server.request(
+        "GET",
+        &selected,
+        &format!("{admin}If-Match: {etag}\r\n"),
+        b"",
+    );
+    assert_eq!(reply.status, 200);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&reply.body).unwrap(),
+        serde_json::json!({"version":1})
+    );
+    not_modified(
+        &server,
+        &selected,
+        &format!("{admin}If-None-Match: W/{etag}\r\n"),
+        etag,
+        "no-cache",
+    );
+    server
+        .request(
+            "GET",
+            &selected,
+            &format!("{admin}If-Match: \"stale\"\r\n"),
+            b"",
+        )
+        .error(412, "conditionNotMet");
+    server
+        .request(
+            "GET",
+            &path,
+            &format!("{admin}If-Match: malformed\r\n"),
+            b"",
+        )
+        .error(400, "invalidParameter");
+    server
+        .request("GET", &path, "If-None-Match: *\r\n", b"")
+        .error(401, "required");
+    server
+        .request(
+            "GET",
+            &path,
+            "Authorization: Bearer local-creator-token\r\nIf-None-Match: *\r\n",
+            b"",
+        )
+        .error(403, "forbidden");
+    server
+        .request(
+            "GET",
+            "/storage/v1/b/missing-bucket/iam",
+            &format!("{admin}If-Match: malformed\r\n"),
+            b"",
+        )
+        .error(404, "notFound");
+    let updated = server.request("PUT", &path, admin, br#"{"bindings":[]}"#);
+    assert_eq!(updated.status, 200);
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                &path,
+                &format!("{admin}If-None-Match: {etag}\r\n"),
+                b""
+            )
+            .status,
+        200
+    );
+    server
+        .request("GET", &path, &format!("{admin}If-Match: {etag}\r\n"), b"")
+        .error(412, "conditionNotMet");
     server.stop();
 }
 

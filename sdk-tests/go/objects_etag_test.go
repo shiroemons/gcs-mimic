@@ -60,7 +60,16 @@ func TestReadETagValidators(t *testing.T) {
 	if !errors.As(err, &apiError) || apiError.Header.Get("ETag") != metadata.Etag {
 		t.Fatalf("304 validator: %v", err)
 	}
-	call := api.Objects.Get(bucket.BucketName(), object.ObjectName()).Generation(metadata.Generation).Context(ctx)
+	_, err = api.Objects.Get(bucket.BucketName(), object.ObjectName()).IfGenerationMatch(metadata.Generation).
+		IfNoneMatch(metadata.Etag).Context(ctx).Do()
+	if !googleapi.IsNotModified(err) {
+		t.Fatalf("combined conditional metadata GET: %v", err)
+	}
+	_, err = api.Objects.Get(bucket.BucketName(), object.ObjectName()).IfGenerationMatch(0).
+		IfNoneMatch(metadata.Etag).Context(ctx).Do()
+	requireStrictError(t, err, http.StatusPreconditionFailed, "conditionNotMet")
+	call := api.Objects.Get(bucket.BucketName(), object.ObjectName()).Generation(metadata.Generation).
+		IfMetagenerationMatch(metadata.Metageneration).Context(ctx)
 	call.Header().Set("If-Match", metadata.Etag)
 	call.Header().Set("Range", "bytes=2-5")
 	response, err := call.Download()
@@ -91,5 +100,19 @@ func TestReadETagValidators(t *testing.T) {
 	_, err = api.Buckets.Get(bucket.BucketName()).IfNoneMatch(bucketMetadata.Etag).Context(ctx).Do()
 	if !googleapi.IsNotModified(err) {
 		t.Fatalf("conditional bucket GET: %v", err)
+	}
+	policy, err := api.Buckets.GetIamPolicy(bucket.BucketName()).Context(ctx).Do()
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyTag := policy.ServerResponse.Header.Get("ETag")
+	if policyTag != fmt.Sprintf("%q", policy.Etag) {
+		t.Fatalf("policy validator: resource=%q header=%q", policy.Etag, policyTag)
+	}
+	policyRead := api.Buckets.GetIamPolicy(bucket.BucketName()).Fields("version").Context(ctx)
+	policyRead.Header().Set("If-None-Match", policyTag)
+	_, err = policyRead.Do()
+	if !googleapi.IsNotModified(err) {
+		t.Fatalf("conditional policy GET: %v", err)
 	}
 }

@@ -407,14 +407,9 @@ async fn object_response(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = authorize_bucket(state, caller, permission, bucket).await?;
-    let read_conditions = match &operation {
-        ObjectRequest::Get { params, .. } => Some(params.conditions),
-        _ => None,
-    };
     json::validate_read_condition_headers(
         request.headers(),
-        read_conditions.is_some(),
-        read_conditions.is_some_and(|conditions| conditions != Default::default()),
+        matches!(operation, ObjectRequest::Get { .. }),
     )?;
     if !matches!(
         operation,
@@ -666,18 +661,23 @@ async fn object_response(
             name,
             params,
         } => {
+            // Mixed conditions fail with 412 before a cache hit on the same selected snapshot.
+            let mixed = request.headers().contains_key("if-match")
+                || request.headers().contains_key("if-none-match");
+            let conditions = if mixed {
+                Default::default()
+            } else {
+                params.conditions
+            };
             if params.media {
                 json::validate_object_get_headers(request.headers(), true)?;
                 let (record, mut reader) = state
                     .catalog
-                    .open_object_authorized(
-                        &bucket,
-                        &name,
-                        params.generation,
-                        params.conditions,
-                        &access,
-                    )
+                    .open_object_authorized(&bucket, &name, params.generation, conditions, &access)
                     .await?;
+                if mixed {
+                    crate::storage::check_conditions(Some(&record), params.conditions, false)?;
+                }
                 let mut headers = json::object_media_headers(&record)?;
                 if reader.publicly_readable {
                     headers.insert(
@@ -742,14 +742,11 @@ async fn object_response(
             json::validate_object_get_headers(request.headers(), false)?;
             let record = state
                 .catalog
-                .get_object_authorized(
-                    &bucket,
-                    &name,
-                    params.generation,
-                    params.conditions,
-                    &access,
-                )
+                .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
                 .await?;
+            if mixed {
+                crate::storage::check_conditions(Some(&record), params.conditions, false)?;
+            }
             return Ok(boxed(read_metadata_response(
                 request.headers(),
                 &json::object_etag(&record),
@@ -964,14 +961,12 @@ async fn bucket_response(
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
     };
-    let read_conditions = match &operation {
-        BucketRequest::Get { params, .. } => Some(params.conditions),
-        _ => None,
-    };
     json::validate_read_condition_headers(
         request.headers(),
-        read_conditions.is_some(),
-        read_conditions.is_some_and(|conditions| conditions != Default::default()),
+        matches!(
+            operation,
+            BucketRequest::Get { .. } | BucketRequest::GetIam { .. }
+        ),
     )?;
     if !matches!(
         operation,
@@ -1041,7 +1036,15 @@ async fn bucket_response(
         }
         BucketRequest::GetIam { bucket } => {
             let policy = state.catalog.get_policy(&bucket, &access).await?;
-            json::policy_resource(&policy, &bucket)
+            return read_metadata_response(
+                request.headers(),
+                &format!(
+                    "\"{}\"",
+                    policy.etag.as_deref().expect("stored policy etag")
+                ),
+                json::policy_resource(&policy, &bucket),
+                &fields,
+            );
         }
         BucketRequest::SetIam { bucket } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
@@ -1084,6 +1087,11 @@ async fn bucket_response(
                 return Err(CatalogError::PreconditionFailed.into());
             }
             if conditions.if_metageneration_not_match == Some(record.metageneration) {
+                if request.headers().contains_key("if-match")
+                    || request.headers().contains_key("if-none-match")
+                {
+                    return Err(CatalogError::PreconditionFailed.into());
+                }
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
             return read_metadata_response(
