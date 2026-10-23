@@ -371,7 +371,6 @@ impl Catalog {
         self.begin_derived_with_binding(segments, max_bytes, false, move |connection, transfer| {
             *callback_owner.lock().map_err(unavailable)? =
                 Some(catalog.guard_derived_request(&transfer.id));
-            // shortcut: rewrites share the derived pool; reserve capacity when copy/compose must survive abandonment.
             let count: i64 = connection
                 .query_row(
                     "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",

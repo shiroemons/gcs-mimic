@@ -18,7 +18,7 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 const BUFFER_SIZE: usize = 64 * 1024;
-const MAX_TRANSFERS: usize = 128;
+const MAX_TRANSFERS_PER_KIND: usize = 128;
 const LIFETIME_MILLIS: i64 = 604_800_000;
 const EPHEMERAL_LIFETIME_MILLIS: i64 = 900_000;
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN component_count INTEGER CHECK(component_count IS NULL OR component_count > 0);
@@ -222,6 +222,15 @@ fn transfer(
 }
 
 impl Catalog {
+    /// Recheck grants without changing the adapter's selection-time source snapshot.
+    pub(crate) fn check_derived_bucket_access_in_transaction(
+        connection: &Connection,
+        bucket: &str,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
+        objects::authorized_bucket(connection, bucket, access).map(|_| ())
+    }
+
     pub fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
         DerivedRequestGuard {
             catalog: self.clone(),
@@ -409,11 +418,13 @@ impl Catalog {
             .run_object(move |connection| {
                 let (_permit, _writer) = (permit, writer);
                 let count: i64 = connection
-                    .query_row("SELECT count(*) FROM derived_transfers", [], |row| {
-                        row.get(0)
-                    })
+                    .query_row(
+                        "SELECT count(*) FROM derived_transfers WHERE ephemeral = ?1",
+                        [ephemeral],
+                        |row| row.get(0),
+                    )
                     .map_err(unavailable)?;
-                if count >= MAX_TRANSFERS as i64 {
+                if count >= MAX_TRANSFERS_PER_KIND as i64 {
                     return Err(unavailable("derived transfer limit reached"));
                 }
                 let path = stage_path(&data_dir, &id)?;
@@ -855,14 +866,24 @@ pub(super) fn recover(
     now: i64,
 ) -> Result<(), ObjectError> {
     reclaim_derived_deletions(connection, data_dir, None)?;
+    let over_limit: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM derived_transfers GROUP BY ephemeral HAVING count(*) > ?1)",
+        [MAX_TRANSFERS_PER_KIND as i64],
+        |row| row.get(0),
+    ).map_err(unavailable)?;
+    if over_limit {
+        return Err(unavailable("too many derived transfers"));
+    }
     let ids = connection
-        .prepare("SELECT id FROM derived_transfers ORDER BY id LIMIT 129")
+        .prepare("SELECT id FROM derived_transfers ORDER BY id LIMIT ?1")
         .map_err(unavailable)?
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map([(2 * MAX_TRANSFERS_PER_KIND + 1) as i64], |row| {
+            row.get::<_, String>(0)
+        })
         .map_err(unavailable)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(unavailable)?;
-    if ids.len() > MAX_TRANSFERS {
+    if ids.len() > 2 * MAX_TRANSFERS_PER_KIND {
         return Err(unavailable("too many derived transfers"));
     }
     for id in ids {
@@ -1350,6 +1371,65 @@ mod tests {
                 .unwrap(),
             record
         );
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn transfer_kinds_have_independent_bounded_quotas_across_restart() {
+        let (catalog, path) = setup().await;
+        put(&catalog, "source", b"bytes").await;
+        let mut persistent = Vec::new();
+        for ephemeral in [true, false] {
+            for _ in 0..MAX_TRANSFERS_PER_KIND {
+                let transfer = catalog
+                    .begin_derived_with_kind(
+                        vec![source(&catalog, "source").await.whole()],
+                        5,
+                        ephemeral,
+                    )
+                    .await
+                    .unwrap();
+                if !ephemeral {
+                    persistent.push(transfer);
+                }
+            }
+            assert_eq!(
+                catalog
+                    .begin_derived_with_kind(
+                        vec![source(&catalog, "source").await.whole()],
+                        5,
+                        ephemeral,
+                    )
+                    .await,
+                Err(unavailable("derived transfer limit reached"))
+            );
+        }
+        assert_eq!(
+            fs::read_dir(path.join("staging")).unwrap().count(),
+            4 * MAX_TRANSFERS_PER_KIND
+        );
+        catalog.close().await.unwrap();
+        drop(catalog);
+        let catalog = Catalog::open(&path).await.unwrap();
+        for transfer in persistent {
+            assert_eq!(catalog.get_derived(&transfer.id).await.unwrap(), transfer);
+        }
+        assert_eq!(
+            fs::read_dir(path.join("staging")).unwrap().count(),
+            2 * MAX_TRANSFERS_PER_KIND
+        );
+        assert_eq!(
+            catalog
+                .begin_derived(vec![source(&catalog, "source").await.whole()], 5)
+                .await,
+            Err(unavailable("derived transfer limit reached"))
+        );
+        let ephemeral = catalog
+            .begin_derived_ephemeral(vec![source(&catalog, "source").await.whole()], 5)
+            .await
+            .unwrap();
+        catalog.cancel_derived(&ephemeral.id).await.unwrap();
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
     }

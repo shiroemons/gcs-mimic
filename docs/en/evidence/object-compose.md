@@ -6,7 +6,9 @@ Checked on 2026-10-23 against the [compose contract](../slices/object-compose.md
 
 ## Executed checks
 
-Final source `285d92f7eec57340c3f4e678761fb118c4d579cf` passes `just pre-push`: fmt, clippy with warnings denied, all 562 Rust tests, all 40 top-level pinned Go tests and vet, and both container architectures. The final Rust run includes six compose body-validation cases, 18 wire cases, storage service regressions and three CRC32C combination properties. The full Go suite includes permissive and strict `ComposerFrom` coverage. All 31 dependency inputs are current.
+Security-hardened source `3000cf1f6de5fe2e603b5e63a769024bcded7b52` passes fmt, clippy with warnings denied, all 565 Rust tests, the five targeted pinned Go copy/rewrite/compose tests and vet, and the dependency freshness check. The [appended evidence](derived-objects.md#security-hardening-verification) proves compose capacity remains available with 128 abandoned rewrites before and after restart; containers and guide blocks were not rerun for this change.
+
+The earlier integrated source `285d92f7eec57340c3f4e678761fb118c4d579cf` passed `just pre-push`: fmt, clippy with warnings denied, all 562 Rust tests, all 40 top-level pinned Go tests and vet, and both container architectures. That Rust run includes six compose body-validation cases, 18 wire cases, storage service regressions and three CRC32C combination properties. The full Go suite includes permissive and strict `ComposerFrom` coverage. All 31 dependency inputs were current.
 
 The unchanged compose guide block passes against the native release binary and final Docker smoke image, including source deletion and checksum/byte assertions. An integrated composite→copy→rewrite chain retains exact resources and bytes after native restart and Docker stop/start and down/up. The [single shared evidence set](derived-objects.md#final-source-checks) contains the raw checks, SDK, container, guide and dependency logs, with local prefixes replaced.
 

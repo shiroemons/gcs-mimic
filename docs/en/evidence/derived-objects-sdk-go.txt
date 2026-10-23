@@ -263,3 +263,33 @@ env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
 PASS
 ok  	gcs-mimic/sdk-tests/go	8.252s
 ?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+
+Security hardening verification, 2026-10-23; source 3000cf1f6de5fe2e603b5e63a769024bcded7b52.
+Local checkout, home and temporary path prefixes were replaced with <checkout>, <user-home> and <temp>.
+GCS_MIMIC_GO_TEST_RUN='TestObject(Copy|Rewrite|Compose)' bash scripts/sdk-go.sh
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+=== RUN   TestObjectCompose
+    objects_compose_test.go:17: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:59511
+--- PASS: TestObjectCompose (0.21s)
+=== RUN   TestObjectComposeStrictPermissions
+--- PASS: TestObjectComposeStrictPermissions (0.16s)
+=== RUN   TestObjectCopyJSON
+    objects_copy_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:59511
+--- PASS: TestObjectCopyJSON (0.19s)
+=== RUN   TestObjectCopyHighLevelCopierUsesRewrite
+--- PASS: TestObjectCopyHighLevelCopierUsesRewrite (0.00s)
+=== RUN   TestObjectRewriteCopier
+    objects_rewrite_test.go:61: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:59511
+=== RUN   TestObjectRewriteCopier/one_call_same_location
+=== RUN   TestObjectRewriteCopier/multiple_calls_across_locations
+=== RUN   TestObjectRewriteCopier/exact_byte_boundary
+=== RUN   TestObjectRewriteCopier/empty_object
+--- PASS: TestObjectRewriteCopier (1.84s)
+    --- PASS: TestObjectRewriteCopier/one_call_same_location (0.60s)
+    --- PASS: TestObjectRewriteCopier/multiple_calls_across_locations (0.52s)
+    --- PASS: TestObjectRewriteCopier/exact_byte_boundary (0.61s)
+    --- PASS: TestObjectRewriteCopier/empty_object (0.11s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	2.873s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+Exit 0; five top-level targeted tests and go vet passed.

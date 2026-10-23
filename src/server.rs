@@ -509,6 +509,7 @@ async fn object_response(
             let record = copy::execute(
                 &state.catalog,
                 source,
+                source_access,
                 crate::storage::DerivedDestination {
                     bucket: params.bucket,
                     name: params.name,
