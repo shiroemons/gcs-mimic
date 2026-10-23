@@ -403,12 +403,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | マルチパート中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
+| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 6 |
 | EXT-XML-013 | アップロード済みパート一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 3 |
 | EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -750,7 +750,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-032 | 署名付きURLの日時・有効期限制約 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-033 | V4の正規化対象Host・ポート | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-034 | V4のパス符号化・Unicode処理 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-035 | V4クエリの並べ替え・符号化 | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-035 | V4クエリの並べ替え・符号化 | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-036 | V4署名対象ヘッダーの正規化 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-037 | V4のペイロードハッシュ・UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | 署名対象メソッド・リソースの制限 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |

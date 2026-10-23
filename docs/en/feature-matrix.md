@@ -403,12 +403,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | DELETE Object | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | Abort multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
+| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 6 |
 | EXT-XML-013 | GET Object / list parts | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 3 |
 | EXT-XML-018 | Initiate resumable upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | Initiate XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | Complete XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -750,7 +750,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-033 | V4 canonical host and port | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 3 |

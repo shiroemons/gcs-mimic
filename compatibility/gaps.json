@@ -3,6 +3,25 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-XML-RESPONSE-OVERRIDES",
+      "title": "XML response override validation and unauthenticated/HEAD scope",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-035",
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The XML reference lists only response-content-type and response-content-disposition, for authenticated GET. Local scope additionally applies them to authorized anonymous/public and permissive reads and HEAD as explicitly requested. Values are percent-decoded once by the existing bounded query parser and validated as HTTP HeaderValue; empty, HTAB and UTF-8 header bytes are accepted, while CR/LF, NUL, DEL and other invalid controls return XML 400 InvalidArgument (HEAD suppresses the body). No MIME or disposition grammar parsing is claimed. Overrides replace only the two response headers after selected-record metadata construction, without changing stored metadata, checksums, ranges, generations, Cache-Control or CORS rules. Undocumented response-* names and all other unsupported query inputs remain 501 NotImplemented. Duplicate decoded query names retain local 400 rejection; exact provider duplicate/ambiguous-name behavior remains SPEC-SIGNING-EDGES.",
+      "required_resolution": "Obtain authoritative clarification or authorized provider evidence for anonymous/HEAD override behavior, empty/non-ASCII/header grammar validation and exact errors, unknown response-* handling and duplicate/ambiguous names. Preserve explicit local behavior and fail-closed signatures; do not infer support for S3 response-cache-control, response-content-language, response-content-encoding or response-expires. DESIGN-035 remains PARTIAL under the existing completion policy because its pre-existing provider-exactness acceptance is unresolved."
+    },
+    {
       "id": "SPEC-SIGNED-PAYLOAD",
       "title": "Optional SHA256 query header versus SDK payload substitution and exact failure errors",
       "status": "OPEN",
@@ -66,8 +85,8 @@
       ],
       "observed_at": "2026-10-23",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. Valid signed response-* overrides explicitly return 501. Optional content-sha256 canonicalization and streamed PUT checking are now tracked in SPEC-SIGNED-PAYLOAD. The integrated query canonical payload follows UNSIGNED-PAYLOAD. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
-      "required_resolution": "Obtain authoritative clarification or opted-in provider observations for query-specific errors, expiry boundary/error mapping and duplicate/ambiguous query encoding. Keep full response overrides unsupported and strict signature/permission failures fail-closed. Optional payload issues belong to SPEC-SIGNED-PAYLOAD."
+      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. The documented response-content-type/disposition overrides now succeed on authorized GET/HEAD, with explicit signature tamper tests; local validation/public/HEAD/unknown-input choices are tracked in SPEC-XML-RESPONSE-OVERRIDES. Optional content-sha256 canonicalization and streamed PUT checking are now tracked in SPEC-SIGNED-PAYLOAD. The integrated query canonical payload follows UNSIGNED-PAYLOAD. Canonical query behavior was rechecked on 2026-10-23: parameters sort by name using code point order, but repeated decoded-name and ambiguous-encoding semantics remain unspecified. Response-override contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; previous signing evidence remains docs/en/evidence/signed-urls.md.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider observations for query-specific errors, expiry boundary/error mapping and duplicate/ambiguous query encoding. Keep DESIGN-035 PARTIAL for its existing provider-exactness acceptance; the completion policy forbids narrowing an existing row merely to remove deviations. Preserve the tested duplicate decoded-name rejection and fail-closed signature/permission errors. Optional payload issues belong to SPEC-SIGNED-PAYLOAD."
     },
     {
       "id": "SPEC-GO-SIGNER-PORT",
