@@ -370,6 +370,24 @@ fn bkt_lst_001_max_results_defaults_bounds_and_clamping() {
         assert!(params.prefix.is_empty());
         assert_eq!(params.start_after, None);
     }
+    for (query, expected) in [
+        ("", 200),
+        ("&maxResults=0", 200),
+        ("&maxResults=1", 1),
+        ("&maxResults=200", 200),
+        ("&maxResults=1000", 200),
+        ("&maxResults=4294967295", 200),
+    ] {
+        let BucketRequest::List(params) = request(
+            Method::GET,
+            &format!("/storage/v1/b?project=p&projection=full{query}"),
+        )
+        .unwrap() else {
+            panic!("list");
+        };
+        assert_eq!(params.max_results, expected);
+        assert_eq!(params.projection, Projection::Full);
+    }
     for value in [
         "",
         "-1",

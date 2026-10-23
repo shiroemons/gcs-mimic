@@ -1,0 +1,49 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/xtask dependencies check`
+checked_at_unix_seconds=1792751756
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+md-5: CURRENT current=0.11.0 latest=0.11.0
+rusqlite: CURRENT current=0.40.2 latest=0.40.2
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+tokio-rustls: CURRENT current=0.26.6 latest=0.26.6
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+actions/upload-artifact: CURRENT current=cf430e030ddbb5b0abf93d22962f4752f3646cd9 latest=cf430e030ddbb5b0abf93d22962f4752f3646cd9
+actions/download-artifact: CURRENT current=9000827ccba6bdab643e8b6fd33ac0654aef8333 latest=9000827ccba6bdab643e8b6fd33ac0654aef8333
+docker library/rust:1.99.1-slim-trixie: CURRENT current=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+docker library/rust:slim-trixie: CURRENT current=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 latest=sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+Debian stable codename: CURRENT current=trixie latest=trixie
+docker distroless/cc-debian13:nonroot: CURRENT current=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf latest=sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+docker curlimages/curl:8.23.0: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker curlimages/curl:latest: CURRENT current=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac latest=sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
+docker docker/dockerfile:1: CURRENT current=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e latest=sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+docker moby/buildkit:latest: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker moby/buildkit:v0.34.1: CURRENT current=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c latest=sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+docker docker/buildkit-syft-scanner:stable-1: CURRENT current=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9 latest=sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+Go language baseline: CURRENT current=1.27.0 latest=1.27.0
+Go toolchain: CURRENT current=1.27.3 latest=1.27.3
+cloud.google.com/go/storage: CURRENT current=v1.70.0 latest=v1.70.0
+golang.org/x/oauth2: CURRENT current=v0.37.0 latest=v0.37.0
+google.golang.org/api: CURRENT current=v0.308.0 latest=v0.308.0
+Ruby toolchain: CURRENT current=4.0.9 latest=4.0.9
+google-cloud-storage: CURRENT current=1.62.1 latest=1.62.1
+bundler: CURRENT current=4.0.23 latest=4.0.23
+
+Unchanged pinned manifest/toolchain/lockfile SHA-256:
+821e03bb0ba30a9b84429c4b3a96e6b21f5379df8891612385f994b4d3839ac2  Cargo.lock
+d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33  rust-toolchain.toml
+93a6051f221a20bf7586e846469c8012d0ea5e1d0512e9e9587772bb1d7d524e  sdk-tests/go/go.mod
+1fe4e981f7239be32bec257908d18fea019b970e85ec86ffdcf559094d01fc38  sdk-tests/go/go.sum
+0dcd0b23f7d2052ddeec72df1e3901d1853a6401427a572c00d1f9f864d5104f  sdk-tests/ruby/Gemfile
+ff1b0325b28745729a962668ffbb906167c895e19104b5ea393e509ba46c3df6  sdk-tests/ruby/Gemfile.lock
+365c845737dc111861176ea1d0246ce7b335768d8dbd2cea234c305b2983beba  sdk-tests/ruby/.ruby-version
+bd6c80cc2fb5a3bb4fbd375dfff94dece6873a5684b48aa328795970a3161c7f  Dockerfile

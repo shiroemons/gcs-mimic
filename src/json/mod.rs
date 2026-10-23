@@ -11,6 +11,7 @@
 mod body;
 mod buckets;
 pub mod compose;
+pub(crate) mod cors;
 mod derived_metadata;
 mod error;
 mod fields;

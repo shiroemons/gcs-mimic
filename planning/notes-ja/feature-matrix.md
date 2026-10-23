@@ -15,8 +15,8 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
-| behavior | 201 | 151 | 0 | 28 | 22 | 0 | 0 |
-| project_requirement | 92 | 42 | 0 | 26 | 24 | 0 | 0 |
+| behavior | 201 | 147 | 0 | 28 | 26 | 0 | 0 |
+| project_requirement | 92 | 40 | 0 | 27 | 25 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -36,8 +36,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
-| behavior | 151 | 23 | 25 | 2 | 0 | 0 |
-| project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
+| behavior | 147 | 27 | 25 | 2 | 0 | 0 |
+| project_requirement | 40 | 0 | 0 | 0 | 0 | 52 |
 
 ## api_operation
 
@@ -507,7 +507,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-006 | バケット既定暗号鍵 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-007 | 暗号方式の強制設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-008 | IPフィルター設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-009 | CORS設定の保存・取得 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-009 | CORS設定の保存・取得 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | BEHAVIOR-BUCKET-010 | Webサイト設定 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-011 | アクセスログ設定 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | 既定のイベントベース保留 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
@@ -782,9 +782,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-048 | 仮想ホスト形式のオブジェクトURL | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-049 | メディア取得URLとメタデータURLの区別 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-050 | ウェブサイト用ホスト・index・エラーページの解決 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-051 | JSON API固有のCORS既定動作 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-052 | XML APIのバケットCORS設定反映 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-053 | プリフライトとオブジェクト認可の独立 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-051 | JSON API固有のCORS既定動作 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
+| DESIGN-052 | XML APIのバケットCORS設定反映 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-053 | プリフライトとオブジェクト認可の独立 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-054 | ブラウザ認証付きダウンロードURLとの境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
 
 ### XML semantics
@@ -863,7 +863,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | 非公開・公開の権限制御フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| UX-007 | ブラウザCORS・直接アップロード | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| UX-007 | ブラウザCORS・直接アップロード | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | 停止と明示的データ初期化の区別 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -935,7 +935,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-004 | 公式PHP SDK互換 | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 10 |
-| DESIGN-083 | Ruby公式SDKとの統合検証 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-083 | Ruby公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-086 | Python公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |

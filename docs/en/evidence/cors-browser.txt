@@ -1,0 +1,107 @@
+Local absolute path prefixes are redacted as <checkout> or <temporary-directory>; other output is unchanged.
+cargo build --locked --offline
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
+
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+API origin: https://gcs:54475; browser origin: https://127.0.0.1:54613; profile: strict; phase: initial
+PASS: POST /storage/v1/b returns 200
+PASS: cross-origin bucket listing
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+PASS: PUT /storage/v1/b/cors-browser-strict returns 200
+PASS: bucket GET observes PUT replacement
+PASS: cross-origin raw media upload
+PASS: cross-origin multipart upload
+PASS: browser can read reachable HTTPS resumable Location
+PASS: cross-origin resumable finalization
+PASS: media download bytes
+PASS: multipart download bytes
+PASS: resumable download bytes
+PASS: JSON fields selection
+PASS: browser can read JSON ETag
+PASS: JSON simple credentialed request remains readable without granting access
+PASS: browser observes conditional 304
+PASS: PATCH /storage/v1/b/cors-browser-strict/o/media returns 200
+PASS: PUT /storage/v1/b/cors-browser-strict/o/media returns 200
+PASS: cross-origin object listing with fields
+PASS: successful JSON preflight does not grant update permission
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+PASS: XML allowed-origin GET
+PASS: XML configured response headers are exposed
+PASS: XML allowed-origin HEAD
+PASS: XML allowed method and requested-header preflight
+PASS: XML disallowed requested header is blocked by browser
+PASS: XML disallowed method is blocked by browser
+PASS: XML credentialed fetch is blocked by browser
+PASS: allowed XML preflight does not grant object permission
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+PASS: XML disallowed origin is blocked by browser
+PASS: JSON CORS ignores restrictive bucket CORS
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+PASS: XML wildcard origin is allowed
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+PASS: clearing bucket CORS revokes browser XML access
+PASS: PATCH /storage/v1/b/cors-browser-strict returns 200
+Restart the emulator and repeat phase=restart with bucket=cors-browser-strict and the same browser origin.
+PASS: strict initial browser CORS verification completed
+
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+API origin: https://gcs:54476; browser origin: https://127.0.0.1:54613; profile: permissive; phase: initial
+PASS: POST /storage/v1/b returns 200
+PASS: cross-origin bucket listing
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+PASS: PUT /storage/v1/b/cors-browser-permissive returns 200
+PASS: bucket GET observes PUT replacement
+PASS: cross-origin raw media upload
+PASS: cross-origin multipart upload
+PASS: browser can read reachable HTTPS resumable Location
+PASS: cross-origin resumable finalization
+PASS: media download bytes
+PASS: multipart download bytes
+PASS: resumable download bytes
+PASS: JSON fields selection
+PASS: browser can read JSON ETag
+PASS: JSON simple credentialed request remains readable without granting access
+PASS: browser observes conditional 304
+PASS: PATCH /storage/v1/b/cors-browser-permissive/o/media returns 200
+PASS: PUT /storage/v1/b/cors-browser-permissive/o/media returns 200
+PASS: cross-origin object listing with fields
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+PASS: XML allowed-origin GET
+PASS: XML configured response headers are exposed
+PASS: XML allowed-origin HEAD
+PASS: XML allowed method and requested-header preflight
+PASS: XML disallowed requested header is blocked by browser
+PASS: XML disallowed method is blocked by browser
+PASS: XML credentialed fetch is blocked by browser
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+PASS: XML disallowed origin is blocked by browser
+PASS: JSON CORS ignores restrictive bucket CORS
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+PASS: XML wildcard origin is allowed
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+PASS: clearing bucket CORS revokes browser XML access
+PASS: PATCH /storage/v1/b/cors-browser-permissive returns 200
+Restart the emulator and repeat phase=restart with bucket=cors-browser-permissive and the same browser origin.
+PASS: permissive initial browser CORS verification completed
+
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+API origin: https://gcs:54475; browser origin: https://127.0.0.1:54613; profile: strict; phase: restart
+PASS: bucket CORS survives restart
+PASS: allowed XML CORS and bytes survive restart
+PASS: delete media
+PASS: delete multipart
+PASS: delete resumable
+PASS: delete disposable bucket after restart verification
+PASS: strict restart browser CORS verification completed
+
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+API origin: https://gcs:54476; browser origin: https://127.0.0.1:54613; profile: permissive; phase: restart
+PASS: bucket CORS survives restart
+PASS: allowed XML CORS and bytes survive restart
+PASS: delete media
+PASS: delete multipart
+PASS: delete resumable
+PASS: delete disposable bucket after restart verification
+PASS: permissive restart browser CORS verification completed
+
+

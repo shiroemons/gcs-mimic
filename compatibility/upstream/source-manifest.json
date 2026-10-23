@@ -18,7 +18,7 @@
       "name": "Storage v2 protobuf",
       "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
       "upstream_blob_sha": "f56e4f3e0a0795ae8dc45f322477ee14b96d5291",
-      "sha256": "01a2d5e1aad2f7ff25e14c9f157af7130a0d6e6aec4618e860b42d2ea733dc16",
+      "sha256": "a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf",
       "method_count": 24,
       "packaged_extracts": [
         "storage-rpc-methods.json"

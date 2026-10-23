@@ -477,6 +477,30 @@
           "docs/en/evidence/bucket-metadata-put-guide.txt",
           "docs/en/evidence/bucket-metadata-put-dependencies.txt"
         ]
+      },
+      {
+        "id": "basic-cors-https",
+        "title": "Basic APIs, independent JSON/XML CORS and trusted HTTPS",
+        "scope": "Declared six-bucket/nine-object basic API gate, independent CORS/browser/restart and custom-origin wire research. Broad methods, full SDK/Rails, signed transfers and real iOS/Google behavior retain explicit pending scope.",
+        "feature_ids": [
+          "BEHAVIOR-BUCKET-009",
+          "DESIGN-051",
+          "DESIGN-052",
+          "DESIGN-053",
+          "UX-007"
+        ],
+        "acceptance_case_refs": [
+          "BEHAVIOR-BUCKET-009/BUCKET-CONFIGURATION",
+          "DESIGN-051/JSON-BROWSER",
+          "DESIGN-052/XML-BROWSER",
+          "DESIGN-053/PREFLIGHT-AUTHORIZATION",
+          "UX-007/BROWSER-TRANSFERS"
+        ],
+        "evidence": [
+          "docs/en/evidence/cors.md",
+          "docs/en/evidence/cors-browser.md",
+          "docs/en/slices/cors-mobile-origins.md"
+        ]
       }
     ],
     "next_deliverables": [
@@ -2307,7 +2331,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Get persisted metadata; conditions apply to the exact selected record; failed not-match is empty 304 and failed match is 412. Bucket IAM contribution: unconditional project-plus-bucket grants and transaction-time revocation passed (docs/en/evidence/bucket-iam.md); broader policy cases and whole-method status remain unchanged. Delivered bucket-core-parity: native and explicit compatibility create/get/delete with durable versioning/default holds and HTTP object effects; docs/en/evidence/bucket-core-parity.md. Broad policy/ownership/advanced-field cases remain pending. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -2612,34 +2636,63 @@
           "test_ids": [
             "bkt_http_malformed_conditions_preserve_all_bucket_methods"
           ]
+        },
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Persistent CORS create/get/PATCH/PUT supported rules, clearing, strict conditions, eight-way mutation, migration/restart and real XML effects pass; broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
         }
       ],
       "test_ids": [
-        "bkt_http_crud_metadata_conditions_and_errors",
-        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
-        "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry",
-        "iam::iam_bucket_grants_cover_existing_routes",
-        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
-        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
-        "bucket_core_create_get_defaults",
-        "bucket_core_settings_round_trip",
-        "bucket_core_restart_settings",
-        "bucket_core_profile_lookup_names_and_json_framing",
-        "bucket_core_migrates_v7_settings",
-        "bucket_profile_names_support_object_and_xml_routes",
         "TestBucketLifecycle",
         "TestBucketSettingsRoundTrip",
-        "bucket_profile_paging_preserves_names_and_resource_defaults",
+        "TestObjectMediaLifecycle",
+        "TestObjectMultipartWriter",
         "TestReadETagValidators",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "bkt_err_001_envelope_content_type_and_catalog_mappings",
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_malformed_conditions_preserve_all_bucket_methods",
+        "bkt_http_query_body_name_and_route_boundaries",
+        "bucket_core_create_get_defaults",
+        "bucket_core_migrates_v7_settings",
+        "bucket_core_profile_lookup_names_and_json_framing",
+        "bucket_core_restart_settings",
+        "bucket_core_settings_round_trip",
+        "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+        "bucket_cors_malformed_input_preserves_entire_resource",
+        "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+        "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+        "bucket_patch_conditioned_race_has_one_winner",
+        "bucket_patch_conditions_and_query_contract",
+        "bucket_profile_names_support_object_and_xml_routes",
+        "bucket_profile_paging_preserves_names_and_resource_defaults",
+        "bucket_put_conditioned_race_has_one_winner",
+        "bucket_put_conditions_and_query_contract",
+        "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
+        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+        "delete_preconditions_are_atomic_and_preserve_failed_records",
         "etag::json_etag_read_authorization_precedes_validators",
         "etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles",
+        "etag::json_etag_read_combined_query_conditions_use_one_selected_record",
         "etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior",
         "etag::json_etag_read_if_match_overrides_if_unmodified_since",
         "etag::json_etag_read_object_metadata_media_and_range",
         "etag::json_etag_read_selected_generation_zero_byte_and_public_cache",
         "etag::json_etag_read_syntax_and_missing_resources",
         "etag::json_etag_read_unsupported_lists_dates_and_writes",
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "fields_http::fields_bucket_methods_and_policy_preserve_mutations",
         "fields_http::fields_invalid_selection_precedes_read_etag_evaluation",
         "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate",
@@ -2648,53 +2701,41 @@
         "fields_http::fields_read_etag_validators_use_the_complete_resource",
         "http_conditions::tests::etag_comparison_rejects_invalid_tags_even_after_a_matching_member",
         "http_conditions::tests::etag_comparison_uses_http_lists_and_strong_or_weak_matching",
+        "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+        "iam::iam_bucket_grants_cover_existing_routes",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
         "json::fields::tests::fields_bound_length_depth_and_selection_count",
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
-        "etag::json_etag_read_combined_query_conditions_use_one_selected_record",
-        "delete_preconditions_are_atomic_and_preserve_failed_records",
-        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_concurrent_create_if_absent_has_one_winner",
-        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
-        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
-        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
-        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
-        "all_conditions_generation_selectors_and_conditioned_races",
-        "invalid_and_unsupported_metadata_never_mutates_objects",
-        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
-        "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
-        "TestObjectMultipartWriter",
-        "TestObjectMediaLifecycle",
-        "bucket_patch_conditions_and_query_contract",
-        "bucket_patch_conditioned_race_has_one_winner",
-        "bucket_put_conditions_and_query_contract",
-        "bucket_put_conditioned_race_has_one_winner",
-        "bkt_http_query_body_name_and_route_boundaries",
-        "bkt_err_001_envelope_content_type_and_catalog_mappings",
-        "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
-        "obj_http_zero_multichunk_binary_and_size_limits",
-        "obj_http_disconnected_overwrite_preserves_the_previous_generation",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
+        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
+        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
-        "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
+        "obj_http_concurrent_create_if_absent_has_one_winner",
+        "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection",
+        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "bkt_http_malformed_conditions_preserve_all_bucket_methods"
+        "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "obj_http_zero_multichunk_binary_and_size_limits",
+        "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
       ],
       "verification": [
         {
@@ -2948,6 +2989,19 @@
           "artifact": "docs/en/evidence/basic-json-contract-checks.txt",
           "test_ids": [
             "bkt_http_malformed_conditions_preserve_all_bucket_methods"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
         }
       ],
@@ -4017,7 +4071,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Expanded metadata admission can shorten a page independently of fields; select nextPageToken to traverse all results. Final bounded-list evidence: docs/en/evidence/cors.md and docs/en/evidence/cors-memory.txt.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -4027,10 +4081,11 @@
       "acceptance_cases": [
         {
           "id": "BKT-LST-001",
-          "description": "Zero/default/boundary limits and lookahead obey projection-specific caps over 1001 buckets.",
+          "description": "Zero/default/boundary limits and unexpanded lookahead obey 1000 noAcl/200 full parser caps; resource-shortened HTTP pages still enumerate all 1001 buckets.",
           "result": "PASS",
           "test_ids": [
-            "bkt_http_list_clamps_to_1000_with_lookahead"
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping"
           ]
         },
         {
@@ -4183,6 +4238,16 @@
             "bkt_http_query_body_name_and_route_boundaries",
             "bkt_err_001_envelope_content_type_and_catalog_mappings"
           ]
+        },
+        {
+          "id": "BOUNDED-BUCKET-METADATA",
+          "description": "Before decoding, bound expanded metadata pages with unexpanded lookahead and last-returned-name continuation; preserve large singleton rows, all names/rules, prefix/count/final boundaries and both profiles across restart. The accepted 60-by-20000-rule case also passes a read-only ARM64 container with 128 MiB memory and equal swap limit.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_large_metadata_lists_page_without_loss",
+            "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+            "cors-memory-smoke"
+          ]
         }
       ],
       "test_ids": [
@@ -4221,7 +4286,11 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
+        "bucket_cors_large_metadata_lists_page_without_loss",
+        "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+        "cors-memory-smoke",
+        "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping"
       ],
       "verification": [
         {
@@ -4315,6 +4384,27 @@
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_large_metadata_lists_page_without_loss",
+            "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+            "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping",
+            "bkt_http_list_clamps_to_1000_with_lookahead"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-memory.txt",
+          "test_ids": [
+            "cors-memory-smoke"
           ]
         }
       ],
@@ -4464,7 +4554,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Implemented subset: labels merge/key removal/map clearing, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-patch.md. Final Rust/SDK/reference evidence: docs/en/evidence/bucket-metadata-patch.md; native/Docker guide and final container checks pass. All three delivery conditions close the scoped order-6 capability. Whole method remains PARTIAL because writable fields, ACL/billing/projection semantics and provider edge parity remain pending; no whole-row promotion is justified. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -4698,71 +4788,88 @@
             "bkt_http_malformed_conditions_preserve_all_bucket_methods",
             "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
           ]
+        },
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Persistent CORS create/get/PATCH/PUT supported rules, clearing, strict conditions, eight-way mutation, migration/restart and real XML effects pass; broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
         }
       ],
       "test_ids": [
-        "bucket_patch_merges_labels_class_and_preserves_resources",
-        "bucket_patch_empty_null_and_invalid_inputs",
-        "bucket_patch_label_boundaries_and_classes",
-        "bucket_patch_uses_clock_and_rolls_back_invalid_merge",
-        "bucket_patch_settings_control_future_object_effects",
-        "bucket_patch_null_settings_follow_profile_defaults",
-        "bucket_patch_conditions_and_query_contract",
-        "bucket_patch_conditioned_race_has_one_winner",
-        "bucket_patch_strict_permissions_and_policy_preservation",
-        "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
-        "bucket_patch_legacy_rendering_and_restart",
-        "bucket_patch_unsupported_and_output_inputs_preserve_state",
-        "bucket_patch_accepts_only_empty_lifecycle_rules",
-        "bucket_patch_missing_bucket_validates_body_before_lookup",
-        "bucket_get_rejects_patch_only_acl_query_parameters",
-        "bucket_patch_rejects_get_only_generation_query_parameter",
-        "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
-        "bucket_patch_location_comparison_is_case_insensitive",
         "TestBucketMetadataUpdate",
+        "TestObjectMediaLifecycle",
+        "TestObjectMultipartWriter",
         "TestStrictAuthBucketMetadataUpdate",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
+        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_malformed_conditions_preserve_all_bucket_methods",
         "bucket-patch-reference-comparison",
-        "guide-bucket-patch-native",
-        "guide-bucket-patch-container",
+        "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+        "bucket_cors_malformed_input_preserves_entire_resource",
+        "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+        "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+        "bucket_get_rejects_patch_only_acl_query_parameters",
+        "bucket_patch_accepts_only_empty_lifecycle_rules",
+        "bucket_patch_conditioned_race_has_one_winner",
+        "bucket_patch_conditions_and_query_contract",
+        "bucket_patch_empty_null_and_invalid_inputs",
+        "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
+        "bucket_patch_label_boundaries_and_classes",
+        "bucket_patch_legacy_rendering_and_restart",
+        "bucket_patch_location_comparison_is_case_insensitive",
+        "bucket_patch_merges_labels_class_and_preserves_resources",
+        "bucket_patch_missing_bucket_validates_body_before_lookup",
+        "bucket_patch_null_settings_follow_profile_defaults",
+        "bucket_patch_rejects_get_only_generation_query_parameter",
+        "bucket_patch_settings_control_future_object_effects",
+        "bucket_patch_strict_permissions_and_policy_preservation",
+        "bucket_patch_unsupported_and_output_inputs_preserve_state",
+        "bucket_patch_uses_clock_and_rolls_back_invalid_merge",
+        "bucket_put_conditioned_race_has_one_winner",
+        "bucket_put_conditions_and_query_contract",
+        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+        "delete_preconditions_are_atomic_and_preserve_failed_records",
         "etag::json_etag_read_unsupported_lists_dates_and_writes",
         "fields_http::fields_bucket_methods_and_policy_preserve_mutations",
         "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate",
         "fields_http::fields_invalid_selectors_leave_all_routes_unchanged",
         "fields_http::fields_object_methods_lists_and_zero_byte_metadata",
+        "guide-bucket-patch-container",
+        "guide-bucket-patch-native",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
         "json::fields::tests::fields_bound_length_depth_and_selection_count",
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
-        "bkt_http_crud_metadata_conditions_and_errors",
-        "delete_preconditions_are_atomic_and_preserve_failed_records",
-        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_concurrent_create_if_absent_has_one_winner",
-        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
-        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
-        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
-        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
-        "all_conditions_generation_selectors_and_conditioned_races",
-        "invalid_and_unsupported_metadata_never_mutates_objects",
-        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
+        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
+        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
+        "obj_http_concurrent_create_if_absent_has_one_winner",
+        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
-        "TestObjectMultipartWriter",
-        "TestObjectMediaLifecycle",
-        "bucket_put_conditions_and_query_contract",
-        "bucket_put_conditioned_race_has_one_winner",
-        "bkt_http_malformed_conditions_preserve_all_bucket_methods",
-        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
+        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
       ],
       "verification": [
         {
@@ -4942,6 +5049,19 @@
           "test_ids": [
             "bkt_http_malformed_conditions_preserve_all_bucket_methods",
             "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
         }
       ],
@@ -5591,7 +5711,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; the API client update to v0.308.0 passes the full SDK suite and dependency check. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain.",
+      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; the API client update to v0.308.0 passes the full SDK suite and dependency check. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Persistent scoped CORS configuration and effective XML read policy are now delivered; docs/en/evidence/cors.md. Whole-method pending fields/projection/provider cases are unchanged.",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -5825,69 +5945,86 @@
             "bkt_http_malformed_conditions_preserve_all_bucket_methods",
             "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
           ]
+        },
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Persistent CORS create/get/PATCH/PUT supported rules, clearing, strict conditions, eight-way mutation, migration/restart and real XML effects pass; broader method cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
         }
       ],
       "test_ids": [
-        "bucket_put_replaces_omitted_fields_and_preserves_resources",
-        "bucket_put_empty_null_and_invalid_inputs",
-        "bucket_put_label_boundaries_and_classes",
-        "bucket_put_uses_clock_and_rolls_back_invalid_replacement",
-        "bucket_put_settings_control_future_object_effects",
-        "bucket_put_null_settings_follow_profile_defaults",
-        "bucket_put_conditions_and_query_contract",
-        "bucket_put_conditioned_race_has_one_winner",
-        "bucket_put_strict_permissions_and_policy_preservation",
-        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
-        "bucket_put_legacy_rendering_and_restart",
-        "bucket_put_unsupported_and_output_inputs_preserve_state",
-        "bucket_put_missing_bucket_validates_body_before_lookup",
-        "bucket_put_rejects_get_only_generation_query_parameter",
-        "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
-        "bucket_put_location_comparison_is_case_insensitive",
         "TestBucketMetadataReplace",
+        "TestObjectMediaLifecycle",
+        "TestObjectMultipartWriter",
         "TestStrictAuthBucketMetadataReplace",
+        "all_conditions_generation_selectors_and_conditioned_races",
+        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
+        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
+        "bkt_http_crud_metadata_conditions_and_errors",
+        "bkt_http_malformed_conditions_preserve_all_bucket_methods",
         "bucket-put-reference-comparison",
-        "guide-bucket-put-native",
-        "guide-bucket-put-container",
+        "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+        "bucket_cors_malformed_input_preserves_entire_resource",
+        "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+        "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+        "bucket_patch_conditioned_race_has_one_winner",
+        "bucket_patch_conditions_and_query_contract",
+        "bucket_put_conditioned_race_has_one_winner",
+        "bucket_put_conditions_and_query_contract",
+        "bucket_put_empty_null_and_invalid_inputs",
+        "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
+        "bucket_put_label_boundaries_and_classes",
+        "bucket_put_legacy_rendering_and_restart",
+        "bucket_put_location_comparison_is_case_insensitive",
+        "bucket_put_missing_bucket_validates_body_before_lookup",
+        "bucket_put_null_settings_follow_profile_defaults",
+        "bucket_put_rejects_get_only_generation_query_parameter",
+        "bucket_put_replaces_omitted_fields_and_preserves_resources",
+        "bucket_put_settings_control_future_object_effects",
+        "bucket_put_strict_permissions_and_policy_preservation",
+        "bucket_put_unsupported_and_output_inputs_preserve_state",
+        "bucket_put_uses_clock_and_rolls_back_invalid_replacement",
+        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
+        "delete_preconditions_are_atomic_and_preserve_failed_records",
         "etag::json_etag_read_unsupported_lists_dates_and_writes",
         "fields_http::fields_bucket_methods_and_policy_preserve_mutations",
         "fields_http::fields_invalid_selectors_and_errors_never_filter_or_mutate",
         "fields_http::fields_invalid_selectors_leave_all_routes_unchanged",
         "fields_http::fields_object_methods_lists_and_zero_byte_metadata",
+        "guide-bucket-put-container",
+        "guide-bucket-put-native",
+        "invalid_and_unsupported_metadata_never_mutates_objects",
         "json::fields::tests::fields_bound_length_depth_and_selection_count",
         "json::fields::tests::fields_reject_malformed_unknown_and_scalar_children",
         "json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values",
         "json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected",
-        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
-        "bkt_http_crud_metadata_conditions_and_errors",
-        "delete_preconditions_are_atomic_and_preserve_failed_records",
-        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
-        "obj_http_concurrent_create_if_absent_has_one_winner",
-        "all_four_preconditions_apply_to_reads_uploads_and_deletes",
-        "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
-        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
-        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
-        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
-        "all_conditions_generation_selectors_and_conditioned_races",
-        "invalid_and_unsupported_metadata_never_mutates_objects",
-        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "metadata_boundaries_encoding_negotiation_and_reupload_defaults",
         "metadata_update_races_with_delete_and_upload_preserve_atomic_identity",
-        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
-        "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
-        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
-        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
-        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+        "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
+        "obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence",
+        "obj_http_bad_hashes_and_unsupported_requests_never_publish",
+        "obj_http_concurrent_create_if_absent_has_one_winner",
+        "obj_http_precheck_and_method_alt_reject_before_consuming_body",
+        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
-        "TestObjectMultipartWriter",
-        "TestObjectMediaLifecycle",
-        "bucket_patch_conditions_and_query_contract",
-        "bucket_patch_conditioned_race_has_one_winner",
-        "bkt_http_malformed_conditions_preserve_all_bucket_methods",
-        "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+        "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
+        "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
+        "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
+        "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
+        "storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure",
+        "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
+        "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
       ],
       "verification": [
         {
@@ -6065,6 +6202,19 @@
           "test_ids": [
             "bkt_http_malformed_conditions_preserve_all_bucket_methods",
             "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
         }
       ],
@@ -17036,26 +17186,136 @@
       "interface": "cross-cutting behavior",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Origin/method/header/maxAge validation and independent endpoint behavior tests.",
+      "notes": "Implemented declared persistent JSON configuration plus XML-read effects, validation/conditions/races/migration and official SDK round trip. Provider-exact undocumented errors/null behavior remains outside the local contract in SPEC-CORS-EDGES. Docs: docs/en/slices/bucket-xml-cors.md and docs/en/evidence/cors.md. Accepted dense CORS configurations now have bounded list expansion, exact continuation and final 128 MiB ARM64 resource evidence.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "BUCKET-CONFIGURATION",
+          "description": "Ordered rules, schema validation, create/GET/PATCH/PUT replacement/clearing, transaction-time conditions, concurrency, resource cap and schema migration/restart in both profiles. Local null/default and error choices are explicit in the contract.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates"
+          ]
+        },
+        {
+          "id": "BUCKET-CORS-EFFECT",
+          "description": "Stored rules independently drive XML matching while JSON remains available; strict permission denial preserves settings.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        },
+        {
+          "id": "BUCKET-CORS-SDK",
+          "description": "Official Go create/Attrs/Update/generated PUT, omitted/empty clearing, stale conditions and strict denial.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        },
+        {
+          "id": "BUCKET-CORS-RESOURCES",
+          "description": "Accepted 60 configurations of 20000 empty rules remain reachable without truncation or duplicate/missing names through bounded full/name-only pages and restart, including maxResults/prefix boundaries and a read-only 128 MiB ARM64 container.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_large_metadata_lists_page_without_loss",
+            "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+            "cors-memory-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "TestBucketCORS",
+        "TestStrictAuthBucketCORS",
+        "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+        "bucket_cors_malformed_input_preserves_entire_resource",
+        "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+        "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "bucket_cors_large_metadata_lists_page_without_loss",
+        "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+        "cors-memory-smoke"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        },
+        {
+          "command": "HTTP and HTTPS scripts/sdk-go.sh; final focused CORS rerun after Origin matching changes",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-go.txt",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_large_metadata_lists_page_without_loss",
+            "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-memory.txt",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP/HTTPS JSON CORS create/Attrs/PATCH/generated PUT and configured XML preflight; explicit local endpoints/CA trust/fixture grants",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "HTTP/HTTPS scripts/sdk-go.sh; final TestBucketCORS and TestStrictAuthBucketCORS",
+          "artifact": "docs/en/evidence/cors-sdk-go.txt",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        }
+      ],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-BUCKET-010",
@@ -32544,25 +32804,79 @@
       "interface": "JSON CORS",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Do not apply bucket XML CORS restrictions to JSON API endpoints.",
+      "notes": "Implemented scoped JSON defaults and browser operations; complete provider expose-list and device-specific behavior are research boundaries, not claimed parity. Contract: docs/en/slices/cors.md; final evidence: docs/en/evidence/cors.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "JSON-DEFAULTS",
+          "description": "Documented JSON preflight/defaults, empty-method 404, malformed-origin denial, all basic responses and exposed common-header subset, independent of listener/custom source schemes. Contract: docs/en/slices/cors.md; unpublished provider edges remain outside this frozen scope in SPEC-CORS-EDGES.",
+          "result": "PASS",
+          "test_ids": [
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "json_cors_wraps_bucket_object_streaming_errors_and_validators",
+            "json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes"
+          ]
+        },
+        {
+          "id": "JSON-BROWSER",
+          "description": "Actual trusted-HTTPS Chromium bucket/object CRUD, media/multipart/resumable, exposed ETag/Location, strict permission denial and independence from restrictive bucket rules.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        }
+      ],
+      "test_ids": [
+        "cors-browser-permissive-initial",
+        "cors-browser-permissive-restart",
+        "cors-browser-strict-initial",
+        "cors-browser-strict-restart",
+        "json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes",
+        "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+        "json_cors_wraps_bucket_object_streaming_errors_and_validators"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "json_cors_wraps_bucket_object_streaming_errors_and_validators",
+            "json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-browser.sh with strict/permissive initial/restart over trusted local HTTPS",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-browser.txt",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-052",
@@ -32572,25 +32886,147 @@
       "interface": "XML CORS",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Match origin/method/header rules and documented response headers.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Implemented existing path-style XML GET/HEAD and preflight CORS for the declared bucket-rule scope. JSON remains independent; general XML writes/configuration routes and provider/mobile edge parity remain separate. Contract: docs/en/slices/cors.md; evidence: docs/en/evidence/cors.md.",
+      "dependencies": [
+        "BEHAVIOR-BUCKET-009",
+        "DESIGN-051"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "XML-RULES",
+          "description": "First matching bucket rule, origin/method/header/default age, wildcard/domain/default-port matching, no credential support and actual strict denial. Includes supplied mobile/opaque Origin wire cases without real-device/cloud claims.",
+          "result": "PASS",
+          "test_ids": [
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+            "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently",
+            "xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials",
+            "xml::cors::tests::xml_cors_denials_wildcards_and_malformed_headers",
+            "xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary",
+            "xml::cors::tests::xml_cors_matches_default_ports_and_mobile_origins_without_http_allowlist"
+          ]
+        },
+        {
+          "id": "XML-BROWSER",
+          "description": "Trusted-HTTPS Chromium XML GET/HEAD and preflight allow/deny, configured exposure, clearing/revocation and restart; no XML-write implication.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
+        {
+          "id": "XML-SDK-CONFIG",
+          "description": "Pinned official Go configuration round trip, strict permissions and XML preflight including explicit default port.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        },
+        {
+          "id": "XML-CONFIGURATION-RESOURCES",
+          "description": "Retain every accepted stored XML-rule configuration while bounded bucket listing returns complete names and 20000-rule arrays across pages/restart under the 128 MiB ARM64 container limit; existing XML matching and permission cases remain passing.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "TestBucketCORS",
+        "TestStrictAuthBucketCORS",
+        "cors-browser-permissive-initial",
+        "cors-browser-permissive-restart",
+        "cors-browser-strict-initial",
+        "cors-browser-strict-restart",
+        "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently",
+        "xml::cors::tests::xml_cors_denials_wildcards_and_malformed_headers",
+        "xml::cors::tests::xml_cors_matches_default_ports_and_mobile_origins_without_http_allowlist",
+        "xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials",
+        "xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "cors-memory-smoke"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+            "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently",
+            "xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials",
+            "xml::cors::tests::xml_cors_denials_wildcards_and_malformed_headers",
+            "xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary",
+            "xml::cors::tests::xml_cors_matches_default_ports_and_mobile_origins_without_http_allowlist"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-browser.sh with strict/permissive initial/restart over trusted local HTTPS",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-browser.txt",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
+        {
+          "command": "HTTP and HTTPS scripts/sdk-go.sh; final focused CORS rerun after Origin matching changes",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-go.txt",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-memory.txt",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP/HTTPS JSON CORS create/Attrs/PATCH/generated PUT and configured XML preflight; explicit local endpoints/CA trust/fixture grants",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "HTTP/HTTPS scripts/sdk-go.sh; final TestBucketCORS and TestStrictAuthBucketCORS",
+          "artifact": "docs/en/evidence/cors-sdk-go.txt",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
+        }
+      ],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-053",
@@ -32600,26 +33036,101 @@
       "interface": "CORS and authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin",
         "https://docs.cloud.google.com/storage/docs/access-control"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Test permitted preflight followed by denied object access; CORS is not authorization.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "Allowed preflight is metadata-only permission to attempt a browser request; shared IAM still controls actual operations. Final wire/browser evidence: docs/en/evidence/cors.md.",
+      "dependencies": [
+        "DESIGN-051",
+        "DESIGN-052"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "PREFLIGHT-AUTHORIZATION",
+          "description": "Successful unauthenticated JSON/XML preflight never grants update/object permission; actual requests retain 401/403, readable protocol errors and unchanged data.",
+          "result": "PASS",
+          "test_ids": [
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        },
+        {
+          "id": "PREFLIGHT-BROWSER",
+          "description": "Real Chromium observes strict JSON/XML denial after successful preflight and retained CORS response visibility.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-browser-strict-initial"
+          ]
+        },
+        {
+          "id": "PREFLIGHT-RESOURCE-BOUNDARY",
+          "description": "Bounded metadata listing preserves accepted configurations under the 128 MiB ARM64 limit without changing JSON/XML preflight authorization; final Rust cases still reject unauthorized actual mutations/reads after successful preflight.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-memory-smoke",
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        }
+      ],
+      "test_ids": [
+        "cors-browser-strict-initial",
+        "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+        "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
+        "cors-memory-smoke"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-browser.sh with strict/permissive initial/restart over trusted local HTTPS",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-browser.txt",
+          "test_ids": [
+            "cors-browser-strict-initial"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "json_cors_preflight_defaults_never_authenticate_or_grant_access",
+            "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-memory.txt",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-054",
@@ -32699,7 +33210,10 @@
           "id": "DESIGN-055-HTTPS",
           "description": "Keep HTTPS listener/default scheme, explicit fixed API base and public URL helper base independent; ignore Host/Forwarded and follow host/peer resumable Locations with CA/SAN validation.",
           "result": "PASS",
-          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_native_container_journeys"]
+          "test_ids": [
+            "tls_trust_versions_streaming_urls_and_restart",
+            "tls_native_container_journeys"
+          ]
         }
       ],
       "test_ids": [
@@ -32728,7 +33242,10 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls.md",
-          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_native_container_journeys"]
+          "test_ids": [
+            "tls_trust_versions_streaming_urls_and_restart",
+            "tls_native_container_journeys"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -33486,31 +34003,48 @@
           "id": "DESIGN-065-P1",
           "description": "Implement HTTPS default and explicit HTTP, CLI/environment/JSON precedence, bounded supplied PEM chain/key, early startup rejection and verified trust guidance.",
           "result": "PASS",
-          "test_ids": ["tls_configuration_precedence_and_validation", "tls_invalid_material_never_reaches_readiness_or_creates_data"]
+          "test_ids": [
+            "tls_configuration_precedence_and_validation",
+            "tls_invalid_material_never_reaches_readiness_or_creates_data"
+          ]
         },
         {
           "id": "DESIGN-065-DEFAULT",
           "description": "Start HTTPS without certificate preparation using built-in public development credentials; export only the CA without side effects, reject one-sided overrides and isolate default/custom client trust.",
           "result": "PASS",
-          "test_ids": ["tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"]
+          "test_ids": [
+            "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"
+          ]
         },
         {
           "id": "DESIGN-065-TRUST",
           "description": "Negotiate TLS 1.2/1.3 with matching SAN and explicit CA trust; reject untrusted CA, wrong hostname, expired leaf and plaintext. Verify HTTPS links/Location, exact streamed bytes and persistent HTTP/HTTPS restart.",
           "result": "PASS",
-          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_rejects_untrusted_wrong_host_expired_and_plaintext"]
+          "test_ids": [
+            "tls_trust_versions_streaming_urls_and_restart",
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext"
+          ]
         },
         {
           "id": "DESIGN-065-BOUNDS",
           "description": "Bound handshakes inside connection admission; release stalled slots and interrupt handshake shutdown. Preserve strict grants, streamed progress, upload inactivity/absolute deadlines, failed-overwrite bytes and probe deadlines.",
           "result": "PASS",
-          "test_ids": ["tls_handshake_admission_timeout_shutdown_and_strict_permissions", "tls_streaming_progress_and_upload_deadlines_preserve_existing_object", "tls_healthcheck_deadline_includes_stalled_handshake"]
+          "test_ids": [
+            "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
+            "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+            "tls_healthcheck_deadline_includes_stalled_handshake"
+          ]
         },
         {
           "id": "DESIGN-065-CLIENTS",
           "description": "Exercise native/container HTTPS bucket/object/resumable and host/peer SANs, both container architectures, official Go/Ruby clients and actual browser trust without certificate/hostname bypass. Verify explicit HTTP still works.",
           "result": "PASS",
-          "test_ids": ["tls_native_container_journeys", "tls_browser_trust", "go_https_sdk_suite", "ruby_https_sdk_journey"]
+          "test_ids": [
+            "tls_native_container_journeys",
+            "tls_browser_trust",
+            "go_https_sdk_suite",
+            "ruby_https_sdk_journey"
+          ]
         }
       ],
       "test_ids": [
@@ -33543,33 +34077,74 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-pre-push.txt",
-          "test_ids": ["tls_configuration_precedence_and_validation", "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate", "tls_invalid_material_never_reaches_readiness_or_creates_data", "tls_trust_versions_streaming_urls_and_restart", "tls_rejects_untrusted_wrong_host_expired_and_plaintext", "tls_handshake_admission_timeout_shutdown_and_strict_permissions", "tls_streaming_progress_and_upload_deadlines_preserve_existing_object", "tls_healthcheck_deadline_includes_stalled_handshake"]
+          "test_ids": [
+            "tls_configuration_precedence_and_validation",
+            "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate",
+            "tls_invalid_material_never_reaches_readiness_or_creates_data",
+            "tls_trust_versions_streaming_urls_and_restart",
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+            "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
+            "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+            "tls_healthcheck_deadline_includes_stalled_handshake"
+          ]
         },
         {
           "command": "TLS getting-started native/Compose blocks, scripts/tls-smoke.sh, isolated Chromium with explicit NSS CA trust; see local-tls.md for commands",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls.md",
-          "test_ids": ["tls_native_container_journeys", "tls_browser_trust"]
+          "test_ids": [
+            "tls_native_container_journeys",
+            "tls_browser_trust"
+          ]
         },
         {
           "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-go-https.txt",
-          "test_ids": ["go_https_sdk_suite"]
+          "test_ids": [
+            "go_https_sdk_suite"
+          ]
         },
         {
           "command": "cd sdk-tests/ruby; bundle exec ruby https.rb --self-check; GCS_MIMIC_ENDPOINT=https://localhost:54447 GCS_MIMIC_CA_CERT=$cert_dir/ca.pem bundle exec ruby https.rb",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/local-tls-ruby.txt",
-          "test_ids": ["ruby_https_sdk_journey"]
+          "test_ids": [
+            "ruby_https_sdk_journey"
+          ]
         }
       ],
       "sdk_evidence": [
-        {"language":"Go", "toolchain":"1.27.3", "sdk":"cloud.google.com/go/storage", "version":"v1.70.0", "api_client_version":"v0.308.0", "transport":"HTTPS HTTP/1.1 JSON/XML with explicit development CA and hostname verification; permissive and strict; full 41-test harness", "result":"PASS", "verified_at":"2026-10-23", "artifact":"docs/en/evidence/local-tls-go-https.txt", "test_ids":["go_https_sdk_suite"]},
-        {"language":"Ruby", "toolchain":"4.0.9", "sdk":"google-cloud-storage", "version":"1.62.1", "transport":"HTTPS JSON with explicit development CA and hostname verification; generated bucket insert, high-level CRUD and three-chunk resumable disk-backed transfer; high-level Autoclass insert remains unsupported", "result":"PASS", "verified_at":"2026-10-23", "artifact":"docs/en/evidence/local-tls-ruby.txt", "test_ids":["ruby_https_sdk_journey"]}
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS HTTP/1.1 JSON/XML with explicit development CA and hostname verification; permissive and strict; full 41-test harness",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls-go-https.txt",
+          "test_ids": [
+            "go_https_sdk_suite"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS JSON with explicit development CA and hostname verification; generated bucket insert, high-level CRUD and three-chunk resumable disk-backed transfer; high-level Autoclass insert remains unsupported",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls-ruby.txt",
+          "test_ids": [
+            "ruby_https_sdk_journey"
+          ]
+        }
       ],
       "known_deviations": [],
       "implemented_in": "6f0c405d109de25388795c0d4b24f7b68bc880b4",
@@ -34932,7 +35507,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.308.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.308.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. Basic six-bucket/nine-object plus CORS and HTTPS gate: docs/en/evidence/cors.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -35088,41 +35663,52 @@
             "TestStrictAuthBucketMetadataReplace"
           ],
           "result": "PASS"
+        },
+        {
+          "id": "GO-CORS",
+          "description": "Pinned full HTTP/HTTPS SDK suites and final focused CORS configuration, conditions/default ports and strict denial pass.",
+          "result": "PASS",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
+          ]
         }
       ],
       "test_ids": [
+        "TestBucketCORS",
         "TestBucketLifecycle",
-        "go-compose-bucket-lifecycle",
+        "TestBucketMetadataReplace",
+        "TestBucketMetadataUpdate",
         "TestObjectMediaLifecycle",
-        "guide-compose-go-object-suite",
-        "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
-        "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "TestStrictAuthAdminLifecycle",
-        "TestStrictAuthRejectsMissingAndInvalidCredentials",
-        "TestStrictAuthObjectViewer",
-        "TestStrictAuthObjectCreator",
-        "guide-compose-go-strict-suite",
-        "TestObjectRangeReader",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "TestObjectMultipartWriter",
-        "TestXMLReadsStrict",
+        "TestObjectRangeReader",
+        "TestObjectResumableChecksumFailurePreservesObject",
+        "TestObjectResumableConditionsAtFinalization",
+        "TestObjectResumableContextCancellationDoesNotPublish",
+        "TestObjectResumableMetagenerationAtFinalization",
+        "TestObjectResumableRetriesLostChunkResponse",
+        "TestObjectResumableWriter",
+        "TestPublicReadsAllAuthenticatedUsers",
+        "TestPublicReadsGrantAndRevoke",
+        "TestStrictAuthAdminLifecycle",
+        "TestStrictAuthBucketCORS",
+        "TestStrictAuthBucketMetadataReplace",
+        "TestStrictAuthBucketMetadataUpdate",
+        "TestStrictAuthObjectCreator",
+        "TestStrictAuthObjectViewer",
+        "TestStrictAuthRejectsMissingAndInvalidCredentials",
+        "TestStrictAuthResumableCreatorOverwriteRace",
+        "TestStrictAuthResumableWriter",
         "TestXMLReadsEncodedNames",
         "TestXMLReadsPermissive",
-        "TestPublicReadsGrantAndRevoke",
-        "TestPublicReadsAllAuthenticatedUsers",
-        "TestObjectResumableWriter",
-        "TestObjectResumableChecksumFailurePreservesObject",
-        "TestObjectResumableRetriesLostChunkResponse",
-        "TestObjectResumableContextCancellationDoesNotPublish",
+        "TestXMLReadsStrict",
         "chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots",
-        "TestObjectResumableConditionsAtFinalization",
-        "TestObjectResumableMetagenerationAtFinalization",
-        "TestStrictAuthResumableWriter",
-        "TestStrictAuthResumableCreatorOverwriteRace",
-        "TestBucketMetadataUpdate",
-        "TestStrictAuthBucketMetadataUpdate",
-        "TestBucketMetadataReplace",
-        "TestStrictAuthBucketMetadataReplace"
+        "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "go-compose-bucket-lifecycle",
+        "guide-compose-go-object-suite",
+        "guide-compose-go-strict-suite",
+        "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
       ],
       "verification": [
         {
@@ -35270,6 +35856,16 @@
           "test_ids": [
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
+          ]
+        },
+        {
+          "command": "HTTP and HTTPS scripts/sdk-go.sh; final focused CORS rerun after Origin matching changes",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-go.txt",
+          "test_ids": [
+            "TestBucketCORS",
+            "TestStrictAuthBucketCORS"
           ]
         }
       ],
@@ -35461,25 +36057,70 @@
       "interface": "SDK compatibility",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Pin gem version and explicit endpoint configuration; cover upload/download/list/permissions/signing.",
+      "notes": "Pinned basic API gate passes over HTTP/HTTPS in permissive/strict profiles. Generated methods cover bucket/object PUT and copy; explicit false/destination metadata avoids unsupported SDK compose null defaults. docs/en/evidence/cors.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "RUBY-BASIC",
+          "description": "Pinned Ruby 4.0.9/Bundler4.0.23/Storage1.62.1 six bucket and nine object methods, explicit local HTTP/HTTPS and static strict credentials, derived bytes/checksums and resumable streaming pass.",
+          "result": "PASS",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
+        },
+        {
+          "id": "RUBY-BROADER",
+          "description": "Full Ruby/Rails, signing, broad IAM/ACL and default-null compose behavior remain unimplemented or unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "ruby-basic-api"
+      ],
+      "verification": [
+        {
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb with explicit HTTP/HTTPS local endpoints and permissive/strict fixture profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-ruby.txt",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP/HTTPS JSON, generated methods where needed, explicit loopback and static local strict token, verified CA/SAN",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb",
+          "artifact": "docs/en/evidence/cors-sdk-ruby.txt",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Rails, signing and broad permission/ACL workflows remain pending.",
+        "High-level bucket create sends unsupported Autoclass; generated insert is used. Compose requires explicit delete_source_objects:false and destination metadata because SDK defaults send unsupported nulls."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-084",
@@ -36472,7 +37113,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -36506,12 +37147,21 @@
           "description": "Add object listing, metadata mutation and resumable Location behavior.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BASIC-CLIENT-TRANSPORT",
+          "description": "Basic HTTP/HTTPS Ruby client operations with explicit local endpoints and fixture strict/permissive profiles pass; Rails/signing and broader workflows remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
         }
       ],
       "test_ids": [
         "container-host-peer-bucket-crud",
         "guide-host-peer-object-media",
-        "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
+        "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
+        "ruby-basic-api"
       ],
       "verification": [
         {
@@ -36540,15 +37190,24 @@
           "test_ids": [
             "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
           ]
+        },
+        {
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb with explicit HTTP/HTTPS local endpoints and permissive/strict fixture profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-ruby.txt",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Media subset only; object list/patch, multipart/resumable, auth and range reads remain unavailable.",
+        "Scoped listing, metadata, multipart/resumable, strict auth, ranges, HTTPS and browser CORS now have evidence; broader SDK/signing coverage remains pending.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "UX-004",
@@ -36564,7 +37223,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Pinned Go bucket/object first-use suite passes against the runnable Compose endpoint. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Pinned Go bucket/object first-use suite passes against the runnable Compose endpoint. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -36607,14 +37266,23 @@
           "test_ids": [
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "id": "BASIC-CLIENT-TRANSPORT",
+          "description": "Basic HTTP/HTTPS Ruby client operations with explicit local endpoints and fixture strict/permissive profiles pass; Rails/signing and broader workflows remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
         }
       ],
       "test_ids": [
-        "go-compose-bucket-lifecycle",
         "TestObjectMediaLifecycle",
-        "guide-compose-go-object-suite",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "go-compose-bucket-lifecycle",
+        "guide-compose-go-object-suite",
+        "ruby-basic-api"
       ],
       "verification": [
         {
@@ -36653,6 +37321,15 @@
             "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb with explicit HTTP/HTTPS local endpoints and permissive/strict fixture profiles",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-sdk-ruby.txt",
+          "test_ids": [
+            "ruby-basic-api"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -36688,12 +37365,12 @@
         }
       ],
       "known_deviations": [
-        "No Ruby/Rails evidence; media upload is raw HTTP because Go Writer requires multipart/resumable.",
+        "Basic Ruby HTTP/HTTPS methods are verified; Rails and broader SDK workflows remain pending.",
         "SPEC-013 accepted tokens do not deduplicate; no signing or ACL/IAM workflows.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "UX-005",
@@ -36867,23 +37544,126 @@
       "interface": "Emulator user journey",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. A real browser from a distinct origin completes allowed direct upload/download and rejects disallowed-origin cases, with JSON/XML behavior kept distinct.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "notes": "Implemented basic browser journey: JSON direct media/multipart/resumable and CRUD, independently bucket-configured XML reads/preflight, trusted HTTPS and restart. Signed XML transfers, Rails and real iOS integration are later scopes. Evidence: docs/en/evidence/cors.md; mobile research: docs/en/slices/cors-mobile-origins.md.",
+      "dependencies": [
+        "DESIGN-051",
+        "DESIGN-052",
+        "DESIGN-053",
+        "DESIGN-065"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "BROWSER-TRANSFERS",
+          "description": "Actual distinct-origin Chromium over trusted HTTPS completes JSON uploads/CRUD and XML GET/HEAD, denied origin/method/header/credential cases, independent permissions and restart in both auth profiles.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
+        {
+          "id": "MOBILE-ORIGIN-WIRE",
+          "description": "Custom iOS-style source schemes and null persist and match locally, with scheme/port denials and restart; source documentation distinguishes deep links, WebView origins and native networking without a real iOS/Google claim.",
+          "result": "PASS",
+          "test_ids": [
+            "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently"
+          ]
+        },
+        {
+          "id": "CORS-GUIDE",
+          "description": "Affected runnable native/container CORS and trusted HTTPS guide journeys pass; rules and bytes persist on both Linux architectures.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-guide-native",
+            "cors-guide-https-arm64",
+            "cors-guide-https-amd64"
+          ]
+        },
+        {
+          "id": "CORS-RESOURCE-JOURNEY",
+          "description": "The final ARM64 container accepts 60 configurations of 20000 rules and repeats exact names/full/maxResults/prefix traversal, bucket GET and object media/list checks after restart, with read-only root, 128 MiB memory/equal swap and no OOM.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
+      "test_ids": [
+        "cors-browser-permissive-initial",
+        "cors-browser-permissive-restart",
+        "cors-browser-strict-initial",
+        "cors-browser-strict-restart",
+        "cors-guide-https-amd64",
+        "cors-guide-https-arm64",
+        "cors-guide-native",
+        "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently",
+        "cors-memory-smoke"
+      ],
+      "verification": [
+        {
+          "command": "bash scripts/cors-browser.sh with strict/permissive initial/restart over trusted local HTTPS",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-browser.txt",
+          "test_ids": [
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently"
+          ]
+        },
+        {
+          "command": "Execute native release and CORS guide shell blocks",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-guide.txt",
+          "test_ids": [
+            "cors-guide-native"
+          ]
+        },
+        {
+          "command": "Reuse final ARM64/AMD64 images; run CORS guide, trusted TLS smoke, host/peer and restart checks",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-containers-https.txt",
+          "test_ids": [
+            "cors-guide-https-arm64",
+            "cors-guide-https-amd64"
+          ]
+        },
+        {
+          "command": "bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-memory.txt",
+          "test_ids": [
+            "cors-memory-smoke"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-23"
     },
     {
       "id": "UX-008",
@@ -37344,7 +38124,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Canonical English README/design/roadmap and runnable bucket/object media guide match the tested local subset, including troubleshooting and limitations. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Canonical English README/design/roadmap and runnable bucket/object media guide match the tested local subset, including troubleshooting and limitations. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Affected native/CORS/HTTPS guide blocks, both container architectures and pinned Go/Ruby basic workflows now pass in docs/en/evidence/cors.md; full-guide publication/signing/Rails coverage remains pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -37391,7 +38171,7 @@
         },
         {
           "id": "UX-012-PENDING",
-          "description": "Verify signed URL, full IAM/ACL, CORS, broader fixture metadata and Ruby journeys when implemented; scoped local auth/public reads and native/Compose seed journeys are recorded.",
+          "description": "Verify signed URL, full IAM/ACL, broader fixture metadata and Rails journeys when implemented. Basic Go/Ruby, JSON/XML CORS and local HTTPS affected-guide evidence is recorded in docs/en/evidence/cors.md.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -37410,23 +38190,32 @@
           "test_ids": [
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
           ]
+        },
+        {
+          "id": "CORS-GUIDE",
+          "description": "Affected native release/CORS/trusted TLS shell blocks execute as documented; broader complete-guide cases remain pending.",
+          "result": "PASS",
+          "test_ids": [
+            "cors-guide-native"
+          ]
         }
       ],
       "test_ids": [
-        "native-onboarding",
         "container-foundation-smoke",
-        "guide-source-docker-build",
-        "guide-host-peer-object-media",
-        "guide-object-restart-persistence",
-        "guide-object-reset",
-        "guide-native-object-media",
-        "guide-compose-go-object-suite",
-        "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
-        "producer_closure_without_eof_never_publishes_partial_bytes",
-        "obj_http_disconnected_overwrite_preserves_the_previous_generation",
-        "recovery_ignores_os_metadata_and_names_other_stray_entries",
+        "cors-guide-native",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
+        "guide-compose-go-object-suite",
+        "guide-host-peer-object-media",
+        "guide-native-object-media",
+        "guide-object-reset",
+        "guide-object-restart-persistence",
+        "guide-source-docker-build",
+        "native-onboarding",
+        "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
+        "obj_http_disconnected_overwrite_preserves_the_previous_generation",
+        "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
+        "producer_closure_without_eof_never_publishes_partial_bytes",
+        "recovery_ignores_os_metadata_and_names_other_stray_entries"
       ],
       "verification": [
         {
@@ -37474,16 +38263,25 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
           ]
+        },
+        {
+          "command": "Execute native release, CORS and trusted HTTPS getting-started shell blocks",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-guide.txt",
+          "test_ids": [
+            "cors-guide-native"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Current guide uses local source/cached image layers. Native AMD64, remote CI, signed URLs, CORS and Ruby remain unverified or unavailable; scoped public/private and initial fixture journeys are verified in docs/en/evidence/public-object-reads.md.",
+        "Current guide uses local source/cached image layers. Native AMD64, remote CI, signed URLs, complete guide and Rails remain unverified or unavailable; affected CORS/HTTPS/native/container and Go/Ruby basic workflows now pass in docs/en/evidence/cors.md.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DEP-001",

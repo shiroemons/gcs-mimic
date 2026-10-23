@@ -1,8 +1,8 @@
 use super::lock;
 use crate::auth::{Identity, OBJECTS_DELETE, Policy};
 use crate::bucket::{
-    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, valid_label,
-    validate_storage_class,
+    BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError, cors_from_value, cors_value,
+    valid_label, validate_cors, validate_storage_class,
 };
 use crate::clock::{Clock, SystemClock};
 use rusqlite::{
@@ -56,6 +56,7 @@ use policies::{check_access, insert_policy};
 
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
+const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 const MAX_UPLOADS: usize = 8;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -64,7 +65,9 @@ const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
 PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
-                      default_event_based_hold";
+                      default_event_based_hold, cors";
+const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version = 12;";
 const BUCKET_SETTINGS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_enabled INTEGER NOT NULL DEFAULT 0 CHECK(versioning_enabled IN (0, 1));
 ALTER TABLE buckets ADD COLUMN default_event_based_hold INTEGER NOT NULL DEFAULT 0 CHECK(default_event_based_hold IN (0, 1));
 PRAGMA user_version = 8;";
@@ -81,6 +84,12 @@ const BUCKET_SCHEMA: &str = "CREATE TABLE buckets (
                      ) WITHOUT ROWID;
                      CREATE INDEX buckets_project_name ON buckets(project, name);
                      PRAGMA user_version = 1;";
+
+/// A bounded keyset page. Continue after the last returned name when `has_more` is true.
+pub struct BucketListPage {
+    pub items: Vec<BucketRecord>,
+    pub has_more: bool,
+}
 
 fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogError> {
     let transaction = connection.transaction().map_err(unavailable)?;
@@ -178,6 +187,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .map_err(unavailable)?;
         rewrite::validate(connection)?;
     }
+    if version >= 12 {
+        expected
+            .execute_batch(BUCKET_CORS_SCHEMA)
+            .map_err(unavailable)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
@@ -267,9 +281,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=11).contains(&version) {
+            if !(0..=12).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 11"
+                    "unsupported catalog schema version {version}; supported version is 12"
                 )));
             }
             if version == 2 {
@@ -380,6 +394,11 @@ impl Catalog {
             if version < 11 {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(rewrite::SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            if version < 12 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(BUCKET_CORS_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
             let recovery_now = unix_millis(clock.now())?;
@@ -517,6 +536,7 @@ impl Catalog {
         mut record: BucketRecord,
     ) -> Result<BucketRecord, CatalogError> {
         self.run(move |connection| {
+            validate_cors(&record.cors)?;
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
@@ -527,7 +547,7 @@ impl Catalog {
             let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
             let changed = transaction
                 .execute(
-                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(name) DO NOTHING"),
                     params![
                         record.name,
@@ -540,7 +560,8 @@ impl Catalog {
                         created,
                         updated,
                         record.versioning_enabled,
-                        record.default_event_based_hold
+                        record.default_event_based_hold,
+                        cors_value(&record.cors).to_string(),
                     ],
                 )
                 .map_err(unavailable)?;
@@ -646,6 +667,7 @@ impl Catalog {
                 return Err(CatalogError::UnsupportedMetadata("location".into()));
             }
             if replace {
+                record.cors.clear();
                 record.labels.clear();
                 record.storage_class = "STANDARD".into();
                 record.versioning_enabled = false;
@@ -690,6 +712,10 @@ impl Catalog {
             if let Some(hold) = update.default_event_based_hold {
                 record.default_event_based_hold = hold;
             }
+            if let Some(cors) = update.cors {
+                validate_cors(&cors)?;
+                record.cors = cors;
+            }
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -700,7 +726,7 @@ impl Catalog {
                 .execute(
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7 WHERE name = ?1",
+                     metageneration = ?6, updated = ?7, cors = ?8 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -709,6 +735,7 @@ impl Catalog {
                         record.default_event_based_hold,
                         record.metageneration,
                         updated,
+                        cors_value(&record.cors).to_string(),
                     ],
                 )
                 .map_err(unavailable)?;
@@ -760,7 +787,8 @@ impl Catalog {
         .await
     }
 
-    /// Returns at most 1001 rows, allowing a protocol page of 1000 plus one lookahead row.
+    /// Returns at most `limit` rows within the expanded metadata budget (or one large row).
+    /// Use `list_buckets_page` when a continuation indicator is needed.
     pub async fn list_buckets(
         &self,
         project: &str,
@@ -768,6 +796,20 @@ impl Catalog {
         start_after: Option<&str>,
         limit: usize,
     ) -> Result<Vec<BucketRecord>, CatalogError> {
+        Ok(self
+            .list_buckets_page(project, prefix, start_after, limit)
+            .await?
+            .items)
+    }
+
+    /// Bounds expansion before decoding, including lookahead; a single large row still advances.
+    pub async fn list_buckets_page(
+        &self,
+        project: &str,
+        prefix: Option<&str>,
+        start_after: Option<&str>,
+        limit: usize,
+    ) -> Result<BucketListPage, CatalogError> {
         if limit > MAX_LIST_LIMIT {
             return Err(CatalogError::Unavailable(format!(
                 "list limit exceeds {MAX_LIST_LIMIT}"
@@ -802,15 +844,38 @@ impl Catalog {
             );
             let mut statement = connection.prepare(&sql).map_err(unavailable)?;
             let mut rows = match upper {
-                Some(upper) => statement.query(params![project, lower, limit as i64, upper]),
-                None => statement.query(params![project, lower, limit as i64]),
+                Some(upper) => statement.query(params![project, lower, limit as i64 + 1, upper]),
+                None => statement.query(params![project, lower, limit as i64 + 1]),
             }
             .map_err(unavailable)?;
             let mut records = Vec::new();
+            let mut remaining = BUCKET_LIST_METADATA_BUDGET;
+            let mut has_more = false;
             while let Some(row) = rows.next().map_err(unavailable)? {
+                // Charge typed rules, JSON values and serialization before allocating any of them.
+                let mut charge = 4096usize;
+                for (column, multiplier) in
+                    [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)]
+                {
+                    let bytes = row
+                        .get_ref(column)
+                        .map_err(unavailable)?
+                        .as_str()
+                        .map_err(unavailable)?
+                        .len();
+                    charge = charge.saturating_add(bytes.saturating_mul(multiplier));
+                }
+                if records.len() == limit || (!records.is_empty() && charge > remaining) {
+                    has_more = !records.is_empty();
+                    break;
+                }
                 records.push(read_bucket(row).map_err(unavailable)?);
+                remaining = remaining.saturating_sub(charge);
             }
-            Ok(records)
+            Ok(BucketListPage {
+                items: records,
+                has_more,
+            })
         })
         .await
     }
@@ -927,6 +992,12 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         updated: system_time(row.get(8)?)?,
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
+        cors: cors_from_value(
+            &serde_json::from_str(&row.get::<_, String>(11)?).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e))
+            })?,
+        )
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e)))?,
     })
 }
 
@@ -1288,7 +1359,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 11),
+                    ("user_version", 12),
                 ] {
                     assert_eq!(
                         connection

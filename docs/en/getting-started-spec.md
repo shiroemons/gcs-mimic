@@ -458,6 +458,14 @@ References:
 
 ## 9. Browser CORS and direct upload
 
+The implemented [CORS journey](getting-started.md#browser-cors-and-mobile-application-origins)
+and [actual HTTPS browser evidence](evidence/cors-browser.md) cover JSON transfers
+and the existing XML reads. Bucket rules support custom serialized origins such
+as `capacitor://localhost` and `ionic://localhost`, independently of HTTP/HTTPS
+listener settings. Native app deep links, opaque origins, WebView networking and
+real Google acceptance are distinguished in the [mobile research](slices/cors-mobile-origins.md).
+Signed XML transfers and iOS device execution remain later work.
+
 Provide a tested browser demo on `http://localhost:3000`. Its origin is different from the storage endpoint. Set the XML bucket CORS policy to that origin and the required methods/headers. Verify preflight and a real browser upload/download. A curl request can inspect headers, but cannot prove browser enforcement.
 
 Test allowed and denied origins, required request headers, exposed response headers, and denied object access despite an allowed preflight. Keep JSON endpoint CORS defaults separate from XML bucket-configured behavior. Do not solve a browser test by allowing every origin globally.

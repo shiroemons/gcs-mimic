@@ -11,7 +11,8 @@ Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
 If-Range, transcoding, object IAM, testIamPermissions,
 conditional policies, ACLs, virtual-host routing, XML writes/listing, signed URLs,
-UBLA/PAP settings and CORS remain unavailable. HTTPS is the default listener mode;
+UBLA/PAP settings remain unavailable. JSON defaults and bucket-configured XML-read
+CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
 explicit client CA trust, as shown in the standalone HTTPS journey below.
 The default permissive profile enforces no authentication; use an isolated local
@@ -97,7 +98,7 @@ use `https://localhost:54444`. Both names are in the certificate; a container's
 pass it to their TLS client. The public URL helper accepts an independent base
 and grants no access. Same-origin browser navigation works after explicitly
 trusting the development CA in an isolated browser profile; cross-origin fetch
-still requires the separately planned CORS behavior. Never disable certificate
+uses JSON defaults or the configured XML bucket rules. Never disable certificate
 or hostname verification. The [TLS evidence](evidence/local-tls.md) records the
 isolated Chromium trust procedure and failure checks.
 
@@ -178,7 +179,7 @@ never used to construct links. The `gcs-mimic url public` helper builds public
 object URLs served by the path-style XML endpoint (see the strict section below).
 Use the published host port for a host browser, and the service name for a peer
 container consuming the URL itself. URL construction does not grant access;
-browser cross-origin fetch still needs CORS, which is unavailable. The resumable
+browser cross-origin fetch uses JSON defaults or the XML CORS configuration below. The resumable
 contract uses this same fixed `api_base_url` for session `Location` responses;
 follow the host/peer configuration steps below before initiating a session.
 
@@ -940,6 +941,72 @@ generation, checksums and bytes; a stale precondition returns 412 without mutati
 Custom metadata is bounded to 8 KiB. ACL/IAM, advanced fields, partial response masks,
 token replay and gzip transcoding remain unsupported. Stored cache directives round-trip
 in metadata; nonpublic JSON media responses use `Cache-Control: no-cache`.
+
+## Browser CORS and mobile application origins
+
+JSON requests use default CORS response headers regardless of bucket settings.
+Path-style XML object GET/HEAD uses the stored bucket rules. CORS only controls
+browser visibility; strict-mode callers still need the operation's permission.
+Run this block against the permissive `$endpoint` established above, or against
+an isolated native HTTP listener. It creates and removes its own example bucket.
+
+```sh
+cors_dir=$(mktemp -d)
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"name":"cors-guide-bucket"}' "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '*' --fail --data-binary 'browser bytes' \
+  "$endpoint/upload/storage/v1/b/cors-guide-bucket/o?uploadType=media&name=example"
+curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' \
+  --data '{"cors":[{"origin":["https://app.example:443","capacitor://localhost","ionic://localhost"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Probe"],"maxAgeSeconds":0}]}' \
+  "$endpoint/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1" > "$cors_dir/bucket.json"
+jq -e '.cors[0].origin[1] == "capacitor://localhost" and .metageneration == "2"' "$cors_dir/bucket.json"
+curl --disable --noproxy '*' --fail -D "$cors_dir/preflight" -o /dev/null -X OPTIONS \
+  -H 'Origin: https://app.example' -H 'Access-Control-Request-Method: GET' \
+  -H 'Access-Control-Request-Headers: x-probe' "$endpoint/cors-guide-bucket/example"
+tr -d '\r' < "$cors_dir/preflight" | grep -Fxi 'access-control-allow-origin: https://app.example'
+curl --disable --noproxy '*' --fail -D "$cors_dir/actual" -o "$cors_dir/bytes" \
+  -H 'Origin: capacitor://localhost' "$endpoint/cors-guide-bucket/example"
+printf 'browser bytes' | cmp - "$cors_dir/bytes"
+tr -d '\r' < "$cors_dir/actual" | grep -Fxi 'access-control-allow-origin: capacitor://localhost'
+curl --disable --noproxy '*' --fail -D "$cors_dir/json" -o /dev/null \
+  -H 'Origin: https://another.example' "$endpoint/storage/v1/b/cors-guide-bucket/o/example?alt=media"
+tr -d '\r' < "$cors_dir/json" | grep -Fxi 'access-control-allow-origin: https://another.example'
+curl --disable --noproxy '*' --fail -D "$cors_dir/denied" -o /dev/null \
+  -H 'Origin: https://another.example' "$endpoint/cors-guide-bucket/example"
+if grep -qi '^access-control-allow-origin:' "$cors_dir/denied"; then exit 1; fi
+status=$(curl --disable --noproxy '*' --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' \
+  --data '{"cors":[]}' "$endpoint/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1")
+test "$status" = 412
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/cors-guide-bucket/o/example"
+curl --disable --noproxy '*' --fail -X DELETE "$endpoint/storage/v1/b/cors-guide-bucket"
+rm -r "$cors_dir"
+```
+
+An XML response without Allow-Origin is intentionally unreadable by a browser;
+curl still sees the normal API response. `cors: []` or null clears rules,
+PATCH omission preserves them, and PUT omission clears them. A missing max age
+uses 3600 seconds. Whole-origin `*` and `scheme://*.domain` rules are supported.
+HTTP port 80 and HTTPS port 443 match their omitted equivalents; custom schemes
+have no inferred default port. XML never sends Allow-Credentials. Bearer headers
+and browser `credentials: include` are different: the latter does not work for
+XML, and credentialed JSON preflight is outside this scoped workflow.
+
+For iOS hybrid apps, configure the Origin actually sent by the WebView, such as
+`capacitor://localhost` or `ionic://localhost`; registering a native deep-link
+scheme does not establish that Origin. The destination still uses the emulator's
+reachable HTTP/HTTPS endpoint. Opaque origins use `null`, which is shared by many
+documents and is not an app identity. The [mobile-origin research](slices/cors-mobile-origins.md)
+separates Google-documented rules, local custom-scheme handling and unverified
+Google/iOS behavior. Native HTTP bridges do not prove browser CORS enforcement.
+
+For actual browser verification over trusted local HTTPS, use the isolated
+[Chromium journey](evidence/cors-browser.md). It runs
+`bash scripts/cors-browser.sh ENDPOINT BUCKET strict|permissive initial|restart`
+after trusting the exported CA in that disposable browser environment. It
+verifies JSON uploads/CRUD, ETag/Location, XML allow/deny, strict permission denial
+and restart without disabling TLS verification. Configuration changes affect
+new uncached requests; previous browser caches can persist until expiry.
 
 ## Stop, restart and deliberate reset
 

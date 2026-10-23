@@ -102,6 +102,17 @@ bases remain independent of the listener; forwarded headers never set them.
 HTTP/2, HTTP/3 and gRPC transport are separate work. See the
 [TLS contract](slices/local-tls.md) for trust boundaries and reference behavior.
 
+The [CORS adapters](slices/cors.md) wrap actual responses without granting API
+permissions. JSON uses fixed defaults, including errors and streaming/resumable
+responses; XML uses the first matching stored bucket rule. Schema 12 adds a
+bounded JSON CORS column transactionally. Existing bucket condition/authorization
+transactions own updates; preflight reads configuration without requiring object
+permission. Origin parsing accepts custom schemes and opaque `null` independently
+of listener schemes. Matching normalizes documented default ports and preserves
+custom scheme/port boundaries. Responses vary by Origin, with method/header
+variation on preflight. [Mobile research](slices/cors-mobile-origins.md) separates
+local handling from real Google/iOS verification. See the [final evidence](evidence/cors.md).
+
 ## Implemented bucket catalog and recovery
 
 `Catalog::open` creates the data directory and acquires an exclusive OS lock on
@@ -139,8 +150,15 @@ Each operation has immediate bounded admission (32 calls), then awaits one execu
 permit before scheduling one blocking job. The runtime's configured blocking pool
 remains bounded. Inserts enforce globally unique local names in SQL; delete checks
 metageneration and removes the record in one immediate transaction. GET renders
-the exact selected record after its checks. Listing uses indexed keyset bounds and
-at most 1001 records (200 + lookahead for full projection), without loading the catalog.
+the exact selected record after its checks. Bucket listing uses indexed keyset bounds,
+the projection-specific item cap and a 256 KiB expanded-metadata charge budget.
+It inspects at most one further SQLite row without decoding its metadata, then
+continues after the last returned name. A record larger than the budget occupies
+one page by itself, preserving accepted settings and forward progress. The
+[CORS resource contract](slices/bucket-xml-cors.md#bounded-bucket-list-pages)
+defines retained-page admission charges, singleton capacity estimates and
+additional transient allocations in the single catalog lane. These estimates
+do not establish a 32-connection process-memory guarantee.
 Labels and time values are persisted; names never become filesystem paths.
 
 SQLite performs committed-WAL recovery while the directory lock is held. Tests cover

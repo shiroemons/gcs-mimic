@@ -1,0 +1,238 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders.
++ cargo +1.99.1 build --release --locked --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling bytes v1.12.1
+   Compiling itoa v1.0.18
+   Compiling typenum v1.20.1
+   Compiling pin-project-lite v0.2.17
+   Compiling httparse v1.10.1
+   Compiling semver v1.0.28
+   Compiling zeroize v1.9.1
+   Compiling untrusted v0.9.0
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling cc v1.9.0
+   Compiling rustc_version v0.4.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling smallvec v1.16.3
+   Compiling rustls v0.23.46
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling http v1.5.0
+   Compiling futures-core v0.3.34
+   Compiling crc32c v0.6.8
+   Compiling hybrid-array v0.4.15
+   Compiling getrandom v0.4.3
+   Compiling httpdate v1.0.3
+   Compiling subtle v2.6.1
+   Compiling atomic-waker v1.1.2
+   Compiling once_cell v1.21.4
+   Compiling serde_json v1.0.154
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling fallible-iterator v0.3.0
+   Compiling http-body v1.1.0
+   Compiling bitflags v2.13.2
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling digest v0.11.3
+   Compiling syn v3.0.9
+   Compiling md-5 v0.11.0
+   Compiling ring v0.17.14
+   Compiling libsqlite3-sys v0.38.2
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling getrandom v0.2.17
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling rustls-webpki v0.103.16
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling tokio-rustls v0.26.6
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 22.46s
+++ mktemp -d
++ native_dir=<temporary>
++ native_pid=22292
++ trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
++ ./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 --data-dir <temporary> --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temporary>
++ kill -0 22292
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temporary>
++ kill -0 22292
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temporary>
++ kill -0 22292
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temporary>
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temporary>
++ native_endpoint=http://127.0.0.1:62482
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:62482/_internal/ready
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"native-bucket"}' 'http://127.0.0.1:62482/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   391  100   367  100    24   325k  21818 --:--:-- --:--:-- --:--:--  381k
+{"etag":"\"b-1792749787518-1792749787518-1\"","id":"native-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"native-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T10:03:07.518Z","updated":"2026-10-23T10:03:07.518Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' 'http://127.0.0.1:62482/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   721  100    11  39680    605 --:--:-- --:--:-- --:--:-- 40666
+{"bucket":"native-bucket","contentType":"text/plain","crc32c":"Ust9OA==","etag":"\"o-ZCrJUVRWexgU5S840H/rJQ==-1792749787543594-1\"","generation":"1792749787543594","id":"native-bucket/hello.txt/1792749787543594","kind":"storage#object","md5Hash":"ZCrJUVRWexgU5S840H/rJQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/native-bucket/o/hello.txt?generation=1792749787543594&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket/o/hello.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-23T10:03:07.543Z","timeFinalized":"2026-10-23T10:03:07.543Z","timeStorageClassUpdated":"2026-10-23T10:03:07.543Z","updated":"2026-10-23T10:03:07.543Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:62482/storage/v1/b/native-bucket/o/hello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0   9113      0 --:--:-- --:--:-- --:--:-- 11000
++ printf 'native data'
++ cmp - <temporary>xt
+++ ./target/release/gcs-mimic url public --base-url http://127.0.0.1:62482 --bucket native-bucket --object hello.txt
++ native_public_url=http://127.0.0.1:62482/native-bucket/hello.txt
+++ curl --disable --noproxy '*' --silent --show-error --output <temporary>xml.txt --write-out '%{http_code}' http://127.0.0.1:62482/native-bucket/hello.txt
++ status=200
++ test 200 = 200
++ printf 'native data'
++ cmp - <temporary>xml.txt
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"team":"local","stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:62482/storage/v1/b/native-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   474  100   407  100    67   382k  64547 --:--:-- --:--:-- --:--:--  462k
++ jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and .metageneration == "2"' <temporary>
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:62482/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   418  100   393  100    25   435k  28376 --:--:-- --:--:-- --:--:--  408k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temporary>
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:62482/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   393  100   393    0     0   536k      0 --:--:-- --:--:-- --:--:--  383k
++ cmp <temporary> <temporary>
++ kill -TERM 22292
++ wait 22292
++ trap - EXIT
++ jq . <temporary>
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:62482",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "scheme": "http",
+  "seed": {
+    "outcome": "disabled"
+  },
+  "shutdown_timeout_ms": 5000,
+  "tls_handshake_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
++ rm -r <temporary>
+
+Native CORS guide section
+++ mktemp -d
++ cors_dir=<temporary>
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"cors-guide-bucket"}' 'http://127.0.0.1:62491/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   407  100   379  100    28   297k  22508 --:--:-- --:--:-- --:--:--  397k
+{"etag":"\"b-1792749787749-1792749787749-1\"","id":"cors-guide-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"cors-guide-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/cors-guide-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T10:03:07.749Z","updated":"2026-10-23T10:03:07.749Z"}+ curl --disable --noproxy '*' --fail --data-binary 'browser bytes' 'http://127.0.0.1:62491/upload/storage/v1/b/cors-guide-bucket/o?uploadType=media&name=example'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   765  100   752  100    13  46859    810 --:--:-- --:--:-- --:--:-- 47812
+{"bucket":"cors-guide-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"kizHgw==","etag":"\"o-3wtve99RRWhVMa3+lqptnA==-1792749787773141-1\"","generation":"1792749787773141","id":"cors-guide-bucket/example/1792749787773141","kind":"storage#object","md5Hash":"3wtve99RRWhVMa3+lqptnA==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/cors-guide-bucket/o/example?generation=1792749787773141&alt=media","metageneration":"1","name":"example","selfLink":"http://127.0.0.1:4443/storage/v1/b/cors-guide-bucket/o/example","size":"13","storageClass":"STANDARD","timeCreated":"2026-10-23T10:03:07.773Z","timeFinalized":"2026-10-23T10:03:07.773Z","timeStorageClassUpdated":"2026-10-23T10:03:07.773Z","updated":"2026-10-23T10:03:07.773Z"}+ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"cors":[{"origin":["https://app.example:443","capacitor://localhost","ionic://localhost"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Probe"],"maxAgeSeconds":0}]}' 'http://127.0.0.1:62491/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   720  100   549  100   171   496k   154k --:--:-- --:--:-- --:--:--  703k
++ jq -e '.cors[0].origin[1] == "capacitor://localhost" and .metageneration == "2"' <temporary>
+true
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -X OPTIONS -H 'Origin: https://app.example' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: x-probe' http://127.0.0.1:62491/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://app.example'
+access-control-allow-origin: https://app.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o <temporary> -H 'Origin: capacitor://localhost' http://127.0.0.1:62491/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0  12025      0 --:--:-- --:--:-- --:--:-- 13000
++ printf 'browser bytes'
++ cmp - <temporary>
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: capacitor://localhost'
+access-control-allow-origin: capacitor://localhost
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' 'http://127.0.0.1:62491/storage/v1/b/cors-guide-bucket/o/example?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0  14285      0 --:--:-- --:--:-- --:--:-- 13000
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://another.example'
+access-control-allow-origin: https://another.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' http://127.0.0.1:62491/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0  13626      0 --:--:-- --:--:-- --:--:-- 13000
++ grep -qi '^access-control-allow-origin:' <temporary>
+++ curl --disable --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"cors":[]}' 'http://127.0.0.1:62491/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
++ status=412
++ test 412 = 412
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62491/storage/v1/b/cors-guide-bucket/o/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -X DELETE http://127.0.0.1:62491/storage/v1/b/cors-guide-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ rm -r <temporary>
+
+PASS: native release guide and CORS guide section
+
+Native trusted HTTPS guide section
+++ mktemp -d
++ tls_work=<temporary>
++ cert_dir=<temporary>
++ mkdir <temporary>
++ cargo build --locked
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
++ ./target/debug/gcs-mimic tls ca
++ tls_pid=26621
++ ./target/debug/gcs-mimic serve --listen 127.0.0.1:54443 --api-base-url https://localhost:54443 --data-dir <temporary>
+++ seq 1 50
++ for attempt in '$(seq 1 50)'
++ ./target/debug/gcs-mimic healthcheck --url https://localhost:54443/_internal/ready
+error: Connection refused (os error 61)
++ sleep 0.1
++ for attempt in '$(seq 1 50)'
++ ./target/debug/gcs-mimic healthcheck --url https://localhost:54443/_internal/ready
++ break
++ bash scripts/tls-smoke.sh https://localhost:54443 <temporary>
+PASS: trusted HTTPS probes, bucket/media/XML round trip and reachable resumable Location.
++ kill -TERM 26621
++ wait 26621
+
+PASS: native trusted HTTPS guide

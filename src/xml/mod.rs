@@ -13,6 +13,9 @@ use hyper::{
 };
 use std::time::UNIX_EPOCH;
 
+mod cors;
+pub(crate) use cors::cors;
+
 pub(crate) struct ReadRequest {
     pub bucket: String,
     pub name: String,

@@ -166,7 +166,7 @@ fn iam_migrates_v5_catalog() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     drop(connection);
     let server = Server::strict(&data, &config.0.join("identities.json"));

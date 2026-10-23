@@ -86,6 +86,7 @@ impl Harness {
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
+                cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
                 updated: UNIX_EPOCH,

@@ -58,6 +58,23 @@ expect_object() {
   cmp "$work/expected" "$work/actual"
 }
 
+expect_cors() {
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/smoke-bucket" | jq -e '.cors[0].origin == ["capacitor://localhost", "https://browser.example:443"]' >/dev/null
+  for origin in capacitor://localhost https://browser.example; do
+    curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+      -D "$work/cors-headers" -o "$work/cors-bytes" -H "Origin: $origin" \
+      "http://$address/smoke-bucket/dir%2Ffile.bin"
+    cmp "$work/expected" "$work/cors-bytes"
+    tr -d '\r' < "$work/cors-headers" | grep -Fxi "access-control-allow-origin: $origin"
+  done
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -D "$work/cors-headers" -o /dev/null -X OPTIONS -H 'Origin: capacitor://localhost' \
+    -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: x-probe' \
+    "http://$address/smoke-bucket/dir%2Ffile.bin"
+  tr -d '\r' < "$work/cors-headers" | grep -Fxi 'access-control-max-age: 3600'
+}
+
 for platform in "$@"; do
   arch=${platform#linux/}
   export DOCKER_DEFAULT_PLATFORM=$platform
@@ -110,6 +127,11 @@ for platform in "$@"; do
     "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=media&name=dir%2Ffile.bin" \
     | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
   expect_object
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X PATCH \
+    -H 'Content-Type: application/json' \
+    --data '{"cors":[{"origin":["capacitor://localhost","https://browser.example:443"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Probe"]}]}' \
+    "http://$address/storage/v1/b/smoke-bucket" >/dev/null
+  expect_cors
   curl --disable --noproxy '*' --fail --silent --show-error \
     "http://$address/storage/v1/b?project=local-project" | jq -e '.items[0].name == "smoke-bucket"' >/dev/null
   expect_status POST /_internal/health 405
@@ -134,11 +156,13 @@ for platform in "$@"; do
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
   expect_object
+  expect_cors
   docker compose -p "$project" down
   docker compose -p "$project" up --detach --no-build --wait --wait-timeout 40
   address=$(docker compose -p "$project" port gcs 4443)
   expect_status GET /storage/v1/b/smoke-bucket 200
   expect_object
+  expect_cors
   expect_status DELETE '/storage/v1/b/smoke-bucket/o/dir%2Ffile.bin' 204
   expect_status GET '/storage/v1/b/smoke-bucket/o/dir%2Ffile.bin?alt=media' 404
   expect_status DELETE /storage/v1/b/smoke-bucket 204

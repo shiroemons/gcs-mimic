@@ -305,9 +305,36 @@
       "shape": {
         "type": "array"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Scoped persistent create/GET/PATCH/PUT and effective XML matching pass with validation, conditions, races and restart. Contract: docs/en/slices/cors.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        },
+        {
+          "id": "CORS-PROVIDER-EDGES",
+          "description": "Provider-exact custom/opaque-origin acceptance, error/default/null and full all-method field parity remain unverified in SPEC-CORS-EDGES.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.cors[].maxAgeSeconds",
@@ -317,9 +344,36 @@
         "type": "integer",
         "format": "int32"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Scoped persistent create/GET/PATCH/PUT and effective XML matching pass with validation, conditions, races and restart. Contract: docs/en/slices/cors.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        },
+        {
+          "id": "CORS-PROVIDER-EDGES",
+          "description": "Provider-exact custom/opaque-origin acceptance, error/default/null and full all-method field parity remain unverified in SPEC-CORS-EDGES.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.cors[].method",
@@ -328,9 +382,36 @@
       "shape": {
         "type": "array"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Scoped persistent create/GET/PATCH/PUT and effective XML matching pass with validation, conditions, races and restart. Contract: docs/en/slices/cors.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        },
+        {
+          "id": "CORS-PROVIDER-EDGES",
+          "description": "Provider-exact custom/opaque-origin acceptance, error/default/null and full all-method field parity remain unverified in SPEC-CORS-EDGES.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.cors[].origin",
@@ -339,9 +420,36 @@
       "shape": {
         "type": "array"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Scoped persistent create/GET/PATCH/PUT and effective XML matching pass with validation, conditions, races and restart. Contract: docs/en/slices/cors.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        },
+        {
+          "id": "CORS-PROVIDER-EDGES",
+          "description": "Provider-exact custom/opaque-origin acceptance, error/default/null and full all-method field parity remain unverified in SPEC-CORS-EDGES.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.cors[].responseHeader",
@@ -350,9 +458,36 @@
       "shape": {
         "type": "array"
       },
-      "status": "NOT_STARTED",
-      "acceptance_cases": [],
-      "verification": []
+      "status": "PARTIAL",
+      "acceptance_cases": [
+        {
+          "id": "CORS-CONFIGURATION",
+          "description": "Scoped persistent create/GET/PATCH/PUT and effective XML matching pass with validation, conditions, races and restart. Contract: docs/en/slices/cors.md.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        },
+        {
+          "id": "CORS-PROVIDER-EDGES",
+          "description": "Provider-exact custom/opaque-origin acceptance, error/default/null and full all-method field parity remain unverified in SPEC-CORS-EDGES.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/cors-checks.txt",
+          "test_ids": [
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_malformed_input_preserves_entire_resource"
+          ]
+        }
+      ]
     },
     {
       "id": "FIELD:Bucket.customPlacementConfig",

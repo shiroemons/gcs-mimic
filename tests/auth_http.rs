@@ -6,6 +6,9 @@ mod iam;
 #[path = "auth_http/xml.rs"]
 mod xml;
 
+#[path = "auth_http/cors.rs"]
+mod cors;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{
