@@ -27,6 +27,7 @@ pub struct ObjectGetParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
+    Copy(super::ObjectCopyParams),
     List(super::ObjectListParams),
     Update {
         bucket: String,
@@ -73,6 +74,9 @@ pub fn route_object_with_profile(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
+    if let Some(operation) = super::object_copy::route(method, uri, profile) {
+        return Some(operation);
+    }
     let (path, upload, download) =
         if let Some(path) = uri.path().strip_prefix("/upload/storage/v1/b/") {
             (path, true, false)
@@ -363,7 +367,10 @@ fn parse_object_query(
     }
 }
 
-fn integer(query: &mut BTreeMap<String, String>, key: &str) -> Result<Option<i64>, JsonError> {
+pub(super) fn integer(
+    query: &mut BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<i64>, JsonError> {
     query
         .remove(key)
         .map(|value| {

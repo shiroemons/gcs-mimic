@@ -53,6 +53,8 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[path = "server/copy.rs"]
+mod copy;
 #[path = "server/resumable.rs"]
 mod resumable;
 #[path = "server/rewrite.rs"]
@@ -244,6 +246,7 @@ async fn respond(
                 &parsed,
                 Ok((
                     ObjectRequest::Insert { .. }
+                        | ObjectRequest::Copy(_)
                         | ObjectRequest::Multipart { .. }
                         | ObjectRequest::Resumable { .. },
                     _
@@ -421,6 +424,7 @@ async fn object_response(
     };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
+        ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
         ObjectRequest::Insert { bucket, .. }
@@ -444,6 +448,7 @@ async fn object_response(
             | ObjectRequest::Multipart { .. }
             | ObjectRequest::Resumable { .. }
             | ObjectRequest::Update { .. }
+            | ObjectRequest::Copy(_)
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -455,6 +460,73 @@ async fn object_response(
         ));
     }
     let mut value = match operation {
+        ObjectRequest::Copy(params) => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            for name in [
+                "content-md5",
+                "x-goog-hash",
+                "range",
+                "if-range",
+                "if-modified-since",
+                "if-unmodified-since",
+                "x-goog-gcs-idempotency-token",
+            ] {
+                if request.headers().contains_key(name) {
+                    return Err(JsonError::unsupported_object(name));
+                }
+            }
+            let source_access =
+                authorize_bucket(state, caller, auth::OBJECTS_GET, &params.source_bucket).await?;
+            let source = state
+                .catalog
+                .resolve_derived_source(
+                    &params.source_bucket,
+                    &params.source_name,
+                    params.source_generation,
+                    params.source_conditions,
+                    &source_access,
+                )
+                .await?;
+            let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            let (metadata, storage_class, expected) =
+                json::derived_metadata(&bytes, &source.object)?;
+            let source_location = if source.object.component_count.is_some() {
+                Some(
+                    state
+                        .catalog
+                        .get_bucket(&params.source_bucket)
+                        .await?
+                        .ok_or(ObjectError::BucketNotFound)?
+                        .location,
+                )
+            } else {
+                None
+            };
+            let projection = params.projection;
+            let record = copy::execute(
+                &state.catalog,
+                source,
+                crate::storage::DerivedDestination {
+                    bucket: params.bucket,
+                    name: params.name,
+                    content_type: String::new(),
+                    metadata,
+                    storage_class,
+                    expected,
+                    conditions: params.conditions,
+                    access,
+                    component_count: None,
+                },
+                source_location,
+                config,
+                deadline,
+                activity,
+                #[cfg(test)]
+                None,
+            )
+            .await?;
+            json::object_resource(&record, &state.api_base_url, projection)?
+        }
         ObjectRequest::Resumable {
             bucket,
             name,
