@@ -96,6 +96,8 @@ remain explicit unsupported cases. Composite sources retain component count in
 the same location/class or reset it to one when either changes, using the shared
 helper. Ordinary objects never gain component count. Composite resources omit
 MD5 and retain CRC32C.
+The publication transaction computes component count from its actual destination
+class/location, including a bucket default class changed between continuation calls.
 An active source event hold permits reading; a protected destination cannot
 be replaced. Destination versioning archives its old live generation exactly
 once. Rewriting onto the same name must retain the original pinned bytes and
@@ -156,11 +158,14 @@ Logical state is active after creation/checkpoints and complete atomically with
 destination publication. Quarantined or destructively cancelled transfers
 remove their active protocol row. A terminal source identity/precondition failure
 removes its staged blob, input pins and protocol row; retry then fails 410.
-Revoked source read/create grants can be restored without discarding progress.
+Grants revoked before adapter/source checks can be restored without discarding
+progress. A permission failure inside publication uses the shared terminal cleanup
+and discards progress, including revocation in the narrow check-to-publish window.
 Sessions expire
 after a fixed 604800 seconds from creation, including at deadline equality;
 calls do not renew the deadline. Limit active sessions to 128 and separately
-cache at most 128 completed responses, evicting the oldest completion when full.
+cache at most 128 completed responses, evicting the earliest-created session
+(ordered by its deadline and ID) when full, excluding the current completion.
 Eviction makes that completed token unavailable without changing its destination.
 Use the
 existing eight-stream admission budget and exclusive per-session writer guard.
@@ -203,11 +208,21 @@ unless separately implemented and tested; no unbounded token history.
 Extend the existing injected-clock/next-deadline maintenance scheduler. Query
 bounded pages, wake on session creation/checkpoint/expiry, and sleep only until
 the next deadline; no periodic scan when idle. Skip a busy expired session,
-continue reclaiming other expired sessions and retry the busy one after one second.
+continue reclaiming other expired sessions and return only future deadlines.
+Releasing a rewrite writer wakes maintenance, so no periodic busy retry is needed.
 Journal failed physical cleanup
 with pending blob deletions and retry on a bounded deadline. Recovery runs
 before generic orphan scans, so active stages survive restart. Completed
 destination blobs remain protected by catalog references.
+
+The initial cancellation owner is in memory. A crash or shutdown between durable
+session creation and handing off its first response can leave an unreachable token
+and active state until the fixed expiry. The 128 active rewrite limit shares the
+same 128-transfer pool with copy/compose and does not reserve them capacity;
+abandoned rewrites can exhaust that pool. The rewrite-specific count check is
+redundant with the earlier shared admission bound. Completed-cache eviction uses
+creation order, so a long-running old session can lose its recently finished
+replay on the next completion. These are explicit bounded local limitations.
 
 ## Required verification and unresolved questions
 

@@ -5,7 +5,7 @@
 Checked on **2026-10-23**. The [contract](../slices/object-rewrite.md) extends the
 frozen basic JSON profile for `JSON-OBJECTS-012` and `BEHAVIOR-OBJECT-024`.
 Implementation and state-boundary fixes are commit
-`59cd42866dddd44817148068c1c65421f323a257`.
+`851aca26677a24582e83360f42f53de72360f0a2`.
 The [ledger](../../../compatibility/features.json) remains authoritative.
 
 ## Executed checks
@@ -14,7 +14,7 @@ The [ledger](../../../compatibility/features.json) remains authoritative.
 | --- | --- | --- |
 | `cargo fmt --all --check` | PASS | [Rust checks](object-rewrite-checks.txt) |
 | `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS | [Rust checks](object-rewrite-checks.txt) |
-| `cargo test --workspace --locked --offline` | PASS, 514 tests, including 22 rewrite wire cases | [Full Rust output](object-rewrite-checks.txt) |
+| `cargo test --workspace --locked --offline` | PASS, 532 tests, including 24 rewrite wire cases | [Full Rust output](object-rewrite-checks.txt) |
 | `GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh` | PASS, all four Copier subcases | [Pinned Go output](object-rewrite-sdk-go.txt) |
 
 `cargo xtask compatibility render` and `cargo xtask compatibility check` pass
@@ -45,12 +45,15 @@ No Google credentials, cloud buckets or metadata-server access are used.
 - Exactly one destination publication; completion resource and destination commit
   together. Replaying the terminal token after a later overwrite preserves the
   original response and does not create another generation. Recreated buckets
-  cannot reuse an old replay record.
+  cannot reuse an old replay record; a failed progress replay releases its active
+  session, transfer, input pins and staged bytes before returning 412, then 410.
 - All eight conditions, create-if-absent races, source overwrite/deletion/metadata
   changes and explicit retained source generation. Strict source read, destination
   create/delete, cross-bucket grant revocation/regrant and destination/source hold
   behavior are tested. Composite fixtures preserve component count in the same
   class/location or reset it to one when changed, with CRC32C and no MD5 resource field.
+  A deterministic between-call bucket default change proves component count uses
+  the class selected by the publication transaction, for both preserve/reset outcomes.
 - Mid-rewrite graceful restart and process kill retain acknowledged bytes.
   Recovery removes unacknowledged tails. Missing, short and same-length corrupted
   acknowledged output is quarantined; the token fails 410 and the old destination
@@ -60,7 +63,9 @@ No Google credentials, cloud buckets or metadata-server access are used.
   128-record limit. The completed cache evicts old responses without rejecting
   further rewrites. Expiry removes session/transfer/input state while preserving
   live objects; startup never journals a completed destination for deletion.
-  Busy expiry skips the writer and cleans other due sessions. The existing idle
+  Busy expiry skips the writer and cleans other due sessions. It schedules no
+  polling deadline; writer release notifies maintenance, as pinned by the test.
+  The existing idle
   scheduler and blocked-seed readiness regressions pass unchanged.
 - A 16 MiB+17 rewrite completes with a 1 ms catalog wait setting, even though
   streaming takes longer than that setting. A blocked initial transaction and
@@ -95,3 +100,15 @@ process and state boundaries only; hard-link support on the data filesystem is
 required by the shared derivation foundation. RPC, batch and enrichment rewrite
 feature rows are unchanged. The next independent delivery slice is object compose;
 the integrated gate remains owned by the coordinator.
+
+Known local limitations retained after review:
+
+- An initial session whose response is not delivered before a crash/shutdown can
+  occupy a slot until expiry; the live cancellation owner has no durable delivered marker.
+- Completed-cache eviction follows session creation deadline/ID rather than finish
+  time. A recently finished old session can therefore lose replay on the next completion.
+- The active rewrite bound shares the 128-transfer pool with copy/compose, with no
+  reserved capacity; abandoned rewrites can prevent their admission until cleanup.
+- A publish-time 403 discards progress under shared terminal cleanup. Grants revoked
+  before adapter/source checks remain retryable, but revocation in the narrow
+  check-to-publication window can require starting a new rewrite after restoration.
