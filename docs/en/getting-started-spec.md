@@ -6,6 +6,15 @@
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
+The current object walkthrough selects `name,size` from metadata and
+`items(name),nextPageToken` from listing, captures the HTTP ETag header, requires
+a bodyless 304 for matching If-None-Match and an unfiltered 412 error for stale
+If-Match. Run those blocks natively and with Compose, then repeat the conditional
+read after restart. Use the header rather than assuming equality with the legacy
+bucket JSON etag. Policy GET and combined query conditions also support ETag
+validators. Unsupported selector edges and write/list/date/If-Range validators
+remain explicit in the slice contracts.
+
 The current bucket IAM walkthrough must run continuously after strict object
 setup, using the same endpoint, temporary directory and fixture tokens. It must:
 
