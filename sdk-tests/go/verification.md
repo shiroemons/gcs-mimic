@@ -64,6 +64,10 @@ The committed reference assertions require:
 - An explicit post-upload GET baseline isolates upload behavior from PUT,
   including any backend-specific metadata changes during fixture creation.
 
+The [final bucket PUT evidence](../../docs/en/evidence/bucket-metadata-put.md)
+records the executed full SDK suite and comparison, source pins, raw logs and
+the remaining dependency-freshness and provider-parity limits.
+
 The reference has no successful PUT and therefore provides no omitted-field or
 null-scalar replacement contract. This section describes committed coverage,
 not execution on an uncommitted tree. Final SDK and comparison results, exact

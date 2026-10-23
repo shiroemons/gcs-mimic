@@ -1,0 +1,467 @@
+Local checkout, home and temporary path prefixes are replaced with <checkout>, <user-home> and <temp>; other output is unchanged.
+Commands: unchanged getting-started native and shared create/PATCH/PUT blocks; Docker startup reuses the final smoke image, pins the advertised host port and compares the resource after stop/start.
++ cargo +1.99.1 build --release --locked --bin gcs-mimic
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling bytes v1.12.1
+   Compiling itoa v1.0.18
+   Compiling typenum v1.20.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling httparse v1.10.1
+   Compiling semver v1.0.28
+   Compiling pin-project-lite v0.2.17
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling cc v1.9.0
+   Compiling zmij v1.0.23
+   Compiling serde_core v1.0.229
+   Compiling rustc_version v0.4.1
+   Compiling futures-core v0.3.34
+   Compiling smallvec v1.16.3
+   Compiling atomic-waker v1.1.2
+   Compiling getrandom v0.4.3
+   Compiling cfg-if v1.0.5
+   Compiling crc32c v0.6.8
+   Compiling serde_json v1.0.154
+   Compiling http v1.5.0
+   Compiling httpdate v1.0.3
+   Compiling hybrid-array v0.4.15
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.2
+   Compiling memchr v2.8.3
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling http-body v1.1.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling syn v3.0.9
+   Compiling errno v0.3.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling digest v0.11.3
+   Compiling md-5 v0.11.0
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.54.1
+   Compiling hyper v1.12.0
+   Compiling http-body-util v0.1.5
+   Compiling hyper-util v0.1.21
+   Compiling rusqlite v0.40.2
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 18.19s
+++ mktemp -d
++ native_dir=<temp>/tmp.THHpMb5t4g
++ native_pid=11160
++ trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.THHpMb5t4g/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.THHpMb5t4g/server.log
++ kill -0 11160
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.THHpMb5t4g/server.log
++ kill -0 11160
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.THHpMb5t4g/server.log
++ kill -0 11160
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.THHpMb5t4g/server.log
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temp>/tmp.THHpMb5t4g/server.log
++ native_endpoint=http://127.0.0.1:63475
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:63475/_internal/ready
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"native-bucket"}' 'http://127.0.0.1:63475/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   391  100   367  100    24   254k  17021 --:--:-- --:--:-- --:--:--  381k
+{"etag":"\"b-1792715268849-1792715268849-1\"","id":"native-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"native-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:27:48.849Z","updated":"2026-10-23T00:27:48.849Z"}+ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' --data-binary 'native data' 'http://127.0.0.1:63475/upload/storage/v1/b/native-bucket/o?uploadType=media&name=hello.txt'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   732  100   721  100    11  46648    711 --:--:-- --:--:-- --:--:-- 48800
+{"bucket":"native-bucket","contentType":"text/plain","crc32c":"Ust9OA==","etag":"\"o-ZCrJUVRWexgU5S840H/rJQ==-1792715268871788-1\"","generation":"1792715268871788","id":"native-bucket/hello.txt/1792715268871788","kind":"storage#object","md5Hash":"ZCrJUVRWexgU5S840H/rJQ==","mediaLink":"http://127.0.0.1:4443/download/storage/v1/b/native-bucket/o/hello.txt?generation=1792715268871788&alt=media","metageneration":"1","name":"hello.txt","selfLink":"http://127.0.0.1:4443/storage/v1/b/native-bucket/o/hello.txt","size":"11","storageClass":"STANDARD","timeCreated":"2026-10-23T00:27:48.871Z","timeFinalized":"2026-10-23T00:27:48.871Z","timeStorageClassUpdated":"2026-10-23T00:27:48.871Z","updated":"2026-10-23T00:27:48.871Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:63475/storage/v1/b/native-bucket/o/hello.txt?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    11  100    11    0     0  13064      0 --:--:-- --:--:-- --:--:-- 11000
++ printf 'native data'
++ cmp - <temp>/tmp.THHpMb5t4g/download.txt
+++ ./target/release/gcs-mimic url public --base-url http://127.0.0.1:63475 --bucket native-bucket --object hello.txt
++ native_public_url=http://127.0.0.1:63475/native-bucket/hello.txt
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.THHpMb5t4g/xml.txt --write-out '%{http_code}' http://127.0.0.1:63475/native-bucket/hello.txt
++ status=200
++ test 200 = 200
++ printf 'native data'
++ cmp - <temp>/tmp.THHpMb5t4g/xml.txt
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"team":"local","stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:63475/storage/v1/b/native-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   474  100   407  100    67   472k  79572 --:--:-- --:--:-- --:--:--  462k
++ jq -e '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and .metageneration == "2"' <temp>/tmp.THHpMb5t4g/patched.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:63475/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   418  100   393  100    25   461k  30048 --:--:-- --:--:-- --:--:--  408k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.THHpMb5t4g/removed.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:63475/storage/v1/b/native-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   393  100   393    0     0   489k      0 --:--:-- --:--:-- --:--:--  383k
++ cmp <temp>/tmp.THHpMb5t4g/removed.json <temp>/tmp.THHpMb5t4g/after.json
++ kill -TERM 11160
++ wait 11160
++ trap - EXIT
++ jq . <temp>/tmp.THHpMb5t4g/server.log
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:63475",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "seed": {
+    "outcome": "disabled"
+  },
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
++ rm -r <temp>/tmp.THHpMb5t4g
+++ mktemp -d
++ native_dir=<temp>/tmp.ValDPG3nNa
++ native_pid=12773
++ trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.ValDPG3nNa/data --api-base-url http://127.0.0.1:4443
+++ seq 1 100
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.ValDPG3nNa/server.log
++ kill -0 12773
++ sleep 0.1
++ for attempt in '$(seq 1 100)'
++ jq -e 'select(.event == "ready")' <temp>/tmp.ValDPG3nNa/server.log
++ break
+++ jq -r 'select(.event == "ready") | .listen' <temp>/tmp.ValDPG3nNa/server.log
++ export endpoint=http://127.0.0.1:63555
++ endpoint=http://127.0.0.1:63555
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:63555/_internal/ready
++ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Create, inspect, list and delete buckets' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:63555/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64   336k  56990 --:--:-- --:--:-- --:--:--  440k
+{"etag":"\"b-1792715303089-1792715303089-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:28:23.089Z","updated":"2026-10-23T00:28:23.089Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   297k      0 --:--:-- --:--:-- --:--:--  377k
+{"etag":"\"b-1792715303089-1792715303089-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:28:23.089Z","updated":"2026-10-23T00:28:23.089Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:63555/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   437k      0 --:--:-- --:--:-- --:--:--  414k
+{"items":[{"etag":"\"b-1792715303089-1792715303089-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:28:23.089Z","updated":"2026-10-23T00:28:23.089Z"}],"kind":"storage#buckets"}+ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Patch bucket labels and default storage class' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ patch_dir=<temp>/tmp.ZIKHx3CEsZ
++ curl --disable --noproxy '*' --fail http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   467k      0 --:--:-- --:--:-- --:--:--  377k
+++ jq -er .metageneration <temp>/tmp.ZIKHx3CEsZ/before.json
++ patch_revision=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:63555/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   453  100   401  100    52   335k  44558 --:--:-- --:--:-- --:--:--  442k
++ jq -e --argjson prior 1 '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.ZIKHx3CEsZ/merged.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   412  100   387  100    25   367k  24295 --:--:-- --:--:-- --:--:--  402k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.ZIKHx3CEsZ/removed.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.ZIKHx3CEsZ/stale.json -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:63555/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
++ patch_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.ZIKHx3CEsZ/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   452k      0 --:--:-- --:--:-- --:--:--  377k
++ cmp <temp>/tmp.ZIKHx3CEsZ/removed.json <temp>/tmp.ZIKHx3CEsZ/after.json
++ rm -r <temp>/tmp.ZIKHx3CEsZ
++ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Replace bucket labels and default storage class' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ put_dir=<temp>/tmp.dnDzjOG36k
++ curl --disable --noproxy '*' --fail http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   445k      0 --:--:-- --:--:-- --:--:--  377k
+++ jq -er .metageneration <temp>/tmp.dnDzjOG36k/before.json
++ put_revision=3
++ curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"replacement"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}' 'http://127.0.0.1:63555/storage/v1/b/demo-bucket?ifMetagenerationMatch=3'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   572  100   453  100   119   412k   108k --:--:-- --:--:-- --:--:--  558k
++ jq -e --argjson prior 3 '.labels == {"stage":"replacement"} and .storageClass == "COLDLINE" and .versioning.enabled and .defaultEventBasedHold and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.dnDzjOG36k/replaced.json
+true
++ curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   363  100   361  100     2   347k   1972 --:--:-- --:--:-- --:--:--  354k
++ jq -e '(.labels // {}) == {} and .storageClass == "STANDARD" and (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false' <temp>/tmp.dnDzjOG36k/reset.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.dnDzjOG36k/stale.json -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:63555/storage/v1/b/demo-bucket?ifMetagenerationMatch=3'
++ put_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.dnDzjOG36k/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:63555/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   361  100   361    0     0   455k      0 --:--:-- --:--:-- --:--:--  352k
++ cmp <temp>/tmp.dnDzjOG36k/reset.json <temp>/tmp.dnDzjOG36k/after.json
++ rm -r <temp>/tmp.dnDzjOG36k
++ printf 'PASS: guide-bucket-patch-native and guide-bucket-put-native; unchanged shared create/PATCH/PUT blocks, stale 412 and GET equality\n'
+PASS: guide-bucket-patch-native and guide-bucket-put-native; unchanged shared create/PATCH/PUT blocks, stale 412 and GET equality
++ kill -TERM 12773
++ wait 12773
++ trap - EXIT
++ jq . <temp>/tmp.ValDPG3nNa/server.log
+{
+  "auth_mode": "permissive",
+  "catalog_wait_timeout_ms": 30000,
+  "connection_timeout_ms": 5000,
+  "event": "ready",
+  "gcs_api": "json-bucket-object-media-crud",
+  "listen": "127.0.0.1:63555",
+  "max_blocking_threads": 2,
+  "max_connections": 32,
+  "max_object_bytes": 1073741824,
+  "object_request_timeout_ms": 900000,
+  "protocol": "http1",
+  "seed": {
+    "outcome": "disabled"
+  },
+  "shutdown_timeout_ms": 5000,
+  "worker_threads": 2
+}
+{
+  "event": "stopped"
+}
++ rm -r <temp>/tmp.ValDPG3nNa
++ export COMPOSE_PROJECT_NAME=gcs-mimic-put-guide-23899
++ COMPOSE_PROJECT_NAME=gcs-mimic-put-guide-23899
+++ awk '/naming to .*gcs-mimic:bucket-smoke-arm64-/ {print $5}' <temp>/bucket-metadata-put-containers.raw
+++ sed 's|docker.io/library/||'
++ export GCS_MIMIC_IMAGE=done
++ GCS_MIMIC_IMAGE=done
++ test -n done
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ trap cleanup EXIT
++ printf 'Docker guide reuses the ARM64 image built once by just check-containers; no additional image build.\n'
+Docker guide reuses the ARM64 image built once by just check-containers; no additional image build.
++ docker image inspect --format '{{.Id}} {{json .RepoDigests}} {{.Os}}/{{.Architecture}}' done
+
+Error response from daemon: No such image: done:latest
++ cleanup
++ status=1
++ trap - EXIT
++ docker compose down --volumes
++ exit 1
++ export COMPOSE_PROJECT_NAME=gcs-mimic-put-guide-25648
++ COMPOSE_PROJECT_NAME=gcs-mimic-put-guide-25648
+++ awk '/naming to .*gcs-mimic:bucket-smoke-arm64-/ {print $4}' <temp>/bucket-metadata-put-containers.raw
+++ sed 's|docker.io/library/||'
++ export GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-11644
++ GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-11644
++ [[ gcs-mimic:bucket-smoke-arm64-11644 == gcs-mimic:bucket-smoke-arm64-* ]]
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ trap cleanup EXIT
++ printf 'Docker guide reuses the ARM64 image built once by just check-containers; no additional image build.\n'
+Docker guide reuses the ARM64 image built once by just check-containers; no additional image build.
++ docker image inspect --format '{{.Id}} {{json .RepoDigests}} {{.Os}}/{{.Architecture}}' gcs-mimic:bucket-smoke-arm64-11644
+sha256:212913c74e405ea97e62ccf03f8b160b70f96f63da4b4af4c64114447585d870 ["gcs-mimic@sha256:212913c74e405ea97e62ccf03f8b160b70f96f63da4b4af4c64114447585d870"] linux/arm64
++ docker compose config --quiet
++ docker compose up -d --wait
+ Network gcs-mimic-put-guide-25648_default Creating 
+ Network gcs-mimic-put-guide-25648_default Creating 
+ Volume gcs-mimic-put-guide-25648_gcs-data Creating 
+ Volume gcs-mimic-put-guide-25648_gcs-data Creating 
+ Volume gcs-mimic-put-guide-25648_gcs-data Created 
+ Volume gcs-mimic-put-guide-25648_gcs-data Created 
+ Network gcs-mimic-put-guide-25648_default Created 
+ Network gcs-mimic-put-guide-25648_default Created 
+ Container gcs-mimic-put-guide-25648-gcs-1 Creating 
+ Container gcs-mimic-put-guide-25648-gcs-1 Created 
+ Container gcs-mimic-put-guide-25648-gcs-1 Starting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Started 
+ Container gcs-mimic-put-guide-25648-gcs-1 Waiting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55336
++ export endpoint=http://127.0.0.1:55336
++ endpoint=http://127.0.0.1:55336
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/_internal/health
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  26517      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792715541}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/_internal/ready
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  29571      0 --:--:-- --:--:-- --:--:-- 38000
+{"status":"ok","unix_time":1792715541}+ export GCS_MIMIC_PORT=55336
++ GCS_MIMIC_PORT=55336
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55336
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55336
++ docker compose up -d --wait
+ Container gcs-mimic-put-guide-25648-gcs-1 Recreate 
+ Container gcs-mimic-put-guide-25648-gcs-1 Recreated 
+ Container gcs-mimic-put-guide-25648-gcs-1 Starting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Started 
+ Container gcs-mimic-put-guide-25648-gcs-1 Waiting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Healthy 
++ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Create, inspect, list and delete buckets' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55336/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64   123k  20853 --:--:-- --:--:-- --:--:--  147k
+{"etag":"\"b-1792715543677-1792715543677-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55336/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:32:23.677Z","updated":"2026-10-23T00:32:23.677Z"}+ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   290k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792715543677-1792715543677-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55336/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:32:23.677Z","updated":"2026-10-23T00:32:23.677Z"}+ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55336/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0   293k      0 --:--:-- --:--:-- --:--:--  415k
+{"items":[{"etag":"\"b-1792715543677-1792715543677-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55336/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T00:32:23.677Z","updated":"2026-10-23T00:32:23.677Z"}],"kind":"storage#buckets"}+ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Patch bucket labels and default storage class' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ patch_dir=<temp>/tmp.mlA21GK502
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   241k      0 --:--:-- --:--:-- --:--:--  378k
+++ jq -er .metageneration <temp>/tmp.mlA21GK502/before.json
++ patch_revision=1
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"dev"},"storageClass":"NEARLINE"}' 'http://127.0.0.1:55336/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   454  100   402  100    52   191k  25341 --:--:-- --:--:-- --:--:--  221k
++ jq -e --argjson prior 1 '.labels == {"team":"local","stage":"dev"} and .storageClass == "NEARLINE" and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.mlA21GK502/merged.json
+true
++ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":null}}' http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   413  100   388  100    25   171k  11337 --:--:-- --:--:-- --:--:--  201k
++ jq -e '.labels == {"team":"local"} and .storageClass == "NEARLINE"' <temp>/tmp.mlA21GK502/removed.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.mlA21GK502/stale.json -w '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:55336/storage/v1/b/demo-bucket?ifMetagenerationMatch=1'
++ patch_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.mlA21GK502/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   249k      0 --:--:-- --:--:-- --:--:--  378k
++ cmp <temp>/tmp.mlA21GK502/removed.json <temp>/tmp.mlA21GK502/after.json
++ rm -r <temp>/tmp.mlA21GK502
++ for section in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Patch bucket labels and default storage class'\''' ''\''## Replace bucket labels and default storage class'\'''
++ awk -v 'section=## Replace bucket labels and default storage class' '$0 == section {selected=1; next} selected && /^```sh$/ {capture=1; next} capture && /^```$/ {exit} capture {print}' docs/en/getting-started.md
++ bash -euxo pipefail
+++ mktemp -d
++ put_dir=<temp>/tmp.V9CVAYLzpV
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   232k      0 --:--:-- --:--:-- --:--:--  378k
+++ jq -er .metageneration <temp>/tmp.V9CVAYLzpV/before.json
++ put_revision=3
++ curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"replacement"},"storageClass":"COLDLINE","versioning":{"enabled":true},"defaultEventBasedHold":true}' 'http://127.0.0.1:55336/storage/v1/b/demo-bucket?ifMetagenerationMatch=3'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   573  100   454  100   119   211k  56639 --:--:-- --:--:-- --:--:--  279k
++ jq -e --argjson prior 3 '.labels == {"stage":"replacement"} and .storageClass == "COLDLINE" and .versioning.enabled and .defaultEventBasedHold and (.metageneration | tonumber) == $prior + 1' <temp>/tmp.V9CVAYLzpV/replaced.json
+true
++ curl --disable --noproxy '*' --fail -X PUT -H 'Content-Type: application/json' --data '{}' http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   364  100   362  100     2   181k   1025 --:--:-- --:--:-- --:--:--  355k
++ jq -e '(.labels // {}) == {} and .storageClass == "STANDARD" and (.versioning.enabled // false) == false and (.defaultEventBasedHold // false) == false' <temp>/tmp.V9CVAYLzpV/reset.json
+true
+++ curl --disable --noproxy '*' --silent --show-error -o <temp>/tmp.V9CVAYLzpV/stale.json -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data '{"labels":{"stage":"stale"}}' 'http://127.0.0.1:55336/storage/v1/b/demo-bucket?ifMetagenerationMatch=3'
++ put_status=412
++ test 412 = 412
++ jq -e '.error.errors[0].reason == "conditionNotMet"' <temp>/tmp.V9CVAYLzpV/stale.json
+true
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   362  100   362    0     0   280k      0 --:--:-- --:--:-- --:--:--  353k
++ cmp <temp>/tmp.V9CVAYLzpV/reset.json <temp>/tmp.V9CVAYLzpV/after.json
++ rm -r <temp>/tmp.V9CVAYLzpV
+++ mktemp -d
++ restart_dir=<temp>/tmp.9X3vc1u2N6
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   362  100   362    0     0   276k      0 --:--:-- --:--:-- --:--:--  353k
++ docker compose stop
+ Container gcs-mimic-put-guide-25648-gcs-1 Stopping 
+ Container gcs-mimic-put-guide-25648-gcs-1 Stopped 
++ docker compose start --wait
+ Container gcs-mimic-put-guide-25648-gcs-1 Starting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Started 
+ Container gcs-mimic-put-guide-25648-gcs-1 Waiting 
+ Container gcs-mimic-put-guide-25648-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55336
++ test http://127.0.0.1:55336 = http://127.0.0.1:55336
++ curl --disable --noproxy '*' --fail http://127.0.0.1:55336/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   362  100   362    0     0   214k      0 --:--:-- --:--:-- --:--:--  353k
++ cmp <temp>/tmp.9X3vc1u2N6/before.json <temp>/tmp.9X3vc1u2N6/after.json
++ printf 'PASS: guide-bucket-patch-container and guide-bucket-put-container; unchanged shared create/PATCH/PUT blocks, stale 412, GET equality and Docker restart resource equality\n'
+PASS: guide-bucket-patch-container and guide-bucket-put-container; unchanged shared create/PATCH/PUT blocks, stale 412, GET equality and Docker restart resource equality
++ rm -r <temp>/tmp.9X3vc1u2N6
++ cleanup
++ status=0
++ trap - EXIT
++ docker compose down --volumes
+ Container gcs-mimic-put-guide-25648-gcs-1 Stopping 
+ Container gcs-mimic-put-guide-25648-gcs-1 Stopped 
+ Container gcs-mimic-put-guide-25648-gcs-1 Removing 
+ Container gcs-mimic-put-guide-25648-gcs-1 Removed 
+ Network gcs-mimic-put-guide-25648_default Removing 
+ Volume gcs-mimic-put-guide-25648_gcs-data Removing 
+ Volume gcs-mimic-put-guide-25648_gcs-data Removed 
+ Network gcs-mimic-put-guide-25648_default Removed 
++ exit 0
+
+Final command exit status: 0
