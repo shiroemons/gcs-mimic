@@ -265,8 +265,12 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), request.headers(), config)
-    {
+    // CORS and unauthenticated preflight depend on the resource, not signed query validity.
+    let cors_uri = hyper::Uri::builder()
+        .path_and_query(request.uri().path())
+        .build()
+        .unwrap();
+    if let Some(Ok(operation)) = xml::route(&Method::GET, &cors_uri, request.headers(), config) {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;
         let cors = if has_origin {
