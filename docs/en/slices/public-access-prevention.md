@@ -186,7 +186,8 @@ Expected PATCH status is 200 with configured PAP `enforced`; anonymous GET is
 401; signed GET returns exact input bytes; signed PUT is empty 200; changed
 signature is 403 `SignatureDoesNotMatch`. The final line above is the only
 explicit success output. Keep PAP enforced across restart and freshly sign the
-new endpoint. These shell commands have **not** been executed in this worker;
-Rust wire/Go evidence covers their API behavior. UX-006 stays PARTIAL until the
-integrator copies and executes the guide block on the final native/container
-source. No container builds or guide walkthrough are claimed here.
+new endpoint. These commands are now included in the runnable guide. The final
+native/source-image and strict-Compose execution, public-policy preservation,
+disable/reactivation and virtual-host interactions are recorded in the
+[combined evidence](../evidence/signed-urls.md). The original feature evidence
+remains wire/Go-only; final container and guide claims belong to that integrated set.

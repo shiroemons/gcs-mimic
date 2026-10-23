@@ -9,11 +9,12 @@ prefix/delimiter/paged listing, whole-object and single-range download and delet
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
-V4 RSA query signatures and bounded path-style XML PUT are implemented in the
+V4 RSA query signatures, bounded XML PUT, opt-in virtual hosts, response overrides
+and public access prevention are implemented in the
 [signed private transfer journey](#signed-private-downloads-and-uploads).
 If-Range, transcoding, object IAM, testIamPermissions,
-conditional policies, ACLs, virtual-host routing, XML listing,
-UBLA/PAP settings remain unavailable. JSON defaults and bucket-configured XML-read
+conditional policies, ACLs, XML listing and UBLA transitions remain unavailable.
+JSON defaults and bucket-configured XML-read
 CORS are available; see the browser journey below. HTTPS is the default listener mode;
 HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
 explicit client CA trust, as shown in the standalone HTTPS journey below.
@@ -1503,8 +1504,9 @@ Revocation affects new requests; it cannot recall bytes already downloaded or
 cached, and an already-open read may finish. XML GET supports one stored-byte
 range (206/416); HEAD remains 200 for a satisfiable range with Content-Range.
 Unsupported XML inputs/operations return 501. V4 RSA query signatures support
-private GET/HEAD and bounded PUT in the standalone signed-URL journey below. ACLs,
-UBLA/PAP settings and virtual-host routing remain outside this subset.
+private GET/HEAD and bounded PUT in the standalone signed-URL journey below,
+which also covers opt-in virtual hosts and PAP. ACLs and UBLA transitions remain
+outside the supported scope.
 
 ### Strict SDK tests and cleanup
 
@@ -1552,8 +1554,9 @@ the pinned predefined `roles/storage.*` snapshot on JSON bucket/object and XML r
 User and service-account members match registry IDs exactly. Conditions,
 custom/basic roles and group/domain/federated/deleted principals are
 unsupported (501); malformed members or unknown roles return 400. Object IAM,
-`testIamPermissions`, ACLs, HMAC, XML listing and UBLA/PAP
-settings are unavailable. `allUsers` includes anonymous and registered callers;
+`testIamPermissions`, ACLs, HMAC, XML listing and UBLA transitions are unavailable.
+PAP suppresses public grants without removing stored bindings, while explicit
+signer grants still work. `allUsers` includes anonymous and registered callers;
 `allAuthenticatedUsers` requires a registered identity. An invalid token never
 falls back to anonymous access, even for a public object.
 Unknown routes return 404 and `/_internal` probes stay unauthenticated. The
@@ -1575,8 +1578,26 @@ unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
 This standalone journey needs Bash, curl, jq and OpenSSL. Run it from the repository
 root. It uses a disposable strict registry/catalog and a local RSA key; it never
 calls Google IAM. The server receives only the public key. Native and source-built
-Docker paths run the same private GET/PUT and failure checks. HTTPS clients must
-add the exported CA shown above.
+Docker paths run the same private GET/PUT, response overrides, virtual-host and
+PAP checks. HTTPS clients must add the exported CA shown above.
+
+Virtual-host routing is disabled by default. This journey enables the explicit
+`localhost` suffix with `--xml-virtual-host-domains localhost` natively and
+`GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS: localhost` in Compose. The equivalent JSON
+configuration is `{"xml_virtual_host_domains":"localhost"}`; CLI overrides
+environment, then file settings. Only bucket hosts under configured suffixes
+route as XML. JSON APIs and probes stay on the base endpoint.
+DNS must resolve each final bucket host to the listener. Some clients resolve
+`*.localhost` automatically; the commands use curl `--resolve` to work without
+system DNS changes. This changes only the connection destination, preserving
+the signed URL, Host and HTTPS SNI.
+
+For HTTPS virtual hosts, supply `--tls-cert` and `--tls-key` plus client CA trust.
+The built-in certificate does not cover bucket subdomains. A SAN must match the
+final host, for example `signed-guide-bucket.localhost`; `*.localhost` covers
+one bucket label, not a dotted bucket name. Dotted virtual bucket names are an
+explicit local extension (SPEC-XML-VIRTUAL-HOST). Never disable certificate
+verification or change the host after signing.
 
 ```sh
 signed_work=$(mktemp -d)
@@ -1629,6 +1650,94 @@ signed_journey() {
     -H 'Content-Type: text/plain' -H 'x-goog-if-generation-match: 0' \
     --data-binary @"$signed_work/input.txt" "$signed_put")" = 412
   echo 'PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition'
+
+  override_get=$(signed_sign GET "$signed_endpoint" private.txt \
+    --query 'response-content-type=text/csv' \
+    --query 'response-content-disposition=attachment; filename="private.csv"')
+  signed_curl --fail -D "$signed_work/override.headers" "$override_get" \
+    > "$signed_work/override.txt"
+  cmp "$signed_work/input.txt" "$signed_work/override.txt"
+  tr -d '\r' < "$signed_work/override.headers" | grep -Fxi 'content-type: text/csv'
+  tr -d '\r' < "$signed_work/override.headers" | \
+    grep -Fxi 'content-disposition: attachment; filename="private.csv"'
+  test "$(signed_curl -o /dev/null -w '%{http_code}' \
+    "${override_get/text%2Fcsv/text%2Fhtml}")" = 403
+  echo 'PASS: signed response overrides and query tamper rejection'
+
+  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/policy.json"
+  jq '.bindings += [{role:"roles/storage.objectViewer",members:["allUsers"]}]' \
+    "$signed_work/policy.json" > "$signed_work/public-policy.json"
+  signed_curl --fail -X PUT -H 'Authorization: Bearer guide-admin-token' \
+    -H 'Content-Type: application/json' --data-binary @"$signed_work/public-policy.json" \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/public-policy.json.new"
+  signed_curl --fail "$signed_endpoint/signed-guide-bucket/private.txt" \
+    > "$signed_work/public.txt"
+  cmp "$signed_work/input.txt" "$signed_work/public.txt"
+
+  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
+    -H 'Content-Type: application/json' \
+    --data '{"iamConfiguration":{"publicAccessPrevention":"enforced"}}' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > "$signed_work/pap.json"
+  jq -e '.iamConfiguration.publicAccessPrevention == "enforced"' "$signed_work/pap.json" > /dev/null
+  test "$(signed_curl -o /dev/null -w '%{http_code}' \
+    "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
+  pap_get=$(signed_sign GET "$signed_endpoint" private.txt)
+  signed_curl --fail "$pap_get" > "$signed_work/pap-download.txt"
+  cmp "$signed_work/input.txt" "$signed_work/pap-download.txt"
+  pap_put=$(signed_sign PUT "$signed_endpoint" pap-uploaded.txt \
+    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
+  signed_curl --fail -X PUT -H 'Content-Type: text/plain' \
+    -H 'x-goog-if-generation-match: 0' --data-binary @"$signed_work/input.txt" "$pap_put"
+  pap_uploaded_get=$(signed_sign GET "$signed_endpoint" pap-uploaded.txt)
+  signed_curl --fail "$pap_uploaded_get" > "$signed_work/pap-uploaded.txt"
+  cmp "$signed_work/input.txt" "$signed_work/pap-uploaded.txt"
+  test "$(signed_curl -o /dev/null -w '%{http_code}' "${pap_get}00")" = 403
+  echo 'PASS: enforced PAP denies anonymous access and permits valid signed GET/PUT'
+  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/pap-policy.json"
+  cmp "$signed_work/public-policy.json.new" "$signed_work/pap-policy.json"
+
+  signed_port=${signed_endpoint##*:}
+  virtual_base="http://localhost:$signed_port"
+  virtual_host="signed-guide-bucket.localhost:$signed_port"
+  virtual_get=$(signed_sign GET "$virtual_base" private.txt --style virtual-hosted \
+    --query 'response-content-type=text/csv')
+  signed_curl --fail --resolve "$virtual_host:127.0.0.1" \
+    -D "$signed_work/virtual.headers" "$virtual_get" > "$signed_work/virtual.txt"
+  cmp "$signed_work/input.txt" "$signed_work/virtual.txt"
+  tr -d '\r' < "$signed_work/virtual.headers" | grep -Fxi 'content-type: text/csv'
+  test "$(signed_curl --resolve "$virtual_host:127.0.0.1" -o /dev/null -w '%{http_code}' \
+    "http://$virtual_host/private.txt")" = 401
+  virtual_put=$(signed_sign PUT "$virtual_base" virtual-uploaded.txt --style virtual-hosted \
+    --header 'content-type:text/plain' --header 'x-goog-if-generation-match:0')
+  signed_curl --fail --resolve "$virtual_host:127.0.0.1" -X PUT \
+    -H 'Content-Type: text/plain' -H 'x-goog-if-generation-match: 0' \
+    --data-binary @"$signed_work/input.txt" "$virtual_put"
+  virtual_uploaded_get=$(signed_sign GET "$virtual_base" virtual-uploaded.txt --style virtual-hosted)
+  signed_curl --fail --resolve "$virtual_host:127.0.0.1" "$virtual_uploaded_get" \
+    > "$signed_work/virtual-uploaded.txt"
+  cmp "$signed_work/input.txt" "$signed_work/virtual-uploaded.txt"
+  echo 'PASS: virtual-host signed GET/PUT and response override under PAP'
+
+  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
+    -H 'Content-Type: application/json' \
+    --data '{"iamConfiguration":{"publicAccessPrevention":"inherited"}}' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > "$signed_work/pap-disabled.json"
+  jq -e '.iamConfiguration.publicAccessPrevention == "inherited"' "$signed_work/pap-disabled.json" > /dev/null
+  signed_curl --fail -H 'Authorization: Bearer guide-admin-token' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket/iam" > "$signed_work/reactivated-policy.json"
+  cmp "$signed_work/public-policy.json.new" "$signed_work/reactivated-policy.json"
+  signed_curl --fail "$signed_endpoint/signed-guide-bucket/private.txt" > "$signed_work/reactivated.txt"
+  cmp "$signed_work/input.txt" "$signed_work/reactivated.txt"
+  signed_curl --fail --resolve "$virtual_host:127.0.0.1" "http://$virtual_host/private.txt" \
+    > "$signed_work/reactivated-virtual.txt"
+  cmp "$signed_work/input.txt" "$signed_work/reactivated-virtual.txt"
+  echo 'PASS: stored public policy survives PAP and reactivates on both endpoint styles'
+  signed_curl --fail -X PATCH -H 'Authorization: Bearer guide-admin-token' \
+    -H 'Content-Type: application/json' \
+    --data '{"iamConfiguration":{"publicAccessPrevention":"enforced"}}' \
+    "$signed_endpoint/storage/v1/b/signed-guide-bucket" > /dev/null
 }
 ```
 
@@ -1640,6 +1749,7 @@ cargo build --locked
 signed_binary=./target/debug/gcs-mimic
 env -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
   "$signed_binary" serve --scheme http --listen 127.0.0.1:0 \
+  --xml-virtual-host-domains localhost \
   --data-dir "$signed_work/native-data" --auth-mode strict \
   --identity-file "$signed_work/identities.json" > "$signed_work/native.log" 2>&1 &
 signed_pid=$!
@@ -1667,6 +1777,8 @@ export GCS_MIMIC_PORT=0
 cat > "$signed_work/compose.signed.yaml" <<EOF
 services:
   gcs:
+    environment:
+      GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS: localhost
     volumes:
       - type: bind
         source: $signed_work/identities.json
@@ -1690,6 +1802,8 @@ signed_journey
 signed_compose stop
 signed_compose start --wait
 signed_endpoint="http://$(signed_compose port gcs 4443)"
+test "$(signed_curl -o /dev/null -w '%{http_code}' \
+  "$signed_endpoint/signed-guide-bucket/private.txt")" = 401
 uploaded_get=$(signed_sign GET "$signed_endpoint" uploaded.txt)
 signed_curl --fail "$uploaded_get" > "$signed_work/restarted.txt"
 cmp "$signed_work/input.txt" "$signed_work/restarted.txt"
@@ -1724,7 +1838,19 @@ bucket_bound_hostname:)` with an explicit bucket/name File path because
 bucket-bound signing removes the normal bucket prefix. This preserves host:port
 before signing; see the [SDK details](../../sdk-tests/ruby/README.md) and
 SPEC-GO-SIGNER-PORT / SPEC-RUBY-SIGNER-ENDPOINT. Strict verification is unchanged.
-PAP is not modeled, so its interaction remains unverified.
+PAP suppresses stored `allUsers` and `allAuthenticatedUsers` grants in strict mode;
+explicit signer grants remain usable. The journey compares the policy before,
+during and after enforcement, shows public reactivation with `inherited`, then
+enforces again for the restart check. A configured local parent fixture can keep
+an inherited bucket effectively enforced; see the [PAP contract](slices/public-access-prevention.md).
+
+Only `response-content-type` and `response-content-disposition` are supported.
+Supply literal values through repeated `url sign --query NAME=VALUE`; the helper
+encodes them before signing. These change response headers without mutating
+stored metadata. Query changes invalidate the signature. Duplicate decoded names
+are rejected locally, while exact provider duplicate/validation behavior stays
+open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
+return 501. Signed browser transfers remain the next slice.
 
 When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing
 options for PUT URLs. Go v1.70.0 substitutes a supplied header into the canonical

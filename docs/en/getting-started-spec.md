@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-**Status: future end-to-end design specification.** The current JSON, strict IAM, XML GET/HEAD/PUT and V4 RSA query signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](getting-started.md#signed-private-downloads-and-uploads) covers native/source-built Docker signing, private GET/PUT, method/object/host/expiry/header failures, conditions, restart and peer endpoints. Its remaining PAP case keeps UX-006 PARTIAL. TOML, broader fixtures/SDKs, proxy-derived origins and other signing formats below remain future acceptance targets, not current commands/settings. Fixed `api_base_url` is implemented. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
+**Status: broader end-to-end design specification.** The current JSON, strict IAM, XML GET/HEAD/PUT and V4 RSA query signing implementation has a separate [runnable guide](getting-started.md). The registry is JSON (`config/identities.json`, mounted by `compose.strict.yaml`), with bounded inline RSA public keys; the server never needs a signer private key. The [signed access journey](getting-started.md#signed-private-downloads-and-uploads) covers native/source-built Docker signing, private GET/PUT, method/object/host/expiry/header failures, conditions, restart and peer endpoints. It also covers the two response overrides, opt-in virtual hosts, PAP enforcement with preserved public bindings, valid signed GET/PUT and public reactivation. The [integrated evidence](evidence/signed-urls.md) records execution and UX-006 status. TOML, broader fixtures/SDKs, proxy-derived origins and other signing formats below remain future acceptance targets, not current commands/settings. Fixed `api_base_url` is implemented. No published image is claimed. The project/CLI/image name is `gcs-mimic`.
 
 This English document is canonical. Any Japanese companion is optional supplementary planning material outside the project's canonical documentation tree. Implementation prompts are Japanese; source code, identifiers, commits and project documentation remain English.
 
@@ -47,7 +47,8 @@ must continue with the same strict bucket and object, and:
 - Revoke the grant with a fresh etag, verify anonymous host/peer denial and
   registered-reader denial, and retain cleanup for subsequent guide sections.
 - Explain published host ports, Compose service names, browser reachability,
-  cache persistence after revocation and the deferred CORS/signing/UBLA/PAP scope.
+  cache persistence after revocation and the separately delivered CORS/signing/PAP
+  scope; UBLA transitions remain deferred.
 - Cover pinned Go default/XML reads as well as explicit JSON reads.
 
 The current bucket journey must create a bucket through HTTP with

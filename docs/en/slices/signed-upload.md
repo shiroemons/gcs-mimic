@@ -8,6 +8,13 @@ It covers path-style V4 RSA query GET/HEAD/PUT in the strict local profile.
 The ledger owns implementation status; the [combined evidence](../evidence/signed-urls.md)
 records the final integrated gate.
 
+The integrated follow-ups add [response overrides](xml-response-overrides.md),
+[opt-in virtual hosts](xml-virtual-host.md) and [PAP](public-access-prevention.md).
+They preserve this slice's signer permissions, raw canonical fields, bounded
+integrity checking and atomic publication. Initial path-style-only and PAP-pending
+statements describe the original slice; current supported scope and remaining
+provider questions are recorded in the linked contracts and combined evidence.
+
 ## Contract sources
 
 - [Canonical requests](https://docs.cloud.google.com/storage/docs/authentication/canonical-requests)

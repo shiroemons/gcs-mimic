@@ -6,6 +6,11 @@ The integrated [signed-upload contract](signed-upload.md) adds PUT and supersede
 the initial optional content-sha256 substitution below: query payload is always
 UNSIGNED-PAYLOAD, with supplied digests checked against the streamed body. See
 SPEC-SIGNED-PAYLOAD and the [combined evidence](../evidence/signed-urls.md).
+The later [response override](xml-response-overrides.md),
+[virtual-host](xml-virtual-host.md) and [PAP](public-access-prevention.md)
+contracts supersede the initial unsupported/pending statements below for those
+declared scopes. Their combined gate is recorded in the same final evidence set;
+other formats, provider edge parity and actual signed browsers remain pending.
 
 Frozen local scope, checked against official sources on 2026-10-23: strict path-style XML GET/HEAD authenticates V4 RSA query signatures as registered local principals. Shared catalog authorization evaluates project and bucket `storage.objects.get` grants inside the existing read transaction. Public grants never rescue a failed signature. No Google IAM, ADC or metadata-server request is made.
 
