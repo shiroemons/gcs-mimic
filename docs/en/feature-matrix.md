@@ -15,8 +15,8 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
-| behavior | 201 | 147 | 0 | 28 | 26 | 0 | 0 |
-| project_requirement | 92 | 40 | 0 | 27 | 25 | 0 | 0 |
+| behavior | 201 | 138 | 0 | 32 | 31 | 0 | 0 |
+| project_requirement | 92 | 39 | 0 | 27 | 26 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -36,8 +36,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
-| behavior | 147 | 27 | 25 | 2 | 0 | 0 |
-| project_requirement | 40 | 0 | 0 | 0 | 0 | 52 |
+| behavior | 138 | 35 | 26 | 2 | 0 | 0 |
+| project_requirement | 39 | 0 | 0 | 0 | 0 | 53 |
 
 ## api_operation
 
@@ -403,12 +403,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | DELETE Object | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | Abort multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-XML-013 | GET Object / list parts | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | GET Object retention | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| EXT-XML-017 | HEAD Object | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-XML-018 | Initiate resumable upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | Initiate XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | Complete XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -488,7 +488,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | Explicit strict authentication profile | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| DESIGN-002 | Explicit strict authentication profile | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-004 | Anonymous versus authenticated callers | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-005 | Service-account signing identity mapping | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuth token issuance boundary | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
@@ -646,7 +646,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-026 | IAM policy version 3 conditions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAM policy etag concurrency | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissions effective result | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-029 | Signer permissions checked for signed requests | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-029 | Signer permissions checked for signed requests | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### Insights semantics
 
@@ -745,21 +745,21 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-030 | V4 RSA signed URL verification | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-031 | V4 HMAC signed URL verification | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-032 | Signed URL time and expiration bounds | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-033 | V4 canonical host and port | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-034 | V4 path encoding and Unicode | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-035 | V4 query sorting and encoding | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-036 | V4 signed headers normalization | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
+| DESIGN-033 | V4 canonical host and port | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-038 | Signed method and resource restrictions | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-039 | V4 Authorization header signatures | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-040 | Legacy V2 signed URLs | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-041 | Signed POST form policy validation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-042 | Signed resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | Resumable session capability semantics | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| DESIGN-044 | Signature failure wire errors | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-044 | Signature failure wire errors | PARTIAL | P2 | EXACT | EXACT | 0 |
 
 ### Transport
 
@@ -948,7 +948,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-045 | Local signing helper and fixture keys | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-045 | Local signing helper and fixture keys | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 
 ### Storage maintenance
 

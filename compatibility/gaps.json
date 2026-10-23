@@ -3,6 +3,34 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-SIGNING-EDGES",
+      "title": "V4 query error details, duplicate inputs and optional payload header need provider clarification",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-002", "DESIGN-030", "DESIGN-035", "DESIGN-037", "DESIGN-044", "EXT-XML-012", "EXT-XML-017"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. Valid signed response-* overrides explicitly return 501. The canonical-request guide describes query payload as UNSIGNED-PAYLOAD, while pinned Go storage.go:872-886 substitutes x-goog-content-sha256 when supplied. Local signing/verification follows that substitution, validates one lowercase SHA-256/UNSIGNED-PAYLOAD header and GET/HEAD accepts only the empty-body hash or UNSIGNED-PAYLOAD. No Google differential request was made. Contract/evidence: docs/en/slices/signed-download.md and docs/en/evidence/signed-download.md.",
+      "required_resolution": "Obtain authoritative clarification or explicitly authorized provider observations for query-specific errors, expiry boundary/error mapping, duplicate and ambiguous query encodings, and content-sha256 substitution. Preserve the declared local behavior, explicit override rejection and broader PARTIAL rows; do not weaken strict signature or permission checks. Payload streaming/hash enforcement for signed writes remains its own slice."
+    },
+    {
+      "id": "SPEC-GO-SIGNER-PORT",
+      "title": "Pinned Go V4 signer removes non-default port from canonical Host",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-030", "DESIGN-033", "DESIGN-045", "EXT-XML-012", "EXT-XML-017"],
+      "source_urls": ["https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go#L854"],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Pinned storage v1.70.0 storage.go:854 adds host using u.Hostname(), dropping a port configured through SignedURLOptions.Hostname. Tests assert that unmodified SDK URLs fail with 403 SignatureDoesNotMatch at actual host:port, while unmodified URLs succeed at a portless authority mapped by a guarded client dialer to the isolated ephemeral listener. An independent Go canonical request matches the SDK SignBytes message after omitting the port, then corrects only the host port and signs with standard-library RSA; corrected requests, ranges, HEAD, Unicode paths and tamper rejection pass over HTTP and trusted HTTPS. No SDK source, module pin or server Host rule is changed. Use gcs-mimic url sign for local explicit ports, or expose a default-port endpoint. These two types of SDK evidence remain distinct.",
+      "required_resolution": "Recheck upstream signer behavior on a deliberate SDK update. Retain the asserted limitation and default-port/unmodified versus explicit-port/independent evidence until a fixed official signer is verified. Never drop the actual Host port or rewrite a signed host in strict mode to accommodate this SDK behavior."
+    },
+    {
       "id": "SPEC-CORS-EDGES",
       "title": "CORS provider header lists, custom mobile origins and malformed-input details remain unverified",
       "status": "OPEN",

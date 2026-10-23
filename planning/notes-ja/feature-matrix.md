@@ -15,8 +15,8 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
-| behavior | 201 | 147 | 0 | 28 | 26 | 0 | 0 |
-| project_requirement | 92 | 40 | 0 | 27 | 25 | 0 | 0 |
+| behavior | 201 | 138 | 0 | 32 | 31 | 0 | 0 |
+| project_requirement | 92 | 39 | 0 | 27 | 26 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -36,8 +36,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
-| behavior | 147 | 27 | 25 | 2 | 0 | 0 |
-| project_requirement | 40 | 0 | 0 | 0 | 0 | 52 |
+| behavior | 138 | 35 | 26 | 2 | 0 | 0 |
+| project_requirement | 39 | 0 | 0 | 0 | 0 | 53 |
 
 ## api_operation
 
@@ -403,12 +403,12 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | バケットACL設定 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | オブジェクト削除 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | マルチパート中止 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| EXT-XML-012 | オブジェクトダウンロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-XML-013 | アップロード済みパート一覧 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | オブジェクトACL取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | オブジェクト暗号化情報取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-016 | オブジェクト保持設定取得 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| EXT-XML-017 | オブジェクトメタデータ取得 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-XML-018 | 再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -488,7 +488,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 1 |
+| DESIGN-002 | 認証・認可を検証する厳密モード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-004 | 匿名ユーザーと認証済みユーザーの区別 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-005 | サービスアカウント署名者の対応付け | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | DESIGN-007 | Google OAuthトークン発行との境界 | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
@@ -646,7 +646,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAMポリシーetagによる競合制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissionsの実効権限結果 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-029 | 署名付きリクエストに対する署名者権限の確認 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-029 | 署名付きリクエストに対する署名者権限の確認 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
 ### Insights semantics
 
@@ -745,21 +745,21 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-030 | V4 RSA署名付きURLの検証 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-030 | V4 RSA署名付きURLの検証 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-031 | V4 HMAC署名付きURLの検証 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-032 | 署名付きURLの日時・有効期限制約 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-033 | V4の正規化対象Host・ポート | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-034 | V4のパス符号化・Unicode処理 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-035 | V4クエリの並べ替え・符号化 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-036 | V4署名対象ヘッダーの正規化 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-032 | 署名付きURLの日時・有効期限制約 | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
+| DESIGN-033 | V4の正規化対象Host・ポート | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-034 | V4のパス符号化・Unicode処理 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-035 | V4クエリの並べ替え・符号化 | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-036 | V4署名対象ヘッダーの正規化 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-037 | V4のペイロードハッシュ・UNSIGNED-PAYLOAD | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-038 | 署名対象メソッド・リソースの制限 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-038 | 署名対象メソッド・リソースの制限 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-039 | V4 Authorizationヘッダー署名 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-040 | 従来のV2署名付きURL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-042 | 署名による再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| DESIGN-044 | 署名失敗時のXMLエラー応答 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-044 | 署名失敗時のXMLエラー応答 | PARTIAL | P2 | EXACT | EXACT | 0 |
 
 ### Transport
 
@@ -948,7 +948,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-045 | ローカル署名ヘルパーとテスト鍵 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-045 | ローカル署名ヘルパーとテスト鍵 | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 
 ### Storage maintenance
 

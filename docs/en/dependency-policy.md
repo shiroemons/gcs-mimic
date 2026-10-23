@@ -205,6 +205,19 @@ Release gates require a successful check against the currently verified stable c
 
 ## Dependency status evidence
 
+The V4 signed-download slice promotes the already locked TLS transitive dependency
+`ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,
+verification and canonical-request SHA-256. No second crypto implementation is
+added and its resolved version is unchanged. The official Cargo index confirms
+non-yanked stable status and Rust 1.66.0 minimum; the package is 1,502,610
+compressed bytes, licensed `Apache-2.0 AND ISC`. Default `alloc` and
+`dev_urandom_fallback` features match the existing graph. The publisher repository
+is not archived and reports a 2026-07-23 push. Version, license, source checksum
+and package size are recorded in the [dependency snapshot](../../compatibility/dependency-status.json).
+The [slice-start check](evidence/signed-download-dependencies.txt) reports all
+35 pre-existing inputs CURRENT; the appended post-promotion check includes ring.
+Daily detection discovers it from the real direct Cargo edge automatically.
+
 The local HTTPS slice adds `tokio-rustls` 0.26.6, published 2026-09-28 and
 verified on 2026-10-23 as the newest non-yanked stable release. Its license is
 `MIT OR Apache-2.0`, minimum Rust is 1.71, and the official compressed crate is
