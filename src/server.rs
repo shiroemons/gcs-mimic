@@ -230,6 +230,45 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
+    if json::cors::is_route(request.uri()) {
+        let preflight = json::cors::is_preflight(request.method(), request.headers());
+        let mut headers = match json::cors::response_headers(request.headers(), preflight) {
+            Ok(headers) => headers,
+            Err(error) => return boxed(error.into_response()),
+        };
+        let mut response = if preflight {
+            let status = json::cors::preflight_status(request.headers());
+            if status == StatusCode::NOT_FOUND {
+                headers.insert("access-control-allow-credentials", "true".parse().unwrap());
+                boxed(
+                    JsonError::new(
+                        StatusCode::NOT_FOUND,
+                        "notFound",
+                        "Missing CORS request method",
+                    )
+                    .into_response(),
+                )
+            } else {
+                boxed(Response::new(Full::new(Bytes::new())))
+            }
+        } else {
+            respond_routed(request, state, config, activity).await
+        };
+        response.headers_mut().extend(headers);
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
+    respond_routed(request, state, config, activity).await
+}
+
+async fn respond_routed(
+    request: Request<Incoming>,
+    state: &State,
+    config: &Config,
+    activity: &watch::Sender<ObjectActivity>,
+) -> Response<ResponseBody> {
     // Strict authentication covers Google JSON and XML API routes and runs before route
     // validation, body reads and catalog access. Probes and unknown routes never authenticate.
     let authenticate = || {
