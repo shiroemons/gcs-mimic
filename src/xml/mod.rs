@@ -1,4 +1,4 @@
-//! Path-style XML object reads. Shared authorization, generation selection and bytes live in storage.
+//! Path-style XML objects. Shared authorization, generation selection and bytes live in storage.
 
 use crate::{
     config::CompatProfile,
@@ -15,6 +15,7 @@ use std::time::UNIX_EPOCH;
 
 mod cors;
 pub(crate) use cors::cors;
+pub(crate) mod put;
 
 pub(crate) struct ReadRequest {
     pub bucket: String,
@@ -127,7 +128,7 @@ pub(crate) fn route(
         return None;
     }
     Some((|| {
-        if !matches!(*method, Method::GET | Method::HEAD) || name.is_empty() {
+        if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
             return Err(Error::unsupported());
         }
         let name = json::decode(name, false)?;
@@ -137,6 +138,9 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
+        if *method == Method::PUT && generation.is_some() {
+            return Err(Error::unsupported());
+        }
         if !query.is_empty() {
             return Err(Error::unsupported());
         }

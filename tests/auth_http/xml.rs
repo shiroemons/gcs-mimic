@@ -607,7 +607,7 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
     for (method, path) in [
         ("GET", "/iam-bucket"),
         ("GET", "/iam-bucket/"),
-        ("PUT", OBJECT),
+        ("PUT", "/iam-bucket/object?acl"),
         ("POST", OBJECT),
         ("DELETE", OBJECT),
         ("OPTIONS", OBJECT),
