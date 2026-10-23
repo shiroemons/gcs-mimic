@@ -304,7 +304,7 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
     for query in [
         "matchGlob=a*",
         "filter=context-filter",
-        "fields=items/name",
+        "fields=",
         "userProject=local",
         "softDeleted=true",
         "includeFoldersAsPrefixes=true",

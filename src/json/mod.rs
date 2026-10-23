@@ -11,6 +11,7 @@
 mod body;
 mod buckets;
 mod error;
+mod fields;
 mod iam;
 mod multipart;
 mod object_list;
@@ -29,6 +30,7 @@ pub use buckets::{
 };
 pub(crate) use buckets::{timestamp, validate_bucket_name_for_profile};
 pub use error::JsonError;
+pub use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};

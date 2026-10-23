@@ -379,6 +379,18 @@ async fn object_response(
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let max_bytes = config.max_object_bytes;
+    let fields = if matches!(operation, ObjectRequest::Delete { .. }) {
+        json::Fields::from_query(None, "Object")?
+    } else {
+        json::Fields::from_query(
+            request.uri().query(),
+            if matches!(operation, ObjectRequest::List(_)) {
+                "Objects"
+            } else {
+                "Object"
+            },
+        )?
+    };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
@@ -410,7 +422,7 @@ async fn object_response(
             "This method requires an empty body",
         ));
     }
-    let value = match operation {
+    let mut value = match operation {
         ObjectRequest::Resumable {
             bucket,
             name,
@@ -738,6 +750,7 @@ async fn object_response(
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
     };
+    fields.apply(&mut value);
     Ok(boxed(
         Response::builder()
             .header("content-type", "application/json; charset=UTF-8")
@@ -946,8 +959,18 @@ async fn bucket_response(
             "This method requires an empty body",
         ));
     }
+    let fields = if matches!(operation, BucketRequest::Delete { .. }) {
+        json::Fields::from_query(None, "Bucket")?
+    } else {
+        let schema = match operation {
+            BucketRequest::List(_) => "Buckets",
+            BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
+            _ => "Bucket",
+        };
+        json::Fields::from_query(request.uri().query(), schema)?
+    };
     let replace = matches!(operation, BucketRequest::Update { .. });
-    let value = match operation {
+    let mut value = match operation {
         BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let update = if replace {
@@ -1090,6 +1113,7 @@ async fn bucket_response(
             });
         }
     };
+    fields.apply(&mut value);
     Ok(Response::builder()
         .header("content-type", "application/json; charset=UTF-8")
         .body(Full::new(Bytes::from(value.to_string())))

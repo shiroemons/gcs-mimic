@@ -176,8 +176,14 @@ fn parse_object_query(
     raw: &str,
 ) -> Result<ObjectRequest, JsonError> {
     let mut query = parse_query(raw)?;
+    if method == Method::DELETE {
+        query.remove("fields");
+    } else if query.contains_key("fields") && query.get("alt").is_some_and(|v| v == "media") {
+        return Err(JsonError::unsupported_object("fields with alt=media"));
+    } else {
+        super::Fields::take(&mut query, "Object")?;
+    }
     for key in [
-        "fields",
         "key",
         "oauth_token",
         "quotaUser",

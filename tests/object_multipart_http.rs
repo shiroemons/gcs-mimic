@@ -200,6 +200,35 @@ fn wire(
     body
 }
 
+#[test]
+fn fields_multipart_response_preserves_uploaded_metadata_and_bytes() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, 1000, 30_000);
+    server.bucket();
+    let body = wire(
+        br#"{"name":"fields","metadata":{"team":"selected","other":"stored"}}"#,
+        Some("text/plain"),
+        b"data",
+        None,
+    );
+    let reply = server.upload("fields=name,metadata/team,size", &body);
+    assert_eq!(reply.status, 200);
+    assert_eq!(
+        reply.json(),
+        json!({"name":"fields","metadata":{"team":"selected"},"size":"4"})
+    );
+    assert_eq!(server.get("fields").json()["metadata"]["other"], "stored");
+    let media = server.request(
+        "GET",
+        "/storage/v1/b/test-bucket/o/fields?alt=media",
+        "",
+        b"",
+    );
+    assert_eq!(media.status, 200);
+    assert_eq!(media.body, b"data");
+    server.stop();
+}
+
 fn no_leaks(dir: &TestDir, expected: usize) {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {

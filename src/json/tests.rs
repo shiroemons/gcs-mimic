@@ -165,6 +165,10 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
         (Method::DELETE, "/storage/v1/b/abc?alt=json"),
     ] {
         for parameter in common {
+            if parameter == "fields" && method == Method::DELETE {
+                assert!(request(method.clone(), &format!("{path}&fields=")).is_ok());
+                continue;
+            }
             let error = request(method.clone(), &format!("{path}&{parameter}=")).unwrap_err();
             assert_eq!(
                 error.status,
