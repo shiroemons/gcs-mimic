@@ -24,11 +24,6 @@ impl RewriteToken {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// The stored token must be found before interpreting any client-supplied request values.
-    pub fn matches(&self, candidate: &str) -> bool {
-        Self::parse(candidate).as_ref() == Some(self)
-    }
 }
 
 /// Includes the selected immutable generation, even when sourceGeneration was omitted.
@@ -72,12 +67,15 @@ mod tests {
     fn tokens_are_opaque_and_tampering_never_selects_the_original_token() {
         let token = RewriteToken::generate().unwrap();
         assert_eq!(token.as_str().len(), 64);
-        assert!(token.matches(token.as_str()));
+        assert_eq!(RewriteToken::parse(token.as_str()).as_ref(), Some(&token));
         assert_ne!(token, RewriteToken::generate().unwrap());
         for index in 0..64 {
             let mut tampered = token.as_str().as_bytes().to_vec();
             tampered[index] = if tampered[index] == b'0' { b'1' } else { b'0' };
-            assert!(!token.matches(std::str::from_utf8(&tampered).unwrap()));
+            assert_ne!(
+                RewriteToken::parse(std::str::from_utf8(&tampered).unwrap()).as_ref(),
+                Some(&token)
+            );
         }
         for invalid in [
             "",

@@ -307,7 +307,7 @@ impl Catalog {
     }
 }
 
-fn encode_options(o: &ResumableOptions) -> Value {
+pub(super) fn encode_options(o: &ResumableOptions) -> Value {
     let m = &o.metadata;
     let access = match &o.access {
         BucketAccess::Unchecked => Value::Null,
@@ -322,7 +322,7 @@ fn encode_options(o: &ResumableOptions) -> Value {
     json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v}))},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields})
 }
 
-fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
+pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
     let invalid = || "invalid resumable options".to_owned();
     let field = |key: &str| -> Result<Option<Option<String>>, String> {
         if v["version"] == 2 {

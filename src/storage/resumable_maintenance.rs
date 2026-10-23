@@ -224,10 +224,12 @@ impl Catalog {
                     .map_err(unavailable)
             })
             .await?;
-        Ok(match (resumable_deadline, derived_deadline) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (left, right) => left.or(right),
-        })
+        let rewrite_deadline = self.maintain_rewrite_sessions(now).await?;
+        Ok(resumable_deadline
+            .into_iter()
+            .chain(derived_deadline)
+            .chain(rewrite_deadline)
+            .min())
     }
 
     /// Starts one scheduler. Its owner must call `close` before releasing directory ownership.

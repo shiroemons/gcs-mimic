@@ -30,6 +30,11 @@ mod resumable_maintenance;
 #[path = "resumable_recovery.rs"]
 mod resumable_recovery;
 
+#[path = "rewrite.rs"]
+pub(crate) mod rewrite;
+#[path = "rewrite_token.rs"]
+mod rewrite_token;
+
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
@@ -163,6 +168,12 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(derived::SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 11 {
+        expected
+            .execute_batch(rewrite::SCHEMA)
+            .map_err(unavailable)?;
+        rewrite::validate(connection)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
@@ -252,9 +263,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=10).contains(&version) {
+            if !(0..=11).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 10"
+                    "unsupported catalog schema version {version}; supported version is 11"
                 )));
             }
             if version == 2 {
@@ -362,7 +373,13 @@ impl Catalog {
                 transaction.execute_batch(derived::SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
+            if version < 11 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(rewrite::SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
             let recovery_now = unix_millis(clock.now())?;
+            rewrite::recover_due(&mut connection, recovery_now)?;
             resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
             objects::recover(&connection, &data_dir, recovery_now)?;
             Ok(Self(Arc::new(Inner {
@@ -1267,7 +1284,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 10),
+                    ("user_version", 11),
                 ] {
                     assert_eq!(
                         connection

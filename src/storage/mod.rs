@@ -1,5 +1,6 @@
 mod catalog;
 mod lock;
+pub(crate) use catalog::rewrite;
 
 pub(crate) use catalog::ResumableChunk;
 pub use catalog::{Catalog, ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};
