@@ -711,6 +711,51 @@ fn rewrite_composite_source_preserves_or_resets_component_count_without_md5() {
 }
 
 #[test]
+fn rewrite_composite_count_uses_the_bucket_class_selected_at_publication() {
+    for (class, count) in [("NEARLINE", 3), ("COLDLINE", 1)] {
+        let (dir, server, payload, source) = setup(false, 1048576 + 3);
+        rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .execute(
+                "UPDATE objects SET component_count=3, storage_class='NEARLINE' WHERE name='source'",
+                [],
+            )
+            .unwrap();
+        let first = server
+            .request(
+                "POST",
+                &format!("{BASE}?maxBytesRewrittenPerCall=1048576"),
+                ADMIN,
+                b"{}",
+            )
+            .json();
+        assert_eq!(first["done"], false);
+        server
+            .request(
+                "PATCH",
+                "/storage/v1/b/test-bucket",
+                ADMIN,
+                json!({"storageClass":class}).to_string().as_bytes(),
+            )
+            .json();
+        let complete = server
+            .request(
+                "POST",
+                &continue_path(first["rewriteToken"].as_str().unwrap()),
+                ADMIN,
+                b"",
+            )
+            .json();
+        assert_eq!(complete["done"], true);
+        assert_eq!(complete["resource"]["storageClass"], class);
+        assert_eq!(complete["resource"]["componentCount"], count);
+        assert!(complete["resource"].get("md5Hash").is_none());
+        assert_eq!(complete["resource"]["crc32c"], source["crc32c"]);
+        assert_eq!(server.get("destination?alt=media").body, payload);
+    }
+}
+
+#[test]
 fn rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget() {
     let (dir, mut server, payload, source) = setup(false, 16 * 1048576 + 17);
     server.stop();

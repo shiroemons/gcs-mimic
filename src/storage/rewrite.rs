@@ -293,7 +293,7 @@ fn check_source(
     connection: &Connection,
     session: &RewriteSession,
     access: &BucketAccess,
-) -> Result<(), ObjectError> {
+) -> Result<ObjectRecord, ObjectError> {
     check_incarnations(connection, session)?;
     let generation = session
         .binding
@@ -319,7 +319,7 @@ fn check_source(
     {
         return Err(ObjectError::PreconditionFailed);
     }
-    Ok(())
+    Ok(source)
 }
 
 fn check_incarnations(
@@ -404,7 +404,7 @@ impl Catalog {
                     read,
                 )
                 .map_err(unavailable)?;
-            check_source(connection, &session, &start.source_access)
+            check_source(connection, &session, &start.source_access).map(|_| ())
         })
         .await?;
         self.0.maintenance_wake.notify_one();
@@ -523,9 +523,12 @@ impl Catalog {
             let validate_session = session.clone();
             let completed_session = session.clone();
             let (sender, receiver) = tokio::sync::oneshot::channel();
-            self.publish_derived_with_validation(&id,destination,move |connection,_record| {
+            self.publish_derived_prepared(&id,destination,move |connection,record| {
                 if validate_session.deadline<=unix_millis(clock.now()).map_err(unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
-                check_source(connection,&validate_session,&source_access)
+                let source = check_source(connection,&validate_session,&source_access)?;
+                let same_location: bool = connection.query_row("SELECT source.location=destination.location FROM buckets source JOIN buckets destination ON destination.name=?2 WHERE source.name=?1",params![source.bucket,record.bucket],|row|row.get(0)).map_err(unavailable)?;
+                record.component_count = crate::json::derived_component_count(&source,&record.storage_class,same_location);
+                Ok(())
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
                 connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(unavailable)?;
@@ -533,7 +536,7 @@ impl Catalog {
                 // The stored response remains authoritative if its network receiver disappears.
                 let _=sender.send(response);
                 Ok(())
-            }).await?;
+            },None).await?;
             return progress(&completed_session, receiver.await.map_err(unavailable)?)
                 .map_err(Into::into);
         }

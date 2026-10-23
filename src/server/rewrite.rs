@@ -124,7 +124,7 @@ async fn execute(
                 &source_access,
             )
             .await?;
-        let mut destination = destination(&source.object, &operation, &body)?;
+        let destination = destination(&source.object, &operation, &body)?;
         catalog
             .check_upload(
                 &operation.path[2],
@@ -155,14 +155,6 @@ async fn execute(
         } else {
             u64::MAX
         };
-        destination.component_count = json::derived_component_count(
-            &source.object,
-            destination
-                .storage_class
-                .as_deref()
-                .unwrap_or(&destination_bucket.storage_class),
-            source_bucket.location == destination_bucket.location,
-        );
         let mut parameters = operation.parameters.clone();
         for (key, value) in [
             ("projection", "noAcl"),
