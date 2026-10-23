@@ -53,7 +53,9 @@ The signer helper must receive the externally visible host/path before signing;
 neither the browser nor a proxy may rewrite them afterwards.
 
 For a recognized XML object path and bucket, CORS selection depends on its path,
-Host, Origin and method, independently of query parsing or signature validity.
+Host, Origin and method, independently of object-name/query validation or
+signature validity. The same raw bucket selection is used by the actual route;
+an object path segment resembling another bucket never overrides a virtual host.
 OPTIONS with Origin reads bucket rules without authenticating, verifying the
 signature, reading object media, creating an object or reserving a capability.
 The original complete signed query, an expired/invalid signature and even a
@@ -118,7 +120,7 @@ No Google, ADC, metadata server, browser or external DNS is involved.
 
 | Case ID | Acceptance | Wire test |
 | --- | --- | --- |
-| SIGNED-PREFLIGHT-QUERY | Full PUT signature query, malformed/duplicate/expired declarations bypass authentication on OPTIONS; empty response; absent destination and unchanged existing object; actual URL remains reusable | `signed_put_preflight_ignores_signature_and_never_publishes` |
+| SIGNED-PREFLIGHT-QUERY | Full PUT signature query, malformed/duplicate/expired declarations and unknown/invalid operation-query inputs bypass authentication on OPTIONS; empty response; absent destination and unchanged existing object; actual URL remains reusable | `signed_put_preflight_ignores_signature_and_never_publishes` |
 | SIGNED-PREFLIGHT-DENIAL | Allowed method/headers and case-insensitive names; denied origin/method/header, lowercase method, missing/empty method and malformed header list have no grant; max-age zero and preflight Vary | `signed_put_preflight_ignores_signature_and_never_publishes` |
 | SIGNED-TRANSFER-HEADERS | Signed Content-Type GET/HEAD/PUT, exact bytes, bodyless HEAD, ETag/generation and configured exposure, reflected Origin and Vary, no credentials header | `signed_transfers_expose_bucket_headers_without_granting_credentials` |
 | SIGNED-ORIGIN-DENIAL | Valid actual GET/HEAD/PUT still succeeds for a denied or absent Origin without Allow-Origin | `signed_transfers_expose_bucket_headers_without_granting_credentials` |
@@ -129,6 +131,9 @@ No Google, ADC, metadata server, browser or external DNS is involved.
 | SIGNED-JSON-INDEPENDENCE | Authenticated JSON media remains readable with its own Allow-Credentials and reflected origin after XML CORS clearing | `signed_rules_change_between_preflight_and_actual_and_survive_restart` |
 | SIGNED-PERMISSIONS | Matching preflight cannot authorize role-less signed or unsigned actual reads/writes; unchanged object after denials | `signed_preflight_never_grants_permission_and_pap_preserves_signer_access` |
 | SIGNED-PAP | Under enforced PAP and a stored allUsers grant, explicit signer GET/HEAD/PUT retains matching CORS while public-only signer and anonymous access stay denied | `signed_preflight_never_grants_permission_and_pap_preserves_signer_access` |
+| SIGNED-BUCKET-SELECTION | Two buckets with distinct rules select the virtual-host bucket before the path; path-style selects its own bucket for preflight and actual PUT/GET | `signed_cors_selects_the_host_bucket_before_the_path_bucket` |
+| SIGNED-ENCODED-PATHS | Encoded slash/space object names preserve preflight and signed PUT/GET; tampered encoded names retain CORS on signature failure | `signed_encoded_paths_keep_preflight_transfer_and_error_cors` |
+| SIGNED-INVALID-NAMES | Invalid object names receive metadata-only preflight and matching-origin CORS on actual 400 errors, including malformed percent paths; validation and object preservation remain enforced | `signed_invalid_object_names_keep_error_cors_without_bypassing_validation` |
 
 Existing `auth_http` CORS tests retain first-rule, malformed/duplicate Origin,
 default max-age, wildcard and basic permission cases. Existing signing tests

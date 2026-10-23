@@ -311,6 +311,10 @@ fn signed_put_preflight_ignores_signature_and_never_publishes() {
         for candidate in [
             url.clone(),
             format!("{url}&X-Goog-Signature=duplicate"),
+            format!("{url}&unknown=1"),
+            format!("{url}&generation=invalid"),
+            format!("{url}&response-content-type="),
+            format!("{url}&malformed=%ZZ"),
             url.replace(
                 "X-Goog-Algorithm=GOOG4-RSA-SHA256",
                 "X-Goog-Algorithm=invalid",
@@ -375,6 +379,92 @@ fn signed_put_preflight_ignores_signature_and_never_publishes() {
                 b"",
             )
             .status(204);
+    }
+}
+
+#[test]
+fn signed_cors_selects_the_host_bucket_before_the_path_bucket() {
+    let (_config, _data, server) = fixture();
+    server.json(
+        "POST",
+        "/storage/v1/b?project=local",
+        json!({
+            "name":"other-bucket","cors":[rule(DENIED)]
+        }),
+    );
+    let virtual_url = server.url(true, "other-bucket/object");
+    let path_url = format!("http://{}/other-bucket/object", server.address);
+    for (base, source, bytes) in [
+        (&virtual_url, ORIGIN, &b"virtual bucket"[..]),
+        (&path_url, DENIED, &b"path bucket"[..]),
+    ] {
+        let put = signed(base, "PUT", "admin", SystemTime::now(), HeaderMap::new());
+        for candidate in [ORIGIN, DENIED] {
+            let reply = preflight(&server, &put, candidate, "PUT", "");
+            reply.status(200);
+            if candidate == source {
+                assert_eq!(reply.headers["access-control-allow-origin"], source);
+            } else {
+                reply.cors(false, true);
+            }
+        }
+        let reply = server.request("PUT", &put, &origin(source), bytes);
+        reply.status(200);
+        assert_eq!(reply.headers["access-control-allow-origin"], source);
+        let get = signed(base, "GET", "admin", SystemTime::now(), HeaderMap::new());
+        let reply = server.request("GET", &get, &origin(source), b"");
+        reply.status(200);
+        assert_eq!(reply.headers["access-control-allow-origin"], source);
+        assert_eq!(reply.body, bytes);
+    }
+}
+
+#[test]
+fn signed_encoded_paths_keep_preflight_transfer_and_error_cors() {
+    let (_config, _data, server) = fixture();
+    for virtual_host in [false, true] {
+        let put = server.sign(virtual_host, "PUT", "folder%2Fa%20b");
+        let reply = preflight(&server, &put, ORIGIN, "PUT", "");
+        reply.status(200);
+        reply.cors(true, true);
+        let reply = server.request("PUT", &put, &origin(ORIGIN), b"encoded bytes");
+        reply.status(200);
+        reply.cors(true, false);
+        let get = server.sign(virtual_host, "GET", "folder%2Fa%20b");
+        let reply = server.request("GET", &get, &origin(ORIGIN), b"");
+        reply.status(200);
+        reply.cors(true, false);
+        assert_eq!(reply.body, b"encoded bytes");
+        let reply = server.request("GET", &get.replace("%20b", "%20c"), &origin(ORIGIN), b"");
+        reply.error(403, "SignatureDoesNotMatch", false);
+        reply.cors(true, false);
+    }
+}
+
+#[test]
+fn signed_invalid_object_names_keep_error_cors_without_bypassing_validation() {
+    let (_config, _data, server) = fixture();
+    let before = server.metadata();
+    for virtual_host in [false, true] {
+        for method in ["GET", "HEAD", "PUT"] {
+            let url = server.sign(virtual_host, method, ".");
+            let preflight = preflight(&server, &url, ORIGIN, method, "");
+            preflight.status(200);
+            preflight.cors(true, true);
+            for source in [ORIGIN, DENIED] {
+                let reply = server.request(method, &url, &origin(source), b"");
+                reply.error(400, "InvalidArgument", method == "HEAD");
+                reply.cors(source == ORIGIN, false);
+                let malformed = format!(
+                    "{}?X-Goog-Signature=invalid",
+                    server.url(virtual_host, "%ZZ")
+                );
+                let reply = server.request(method, &malformed, &origin(source), b"");
+                reply.error(400, "InvalidAuthentication", method == "HEAD");
+                reply.cors(source == ORIGIN, false);
+                assert_eq!(server.metadata(), before);
+            }
+        }
     }
 }
 
