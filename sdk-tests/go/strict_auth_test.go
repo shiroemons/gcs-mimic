@@ -54,6 +54,7 @@ func newStrictClientWithReadMode(t *testing.T, token string, jsonReads bool, log
 	}
 	t.Setenv("STORAGE_EMULATOR_HOST", "")
 	transport := &http.Transport{
+		TLSClientConfig:       trustedEmulatorTLS(t),
 		Proxy:                 nil,
 		MaxConnsPerHost:       2,
 		MaxIdleConns:          2,

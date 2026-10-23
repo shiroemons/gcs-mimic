@@ -51,6 +51,45 @@ For an already running emulator:
 GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 go test -count=1 -v ./...
 ```
 
+## HTTPS with an explicit development CA
+
+The same suite supports HTTPS with explicit CA trust and normal certificate and
+hostname verification. To start isolated HTTPS servers with the built-in local
+development certificate, the runner exports its CA into a temporary file and
+passes it to the Go clients and health probes:
+
+```sh
+GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh
+```
+
+To use supplied development certificates instead (the server certificate must
+include the `127.0.0.1` IP SAN), provide both paths and the CA:
+
+```sh
+GCS_MIMIC_SDK_SCHEME=https \
+  GCS_MIMIC_TLS_CERT="$cert_dir/server.pem" \
+  GCS_MIMIC_TLS_KEY="$cert_dir/server.key" \
+  GCS_MIMIC_CA_CERT="$cert_dir/ca.pem" bash scripts/sdk-go.sh
+```
+
+For an existing server using the built-in development certificate, export its
+CA before running `go test` from `sdk-tests/go`:
+
+```sh
+cert_dir=$(mktemp -d)
+cargo run --locked -- tls ca > "$cert_dir/ca.pem"
+cd sdk-tests/go
+GCS_MIMIC_ENDPOINT=https://127.0.0.1:4443 \
+  GCS_MIMIC_CA_CERT="$cert_dir/ca.pem" go test -count=1 -v ./...
+rm -r "$cert_dir"
+```
+
+For a custom certificate, point `GCS_MIMIC_CA_CERT` at its CA. The configured CA replaces the
+system root pool for these isolated tests; without it, Go's normal system trust
+applies. `TestHTTPSCertificateTrust` independently checks trusted/untrusted TLS
+and rejects missing or malformed CA files without an emulator. HTTPS integration
+reuses the existing bucket, streamed object and resumable workflow cases.
+
 Only loopback IPs and `localhost` are accepted by default. For a dedicated emulator
 in a container network, opt in to its exact hostname using
 `GCS_MIMIC_ALLOWED_HOSTS=gcs` (comma-separated hostnames, without ports). Never
