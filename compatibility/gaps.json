@@ -3,6 +3,30 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-SIGNED-BROWSER-CORS",
+      "title": "Signed preflight examples and provider CORS on signed/input errors need clarification",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-BUCKET-009",
+        "DESIGN-051",
+        "DESIGN-052",
+        "DESIGN-053",
+        "UX-007"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/cross-origin",
+        "https://docs.cloud.google.com/storage/docs/cors-configurations",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://fetch.spec.whatwg.org/commit-snapshots/59afe349913d56898c947576216f1c2579308be7/",
+        "https://fetch.spec.whatwg.org/#cors-preflight-fetch",
+        "https://fetch.spec.whatwg.org/#http-access-control-expose-headers"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The pinned official review in docs/en/slices/signed-browser.md records conflicting Google advice against configuring OPTIONS versus examples that include it, a plural requested-method spelling versus Fetch's singular header, and mixed preflight/simple exposure wording. The local tested contract uses the singular header, does not require OPTIONS in rules, retains the original signed query for metadata-only preflight, and exposes configured headers on actual PUT and errors. Final just check and trusted Chromium evidence in docs/en/evidence/signed-browser.md and docs/en/evidence/signed-browser.txt pass query-independent preflight and CORS on local 400/401/403/412 errors with state preservation. Dot and malformed percent object names receive preflight and matching-origin error CORS; invalid host-derived bucket names retain 400 without CORS. These are local choices, not provider-exact error/header claims. SPEC-CORS-EDGES and SPEC-SIGNING-EDGES remain OPEN with their original JSON/mobile/duplicate-query questions.",
+      "required_resolution": "Obtain authoritative clarification or separately opted-in provider observations for the conflicting OPTIONS examples, full-query invalid/expired/duplicate signature preflight precedence, exact CORS/Expose-Headers/Vary presence and formatting on signed errors and invalid object names, and early transport/authority failures. Do not infer authorization from successful preflight or resolve provider behavior from local passes; preserve the declared local contract until evidence supports a change."
+    },
+    {
       "id": "SPEC-PAP-EDGES",
       "title": "PAP local parent policy and unverified input/error edges",
       "status": "OPEN",

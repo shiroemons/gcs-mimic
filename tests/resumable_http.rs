@@ -959,12 +959,15 @@ async fn object_caps_apply_to_known_unknown_and_streamed_lengths() {
     }
     let init = h.initiate("name=large", "", b"").await;
     let path = h.path(&init);
-    assert_eq!(
-        h.request("PUT", &path, "", &vec![b'x'; 256 * 1024 + 1])
-            .await
-            .status,
-        413
-    );
+    // Avoid racing the bounded unread-body drain when the declared length already rejects.
+    let mut stream = TcpStream::connect(&h.address).await.unwrap();
+    stream
+        .write_all(
+            format!("PUT {path} HTTP/1.1\r\nHost: spoofed.invalid\r\nContent-Length: 262145\r\nExpect: 100-continue\r\n\r\n").as_bytes(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(Harness::read_response(stream).await.status, 413);
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket/o/large", "", b"")
             .await

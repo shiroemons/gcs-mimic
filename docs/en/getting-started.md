@@ -1011,6 +1011,37 @@ verifies JSON uploads/CRUD, ETag/Location, XML allow/deny, strict permission den
 and restart without disabling TLS verification. Configuration changes affect
 new uncached requests; previous browser caches can persist until expiry.
 
+### Signed browser upload and download
+
+The [signed Chromium journey](evidence/signed-browser.md) runs real V4 RSA XML
+PUT/GET/HEAD from `https://127.0.0.1:54614`, with trusted HTTPS, exposed headers,
+permission/signature denials and persisted bytes after restart. Use the strict
+server with `config/identities.json` and the isolated browser container from that
+journey. Generate URLs on the native host for the exact API host and port the
+browser will use, then run the browser in the container:
+
+```sh
+GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+  prepare https://gcs:54477 signed-browser-strict initial > target/signed-browser-run/initial.json
+docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
+  run target/signed-browser-run/initial.json
+```
+
+After SIGINT and restart with the same data directory and browser origin,
+generate fresh URLs and verify persistence and cleanup:
+
+```sh
+GCS_MIMIC_BIN=target/signed-browser-run/runtime bash scripts/signed-browser.sh \
+  prepare https://gcs:54477 signed-browser-strict restart > target/signed-browser-run/restart.json
+docker exec gcs-mimic-signed-browser bash scripts/signed-browser.sh \
+  run target/signed-browser-run/restart.json
+```
+
+Preparation uses the public test-only fixture key and grants no permissions.
+The page grants and revokes disposable bucket access to prove that CORS never
+grants object access. Successful signed URLs are used unchanged; no host rewrite
+or TLS verification bypass is used. Keep the generated manifests private.
+
 ## Stop, restart and deliberate reset
 
 ```sh
@@ -1828,7 +1859,8 @@ as well for overwrites.
 SHA256/Content-MD5 failures preserve the old object; sign headers to constrain
 metadata, digest declarations and conditions. SHA256 checking is incremental;
 the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
-Wire-level signed PUT CORS is tested; actual browser execution is next.
+The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
+signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
 Go storage v1.70.0 omits non-default ports from canonical Host. Prefer the helper
 for local ports or expose a default-port endpoint. Ruby Storage 1.62.1 signs
@@ -1850,7 +1882,8 @@ encodes them before signing. These change response headers without mutating
 stored metadata. Query changes invalidate the signature. Duplicate decoded names
 are rejected locally, while exact provider duplicate/validation behavior stays
 open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
-return 501. Signed browser transfers remain the next slice.
+return 501. The [signed-browser subsection](#signed-browser-upload-and-download)
+documents the separate actual-browser preparation/run workflow.
 
 When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing
 options for PUT URLs. Go v1.70.0 substitutes a supplied header into the canonical

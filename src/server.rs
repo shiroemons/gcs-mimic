@@ -265,12 +265,17 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), request.headers(), config)
+    // CORS must also wrap invalid object names and signed queries without authorizing them.
+    if let Some((bucket, _)) =
+        xml::object_path(request.uri(), request.headers(), config).filter(|(bucket, name)| {
+            !name.is_empty()
+                && json::validate_bucket_name_for_profile(bucket, config.compat_profile).is_ok()
+        })
     {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;
         let cors = if has_origin {
-            match state.catalog.get_bucket(&operation.bucket).await {
+            match state.catalog.get_bucket(&bucket).await {
                 Ok(Some(bucket)) => {
                     xml::cors(request.headers(), request.method(), &bucket.cors, preflight)
                 }

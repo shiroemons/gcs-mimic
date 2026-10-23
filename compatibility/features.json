@@ -710,7 +710,7 @@
           "Pass wire and real-browser cross-origin JSON bucket/object upload/read/list/metadata/delete flows with the supported local auth profiles, including preflight and exposed response headers.",
           "Show that changing bucket CORS rules does not impose XML restrictions on JSON endpoints, and that successful preflight never grants access: denied actual requests remain denied with the protocol-appropriate CORS response."
         ],
-        "deferred_scope": "XML bucket-configured CORS is a separate required pre-signing slice. Signed browser uploads, browser login/cookies and Rails direct uploads have later integration gates."
+        "deferred_scope": "XML bucket-configured CORS was a separate required pre-signing slice; strict signed-browser transfers are now verified in docs/en/evidence/signed-browser.md. Browser login/cookies and Rails direct uploads retain later gates."
       },
       {
         "id": "bucket-xml-cors",
@@ -736,7 +736,7 @@
           "Use wire tests and an actual browser from a different origin to verify allowed/denied XML GET/HEAD and preflight, including denied object access after allowed preflight and revocation/configuration changes.",
           "Do not imply XML PUT or signed upload implementation from a successful preflight. Exercise those actual browser transfers only after the corresponding XML-write and signing capabilities exist."
         ],
-        "deferred_scope": "XML bucket ?cors configuration routes, general XML write/list breadth and signed browser transfers. JSON browser operations and existing XML reads must work before signing; signed PUT is verified in the later browser integration gate."
+        "deferred_scope": "XML bucket ?cors configuration routes and general XML write/list breadth. JSON operations and XML reads were verified before signing; actual signed PUT/GET/HEAD browser scope is now recorded in docs/en/evidence/signed-browser.md."
       },
       {
         "id": "basic-json-verification",
@@ -803,7 +803,7 @@
           "Pass valid GET plus tampered, wrong-host, wrong-method, expired and insufficient-signer-permission wire cases using the injected clock.",
           "Verify supported public-access-prevention interactions: public denial must not incorrectly deny an otherwise authorized signed request; do not claim general PAP completion."
         ],
-        "deferred_scope": "V4 HMAC, V2 URLs, Authorization-header signing and remote IAM Credentials. Virtual-host/proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; actual signed-browser execution is delivery order 18.",
+        "deferred_scope": "V4 HMAC, V2 URLs, Authorization-header signing and remote IAM Credentials. Proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; strict path-style signed-browser execution is delivered with evidence in docs/en/evidence/signed-browser.md.",
         "evidence": [
           "docs/en/evidence/signed-urls.md"
         ]
@@ -829,7 +829,7 @@
           "Verify payload/header requirements, checksum failures, tampered and expired URLs, interrupted bodies and failed-overwrite preservation.",
           "Run pinned official SDK locally generated GET/PUT URLs against the exact final externally visible endpoint."
         ],
-        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth. Virtual-host/proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; actual signed-browser execution is delivery order 18.",
+        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth. Proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; strict path-style signed-browser execution is delivered with evidence in docs/en/evidence/signed-browser.md.",
         "evidence": [
           "docs/en/evidence/signed-urls.md"
         ]
@@ -857,7 +857,12 @@
           "Use an actual browser over trusted local HTTPS to verify allowed/denied origins, preflight, exposed headers and real signed upload/download with the final signed host/path unchanged.",
           "Prove preflight grants no object access and denied permissions stay denied even when CORS matches."
         ],
-        "deferred_scope": "Website hosting, CDN, public DNS/certificate provisioning and authenticated browser UI; the local HTTPS listener is already required before signing."
+        "deferred_scope": "Delivered scope: strict path-style Chromium over trusted local HTTPS passes unchanged signed PUT/GET/HEAD, real preflight, exposure, origin/method/header and permission/signature denials, state preservation and restart. Nine hermetic tests cover both endpoint styles, full-query OPTIONS, PAP and malformed paths. Existing CORS browsers, HTTPS Go/Ruby, both container architectures and affected native guide blocks pass. Remaining: website/CDN/public DNS/certificates, browser login, Rails, real Google/iOS/WebKit, virtual-host browsers, signed resumable and provider-exact malformed-input/error CORS; see final evidence.",
+        "evidence": [
+          "docs/en/slices/signed-browser.md",
+          "docs/en/evidence/signed-browser.md",
+          "docs/en/evidence/signed-browser.txt"
+        ]
       },
       {
         "id": "ruby-rails-workflows",
@@ -17777,6 +17782,23 @@
             "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
             "cors-memory-smoke"
           ]
+        },
+        {
+          "id": "SIGNED-CORS-RESTART",
+          "description": "Existing stored bucket rules preserve signed XML GET/preflight behavior, exact bytes and metadata after restart on path-style and virtual-host endpoints.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "id": "BUCKET-SIGNED-BROWSER-PERSISTENCE",
+          "description": "JSON-configured XML PUT/GET/HEAD CORS survives strict SIGINT/restart and permits fresh signed GET with exact uploaded bytes in trusted HTTPS Chromium.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
         }
       ],
       "test_ids": [
@@ -17789,9 +17811,31 @@
         "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
         "bucket_cors_large_metadata_lists_page_without_loss",
         "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
-        "cors-memory-smoke"
+        "cors-memory-smoke",
+        "signed_rules_change_between_preflight_and_actual_and_survive_restart",
+        "signed-browser-strict-initial",
+        "signed-browser-strict-restart"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "command": "bash scripts/signed-browser.sh prepare/run; strict initial and restart over trusted local HTTPS",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
+        },
         {
           "command": "cargo test --workspace --offline",
           "result": "PASS",
@@ -37363,7 +37407,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Implemented scoped JSON defaults and browser operations; complete provider expose-list and device-specific behavior are research boundaries, not claimed parity. Contract: docs/en/slices/cors.md; final evidence: docs/en/evidence/cors.md.",
+      "notes": "Implemented scoped JSON defaults and browser operations, including JSON controls independent of signed XML CORS changes; complete provider expose-list and device-specific behavior remain research boundaries. Contracts: docs/en/slices/cors.md and docs/en/slices/signed-browser.md; final evidence: docs/en/evidence/cors.md and docs/en/evidence/signed-browser.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -37388,6 +37432,22 @@
             "cors-browser-strict-restart",
             "cors-browser-permissive-restart"
           ]
+        },
+        {
+          "id": "SIGNED-JSON-INDEPENDENCE",
+          "description": "Authenticated JSON media retains independent CORS defaults and credential headers after signed XML rules are cleared.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "id": "JSON-SIGNED-BROWSER-CONTROL",
+          "description": "Actual HTTPS Chromium JSON controls configure CORS/IAM and independently verify denied signed transfers preserve full metadata and exact bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial"
+          ]
         }
       ],
       "test_ids": [
@@ -37397,9 +37457,33 @@
         "cors-browser-strict-restart",
         "json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes",
         "json_cors_preflight_defaults_never_authenticate_or_grant_access",
-        "json_cors_wraps_bucket_object_streaming_errors_and_validators"
+        "json_cors_wraps_bucket_object_streaming_errors_and_validators",
+        "signed_rules_change_between_preflight_and_actual_and_survive_restart",
+        "signed-browser-strict-initial"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "command": "bash scripts/signed-browser.sh prepare/run strict initial; bash scripts/cors-browser.sh strict/permissive initial/restart",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
         {
           "command": "cargo test --workspace --offline",
           "result": "PASS",
@@ -37445,7 +37529,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Implemented existing path-style XML GET/HEAD and preflight CORS for the declared bucket-rule scope. JSON remains independent; general XML writes/configuration routes and provider/mobile edge parity remain separate. Contract: docs/en/slices/cors.md; evidence: docs/en/evidence/cors.md.",
+      "notes": "Implemented bucket-rule CORS for XML GET/HEAD/PUT and query-independent preflight on path-style and opt-in virtual hosts, including local signed errors and actual strict path-style HTTPS Chromium. JSON remains independent. XML configuration routes, broader writes and provider/mobile edge parity remain separate. Contracts: docs/en/slices/cors.md and docs/en/slices/signed-browser.md; final evidence: docs/en/evidence/signed-browser.md. SPEC-CORS-EDGES remains OPEN for provider-exact error/header and malformed-input behavior.",
       "dependencies": [
         "BEHAVIOR-BUCKET-009",
         "DESIGN-051"
@@ -37493,6 +37577,95 @@
           "test_ids": [
             "cors-memory-smoke"
           ]
+        },
+        {
+          "id": "SIGNED-TRANSFER-HEADERS",
+          "description": "Signed GET/HEAD/PUT expose configured headers with exact bytes, bodyless HEAD, reflected Origin/Vary and no credential grant on both endpoint styles.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_transfers_expose_bucket_headers_without_granting_credentials"
+          ]
+        },
+        {
+          "id": "SIGNED-ORIGIN-DENIAL",
+          "description": "A valid actual GET/HEAD/PUT retains its authorized result for denied or absent Origin without Allow-Origin; CORS does not become authorization.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_transfers_expose_bucket_headers_without_granting_credentials"
+          ]
+        },
+        {
+          "id": "SIGNED-ERROR-CORS",
+          "description": "Tampered query/Host, expiry, malformed signing declarations, role-less signer and anonymous GET/HEAD/PUT retain local error status and allowed/denied-origin CORS.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_failures_keep_cors_and_preserve_object"
+          ]
+        },
+        {
+          "id": "SIGNED-ATOMIC-FAILURES",
+          "description": "Signature/permission, 400 invalid digest and signed 412 condition failures preserve bytes, generation and complete metadata while retaining CORS decisions.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_failures_keep_cors_and_preserve_object"
+          ]
+        },
+        {
+          "id": "SIGNED-RULE-CHANGES",
+          "description": "Replacing rules after preflight changes actual response visibility without revoking signer permission; clearing removes the signed XML grant.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "id": "SIGNED-CORS-RESTART",
+          "description": "Restart preserves metadata, exact bytes, rules and subsequent signed GET/preflight for both endpoint styles.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart"
+          ]
+        },
+        {
+          "id": "SIGNED-BUCKET-SELECTION",
+          "description": "Distinct two-bucket rules select the virtual-host bucket before the path for preflight and actual signed PUT/GET.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_cors_selects_the_host_bucket_before_the_path_bucket"
+          ]
+        },
+        {
+          "id": "SIGNED-INVALID-BUCKET",
+          "description": "Invalid host-derived bucket names retain 400 InvalidArgument without CORS or Vary on preflight and actual GET.",
+          "result": "PASS",
+          "test_ids": [
+            "invalid_virtual_host_bucket_names_reject_preflight_without_cors"
+          ]
+        },
+        {
+          "id": "SIGNED-ENCODED-PATHS",
+          "description": "Encoded slash/space names preflight and transfer unchanged, store decoded folder/a b metadata and retain CORS on tampered-name signature failures.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_encoded_paths_keep_preflight_transfer_and_error_cors"
+          ]
+        },
+        {
+          "id": "SIGNED-INVALID-NAMES",
+          "description": "Dot and malformed percent names retain allowed/denied preflight decisions; actual invalid names/signatures still fail with unchanged object state and matching-origin CORS.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_invalid_object_names_keep_error_cors_without_bypassing_validation"
+          ]
+        },
+        {
+          "id": "XML-SIGNED-BROWSER",
+          "description": "Trusted HTTPS Chromium signed PUT/GET/HEAD verifies real preflight, exposed ETag/generation/hash, hidden metageneration, response overrides, origin/header/method denials and restart.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
         }
       ],
       "test_ids": [
@@ -37508,9 +37681,47 @@
         "xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials",
         "xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary",
         "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
-        "cors-memory-smoke"
+        "cors-memory-smoke",
+        "signed_transfers_expose_bucket_headers_without_granting_credentials",
+        "signed_failures_keep_cors_and_preserve_object",
+        "signed_rules_change_between_preflight_and_actual_and_survive_restart",
+        "signed_cors_selects_the_host_bucket_before_the_path_bucket",
+        "invalid_virtual_host_bucket_names_reject_preflight_without_cors",
+        "signed_encoded_paths_keep_preflight_transfer_and_error_cors",
+        "signed_invalid_object_names_keep_error_cors_without_bypassing_validation",
+        "signed-browser-strict-initial",
+        "signed-browser-strict-restart"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed_transfers_expose_bucket_headers_without_granting_credentials",
+            "signed_failures_keep_cors_and_preserve_object",
+            "signed_rules_change_between_preflight_and_actual_and_survive_restart",
+            "signed_cors_selects_the_host_bucket_before_the_path_bucket",
+            "invalid_virtual_host_bucket_names_reject_preflight_without_cors",
+            "signed_encoded_paths_keep_preflight_transfer_and_error_cors",
+            "signed_invalid_object_names_keep_error_cors_without_bypassing_validation"
+          ]
+        },
+        {
+          "command": "bash scripts/signed-browser.sh prepare/run strict initial/restart; bash scripts/cors-browser.sh strict/permissive initial/restart",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart",
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
         {
           "command": "cargo test --workspace --offline",
           "result": "PASS",
@@ -37596,7 +37807,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Allowed preflight is metadata-only permission to attempt a browser request; shared IAM still controls actual operations. Final wire/browser evidence: docs/en/evidence/cors.md.",
+      "notes": "Allowed preflight reads bucket CORS only and grants no object capability, including full signed queries, invalid/expired declarations, anonymous or role-less signers and PAP. Actual requests retain original-URI signature verification and current IAM checks. Local malformed-query/error CORS and provider boundaries: docs/en/slices/signed-browser.md, docs/en/evidence/signed-browser.md and SPEC-CORS-EDGES; existing JSON/XML evidence remains docs/en/evidence/cors.md.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052"
@@ -37630,15 +37841,78 @@
             "json_cors_preflight_defaults_never_authenticate_or_grant_access",
             "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions"
           ]
+        },
+        {
+          "id": "SIGNED-PREFLIGHT-QUERY",
+          "description": "Full signed PUT queries, expired/invalid/duplicate signing declarations and invalid operation queries do not authenticate OPTIONS or publish/reserve an object; actual URLs remain reusable.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_put_preflight_ignores_signature_and_never_publishes"
+          ]
+        },
+        {
+          "id": "SIGNED-PREFLIGHT-DENIAL",
+          "description": "Origin/method/header denial, case-sensitive methods, missing/empty method and malformed header lists receive no grant; requested header names match case-insensitively and Vary/max-age remain explicit.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_put_preflight_ignores_signature_and_never_publishes"
+          ]
+        },
+        {
+          "id": "SIGNED-PERMISSIONS",
+          "description": "Matching preflight never authorizes role-less signed or unsigned actual reads/writes and denied mutations preserve the complete object.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_preflight_never_grants_permission_and_pap_preserves_signer_access"
+          ]
+        },
+        {
+          "id": "SIGNED-PAP",
+          "description": "Under enforced PAP with stored allUsers grants, explicit signer GET/HEAD/PUT works with CORS while public-only signer and anonymous access remain denied.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_preflight_never_grants_permission_and_pap_preserves_signer_access"
+          ]
+        },
+        {
+          "id": "SIGNED-PREFLIGHT-AUTHORIZATION",
+          "description": "Actual HTTPS Chromium reads permission/signature/expiry/header errors after allowed preflight; revoked upload grants and anonymous private requests cannot publish or overwrite.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial"
+          ]
         }
       ],
       "test_ids": [
         "cors-browser-strict-initial",
         "json_cors_preflight_defaults_never_authenticate_or_grant_access",
         "xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions",
-        "cors-memory-smoke"
+        "cors-memory-smoke",
+        "signed_put_preflight_ignores_signature_and_never_publishes",
+        "signed_preflight_never_grants_permission_and_pap_preserves_signer_access",
+        "signed-browser-strict-initial"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed_put_preflight_ignores_signature_and_never_publishes",
+            "signed_preflight_never_grants_permission_and_pap_preserves_signer_access"
+          ]
+        },
+        {
+          "command": "bash scripts/signed-browser.sh prepare/run strict initial; bash scripts/cors-browser.sh strict initial",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "cors-browser-strict-initial"
+          ]
+        },
         {
           "command": "cargo test --workspace --offline",
           "result": "PASS",
@@ -42219,7 +42493,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "The extended native/source-image/strict-Compose guide passes generated-key/public-only registry setup, private signed GET/PUT and method/object/host/expiry/header/condition failures, both literal response overrides, opt-in virtual-host signing, PAP enforcement with preserved public policy/etag and valid signed transfers, disabling/reactivation, enforced-PAP restart and separately signed host/peer endpoints. Dynamic published ports are re-read and URLs freshly signed, never rewritten. The source-built image is reused without rebuilding. Actual signed-browser transfers remain delivery order 18. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "The extended native/source-image/strict-Compose guide passes generated-key/public-only registry setup, private signed GET/PUT and method/object/host/expiry/header/condition failures, both literal response overrides, opt-in virtual-host signing, PAP enforcement with preserved public policy/etag and valid signed transfers, disabling/reactivation, enforced-PAP restart and separately signed host/peer endpoints. Dynamic published ports are re-read and URLs freshly signed, never rewritten. The source-built image is reused without rebuilding. Actual strict path-style signed-browser transfers are separately verified in docs/en/evidence/signed-browser.md. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -42352,7 +42626,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Implemented basic browser journey: JSON direct media/multipart/resumable and CRUD, independently bucket-configured XML reads/preflight, trusted HTTPS and restart. Signed XML transfers, Rails and real iOS integration are later scopes. Evidence: docs/en/evidence/cors.md; mobile research: docs/en/slices/cors-mobile-origins.md.",
+      "notes": "Delivered JSON direct media/multipart/resumable/CRUD and strict signed XML PUT/GET/HEAD from distinct trusted HTTPS Chromium origins, with unchanged signed endpoints, CORS exposure/denials, permission/signature failures and restart. All scoped browser acceptance passes. Rails, real Google/iOS/WebKit and virtual-host browsers remain separate. Final evidence: docs/en/evidence/signed-browser.md; existing browser/mobile scope: docs/en/evidence/cors.md and docs/en/slices/cors-mobile-origins.md. The unrelated initial resumable-test transport race and its assertion-preserving correction remain recorded in the final evidence.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052",
@@ -42398,6 +42672,68 @@
           "test_ids": [
             "cors-memory-smoke"
           ]
+        },
+        {
+          "id": "BROWSER-SIGNED-TRANSFERS",
+          "description": "Actual trusted HTTPS Chromium uses unchanged CLI-signed PUT then independently signed GET/HEAD for exact bytes, length, stored signed metadata and response overrides.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
+        },
+        {
+          "id": "BROWSER-SIGNED-PREFLIGHT",
+          "description": "Browser-generated OPTIONS permits signed non-simple Content-Type/metadata PUT; denied origin/method/header blocks transfers and independent JSON checks prove no publication or overwrite.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial"
+          ]
+        },
+        {
+          "id": "BROWSER-SIGNED-EXPOSURE",
+          "description": "Configured ETag/generation/hash headers are readable while non-exposed metageneration remains hidden before and after restart.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
+        },
+        {
+          "id": "BROWSER-SIGNED-ERRORS",
+          "description": "Tampered/expired URLs and changed signed metadata headers yield readable XML HTTP errors with unchanged bytes/full metadata and no new object.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial"
+          ]
+        },
+        {
+          "id": "BROWSER-SIGNED-PERMISSIONS",
+          "description": "Successful preflight cannot authorize a viewer after upload-grant revocation or anonymous private GET/PUT; strict denial remains browser-readable.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial"
+          ]
+        },
+        {
+          "id": "BROWSER-SIGNED-RULES",
+          "description": "Fresh requests observe replaced rules with same-URL allowed controls; JSON independently proves preserved state and restart retains rules and signed-download bytes before cleanup.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
+        },
+        {
+          "id": "SIGNED-BROWSER-GUIDE",
+          "description": "Affected native signed URL/PAP/virtual-host and CORS guide blocks execute, and the signed-browser subsection prepares unchanged URLs for the trusted Chromium initial/restart journey.",
+          "result": "PASS",
+          "test_ids": [
+            "signed-browser-guide-native",
+            "signed-browser-cors-guide-native",
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart"
+          ]
         }
       ],
       "test_ids": [
@@ -42409,9 +42745,37 @@
         "cors-guide-https-arm64",
         "cors-guide-native",
         "mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently",
-        "cors-memory-smoke"
+        "cors-memory-smoke",
+        "signed-browser-strict-initial",
+        "signed-browser-strict-restart",
+        "signed-browser-guide-native",
+        "signed-browser-cors-guide-native"
       ],
       "verification": [
+        {
+          "command": "bash scripts/signed-browser.sh prepare/run strict initial/restart; bash scripts/cors-browser.sh strict/permissive initial/restart",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-strict-initial",
+            "signed-browser-strict-restart",
+            "cors-browser-strict-initial",
+            "cors-browser-permissive-initial",
+            "cors-browser-strict-restart",
+            "cors-browser-permissive-restart"
+          ]
+        },
+        {
+          "command": "Execute native signed-access and CORS shell blocks from docs/en/getting-started.md",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-browser.txt",
+          "test_ids": [
+            "signed-browser-guide-native",
+            "signed-browser-cors-guide-native"
+          ]
+        },
         {
           "command": "bash scripts/cors-browser.sh with strict/permissive initial/restart over trusted local HTTPS",
           "result": "PASS",

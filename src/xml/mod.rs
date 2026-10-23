@@ -218,12 +218,11 @@ pub(crate) fn authority_error(uri: &Uri, headers: &HeaderMap, config: &Config) -
 }
 
 /// Virtual hosts are XML-only; path-style reserves the JSON and emulator namespaces.
-pub(crate) fn route(
-    method: &Method,
-    uri: &Uri,
+pub(crate) fn object_path<'a>(
+    uri: &'a Uri,
     headers: &HeaderMap,
     config: &Config,
-) -> Option<Result<ReadRequest, Error>> {
+) -> Option<(String, &'a str)> {
     let path = uri.path();
     let virtual_bucket = virtual_bucket(headers, &config.xml_virtual_host_domains);
     if virtual_bucket.is_none() && reserved_path(path) {
@@ -239,8 +238,18 @@ pub(crate) fn route(
     {
         return None;
     }
+    Some((bucket.to_owned(), name))
+}
+
+pub(crate) fn route(
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    config: &Config,
+) -> Option<Result<ReadRequest, Error>> {
+    let (bucket, name) = object_path(uri, headers, config)?;
     Some((|| {
-        json::validate_bucket_name_for_profile(bucket, config.compat_profile)?;
+        json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
         if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
             return Err(Error::unsupported());
         }
@@ -297,7 +306,7 @@ pub(crate) fn route(
             return Err(Error::unsupported());
         }
         Ok(ReadRequest {
-            bucket: bucket.into(),
+            bucket,
             name,
             generation,
             conditions: ObjectConditions::default(),
