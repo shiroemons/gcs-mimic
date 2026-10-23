@@ -681,3 +681,19 @@ fn rewrite_composite_source_preserves_or_resets_component_count_without_md5() {
     assert_eq!(changed["resource"]["crc32c"], source["crc32c"]);
     assert_eq!(server.get("destination?alt=media").body, payload);
 }
+
+#[test]
+fn rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget() {
+    let (dir, mut server, payload, source) = setup(false, 16 * 1048576 + 17);
+    server.stop();
+    let server = Server::start_with_catalog_wait(&dir, false, 1);
+    let started = std::time::Instant::now();
+    let complete = server.request("POST", BASE, ADMIN, b"").json();
+    assert!(started.elapsed() > std::time::Duration::from_millis(1));
+    assert_eq!(complete["done"], true);
+    assert_eq!(complete["totalBytesRewritten"], payload.len().to_string());
+    for hash in ["md5Hash", "crc32c"] {
+        assert_eq!(complete["resource"][hash], source[hash]);
+    }
+    assert_eq!(server.get("destination?alt=media").body, payload);
+}

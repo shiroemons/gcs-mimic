@@ -39,10 +39,15 @@ impl Reply {
 }
 impl Server {
     pub fn start(dir: &common::TestDir, strict: bool) -> Self {
+        Self::start_with_catalog_wait(dir, strict, 30000)
+    }
+    pub fn start_with_catalog_wait(dir: &common::TestDir, strict: bool, milliseconds: u64) -> Self {
         let mut command = common::server_command();
         command
             .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
-            .arg(&dir.0);
+            .arg(&dir.0)
+            .arg("--catalog-wait-timeout-ms")
+            .arg(milliseconds.to_string());
         if strict {
             let identities = dir.0.join("identities.json");
             std::fs::write(&identities, serde_json::json!({"identities":[
