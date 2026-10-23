@@ -15001,7 +15001,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "b309f9c",
+      "implemented_in": "b309f9c2a50483885b362a053eefa74129de8f52",
       "last_verified": "2026-10-23"
     },
     {
@@ -15350,7 +15350,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "b309f9c",
+      "implemented_in": "b309f9c2a50483885b362a053eefa74129de8f52",
       "last_verified": "2026-10-23"
     },
     {
@@ -17519,7 +17519,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "b309f9c",
+      "implemented_in": "b309f9c2a50483885b362a053eefa74129de8f52",
       "last_verified": "2026-10-23"
     },
     {
@@ -19635,7 +19635,7 @@
         "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
-      "implemented_in": "41c2490",
+      "implemented_in": "41c2490285220dfafcaa9f198534121c82f38cb7",
       "last_verified": "2026-10-22"
     },
     {

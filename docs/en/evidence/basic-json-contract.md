@@ -43,7 +43,7 @@ does not complete the later basic API/CORS/HTTPS/Go-and-Ruby milestone.
 | `just check` | PASS, exit 0; 462 tests, zero failed/ignored; fmt, workspace clippy, ledger/generated-view, shell syntax and mocked release checks | [checks](basic-json-contract-checks.txt) |
 | `just check-sdk` | PASS, exit 0; Go vet, 35 top-level tests and 73 subtests; zero failures/skips | [Go](basic-json-contract-sdk-go.txt) |
 | `just check-containers` | PASS, exit 0; both architecture builds, read-only-root ordinary and seeded Compose, exact media bytes and stop/start/recreate persistence | [containers](basic-json-contract-containers.txt) |
-| `cargo build --release --locked --offline --bin gcs-mimic` and unchanged guide blocks extracted by heading | PASS, exit 0; native and final ARM64 image, bucket/object conditions and metadata, multipart/resumable, paging, error/fields checks and restart equality | [guide](basic-json-contract-guide.txt) |
+| `cargo build --release --locked --offline --bin gcs-mimic` and [guide block extraction](#guide-block-extraction) | PASS, exit 0; native and final ARM64 image, bucket/object conditions and metadata, multipart/resumable, paging, error/fields checks and restart equality | [guide](basic-json-contract-guide.txt) |
 | `GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh` | PASS, exit 0; 4 targets × 302 requests = 1,208 raw records, with existing PATCH/PUT/fields/read-validator assertions | [comparison](basic-json-contract-comparison.txt) |
 | `env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check` | Final PASS, exit 0; all 31 compiler/library/SDK/Action/container inputs CURRENT | [dependencies](basic-json-contract-dependencies.txt) |
 | `cargo xtask compatibility validate`, `render`, `check` | PASS, exit 0; 591 features, 401 parameter locations and 357 schema fields; both generated views current | [checks](basic-json-contract-checks.txt) |
@@ -72,6 +72,41 @@ frontend `4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e`
 and test curl `11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac`.
 The dependency log verifies index/platform freshness; the checks log captures
 manifest, lockfile, toolchain, Dockerfile and test-file SHA-256 values.
+
+### Guide block extraction
+
+Command description clarified after execution; the recorded guide output and results are unchanged, and the guide was not rerun.
+
+Run from the repository root in the same `bash -euxo pipefail` shell as the
+native or Docker setup in the [guide](../getting-started.md), after readiness
+and the advertised endpoint are configured. Keep `endpoint` and the guide's
+temporary-directory variables in that shell. The trace records this exact
+repository-relative extraction expression and heading/block-count sequence;
+`eval` preserves variables between unchanged guide blocks:
+
+```sh
+run_blocks() {
+  local heading="$1" count="$2" guide_commands
+  guide_commands=$(awk -v heading="$heading" -v limit="$count" '$0 == heading {section=1;next} section && /^```sh$/ {code=1;next} code && /^```$/ {code=0;blocks++;if(blocks==limit)exit;next} code {print}' docs/en/getting-started.md)
+  eval "$guide_commands"
+}
+
+run_blocks '## Create, inspect, list and delete buckets' 1
+run_blocks '## Patch bucket labels and default storage class' 1
+run_blocks '## Replace bucket labels and default storage class' 1
+run_blocks '## Verify bucket versioning and default holds' 1
+run_blocks '## Upload, inspect, download and conditionally create an object' 1
+run_blocks '## Select response fields and validate cached reads' 1
+run_blocks '## Upload metadata and media in one multipart request' 1
+run_blocks '## Resume and finalize an upload from the host' 2
+run_blocks '## List objects and conditionally change metadata' 1
+```
+
+After the Docker setup and those shared blocks, the recorded Docker journey
+also executes `run_blocks '## Stop, restart and deliberate reset' 1`.
+The separate native restart/resource-byte comparisons remain in the trace;
+the extraction command does not replace server startup, readiness or restart
+setup. No machine-specific harness path is required to extract the blocks.
 
 ## Documented acceptance scopes
 
