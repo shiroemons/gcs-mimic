@@ -329,6 +329,175 @@ fn iam_bucket_grants_cover_existing_routes() {
 }
 
 #[test]
+fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects() {
+    let (_config, data, server) = fixture();
+    server.upload(ADMIN, "iam-bucket", "object", b"old").ok();
+    let original = server
+        .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
+        .ok()
+        .json();
+    set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
+    server.get(NO_ROLES, "/storage/v1/b/iam-bucket").ok();
+    // Bucket roles cannot supply project-level create/list permissions.
+    server
+        .create_bucket(NO_ROLES, "project-a", "unauthorized")
+        .forbidden();
+    server
+        .get(NO_ROLES, "/storage/v1/b?project=project-a")
+        .forbidden();
+    set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    let bucket = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    server
+        .get(ADMIN, "/storage/v1/b/unauthorized")
+        .error(404, "notFound");
+    for (auth, status, reason) in [("", 401, "required"), (NO_ROLES, 403, "forbidden")] {
+        for (method, path, body) in [
+            ("GET", "/storage/v1/b/iam-bucket", b"".as_slice()),
+            ("PATCH", "/storage/v1/b/iam-bucket", b"{}"),
+            ("PUT", "/storage/v1/b/iam-bucket", b"{}"),
+            ("DELETE", "/storage/v1/b/iam-bucket", b""),
+            ("GET", "/storage/v1/b/iam-bucket/o", b""),
+            ("GET", "/storage/v1/b/iam-bucket/o/object", b""),
+            ("GET", "/storage/v1/b/iam-bucket/o/object?alt=media", b""),
+            (
+                "PATCH",
+                "/storage/v1/b/iam-bucket/o/object",
+                br#"{"metadata":{"key":"new"}}"#,
+            ),
+            ("PUT", "/storage/v1/b/iam-bucket/o/object", b"{}"),
+            ("DELETE", "/storage/v1/b/iam-bucket/o/object", b""),
+            (
+                "POST",
+                "/upload/storage/v1/b/iam-bucket/o?uploadType=resumable&name=object",
+                b"{}",
+            ),
+        ] {
+            server
+                .request(method, path, auth, body)
+                .error(status, reason);
+        }
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/iam-bucket/o/object?alt=media",
+                &format!("{auth}Range: bytes=0-1\r\n"),
+                b"",
+            )
+            .error(status, reason);
+        server
+            .upload(auth, "iam-bucket", "object", b"new")
+            .error(status, reason);
+        server
+            .multipart(auth, "iam-bucket", "object", b"new")
+            .error(status, reason);
+        assert_eq!(
+            server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json(),
+            bucket
+        );
+        server
+            .get(ADMIN, "/storage/v1/b/unauthorized")
+            .error(404, "notFound");
+        let sessions: i64 = rusqlite::Connection::open_with_flags(
+            data.0.join("catalog.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap()
+        .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+        assert_eq!(sessions, 0);
+        assert_eq!(
+            server
+                .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
+                .ok()
+                .json(),
+            original
+        );
+        assert_eq!(
+            server
+                .get(ADMIN, "/storage/v1/b/iam-bucket/o/object?alt=media")
+                .ok()
+                .body,
+            b"old"
+        );
+        assert_eq!(
+            std::fs::read_dir(data.0.join("staging")).unwrap().count(),
+            0
+        );
+        assert_eq!(
+            std::fs::read_dir(data.0.join("blobs"))
+                .unwrap()
+                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+                .sum::<usize>(),
+            1
+        );
+    }
+}
+
+#[test]
+fn auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming() {
+    let (_config, data, server) = fixture();
+    server.upload(ADMIN, "iam-bucket", "object", b"old").ok();
+    let original = server
+        .request(
+            "PATCH",
+            "/storage/v1/b/iam-bucket/o/object",
+            ADMIN,
+            br#"{"contentType":"text/old","metadata":{"key":"old"}}"#,
+        )
+        .ok()
+        .json();
+    for upload in ["media", "multipart"] {
+        set(&server, ADMIN, &grants(&["roles/storage.admin"])).ok();
+        let body = if upload == "media" {
+            b"new".to_vec()
+        } else {
+            b"--boundary\r\nContent-Type: application/json\r\n\r\n{\"metadata\":{\"key\":\"new\"}}\r\n--boundary\r\n\r\nnew\r\n--boundary--\r\n".to_vec()
+        };
+        let mut stream = server.stream();
+        write!(stream, "POST /upload/storage/v1/b/iam-bucket/o?uploadType={upload}&name=object HTTP/1.1\r\nHost: local\r\n{NO_ROLES}Content-Type: multipart/related; boundary=boundary\r\nContent-Length: {}\r\n\r\n", body.len()).unwrap();
+        stream.write_all(&body[..body.len() - 1]).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while std::fs::read_dir(data.0.join("staging")).unwrap().count() != 1 {
+            assert!(
+                Instant::now() < deadline,
+                "upload must pass advisory authorization"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        set(&server, ADMIN, &json!({"bindings":[]})).ok();
+        stream.write_all(&body[body.len() - 1..]).unwrap();
+        Reply::read(stream).forbidden();
+        assert_eq!(
+            server
+                .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")
+                .ok()
+                .json(),
+            original
+        );
+        assert_eq!(
+            server
+                .get(ADMIN, "/storage/v1/b/iam-bucket/o/object?alt=media")
+                .ok()
+                .body,
+            b"old"
+        );
+        assert_eq!(
+            std::fs::read_dir(data.0.join("staging")).unwrap().count(),
+            0
+        );
+        assert_eq!(
+            std::fs::read_dir(data.0.join("blobs"))
+                .unwrap()
+                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+                .sum::<usize>(),
+            1
+        );
+    }
+}
+
+#[test]
 fn iam_stale_and_concurrent_etags() {
     let (_config, _data, server) = fixture();
     let initial = server.get(ADMIN, IAM).ok().json();
