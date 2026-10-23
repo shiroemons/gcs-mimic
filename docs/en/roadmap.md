@@ -97,7 +97,7 @@ success stub does not complete a workflow.
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
 | 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
 | 8 | Basic JSON contract | Frozen live-resource profile, documented single conditions/checksums/error envelopes, fields/read ETags and remaining-gap mapping passed final Rust/Go/reference/both-architecture containers and native/Docker guide checks on 2026-10-23 | Delivered: BEHAVIOR-COMMON-007/011 and BEHAVIOR-OBJECT-005 IMPLEMENTED in their declared scope; broad method rows remain PARTIAL; [final verification](evidence/basic-json-contract.md) |
-| 9 | Object copy | Generation-pinned source, metadata rules, permissions and atomic destination conditions | Copy an object without a client download/upload |
+| 9 | Object copy | Generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds, composites and restart pass Rust/targeted Go checks; [evidence](evidence/object-copy.md); final integration gates pending | Exact frozen copy subset is delivered; behavior awaits integration, method additionally lacks full ACL/owner projection |
 | 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
 | 11 | Object compose | Ordered bounded sources, component/checksum rules and explicit source-deletion semantics | Concatenate objects into one destination |
 | 12 | Local HTTPS/TLS | HTTP-only/HTTPS-only modes, supplied certificate/key, bounded handshake, verified client trust, advertised endpoints and native/container/browser checks | Use local HTTPS without disabling certificate or hostname verification |
@@ -119,8 +119,13 @@ are IMPLEMENTED for their declared EXACT scopes. Mutation NotMatch status,
 mixed/missing-resource precedence, multipart header and multi-request resumable
 MD5 questions remain open; every original case, deviation and historical
 verification is preserved. Broad API methods remain PARTIAL.
-The next implementation slice is order 9 **Object copy**: generation-pinned
-source, metadata rules, strict permissions and atomic destination conditions.
+Order 9 **Object copy** has its [declared local implementation](slices/object-copy.md)
+and [Rust/targeted Go evidence](evidence/object-copy.md). Final-source container,
+full SDK and native/Docker guide gates remain pending; the two broad ledger rows
+stay PARTIAL until that gate; the method additionally lacks full ACL/owner projection.
+Provider metadata/error/placement questions remain outside declared local acceptance.
+The next implementation slice is order 10 **Object rewrite**, using the shared
+persistent derived-transfer foundation; compose remains order 11.
 Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
 covering the [frozen replacement contract](slices/bucket-metadata-put.md),
 Rust/Go checks, both reference backends and local profiles, both container

@@ -4,7 +4,7 @@
 
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
-metadata get/patch/update, prefix/delimiter/paged listing, whole-object and single-range download and delete,
+metadata get/patch/update, generation-pinned copy, prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
@@ -316,6 +316,41 @@ cmp "$work_dir/upload.txt" "$work_dir/peer-download.txt"
 docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_image" \
   --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
 ```
+
+## Copy an object with source and destination conditions
+
+Copy runs on the server with a pinned source generation and bounded disk streaming.
+An absent or JSON `null` body inherits supported editable source metadata, excluding
+holds; a supplied resource replaces that metadata in the declared local profile.
+Strict mode needs source `storage.objects.get`, destination `storage.objects.create`
+and destination `storage.objects.delete` for an overwrite. The high-level Go
+`CopierFrom` uses rewrite; this example exercises JSON `objects.copy` directly.
+
+```sh
+curl --disable --noproxy '*' --fail -X POST -H 'Content-Type: application/json' \
+  --data 'null' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?sourceGeneration=$generation&ifSourceGenerationMatch=$generation&ifGenerationMatch=0" \
+  > "$work_dir/copied.json"
+jq -e --slurpfile source "$work_dir/object.json" \
+  '.name == "notes/copy.txt" and .generation != $source[0].generation and .md5Hash == $source[0].md5Hash and .crc32c == $source[0].crc32c' \
+  "$work_dir/copied.json"
+copy_generation=$(jq -er .generation "$work_dir/copied.json")
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?alt=media&generation=$copy_generation" \
+  --output "$work_dir/copied.txt"
+cmp "$work_dir/upload.txt" "$work_dir/copied.txt"
+status=$(curl --disable --noproxy '*' --silent --output "$work_dir/copy-condition.json" \
+  --write-out '%{http_code}' -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/copyTo/b/demo-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0")
+test "$status" = 412
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fcopy.txt?generation=$copy_generation"
+```
+
+The [copy contract](slices/object-copy.md) lists unsupported ACL/KMS/billing/retention
+semantics and the open body/default/large-object parity questions. The commands above
+await final integrated guide execution; the [recorded wire/Go checks](evidence/object-copy.md)
+cover the same operation independently.
 
 ## Select response fields and validate cached reads
 

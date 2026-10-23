@@ -3,6 +3,38 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-DERIVED-METADATA",
+      "title": "Copy/rewrite empty metadata resources, null and class defaults need provider clarification",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023", "JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/copy.go"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Official copy/rewrite references inherit editable source metadata for an empty request body, excluding ACLs, holds and retention. Generated Go API v0.308.0 serializes a nil optional Copy resource as JSON null; local null now inherits exactly like zero bytes. The pinned high-level Copier documents nil/zero-valued attributes as ignored, while its HTTP transport sends a raw resource through rewrite. Local explicit {} replaces editable metadata with modeled destination defaults; absent/null inherits source storageClass, while an explicit resource without storageClass uses the destination bucket default. The resource reference marks storageClass writable but does not settle every omission/default/null case. Local wire and generated JSON SDK tests pass; they do not establish provider parity for these distinctions. Composite identity is preserved separately from editable metadata, with count one on class/location changes as documented for rewrite.",
+      "required_resolution": "Obtain authoritative clarification or authorized provider observations for zero-byte, whitespace, null, {}, partial resources, empty/null metadata maps and fixed fields, and omitted class across differing bucket defaults. Keep both shared adapters consistent and retain these questions outside the frozen local acceptance scope. Do not infer provider replacement semantics merely from local SDK success; retain the exact declared local rules and unsupported advanced fields."
+    },
+    {
+      "id": "SPEC-COPY-PLACEMENT",
+      "title": "Copy single-rewrite size limits, placement and exact error behavior are not simulated",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The copy reference invokes rewrite once and warns that larger objects can require multiple calls and fail with Payload too large; rewrite documents same-location/class completion and dual-region replication conditions. Local copy streams the configured size limit through disk with 64 KiB buffers, independent of physical placement, class cost or replication; class/location metadata controls composite count but not provider work thresholds. Documented local 400/403/404/412/413/501 behavior and atomic preservation are wire-tested. No real-cloud size/time/placement/error-precedence differential request or resource benchmark was run.",
+      "required_resolution": "Keep placement/size/error questions outside the frozen local acceptance scope; the ledger records EXACT fidelity only for that declared scope. Establish a supported threshold/error model or authorized provider observations before claiming cross-location/class large-copy parity, replication, exact errors/precedence or infrastructure behavior. ACLs, encryption/KMS, requester billing, contexts, retention and temporary holds remain explicitly unsupported; accepted full projection still lacks owner/ACL resources and their additional permission behavior."
+    },
+    {
       "id": "SPEC-BUCKET-PUT",
       "title": "Bucket PUT defaults, ACL omission, immutable inputs and revision/error semantics need provider evidence",
       "status": "OPEN",

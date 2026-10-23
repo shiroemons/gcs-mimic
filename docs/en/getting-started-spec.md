@@ -217,11 +217,17 @@ curl --fail -X POST -H "Content-Type: text/plain" \
 
 curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt"
 curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt?alt=media"
+curl --fail -X POST -H "Content-Type: application/json" --data 'null' \
+  "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt/copyTo/b/scratch-bucket/o/notes%2Fcopy.txt?ifGenerationMatch=0"
+curl --fail "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fcopy.txt?alt=media"
+curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fcopy.txt"
 curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket/o/notes%2Fhello.txt"
 curl --fail -X DELETE "http://127.0.0.1:4443/storage/v1/b/scratch-bucket"
 ```
 
 Expected verification includes exact content, metadata fields, correct URL encoding and the correct missing-object error after deletion. Do not present these commands as passing until the corresponding implementation milestones exist.
+
+The copy example uses the [declared local contract](slices/object-copy.md): pin an explicit source generation when exercising races, verify create-if-absent 412 and destination preservation, compare bytes/checksums and exercise restart. Null-body inheritance supports generated SDK clients; explicit-resource replacement/default edges remain source questions. Full native/Docker execution is a final-source gate. High-level Go `CopierFrom` must be verified with rewrite, while generated `Objects.Copy` verifies this operation directly.
 
 ## 5. Host versus container connectivity
 

@@ -78,8 +78,10 @@ Bucket metadata PUT is delivered in its [documented replacement subset](docs/en/
 with [final verification](docs/en/evidence/bucket-metadata-put.md).
 The [basic JSON contract gate](docs/en/evidence/basic-json-contract.md) is closed
 for the frozen local profile, documented conditions/checksums/error envelopes
-and explicit remaining-gap mapping. Next implement **Object copy** (order 9),
-then bounded continuation rewrite and compose. Verify
+and explicit remaining-gap mapping. **Object copy** is available in its
+[declared local subset](docs/en/slices/object-copy.md), with
+[Rust and pinned Go evidence](docs/en/evidence/object-copy.md); final integrated
+container/SDK/guide gates remain pending. Next implement bounded continuation rewrite and compose. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
 and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
 and bucket-configured XML-read CORS, with actual-browser verification, before
@@ -162,7 +164,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Object content/custom metadata PATCH (merge/null clearing; `objects.patch`) | ✅ All scoped fields; merge and null clearing | 🚧 Merges metadata; no null clearing | 🚧 Replaces metadata map; null fields ignored |
 | Object content/custom metadata PUT (replacement/omission reset; `objects.update`) | ✅ All scoped fields; omitted fields reset | 🚧 No `contentEncoding` input; omitted fixed fields retained | ❌ |
 | Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
-| Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
+| Object copy (`objects.copy`) | 🚧 Generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds and checksums; advanced semantics/provider parity pending | ✅ | ✅ |
 | Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
 | Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
@@ -226,9 +228,9 @@ The scoped checkmarks above use recorded execution evidence:
 [range](docs/en/evidence/object-range.md) and
 [final integrated regressions](docs/en/evidence/resumable-upload.md).
 Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
-wire-edge gaps remain recorded in the ledger. Copy, rewrite
-and compose remain unavailable until implemented and verified; the new roadmap
-does not turn them into completed features.
+wire-edge gaps remain recorded in the ledger. Copy has scoped
+[local verification](docs/en/evidence/object-copy.md); rewrite continuation and
+compose remain separate deliverables. Their roadmap entries do not establish completion.
 
 The pinned comparison source review covers
 [fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),
