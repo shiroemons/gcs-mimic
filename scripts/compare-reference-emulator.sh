@@ -77,7 +77,7 @@ start_target() {
       -filesystem-root "$work/$target-data" -data "$work/no-seed" \
       >"$work/$target.log" 2>&1 &
   else
-    env -i PATH="$PATH" "$server" serve --listen "$address" --api-base-url "$origin" \
+    env -i PATH="$PATH" "$server" serve --scheme http --listen "$address" --api-base-url "$origin" \
       --data-dir "$work/$target-data" "$@" >"$work/$target.log" 2>&1 &
   fi
   pid=$!

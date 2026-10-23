@@ -1,0 +1,12 @@
+services:
+  gcs:
+    command: [serve, --scheme, https, --listen, "0.0.0.0:4443", --data-dir, /var/lib/gcs-mimic]
+    environment:
+      GCS_MIMIC_SCHEME: https
+      GCS_MIMIC_TLS_CERT: /tls/server.pem
+      GCS_MIMIC_TLS_KEY: /tls/server.key
+      GCS_MIMIC_API_BASE_URL: ${GCS_MIMIC_API_BASE_URL:-https://localhost:4443}
+    volumes:
+      - ${GCS_MIMIC_TLS_DIR:?Set GCS_MIMIC_TLS_DIR to the throwaway certificate directory}:/tls:ro
+    healthcheck:
+      test: [CMD, gcs-mimic, healthcheck, --url, "https://localhost:4443/_internal/ready", --ca-cert, /tls/ca.pem]

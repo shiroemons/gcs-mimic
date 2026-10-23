@@ -1,0 +1,7 @@
+services:
+  gcs:
+    command: [serve, --scheme, http, --listen, "0.0.0.0:4443", --data-dir, /var/lib/gcs-mimic]
+    environment:
+      GCS_MIMIC_API_BASE_URL: ${GCS_MIMIC_API_BASE_URL:-http://127.0.0.1:4443}
+    healthcheck:
+      test: [CMD, gcs-mimic, healthcheck, --url, "http://127.0.0.1:4443/_internal/ready"]
