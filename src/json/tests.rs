@@ -18,7 +18,7 @@ fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
     route(&method, &path.parse::<Uri>().unwrap()).expect("bucket route")
 }
 
-fn record() -> BucketRecord {
+pub(super) fn record() -> BucketRecord {
     parse_insert(br#"{"name":"test-bucket"}"#, "test-project", UNIX_EPOCH).unwrap()
 }
 

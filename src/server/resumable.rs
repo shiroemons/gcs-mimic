@@ -290,7 +290,7 @@ pub(super) async fn session_response(
         .options
         .response_fields
         .as_deref()
-        .map(|value| json::Fields::parse(value, "Object"))
+        .map(json::Fields::parse_syntax)
         .transpose()?;
     let projection = if lease.session.options.projection_full {
         json::Projection::Full

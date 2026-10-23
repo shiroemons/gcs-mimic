@@ -41,13 +41,29 @@ impl Fields {
     }
 
     pub fn parse(value: &str, schema: &str) -> Result<Self, JsonError> {
+        let fields = Self::parse_syntax(value)?;
+        fields
+            .validate(&SCHEMAS["schemas"][schema])
+            .map_err(|mut error| {
+                error.message = format!("{}: {value}", error.message);
+                error
+            })?;
+        Ok(fields)
+    }
+
+    pub(crate) fn parse_syntax(value: &str) -> Result<Self, JsonError> {
+        Self::syntax(value).map_err(|mut error| {
+            error.message = format!("{}: {value}", error.message);
+            error
+        })
+    }
+
+    fn syntax(value: &str) -> Result<Self, JsonError> {
         if value.len() > MAX_LENGTH {
             return Err(invalid("fields exceeds 4096 bytes"));
         }
         if value.is_empty() || value.chars().any(char::is_whitespace) {
-            return Err(JsonError::unsupported_object(
-                "empty or whitespace-containing fields",
-            ));
+            return Err(unsupported("empty or whitespace-containing fields"));
         }
         let mut parser = Parser {
             rest: value,
@@ -57,7 +73,6 @@ impl Fields {
         if !parser.rest.is_empty() {
             return Err(invalid("Unbalanced fields parentheses"));
         }
-        fields.validate(&SCHEMAS["schemas"][schema])?;
         Ok(fields)
     }
 
@@ -80,7 +95,7 @@ impl Fields {
         for (name, child) in &self.children {
             if name == "*" {
                 if !child.whole || !child.children.is_empty() {
-                    return Err(JsonError::unsupported_object("wildcard sub-selection"));
+                    return Err(unsupported("wildcard sub-selection"));
                 }
                 if schema["type"] != "object" {
                     return Err(invalid("Invalid field selection *"));
@@ -125,6 +140,14 @@ impl Fields {
 
 fn invalid(message: impl Into<String>) -> JsonError {
     JsonError::invalid_parameter(message)
+}
+
+fn unsupported(name: &str) -> JsonError {
+    JsonError::new(
+        hyper::StatusCode::NOT_IMPLEMENTED,
+        "notImplemented",
+        format!("Unsupported JSON API semantics: {name}"),
+    )
 }
 
 struct Parser<'a> {
@@ -255,6 +278,7 @@ mod tests {
                 (400, "invalidParameter"),
                 "{selector}"
             );
+            assert!(error.message.contains(selector), "{}", error.message);
         }
         for selector in [
             "",
@@ -271,7 +295,107 @@ mod tests {
                 (501, "notImplemented"),
                 "{selector}"
             );
+            assert!(error.message.starts_with("Unsupported JSON API semantics:"));
         }
+    }
+
+    #[test]
+    fn fields_persisted_selection_does_not_depend_on_current_schema() {
+        let selector = "retiredProperty";
+        assert!(Fields::parse(selector, "Object").is_err());
+        let mut value = json!({"retiredProperty":"completed","name":"hidden"});
+        Fields::parse_syntax(selector).unwrap().apply(&mut value);
+        assert_eq!(value, json!({"retiredProperty":"completed"}));
+        assert!(Fields::parse_syntax("name,").is_err());
+    }
+
+    #[test]
+    fn fields_rendered_resource_paths_match_pinned_schemas() {
+        use crate::{
+            config::CompatProfile,
+            json,
+            storage::{ObjectListCursor, ObjectListPage},
+        };
+
+        fn check(value: &Value, path: &str, schema: &str) {
+            match value {
+                Value::Object(object) => {
+                    for (name, value) in object {
+                        let path = if path.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{path}/{name}")
+                        };
+                        Fields::parse(&path, schema)
+                            .unwrap_or_else(|error| panic!("{schema} {path}: {error}"));
+                        check(value, &path, schema);
+                    }
+                }
+                Value::Array(items) => {
+                    for item in items {
+                        check(item, path, schema);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let base = "http://localhost";
+        let mut bucket = json::tests::record();
+        bucket.labels.insert("team".into(), "example".into());
+        bucket.versioning_enabled = true;
+        bucket.default_event_based_hold = true;
+        bucket.metageneration = 2;
+        let mut object = json::object_tests::record();
+        object.content_encoding = Some("gzip".into());
+        object.content_disposition = Some("attachment".into());
+        object.content_language = Some("en".into());
+        object.cache_control = Some("no-cache".into());
+        object.metadata.insert("team".into(), "example".into());
+        object.event_based_hold = true;
+        object.time_deleted = Some(object.updated);
+        let params = json::object_list::parse_list(bucket.name.clone(), "delimiter=/").unwrap();
+        let page = ObjectListPage {
+            next: Some(ObjectListCursor {
+                name: object.name.clone(),
+                is_prefix: false,
+                generation: Some(object.generation),
+            }),
+            items: vec![object.clone()],
+            prefixes: vec!["dir/".into()],
+        };
+        let policy = json::parse_policy(br#"{"etag":"AQ==","bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#).unwrap();
+        for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+            check(
+                &json::bucket_resource_with_profile(&bucket, base, json::Projection::Full, profile)
+                    .unwrap(),
+                "",
+                "Bucket",
+            );
+            check(
+                &json::bucket_list_with_profile(
+                    std::slice::from_ref(&bucket),
+                    Some("cursor"),
+                    base,
+                    json::Projection::Full,
+                    profile,
+                )
+                .unwrap(),
+                "",
+                "Buckets",
+            );
+        }
+        check(
+            &json::object_resource(&object, base, json::Projection::Full).unwrap(),
+            "",
+            "Object",
+        );
+        check(
+            &json::object_list(&page, &params, base).unwrap(),
+            "",
+            "Objects",
+        );
+        check(&json::policy_resource(&policy, &bucket.name), "", "Policy");
     }
 
     #[test]

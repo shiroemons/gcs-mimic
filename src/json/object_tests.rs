@@ -8,7 +8,7 @@ fn request(method: Method, path: &str) -> Result<ObjectRequest, JsonError> {
     route_object(&method, &path.parse().unwrap()).expect("object route")
 }
 
-fn record() -> ObjectRecord {
+pub(super) fn record() -> ObjectRecord {
     ObjectRecord {
         bucket: "test-bucket".to_owned(),
         name: "dir/猫 %2F?#".to_owned(),

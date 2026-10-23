@@ -278,6 +278,140 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
 }
 
 #[test]
+fn fields_invalid_selectors_leave_all_routes_unchanged() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir, true);
+    server.bucket();
+    server.put("existing", b"original").json();
+    let bucket = server
+        .request("GET", "/storage/v1/b/test-bucket", ADMIN, b"")
+        .json();
+    let object = server.get("existing").json();
+    let policy = server
+        .request("GET", "/storage/v1/b/test-bucket/iam", ADMIN, b"")
+        .json();
+    let objects = server.list("");
+    let buckets = server
+        .request("GET", "/storage/v1/b?project=local", ADMIN, b"")
+        .json();
+    for (method, path, body) in [
+        (
+            "POST",
+            "/storage/v1/b?project=local&fields=items/name",
+            br#"{"name":"rejected-bucket"}"#.as_slice(),
+        ),
+        (
+            "PATCH",
+            "/storage/v1/b/test-bucket?fields=items/name",
+            br#"{"labels":{"bad":"change"}}"#.as_slice(),
+        ),
+        (
+            "PUT",
+            "/storage/v1/b/test-bucket?fields=items/name",
+            br#"{"labels":{"bad":"change"}}"#.as_slice(),
+        ),
+        (
+            "GET",
+            "/storage/v1/b?project=local&fields=name",
+            b"".as_slice(),
+        ),
+        (
+            "GET",
+            "/storage/v1/b/test-bucket/o?fields=name",
+            b"".as_slice(),
+        ),
+        (
+            "GET",
+            "/storage/v1/b/test-bucket/iam?fields=name",
+            b"".as_slice(),
+        ),
+        (
+            "PUT",
+            "/storage/v1/b/test-bucket/iam?fields=name",
+            br#"{"bindings":[{"role":"roles/storage.objectViewer","members":["allUsers"]}]}"#
+                .as_slice(),
+        ),
+        (
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=rejected&fields=items/name",
+            b"replacement".as_slice(),
+        ),
+        (
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=rejected&fields=items/name",
+            b"rejected before MIME parsing".as_slice(),
+        ),
+        (
+            "POST",
+            "/upload/storage/v1/b/test-bucket/o?uploadType=resumable&name=rejected&fields=items/name",
+            b"".as_slice(),
+        ),
+    ] {
+        let reply = server.request(method, path, ADMIN, body);
+        reply.error(400, "invalidParameter");
+        assert!(!reply.headers.contains_key("location"));
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/test-bucket", ADMIN, b"")
+                .json(),
+            bucket,
+            "{method} {path}"
+        );
+        assert_eq!(server.get("existing").json(), object, "{method} {path}");
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/test-bucket/iam", ADMIN, b"")
+                .json(),
+            policy,
+            "{method} {path}"
+        );
+        assert_eq!(server.list(""), objects, "{method} {path}");
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b?project=local", ADMIN, b"")
+                .json(),
+            buckets,
+            "{method} {path}"
+        );
+        server
+            .request("GET", "/storage/v1/b/rejected-bucket", ADMIN, b"")
+            .error(404, "notFound");
+        server.get("rejected").error(404, "notFound");
+    }
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/existing?alt=media",
+                ADMIN,
+                b""
+            )
+            .body,
+        b"original"
+    );
+    server
+        .request(
+            "PATCH",
+            "/storage/v1/b/test-bucket/o/existing",
+            ADMIN,
+            br#"{"metadata":{"other":"value"}}"#,
+        )
+        .json();
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o/existing?fields=metadata/missing",
+                ADMIN,
+                b""
+            )
+            .json(),
+        json!({"metadata":{}})
+    );
+    server.stop();
+}
+
+#[test]
 fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir, false);
