@@ -275,8 +275,31 @@ fn obj_http_malformed_conditions_reject_every_object_method_without_mutation() {
             &format!("1&{key}=1"),
         ] {
             let query = format!("{key}={value}");
+            let message = if value.contains('&') {
+                format!("Duplicate query parameter: {key}")
+            } else {
+                format!("{key} must be an int64")
+            };
             for upload in ["media", "multipart", "resumable"] {
-                server.request("POST", &format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{query}"), "", b"").error(400, "invalidParameter");
+                let body = match upload {
+                    "multipart" => wire(b"{}", None, b"new", None),
+                    "resumable" => b"{}".to_vec(),
+                    _ => b"new".to_vec(),
+                };
+                let headers = if upload == "multipart" {
+                    "Content-Type: multipart/related; boundary=boundary\r\n"
+                } else {
+                    "Content-Type: application/json\r\n"
+                };
+                let reply = server.request(
+                    "POST",
+                    &format!("/upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=existing&{query}"),
+                    headers,
+                    &body,
+                );
+                reply.error(400, "invalidParameter");
+                let error: Value = serde_json::from_slice(&reply.body).unwrap();
+                assert_eq!(error["error"]["message"], message);
             }
             for method in ["GET", "PATCH", "PUT", "DELETE"] {
                 let body = if matches!(method, "PATCH" | "PUT") {
@@ -308,7 +331,7 @@ fn obj_http_media_and_multipart_recheck_each_condition_after_streaming() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 30_000);
     server.bucket();
-    // A future high-water mark makes the forbidden next generation independent of wall time.
+    // A future high-water mark avoids wall time; setup assumes no concurrent writer or cached allocator.
     rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
         .unwrap()
         .execute(
@@ -401,24 +424,31 @@ fn obj_http_media_and_multipart_independent_checksum_vectors_across_chunks() {
         (&[0; 32], "cLyPS3KoaSFGi/joRB3OUQ==", "ipE2qg=="),
     ] {
         for upload in ["media", "multipart"] {
-            let body = if upload == "media" {
-                bytes.to_vec()
-            } else {
-                wire(b"{}", None, bytes, None)
-            };
-            let mut stream = socket(&server.address);
-            write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=vector HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nX-Goog-Hash: md5={md5},crc32c={crc32c}\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
-            for chunk in body.chunks(7) {
-                write!(stream, "{:x}\r\n", chunk.len()).unwrap();
-                stream.write_all(chunk).unwrap();
-                stream.write_all(b"\r\n").unwrap();
+            for supplied in [false, true] {
+                let body = if upload == "media" {
+                    bytes.to_vec()
+                } else {
+                    wire(b"{}", None, bytes, None)
+                };
+                let mut stream = socket(&server.address);
+                let hashes = if supplied {
+                    format!("X-Goog-Hash: md5={md5},crc32c={crc32c}\r\n")
+                } else {
+                    String::new()
+                };
+                write!(stream, "POST /upload/storage/v1/b/test-bucket/o?uploadType={upload}&name=vector HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\n{hashes}Transfer-Encoding: chunked\r\n\r\n").unwrap();
+                for chunk in body.chunks(7) {
+                    write!(stream, "{:x}\r\n", chunk.len()).unwrap();
+                    stream.write_all(chunk).unwrap();
+                    stream.write_all(b"\r\n").unwrap();
+                }
+                stream.write_all(b"0\r\n\r\n").unwrap();
+                let resource = Reply::read(stream).json();
+                assert_eq!(resource["md5Hash"], md5);
+                assert_eq!(resource["crc32c"], crc32c);
+                assert_eq!(server.get("vector?alt=media").body, bytes);
+                no_leaks(&dir, 1);
             }
-            stream.write_all(b"0\r\n\r\n").unwrap();
-            let resource = Reply::read(stream).json();
-            assert_eq!(resource["md5Hash"], md5);
-            assert_eq!(resource["crc32c"], crc32c);
-            assert_eq!(server.get("vector?alt=media").body, bytes);
-            no_leaks(&dir, 1);
         }
     }
 }
@@ -465,6 +495,9 @@ fn obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without
                 &body,
             )
             .error(413, "uploadTooLarge");
+        assert_eq!(server.get("existing").json(), original);
+        assert_eq!(server.get("existing?alt=media").body, b"old");
+        no_leaks(&dir, 1);
         let mut stream = socket(&server.address);
         write!(stream, "POST {path} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
         let body = if upload == "media" {
@@ -475,7 +508,14 @@ fn obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without
         write!(stream, "{:x}\r\n", body.len()).unwrap();
         stream.write_all(&body).unwrap();
         stream.write_all(b"\r\ninvalid-chunk\r\n").unwrap();
-        assert_eq!(Reply::read(stream).status, 400);
+        Reply::read(stream).error(
+            400,
+            if upload == "media" {
+                "badRequest"
+            } else {
+                "invalidParameter"
+            },
+        );
         assert_eq!(server.get("existing").json(), original);
         assert_eq!(server.get("existing?alt=media").body, b"old");
         no_leaks(&dir, 1);

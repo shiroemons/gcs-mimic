@@ -46,6 +46,15 @@ impl Reply {
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
+    fn error(&self, status: u16, reason: &str) {
+        assert_eq!(
+            self.status,
+            status,
+            "{}",
+            String::from_utf8_lossy(&self.body)
+        );
+        assert_eq!(self.json()["error"]["errors"][0]["reason"], reason);
+    }
 }
 impl Harness {
     async fn start(max: u64, strict: bool, base: Option<&str>) -> Self {
@@ -201,52 +210,59 @@ async fn obj_http_resumable_independent_empty_and_multichunk_checksum_vectors() 
         (0, "1B2M2Y8AsgTpgAmY7PhCfg==", "AAAAAA=="),
         (262145, "rXaC3/oyxEygvmW1+8ETpQ==", "srP9bA=="),
     ] {
-        let metadata = json!({"md5Hash":md5,"crc32c":crc32c}).to_string();
-        let init = h
-            .initiate(
-                "name=vector",
-                "Content-Type: application/json\r\n",
-                metadata.as_bytes(),
-            )
-            .await;
-        assert_eq!(init.status, 200);
-        let path = h.path(&init);
-        let mut start = 0;
-        if size > 0 {
-            assert_eq!(
-                h.request(
-                    "PUT",
-                    &path,
-                    &format!("Content-Range: bytes 0-262143/{size}\r\n"),
-                    &vec![0; 262144]
+        for supplied in [false, true] {
+            let metadata = if supplied {
+                json!({"md5Hash":md5,"crc32c":crc32c})
+            } else {
+                json!({})
+            }
+            .to_string();
+            let init = h
+                .initiate(
+                    "name=vector",
+                    "Content-Type: application/json\r\n",
+                    metadata.as_bytes(),
                 )
-                .await
-                .status,
-                308
+                .await;
+            assert_eq!(init.status, 200);
+            let path = h.path(&init);
+            let mut start = 0;
+            if size > 0 {
+                assert_eq!(
+                    h.request(
+                        "PUT",
+                        &path,
+                        &format!("Content-Range: bytes 0-262143/{size}\r\n"),
+                        &vec![0; 262144]
+                    )
+                    .await
+                    .status,
+                    308
+                );
+                start = 262144;
+            }
+            let headers = if size == 0 {
+                "Content-Range: bytes */0\r\n".to_owned()
+            } else {
+                format!("Content-Range: bytes {start}-{}/{size}\r\n", size - 1)
+            };
+            let reply = h
+                .request("PUT", &path, &headers, &vec![0; size - start])
+                .await;
+            assert_eq!(reply.status, 200);
+            assert_eq!(reply.json()["md5Hash"], md5);
+            assert_eq!(reply.json()["crc32c"], crc32c);
+            assert_eq!(
+                h.request("GET", "/storage/v1/b/bucket/o/vector?alt=media", "", b"")
+                    .await
+                    .body,
+                vec![0; size]
             );
-            start = 262144;
+            assert_eq!(
+                std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
+                0
+            );
         }
-        let headers = if size == 0 {
-            "Content-Range: bytes */0\r\n".to_owned()
-        } else {
-            format!("Content-Range: bytes {start}-{}/{size}\r\n", size - 1)
-        };
-        let reply = h
-            .request("PUT", &path, &headers, &vec![0; size - start])
-            .await;
-        assert_eq!(reply.status, 200);
-        assert_eq!(reply.json()["md5Hash"], md5);
-        assert_eq!(reply.json()["crc32c"], crc32c);
-        assert_eq!(
-            h.request("GET", "/storage/v1/b/bucket/o/vector?alt=media", "", b"")
-                .await
-                .body,
-            vec![0; size]
-        );
-        assert_eq!(
-            std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
-            0
-        );
     }
     h.stop().await;
 }
@@ -282,15 +298,27 @@ async fn obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files(
             )
             .await;
         assert_eq!(init.status, 200);
-        assert_eq!(
-            h.request("PUT", &h.path(&init), "", b"new").await.status,
-            400
-        );
+        h.request("PUT", &h.path(&init), "", b"new")
+            .await
+            .error(400, "invalid");
         assert_eq!(
             h.request("GET", "/storage/v1/b/bucket/o/object", "", b"")
                 .await
                 .json(),
             original
+        );
+        assert_eq!(
+            h.request("GET", "/storage/v1/b/bucket/o/object?alt=media", "", b"")
+                .await
+                .body,
+            b"old"
+        );
+        assert_eq!(
+            std::fs::read_dir(h.dir.0.join("blobs"))
+                .unwrap()
+                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+                .sum::<usize>(),
+            1
         );
         assert_eq!(
             std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
@@ -299,20 +327,27 @@ async fn obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files(
     }
     let init = h.initiate("name=object", "", b"").await;
     let path = h.path(&init);
-    assert_eq!(h.request("PUT", &path, "", &[b'x'; 33]).await.status, 413);
+    h.request("PUT", &path, "", &[b'x'; 33])
+        .await
+        .error(413, "uploadTooLarge");
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket/o/object", "", b"")
             .await
             .json(),
         original
     );
-    // Header-only size rejection preserves the valid session for a smaller retry.
     assert_eq!(
-        h.request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+        h.request("GET", "/storage/v1/b/bucket/o/object?alt=media", "", b"")
             .await
-            .status,
-        308
+            .body,
+        b"old"
     );
+    // Header-only size rejection leaves an untouched session until cancellation.
+    let status = h
+        .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+        .await;
+    assert_eq!(status.status, 308);
+    assert!(!status.headers.contains_key("range"));
     assert_eq!(h.request("DELETE", &path, "", b"").await.status, 499);
     assert_eq!(
         std::fs::read_dir(h.dir.0.join("staging")).unwrap().count(),
@@ -321,8 +356,22 @@ async fn obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files(
     let init = h.initiate("name=object", "", b"").await;
     let path = h.path(&init);
     let mut stream = TcpStream::connect(&h.address).await.unwrap();
-    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nnew\r\ninvalid\r\n").as_bytes()).await.unwrap();
-    assert_eq!(Harness::read_response(stream).await.status, 400);
+    stream.write_all(format!("PUT {path} HTTP/1.1\r\nHost: local\r\nContent-Range: bytes 0-2/3\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nnew\r\ninvalid\r\n").as_bytes()).await.unwrap();
+    Harness::read_response(stream)
+        .await
+        .error(400, "badRequest");
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/object", "", b"")
+            .await
+            .json(),
+        original
+    );
+    assert_eq!(
+        h.request("GET", "/storage/v1/b/bucket/o/object?alt=media", "", b"")
+            .await
+            .body,
+        b"old"
+    );
     // A body error leaves a retryable session; cancellation must remove its owned staging file.
     assert_eq!(h.request("DELETE", &path, "", b"").await.status, 499);
     assert_eq!(

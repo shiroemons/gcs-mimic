@@ -346,6 +346,10 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
         .get(NO_ROLES, "/storage/v1/b?project=project-a")
         .forbidden();
     set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    let bucket = server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json();
+    server
+        .get(ADMIN, "/storage/v1/b/unauthorized")
+        .error(404, "notFound");
     for (auth, status, reason) in [("", 401, "required"), (NO_ROLES, 403, "forbidden")] {
         for (method, path, body) in [
             ("GET", "/storage/v1/b/iam-bucket", b"".as_slice()),
@@ -386,6 +390,20 @@ fn auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects(
         server
             .multipart(auth, "iam-bucket", "object", b"new")
             .error(status, reason);
+        assert_eq!(
+            server.get(ADMIN, "/storage/v1/b/iam-bucket").ok().json(),
+            bucket
+        );
+        server
+            .get(ADMIN, "/storage/v1/b/unauthorized")
+            .error(404, "notFound");
+        let sessions: i64 = rusqlite::Connection::open(data.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM resumable_sessions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(sessions, 0);
         assert_eq!(
             server
                 .get(ADMIN, "/storage/v1/b/iam-bucket/o/object")

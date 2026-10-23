@@ -371,7 +371,11 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
     }
     for method in ["PATCH", "PUT"] {
         let before = server
-            .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
+            .update(
+                "PATCH",
+                "",
+                json!({"cacheControl":"private", "metadata":{"old":"value"}}),
+            )
             .json();
         let barrier = Arc::new(Barrier::new(3));
         let threads: Vec<_> = (0..2)
@@ -384,20 +388,41 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                 );
                 std::thread::spawn(move || {
                     barrier.wait();
-                    request(&address, method, &path, br#"{"metadata":{"winner":"yes"}}"#).status
+                    request(&address, method, &path, br#"{"metadata":{"winner":"yes"}}"#)
                 })
             })
             .collect();
         barrier.wait();
-        let mut statuses: Vec<_> = threads
+        let replies: Vec<_> = threads
             .into_iter()
             .map(|thread| thread.join().unwrap())
             .collect();
+        let mut statuses: Vec<_> = replies.iter().map(|reply| reply.status).collect();
         statuses.sort();
         assert_eq!(statuses, [200, 412]);
         let after = server
             .request("GET", "/storage/v1/b/test-bucket/o/dir%2Ffile", b"")
             .json();
+        assert_eq!(
+            after,
+            replies
+                .iter()
+                .find(|reply| reply.status == 200)
+                .unwrap()
+                .json()
+        );
+        replies
+            .iter()
+            .find(|reply| reply.status == 412)
+            .unwrap()
+            .error(412, "conditionNotMet");
+        if method == "PUT" {
+            assert_eq!(after["metadata"], json!({"winner":"yes"}));
+            assert!(after.get("cacheControl").is_none());
+        } else {
+            assert_eq!(after["metadata"], json!({"old":"value", "winner":"yes"}));
+            assert_eq!(after["cacheControl"], "private");
+        }
         assert_eq!(
             after["metageneration"]
                 .as_str()
@@ -410,6 +435,94 @@ fn all_conditions_generation_selectors_and_conditioned_races() {
                 .parse::<i64>()
                 .unwrap()
                 + 1
+        );
+    }
+    server.stop();
+}
+
+#[test]
+fn conditional_delete_and_metadata_patch_have_one_winner() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    server.setup();
+    let path = "/storage/v1/b/test-bucket/o/dir%2Ffile";
+    for _ in 0..12 {
+        let before = server.request("GET", path, b"").json();
+        let condition = format!(
+            "{path}?ifMetagenerationMatch={}",
+            before["metageneration"].as_str().unwrap()
+        );
+        let barrier = Arc::new(Barrier::new(2));
+        let address = server.address.clone();
+        let waiting = barrier.clone();
+        let patch_path = condition.clone();
+        let patch = std::thread::spawn(move || {
+            waiting.wait();
+            request(
+                &address,
+                "PATCH",
+                &patch_path,
+                br#"{"metadata":{"winner":"patch"}}"#,
+            )
+        });
+        barrier.wait();
+        let delete = server.request("DELETE", &condition, b"");
+        let patch = patch.join().unwrap();
+        match (delete.status, patch.status) {
+            (204, 404) => {
+                patch.error(404, "notFound");
+                assert!(delete.body.is_empty());
+                server.request("GET", path, b"").error(404, "notFound");
+                server
+                    .request("GET", &format!("{path}?alt=media"), b"")
+                    .error(404, "notFound");
+                let listing = server
+                    .request("GET", "/storage/v1/b/test-bucket/o", b"")
+                    .json();
+                assert!(listing.get("items").is_none());
+                server
+                    .request(
+                        "POST",
+                        "/upload/storage/v1/b/test-bucket/o?uploadType=media&name=dir%2Ffile",
+                        b"payload",
+                    )
+                    .json();
+            }
+            (412, 200) => {
+                delete.error(412, "conditionNotMet");
+                let after = server.request("GET", path, b"").json();
+                assert_eq!(after, patch.json());
+                assert_eq!(after["metadata"], json!({"winner":"patch"}));
+                assert_eq!(after["generation"], before["generation"]);
+                assert_eq!(
+                    after["metageneration"]
+                        .as_str()
+                        .unwrap()
+                        .parse::<i64>()
+                        .unwrap(),
+                    before["metageneration"]
+                        .as_str()
+                        .unwrap()
+                        .parse::<i64>()
+                        .unwrap()
+                        + 1
+                );
+                assert_eq!(
+                    server
+                        .request("GET", &format!("{path}?alt=media"), b"")
+                        .body,
+                    b"payload"
+                );
+            }
+            statuses => panic!("exactly one mutation must succeed: {statuses:?}"),
+        }
+        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        assert_eq!(
+            std::fs::read_dir(dir.0.join("blobs"))
+                .unwrap()
+                .map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count())
+                .sum::<usize>(),
+            1
         );
     }
     server.stop();
