@@ -85,7 +85,7 @@ A completed method needs all its declared acceptance children, not one passing h
 
 ## Schema and generated views
 
-The Rust `xtask` validates unique IDs, enumerations, calendar dates, dependency references/cycles, counts, source provenance, fidelity and linked evidence. It generates `docs/en/feature-matrix.md` and `planning/notes-ja/feature-matrix.md` deterministically, sorting categories/IDs and escaping table content. The companion title file must contain exactly the ledger IDs and no status. Kinds and achieved fidelity have separate summaries; SDK evidence counts remain per-row. Parameter/schema-field inventories are checked separately for counts, IDs, statuses and basic evidence presence. Detailed field semantics remain future conformance work.
+The Rust `xtask` validates unique IDs, enumerations, calendar dates, dependency references/cycles, counts, source provenance, fidelity and linked evidence. It generates `docs/en/feature-matrix.md` and `docs/ja/feature-matrix.md` deterministically, sorting categories/IDs and escaping table content. The companion title file must contain exactly the ledger IDs and no status. Kinds and achieved fidelity have separate summaries; SDK evidence counts remain per-row. Parameter/schema-field inventories are checked separately for counts, IDs, statuses and basic evidence presence. Detailed field semantics remain future conformance work.
 
 Available commands (fetch the locked dependencies first):
 

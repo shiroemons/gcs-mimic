@@ -60,7 +60,7 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 ## Language and delivery
 
 - English is primary for code, identifiers, comments, commit messages, issue/PR text, logs, CLI help and canonical documentation.
-- Implementation prompts and communication with the project owner are Japanese. Repository documentation, including README, setup, architecture, roadmap and compatibility, is English. Japanese planning notes in the parent kit are supplementary, outside the canonical project documentation. Add translations when requested and preserve identical feature IDs and status.
+- Implementation prompts and communication with the project owner are Japanese. English remains primary for repository documentation. Requested Japanese user documentation lives in `docs/ja`; maintain the same feature IDs, status and supported scope as English. Generate both feature matrices from the same ledger. Japanese notes under `planning/notes-ja` are historical planning material, not the user guide or a second status source.
 - Use focused English Conventional Commits, for example `feat(objects): enforce generation preconditions` and `docs: explain signed URL endpoints`.
 - At the end of a slice, report changed feature IDs, verified behavior, commands/results, limitations, ledger updates and the next slice.
 - Follow session authorization for commits, pushes, PRs and releases. These project rules do not by themselves authorize publishing a package or creating billable cloud resources.

@@ -308,14 +308,14 @@ impl Drop for Temp {
 
 fn fixture() -> Temp {
     let tmp = Temp::new();
-    for dir in ["compatibility", "docs/en", "planning/notes-ja"] {
+    for dir in ["compatibility", "docs/en", "docs/ja"] {
         fs::create_dir_all(tmp.0.join(dir)).unwrap();
     }
     for file in [
         "compatibility/features.json",
         "compatibility/parameter-coverage.json",
         "compatibility/schema-field-coverage.json",
-        "planning/notes-ja/feature-titles.json",
+        "docs/ja/feature-titles.json",
     ] {
         fs::copy(root().join(file), tmp.0.join(file)).unwrap();
     }
@@ -337,7 +337,7 @@ fn render_check_detects_stale_views_without_mutating() {
     run(&tmp.0, "render").unwrap();
     run(&tmp.0, "check").unwrap();
     let english = fs::read_to_string(tmp.0.join("docs/en/feature-matrix.md")).unwrap();
-    fs::write(tmp.0.join("planning/notes-ja/feature-matrix.md"), "stale").unwrap();
+    fs::write(tmp.0.join("docs/ja/feature-matrix.md"), "stale").unwrap();
     assert!(run(&tmp.0, "check").unwrap_err().contains("stale"));
     assert_eq!(
         english,
@@ -356,7 +356,7 @@ fn malformed_oversized_and_mismatched_inputs_fail() {
     let file = fs::File::create(&input).unwrap();
     file.set_len(8 * 1024 * 1024 + 1).unwrap();
     assert!(read_json(&input).unwrap_err().contains("8 MiB"));
-    let title_file = tmp.0.join("planning/notes-ja/feature-titles.json");
+    let title_file = tmp.0.join("docs/ja/feature-titles.json");
     fs::write(&title_file, "{\"titles\":{}}").unwrap();
     assert!(
         run(&tmp.0, "validate")

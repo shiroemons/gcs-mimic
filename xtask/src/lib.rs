@@ -508,7 +508,7 @@ pub fn run(root: &Path, command: &str) -> Result<()> {
     let parameters =
         validate_inventory(root, "compatibility/parameter-coverage.json", "parameters")?;
     let fields = validate_inventory(root, "compatibility/schema-field-coverage.json", "fields")?;
-    let titles = read_json(&root.join("planning/notes-ja/feature-titles.json"))?;
+    let titles = read_json(&root.join("docs/ja/feature-titles.json"))?;
     let title_map = titles["titles"].as_object().ok_or("missing title map")?;
     let rows = array(&ledger, "features")?;
     ensure(
@@ -522,10 +522,7 @@ pub fn run(root: &Path, command: &str) -> Result<()> {
     )?;
     for (path, content) in [
         ("docs/en/feature-matrix.md", render(&ledger, None)?),
-        (
-            "planning/notes-ja/feature-matrix.md",
-            render(&ledger, Some(&titles))?,
-        ),
+        ("docs/ja/feature-matrix.md", render(&ledger, Some(&titles))?),
     ] {
         if command == "render" {
             fs::write(root.join(path), content).map_err(|e| format!("{path}: {e}"))?;

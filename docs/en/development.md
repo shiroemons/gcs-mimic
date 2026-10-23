@@ -98,12 +98,13 @@ automatically.
 
 Pinned/current-stable Rust CI and native amd64/arm64 container CI are configured. Daily freshness runs at 03:17 UTC every calendar day without cooldown after reaching the default branch. Remote CI/schedule execution remains unverified. Latest-dependency candidate builds and upgrade submission are not implemented. Local arm64 runs natively; local amd64 uses emulation.
 
-`compatibility/features.json` is the only implementation-status authority. English and Japanese views are generated together; Japanese supplementary material remains under [planning/](../../planning/README.md). Ledger tooling validates evidence structure and links, not the truth of submitted logs. No GCS behavior is claimed by internal probes.
+`compatibility/features.json` is the only implementation-status authority. English and Japanese views are generated together under `docs/en` and `docs/ja`. Japanese user documentation starts at [docs/ja](../ja/README.md); historical planning material remains under [planning/](../../planning/README.md). Ledger tooling validates evidence structure and links, not the truth of submitted logs. No GCS behavior is claimed by internal probes.
 
 - [Design and extension boundaries](design.md)
 - [Roadmap](roadmap.md)
 - [Compatibility policy](compatibility-policy.md)
 - [Generated English matrix](feature-matrix.md)
+- [Generated Japanese matrix](../ja/feature-matrix.md)
 - [API inventory](api-inventory.md)
 - [Sources and gaps](sources.md)
 - [Dependency policy](dependency-policy.md)
