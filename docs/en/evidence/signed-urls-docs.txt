@@ -1,16 +1,19 @@
 Local path prefixes are redacted as <checkout>, <home> and <temp>.
-Command: actionlint
-PASS: workflow syntax (Go CI remains Go-only)
-Command: npx --yes markdownlint-cli2 (changed documentation)
 markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
-Finding: README.md docs/en/development.md docs/en/design.md docs/en/roadmap.md docs/en/getting-started.md docs/en/getting-started-spec.md docs/en/slices/signed-upload.md docs/en/slices/signed-download.md docs/en/slices/xml-put-object.md docs/en/evidence/signed-urls.md docs/en/evidence/signed-download.md sdk-tests/ruby/README.md
-Linting: 12 files
+Finding: README.md docs/en/design.md docs/en/roadmap.md docs/en/getting-started.md docs/en/getting-started-spec.md docs/en/evidence/signed-urls.md docs/en/slices/signed-download.md docs/en/slices/signed-upload.md docs/en/slices/public-access-prevention.md
+Linting: 9 files
 Summary: 0 issues in 0 files
-Command: cargo xtask compatibility validate
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: docs/en/feature-matrix.md planning/notes-ja/feature-matrix.md
+Linting: 2 files
+Summary: 0 issues in 0 files
+mise WARN  failed to write cache file: <home>/Library/Caches/mise/uv/0.8.3/bin_paths-2be55.msgpack.z failed create_dir_all: ~/Library/Caches/mise/uv/0.8.3: Operation not permitted (os error 1)
+mise WARN  failed to write cache file: <home>/Library/Caches/mise/uv/0.8.3/bin_paths-2be55.msgpack.z failed create_dir_all: ~/Library/Caches/mise/uv/0.8.3: Operation not permitted (os error 1)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
      Running `target/debug/xtask compatibility validate`
 Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
-Command: cargo xtask compatibility check
+mise WARN  failed to write cache file: <home>/Library/Caches/mise/uv/0.8.3/bin_paths-2be55.msgpack.z failed create_dir_all: ~/Library/Caches/mise/uv/0.8.3: Operation not permitted (os error 1)
+mise WARN  failed to write cache file: <home>/Library/Caches/mise/uv/0.8.3/bin_paths-2be55.msgpack.z failed create_dir_all: ~/Library/Caches/mise/uv/0.8.3: Operation not permitted (os error 1)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/xtask compatibility check`
 Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.

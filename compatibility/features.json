@@ -3075,6 +3075,50 @@
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_malformed_conditions_preserve_all_bucket_methods",
+            "bucket_core_create_get_defaults",
+            "bucket_core_migrates_v7_settings",
+            "bucket_core_profile_lookup_names_and_json_framing",
+            "bucket_core_restart_settings",
+            "bucket_core_settings_round_trip",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "bucket_patch_conditioned_race_has_one_winner",
+            "bucket_patch_conditions_and_query_contract",
+            "bucket_profile_names_support_object_and_xml_routes",
+            "bucket_profile_paging_preserves_names_and_resource_defaults",
+            "bucket_put_conditioned_race_has_one_winner",
+            "bucket_put_conditions_and_query_contract",
+            "iam::iam_bucket_grants_authorize_only_the_target_bucket",
+            "iam::iam_bucket_grants_cover_existing_routes",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip",
+            "TestObjectMediaLifecycle",
+            "TestObjectMultipartWriter",
+            "TestReadETagValidators"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3316,7 +3360,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -3586,6 +3630,42 @@
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "failed_policy_migration_rolls_back_and_restarts_from_version_five",
+            "iam::iam_default_policy_and_versions",
+            "iam::iam_migrates_v5_catalog",
+            "iam::iam_permissive_policy_and_cas",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_preserves_duplicate_members_and_role_bindings",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "iam::iam_rejects_queries_paths_and_bodies",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "policy_migration_visits_every_bucket_in_binary_name_order",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestReadETagValidators"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -3637,7 +3717,7 @@
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",
@@ -4107,6 +4187,42 @@
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "bkt_http_query_body_name_and_route_boundaries",
+            "bucket_api_settings_drive_versioning_and_hold_effects",
+            "bucket_core_invalid_requests_preserve_state",
+            "bucket_core_project_and_names",
+            "bucket_core_restart_settings",
+            "bucket_core_settings_round_trip",
+            "bucket_core_source_input_shape",
+            "bucket_core_strict_protection_settings_never_create_an_unprotected_bucket",
+            "bucket_core_unsupported_settings_preserve_state",
+            "bucket_profile_name_bound_keeps_created_buckets_reachable",
+            "bucket_profile_names_support_object_and_xml_routes",
+            "config::tests::compat_profile_precedence_and_validation",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestBucketLifecycle",
+            "TestBucketSettingsRoundTrip"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4566,6 +4682,33 @@
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "bkt_http_list_clamps_to_1000_with_lookahead",
+            "bkt_http_sorted_scoped_pagination_and_limits",
+            "bucket_cors_large_metadata_lists_page_without_loss",
+            "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
+            "bucket_profile_name_bound_keeps_created_buckets_reachable",
+            "bucket_profile_paging_preserves_names_and_resource_defaults",
+            "json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestPartialResponseFields"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -4846,7 +4989,7 @@
         },
         {
           "id": "PATCH-ADVANCED-FIELDS",
-          "description": "Implement ACL/default ACL, iamConfiguration/UBLA/PAP, nonempty lifecycle rules, CORS, retention, soft delete, encryption, billing, placement and remaining writable resource fields with real semantics.",
+          "description": "Implement ACL/default ACL, remaining iamConfiguration/UBLA transitions and PAP provider edges (SPEC-PAP-EDGES), nonempty lifecycle rules, retention, soft delete, encryption, billing, placement and remaining writable resource fields with real semantics.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5258,6 +5401,57 @@
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
+            "bkt_http_malformed_conditions_preserve_all_bucket_methods",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "bucket_get_rejects_patch_only_acl_query_parameters",
+            "bucket_patch_accepts_only_empty_lifecycle_rules",
+            "bucket_patch_conditioned_race_has_one_winner",
+            "bucket_patch_conditions_and_query_contract",
+            "bucket_patch_empty_null_and_invalid_inputs",
+            "bucket_patch_full_resource_round_trip_preserves_unchanged_fields",
+            "bucket_patch_label_boundaries_and_classes",
+            "bucket_patch_legacy_rendering_and_restart",
+            "bucket_patch_location_comparison_is_case_insensitive",
+            "bucket_patch_merges_labels_class_and_preserves_resources",
+            "bucket_patch_missing_bucket_validates_body_before_lookup",
+            "bucket_patch_null_settings_follow_profile_defaults",
+            "bucket_patch_rejects_get_only_generation_query_parameter",
+            "bucket_patch_settings_control_future_object_effects",
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "bucket_patch_unsupported_and_output_inputs_preserve_state",
+            "bucket_patch_uses_clock_and_rolls_back_invalid_merge",
+            "bucket_put_conditioned_race_has_one_winner",
+            "bucket_put_conditions_and_query_contract",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestBucketMetadataUpdate",
+            "TestObjectMediaLifecycle",
+            "TestObjectMultipartWriter",
+            "TestStrictAuthBucketMetadataUpdate"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5563,7 +5757,7 @@
         },
         {
           "id": "FULL-POLICY-AND-BILLING",
-          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+          "description": "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -5809,6 +6003,43 @@
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "iam::iam_permissive_policy_and_cas",
+            "iam::iam_policy_round_trip_and_unconditional_versions",
+            "iam::iam_policy_survives_restart",
+            "iam::iam_preserves_duplicate_members_and_role_bindings",
+            "iam::iam_principal_and_body_limits",
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "iam::iam_rejects_invalid_policy_shapes",
+            "iam::iam_rejects_queries_paths_and_bodies",
+            "iam::iam_rejects_unsupported_policy_semantics",
+            "iam::iam_requires_effective_get_and_set_permissions",
+            "iam::iam_stale_and_concurrent_etags",
+            "json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "TestPublicReadsGrantAndRevoke"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -5845,7 +6076,7 @@
         }
       ],
       "known_deviations": [
-        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and coupled ACL/UBLA/PAP semantics with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
+        "Implement and verify positive conditional/group/domain/federated/deleted principal and custom/basic-role policies, requester billing and ACL/UBLA transitions and remaining PAP provider edges (SPEC-PAP-EDGES) with wire/SDK cases. Current recognized unsupported requests return 501, not false success.",
         "SPEC-017 remains open: obtain opted-in real-service complete responses for authError message/location, 403 message and WWW-Authenticate, missing-bucket 403/404 with project versus bucket-only grants, and credential/syntax/body/etag check order.",
         "SPEC-IAM-WIRE: obtain opted-in cloud get/set round trips for duplicate members and repeated roles (ordering/merging/deduplication), mixed standard/URL-safe etags and non-zero trailing bits. Local duplicates/order are preserved, mixed alphabets accepted and non-zero trailing bits rejected with 400; cloud parity is unverified.",
         "Add a dedicated missing policy_revision singleton fixture proving startup rejects it without changing persistent bytes. The invariant is implemented; no dedicated fixture ran.",
@@ -6474,6 +6705,55 @@
             "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
             "pap_migrates_version_twelve_and_persists_configured_state",
             "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "bkt_http_conditional_delete_and_metadata_mutation_have_one_winner",
+            "bkt_http_malformed_conditions_preserve_all_bucket_methods",
+            "bucket_cors_concurrent_conditioned_updates_have_one_winner",
+            "bucket_cors_malformed_input_preserves_entire_resource",
+            "bucket_cors_metadata_round_trip_conditions_replacement_and_restart",
+            "bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates",
+            "bucket_patch_conditioned_race_has_one_winner",
+            "bucket_patch_conditions_and_query_contract",
+            "bucket_put_conditioned_race_has_one_winner",
+            "bucket_put_conditions_and_query_contract",
+            "bucket_put_empty_null_and_invalid_inputs",
+            "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
+            "bucket_put_label_boundaries_and_classes",
+            "bucket_put_legacy_rendering_and_restart",
+            "bucket_put_location_comparison_is_case_insensitive",
+            "bucket_put_missing_bucket_validates_body_before_lookup",
+            "bucket_put_null_settings_follow_profile_defaults",
+            "bucket_put_rejects_get_only_generation_query_parameter",
+            "bucket_put_replaces_omitted_fields_and_preserves_resources",
+            "bucket_put_settings_control_future_object_effects",
+            "bucket_put_strict_permissions_and_policy_preservation",
+            "bucket_put_unsupported_and_output_inputs_preserve_state",
+            "bucket_put_uses_clock_and_rolls_back_invalid_replacement",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestBucketMetadataReplace",
+            "TestObjectMediaLifecycle",
+            "TestObjectMultipartWriter",
+            "TestStrictAuthBucketMetadataReplace"
           ]
         }
       ],
@@ -17927,23 +18207,32 @@
           "test_ids": [
             "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants"
           ]
+        },
+        {
+          "id": "BEHAVIOR-BUCKET-014-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
-        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
-        "pap_migrates_version_twelve_and_persists_configured_state",
+        "TestPublicAccessPrevention",
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
         "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+        "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+        "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+        "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
         "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
         "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
-        "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
-        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
-        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
-        "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
-        "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
-        "TestPublicAccessPrevention"
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
       ],
       "verification": [
         {
@@ -17981,6 +18270,46 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
@@ -24106,6 +24435,16 @@
             "TestXMLReadsStrict",
             "TestXMLReadsPermissive"
           ]
+        },
+        {
+          "id": "EXT-XML-012-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -24124,9 +24463,12 @@
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
         "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
         "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
         "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
         "virtual_host_https_requires_a_matching_supplied_certificate",
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
@@ -24280,6 +24622,65 @@
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "TestV4RSASignedDownload/SignedUpload",
+            "TestV4RSAVirtualHostedURLs",
+            "TestXMLReadsPermissive",
+            "TestXMLReadsStrict",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24411,7 +24812,7 @@
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -24633,6 +25034,16 @@
             "TestV4RSAVirtualHostedURLs",
             "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
           ]
+        },
+        {
+          "id": "EXT-XML-017-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -24648,8 +25059,11 @@
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
         "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
         "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
         "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "xml::xml_head_matches_get_headers_and_selected_metadata",
@@ -24779,6 +25193,57 @@
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "TestV4RSAVirtualHostedURLs",
+            "TestXMLReadsStrict"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24865,7 +25330,7 @@
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
         "SPEC-XML-RESPONSE-OVERRIDES: public/permissive and HEAD overrides, empty/edge-whitespace 400, unrepresentable text-header/non-ASCII 501, incomplete header grammar validation and undocumented response-* rejection are explicit local choices pending provider clarification."
       ],
-      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "implemented_in": "80e3074801d9dd30865fe23bf054b999b951e996",
       "last_verified": "2026-10-23"
     },
     {
@@ -25279,6 +25744,14 @@
             "TestV4RSAVirtualHostedURLs",
             "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch"
           ]
+        },
+        {
+          "id": "EXT-XML-022-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -25290,6 +25763,7 @@
         "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
         "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
         "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
         "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
         "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
         "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
@@ -25406,6 +25880,57 @@
           "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host_https_requires_a_matching_supplied_certificate",
+            "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+            "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "TestV4RSAVirtualHostedURLs",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
         }
       ],
@@ -31581,10 +32106,7 @@
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
-            "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
-            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
-            "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
-            "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation"
+            "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
           ]
         }
       ],
@@ -32302,21 +32824,30 @@
           "test_ids": [
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
+        },
+        {
+          "id": "DESIGN-012-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "TestPublicReadsGrantAndRevoke",
-        "xml::anonymous_object_mutations_require_each_granted_permission",
-        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
-        "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
-        "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
-        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
         "guide-compose-public-reads",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+        "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+        "xml::anonymous_object_mutations_require_each_granted_permission",
+        "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
+        "xml::uniform_access_settings_fail_closed",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "xml::xml_head_matches_get_headers_and_selected_metadata",
-        "xml::uniform_access_settings_fail_closed",
-        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation"
       ],
       "verification": [
         {
@@ -32362,6 +32893,43 @@
           "test_ids": [
             "xml::uniform_access_settings_fail_closed",
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "xml::anonymous_bucket_and_policy_operations_require_granted_permissions",
+            "xml::anonymous_object_mutations_require_each_granted_permission",
+            "xml::public_grants_survive_restart_and_revocation_preserves_etag_checks",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests",
+            "xml::uniform_access_settings_fail_closed",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestPublicReadsGrantAndRevoke"
           ]
         }
       ],
@@ -32470,16 +33038,25 @@
           "test_ids": [
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
+        },
+        {
+          "id": "DESIGN-013-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "TestPublicReadsAllAuthenticatedUsers",
-        "iam::iam_recreated_bucket_has_fresh_policy",
-        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
         "guide-compose-public-reads",
+        "iam::iam_recreated_bucket_has_fresh_policy",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
         "xml::uniform_access_settings_fail_closed",
-        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+        "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"
       ],
       "verification": [
         {
@@ -32520,6 +33097,38 @@
           "test_ids": [
             "xml::uniform_access_settings_fail_closed",
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "iam::iam_recreated_bucket_has_fresh_policy",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::uniform_access_settings_fail_closed",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestPublicReadsAllAuthenticatedUsers"
           ]
         }
       ],
@@ -33202,16 +33811,25 @@
           "test_ids": [
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
           ]
+        },
+        {
+          "id": "DESIGN-022-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
-        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
-        "pap_migrates_version_twelve_and_persists_configured_state",
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
-        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
         "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
-        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+        "pap_migrates_version_twelve_and_persists_configured_state",
+        "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+        "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
       ],
       "verification": [
         {
@@ -33227,6 +33845,31 @@
             "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
             "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
             "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::tests::pap_mutations_require_update_and_set_iam_permissions",
+            "auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects",
+            "pap_migrates_version_twelve_and_persists_configured_state",
+            "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
+            "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
           ]
         }
       ],
@@ -33292,15 +33935,24 @@
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "id": "DESIGN-023-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
-        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
-        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+        "TestPublicAccessPrevention",
         "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
-        "TestPublicAccessPrevention"
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+        "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+        "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+        "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
       ],
       "verification": [
         {
@@ -33330,6 +33982,38 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants",
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_resumable_finalization_rechecks_public_initiator",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
@@ -33433,6 +34117,25 @@
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -33491,13 +34194,22 @@
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "id": "DESIGN-025-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
+        "TestPublicAccessPrevention",
+        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
         "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
         "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
-        "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
-        "TestPublicAccessPrevention"
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
       ],
       "verification": [
         {
@@ -33525,6 +34237,36 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/public-access-prevention-sdk-https.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_parent_fixture_inheritance_restart_and_release",
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
+            "signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
@@ -33893,6 +34635,29 @@
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -34070,6 +34835,32 @@
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -34228,6 +35019,17 @@
             "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -34289,6 +35091,16 @@
             "TestV4RSASignedDownload/SignedUpload",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "id": "DESIGN-033-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -34302,7 +35114,10 @@
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
         "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
         "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
         "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
@@ -34386,6 +35201,48 @@
           "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+            "signed_private_download_uses_the_https_listener_host_and_port",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host_https_requires_a_matching_supplied_certificate"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/SignedUpload",
+            "TestV4RSAVirtualHostedURLs",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
         }
       ],
@@ -34559,6 +35416,25 @@
             "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
             "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -34646,23 +35522,36 @@
             "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
             "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
           ]
+        },
+        {
+          "id": "DESIGN-035-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
-        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
-        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
-        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "TestV4RSASignedDownload",
+        "TestV4RSASignedDownload/ResponseOverrides",
         "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
+        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::overrides::xml_response_overrides_are_absent_from_error_responses",
+        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
         "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
         "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
-        "TestV4RSASignedDownload/ResponseOverrides",
-        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
-        "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
-        "signing::overrides::xml_response_overrides_are_absent_from_error_responses"
+        "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+        "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata"
       ],
       "verification": [
         {
@@ -34729,6 +35618,50 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/xml-response-overrides-sdk.txt",
           "test_ids": [
+            "TestV4RSASignedDownload/ResponseOverrides",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::overrides::xml_response_overrides_are_absent_from_error_responses",
+            "signing::overrides::xml_response_overrides_from_cli_reach_the_server",
+            "signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors",
+            "signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
             "TestV4RSASignedDownload/ResponseOverrides",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
@@ -34930,6 +35863,31 @@
             "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
             "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::canonical_headers_match_the_official_published_example",
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -35082,6 +36040,27 @@
             "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
             "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
             "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
         }
       ],
@@ -35249,6 +36228,29 @@
             "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload",
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
         }
       ],
@@ -35541,6 +36543,20 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -35657,7 +36673,7 @@
           ]
         },
         {
-          "command": "Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
+          "command": "Historical pre-follow-up guide (source e755296): Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/signed-urls-guide.txt",
@@ -35678,6 +36694,30 @@
             "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
             "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
             "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
         }
       ],
@@ -36097,6 +37137,16 @@
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
           ]
+        },
+        {
+          "id": "DESIGN-048-INTEGRATED-ACCESS",
+          "description": "Integrated virtual-host signed transfers, query-bound response overrides and PAP suppression/reactivation preserve metadata and stored public policies; actual CLI signs the combined style/query options where applicable.",
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -36106,10 +37156,13 @@
         "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
         "url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path",
         "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+        "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
         "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+        "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
         "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
         "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
         "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+        "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
         "virtual_host_https_requires_a_matching_supplied_certificate"
       ],
       "verification": [
@@ -36145,6 +37198,47 @@
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/xml-virtual-host-sdk-https.txt",
+          "test_ids": [
+            "TestV4RSAVirtualHostedURLs"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http virtual_host_",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
+            "prints_virtual_host_url_with_dotted_bucket_and_explicit_port",
+            "signing_cli_virtual_host_url_binds_final_bucket_host_and_port",
+            "url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path",
+            "virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch",
+            "virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host",
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+            "virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants",
+            "virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules",
+            "virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style",
+            "virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style",
+            "virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata",
+            "virtual_host_https_requires_a_matching_supplied_certificate"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
           "test_ids": [
             "TestV4RSAVirtualHostedURLs"
           ]
@@ -36737,7 +37831,7 @@
           ]
         },
         {
-          "command": "Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
+          "command": "Historical pre-follow-up guide (source e755296): Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/signed-urls-guide.txt",
@@ -36752,12 +37846,10 @@
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/signed-urls-checks.txt",
           "test_ids": [
-            "advertised_endpoint_precedence_and_validation",
             "bkt_http_crud_metadata_conditions_and_errors",
             "obj_http_encoded_names_and_invalid_names",
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
-            "tls_native_container_journeys",
             "tls_trust_versions_streaming_urls_and_restart"
           ]
         },
@@ -36769,6 +37861,21 @@
           "test_ids": [
             "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
             "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
+            "obj_http_encoded_names_and_invalid_names",
+            "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "tls_trust_versions_streaming_urls_and_restart",
+            "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
           ]
         }
       ],
@@ -41026,6 +42133,31 @@
             "xml::uniform_access_settings_fail_closed",
             "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates",
+            "xml::uniform_access_settings_fail_closed",
+            "xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestXMLReadsStrict",
+            "TestXMLReadsEncodedNames",
+            "TestXMLReadsPermissive",
+            "TestPublicReadsGrantAndRevoke",
+            "TestPublicReadsAllAuthenticatedUsers"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -41067,15 +42199,15 @@
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Generated-key/public-only registry, native/source-built Docker helper GET/PUT, method/object/host/expiry/header/condition failures, restart and separately signed host/peer URLs pass the runnable guide. Dynamic restart ports are re-read and re-signed, never rewritten. PAP enforced signed GET/PUT is verified through Rust/Go; copyable commands are in docs/en/slices/public-access-prevention.md. Final guide integration/execution is pending, so UX-006 stays PARTIAL. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "The historical path-style native/source-image/strict-Compose guide passes at source e755296. The extended current native guide passes private GET/PUT and failures, literal response overrides, virtual-host signing, PAP enforcement with preserved policy/etag and public reactivation. Final source-image/strict-Compose execution is blocked by an unresponsive Docker daemon after the amd64 image built; UX-006 remains PARTIAL until that guide actually executes. Current Rust/Go/Ruby checks pass. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "UX-006-GUIDE",
-          "description": "Execute the new native/source-image/strict-Compose signed private GET/PUT guide, failure demos, restart and host/peer URLs with public-only server key mounts.",
-          "result": "PASS",
+          "description": "Execute the updated source-image/strict-Compose guide, including original failure/restart/host-peer checks and new PAP/virtual-host/override steps; historical path-style execution is retained separately.",
+          "result": "PENDING",
           "test_ids": [
             "signed_journey (native)",
             "signed_journey (Docker/Compose)"
@@ -41083,7 +42215,7 @@
         },
         {
           "id": "UX-006-PAP-PENDING",
-          "description": "Copy PAP commands from docs/en/slices/public-access-prevention.md into the runnable guide and execute signed GET/PUT under enforced PAP on final native/container source; wire/Go behavior passes under DESIGN-025.",
+          "description": "The exact PAP block is integrated and passes natively; execute the final source-image/strict-Compose PAP guide after Docker daemon recovery.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -41095,6 +42227,14 @@
             "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "id": "UX-006-NATIVE-INTEGRATED",
+          "description": "The updated native guide executes private signed GET/PUT and failures, both literal response overrides, opt-in virtual-host signed transfers under PAP, stored-policy preservation and public reactivation on both endpoint styles.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_journey (native)"
+          ]
         }
       ],
       "test_ids": [
@@ -41105,7 +42245,7 @@
       ],
       "verification": [
         {
-          "command": "Execute the signed-private-transfer shell blocks in docs/en/getting-started.md natively and with the final source-built Docker image/strict Compose",
+          "command": "Historical pre-follow-up guide (source e755296): Execute the signed-private-transfer shell blocks in docs/en/getting-started.md natively and with the final source-built Docker image/strict Compose",
           "result": "PASS",
           "verified_at": "2026-10-23",
           "artifact": "docs/en/evidence/signed-urls-guide.txt",
@@ -41131,11 +42271,38 @@
           "test_ids": [
             "TestPublicAccessPrevention"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk (supplied wildcard-SAN server certificate and CA; pinned Ruby and installed gems)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestPublicAccessPrevention"
+          ]
+        },
+        {
+          "command": "Execute updated Signed private downloads and uploads setup/native shell blocks from docs/en/getting-started.md",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (native)"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "PAP API behavior passes under DESIGN-025, but final guide PAP addition/execution remains pending; actual signed browser transfers belong to delivery order 18."
+        "The final integrated Docker/strict-Compose guide is blocked by an unresponsive Docker daemon; /_ping times out, and the Docker VM logged an EXT4 write error. UX-006 stays PARTIAL until current-source execution; actual signed-browser transfers remain delivery order 18."
       ],
       "implemented_in": "5f45d0935ad55b8199e278ca808aa126580e0999",
       "last_verified": "2026-10-23"

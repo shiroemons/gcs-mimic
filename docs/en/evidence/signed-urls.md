@@ -1,39 +1,54 @@
-# Integrated V4 RSA signed GET/HEAD/PUT verification
+# Integrated signed access, virtual hosts and public access prevention
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Checked **2026-10-23**. Code commits: `86744f4c3b5530771c5c4547319e0d4d2b945431`
-and `8e1831e8a929fd034f70ade65093aeb86e33d7cc`.
-This is the final combined evidence set for the
+Checked **2026-10-23**. Production integration: `54ad326`; integrated interaction
+tests: `d9541d5` and `822f39c`. This is the single combined evidence set for the
 [download](../slices/signed-download.md), [bounded XML PUT](../slices/xml-put-object.md)
-and [signed-upload](../slices/signed-upload.md) contracts. Their original per-slice
-evidence remains historical; this integrated result supersedes earlier next-slice
-and optional canonical payload statements.
+and [signed-upload](../slices/signed-upload.md) contracts, with
+[response overrides](xml-response-overrides.md), [virtual hosts](xml-virtual-host.md)
+and [PAP](public-access-prevention.md). Linked feature evidence preserves the
+original acceptance and official source pins; the raw logs below cover the
+integrated result. Earlier path-style-only, override/PAP-pending and optional
+canonical payload statements are superseded for the declared delivered scopes.
 
 ## Checks
 
 | Command | Result | Evidence |
 | --- | --- | --- |
-| `just check` | PASS, 626 Rust tests; zero failed/ignored, formatting, Clippy, ledger and shell checks | [Rust checks](signed-urls-checks.txt) |
-| `GCS_MIMIC_SDK_SCHEME=https just check-sdk` | PASS, Go vet and all 44 top-level tests, Ruby origin guard and both auth profiles including signed GET/PUT | [SDK output](signed-urls-sdk.txt) |
+| `cargo test --locked --offline --test auth_http virtual_host_` | PASS, eight virtual-host wire tests including three integration/CLI cases | [Rust checks](signed-urls-checks.txt) |
+| `just check` | PASS, 656 Rust tests; zero failed/ignored, fmt, Clippy, ledger and shell checks | [Rust checks](signed-urls-checks.txt) |
+| `GCS_MIMIC_SDK_SCHEME=https just check-sdk` with supplied wildcard-SAN certificate and CA | PASS, Go vet and all 46 top-level tests, Ruby origin guard and both auth profiles including signed GET/PUT and response overrides | [SDK output](signed-urls-sdk.txt) |
 | `cargo xtask dependencies check` | PASS, all 36 inputs CURRENT | [Freshness](signed-urls-dependencies.txt) |
 | `actionlint` | PASS | Existing Go CI remains Go-only; `just check-sdk` explicitly enables Ruby |
-| `just check-containers` | PASS, linux/amd64 emulated and linux/arm64 native | [Containers](signed-urls-containers.txt) |
-| Native/source-image/strict-Compose signed guide | PASS, generated key/public-only server registry, helper GET/PUT and failures, restart and separate peer signature | [Guide transcript](signed-urls-guide.txt) |
-| Markdown lint and generated English/Japanese matrices | PASS | [Documentation checks](signed-urls-docs.txt) |
+| `just check-containers` | AMD64 image built; Docker daemon stopped responding during isolated health check; final completion pending | [Containers](signed-urls-containers.txt) |
+| Updated signed/PAP/virtual-host guide | Native PASS: generated key, private GET/PUT/failures, overrides, virtual hosts, PAP and public reactivation; source-image/strict Compose pending Docker recovery | [Guide transcript](signed-urls-guide.txt) |
+| Markdown lint and generated English/Japanese matrices | PASS, nine updated Markdown files, both matrices and 591-row ledger validate/check | [Documentation checks](signed-urls-docs.txt) |
 
-The source-built final image IDs are
-`sha256:52212c51fabd4d34e5b489b798efdd29b5b32412d7f77d5ffe4eaeb38a92da9d`
-for linux/amd64 and
-`sha256:3dce28ff80e9512543b767d81aba0f2219b121f2d88caf78a3be16f213fe4cc3`
-for linux/arm64. The guide reused that amd64 image, with no extra container build.
-Its disposable Compose project, volume and key directory were removed. Dynamic
-published ports are inspected again after restart and URLs are freshly signed;
-an existing signature's host is never rewritten. Native startup removes
-Compose-only image/port environment variables.
+The current-source AMD64 image built as `gcs-mimic:bucket-smoke-amd64-90206`.
+The isolated `docker exec ... healthcheck` then stopped returning; independent
+`docker ps` also hung, and a direct daemon `/_ping` timed out after five seconds
+with zero bytes. Docker VM console output reported an EXT4 write failure before
+the run. Host free space later recovered to 45 GiB without restoring API
+responsiveness. No daemon restart, volume repair or global image/volume pruning
+was performed by this integration worker. ARM64 build/smoke and the updated
+source-image/strict-Compose guide are unexecuted, so no current container PASS
+or complete UX-006 claim is made. The historical path-style guide transcript
+remains labeled separately in the same log.
+
+After daemon recovery, reuse that source-built image for the AMD64 smoke and
+guide rather than rebuilding it. Build/smoke only the unexecuted ARM64 part.
+Dynamic published ports must be inspected after restart and URLs freshly signed;
+an existing signature's host is never rewritten.
+Native startup removes Compose-only image/port environment variables.
+SDK verification uses Ruby 4.0.9, Bundler 4.0.23 and the existing pinned gem cache.
+Its supplied server certificate has `localhost`, `127.0.0.1` and
+`*.storage.example.invalid` SANs, signed by an isolated development CA.
+CA, hostname and SNI verification remain enabled; no system trust is changed.
 
 The development guide disables only MD013 to match the repository's existing long
-prose/table style; all other Markdown checks remain enabled. No release, push,
+prose/table style. Matrix lint additionally uses MD024 `siblings_only` because
+feature-kind sections repeat category headings; other checks remain enabled. No release, push,
 registry publication or billable cloud operation was performed.
 Raw Docker/guide transcripts preserve Compose's trailing spaces; whitespace
 validation excludes those two raw files and passes for source and documentation.
@@ -41,15 +56,38 @@ validation excludes those two raw files and passes for source and documentation.
 ## Verified behavior and limits
 
 Nine signature unit tests pin canonical strings, clock boundaries, parser/key
-validation and final Host/path/query/header binding. The 72-test auth HTTP suite
-includes existing public/IAM/CORS behavior, all 13 XML PUT wire tests and four new
+validation and final Host/path/query/header binding. The integrated auth HTTP
+suite retains existing public/IAM/CORS behavior, all 13 XML PUT wire tests and
 signed PUT cases. Those cover private exact bytes/metadata, signed
 Content-Type/Content-MD5/custom metadata/conditions, required extension-header
 rejection, standard unsigned extras, pre-body signer/expiry/tamper failure,
 signed/unsigned streamed SHA256, failed-overwrite preservation, restart, concurrent
 generation-match publication and signed XML PUT preflight/actual CORS responses.
 Existing shared storage tests retain transactional create/delete/condition and
-revocation/recreated-bucket checks. No schema or buffering limit changes.
+revocation/recreated-bucket checks. PAP adds schema 13 configured state and
+transactional migration, without changing body buffering limits.
+
+`virtual_host_signed_response_overrides_bind_query_and_preserve_metadata`
+checks both override headers on signed virtual GET/HEAD, unchanged generation,
+metadata/length and query tamper failure without override leakage into errors.
+`virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host`
+invokes the actual CLI with `--style virtual-hosted` and both literal `--query`
+options, then requests its unchanged signed GET/HEAD URLs.
+`virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants`
+covers both public principal sets, path/virtual public baselines before PAP,
+anonymous/registered/public-only signer denials under PAP, explicit signer
+GET/PUT, signed response override tampering, unchanged object metadata and
+policy/etag, and reactivation after disabling PAP. These supplement the full
+[virtual-host](xml-virtual-host.md), [override](xml-response-overrides.md) and
+[PAP](public-access-prevention.md) acceptance sets.
+
+The native guide executes the exact PAP signed GET/PUT block from the slice,
+adds a real `allUsers` policy before enforcement, compares the stored policy
+before/during/after PAP and verifies anonymous reactivation on both endpoint
+styles. Its curl `--resolve` maps only the connection address; Host and signed
+URLs remain unchanged. The guide documents opt-in configuration, DNS and HTTPS
+SAN requirements. The Compose version uses public-only server key mounts and
+a network-disabled signing container.
 
 The helper signs query canonical payload as UNSIGNED-PAYLOAD. A supplied SHA256
 is checked incrementally before the upload End marker. Invalid signatures and
@@ -77,11 +115,17 @@ query/object/Host/method/header tampering and anonymous reads fail. Origin guard
 disabled proxies/redirects and verified CA/SAN trust confine requests to the emulator.
 See SPEC-RUBY-SIGNER-ENDPOINT and the [Ruby harness](../../../sdk-tests/ruby/README.md).
 
-DESIGN-029/030/032/034/036/038/045 are IMPLEMENTED for their scoped contracts.
-DESIGN-033/035/037/044/055, UX-006, DESIGN-002 and EXT-XML-012/017/022 retain
-explicit pending cases: virtual-host addressing, response overrides/duplicate
-parity, optional digest provider/error semantics, exact signature errors,
-separately configured/proxy-derived origins, PAP and advanced XML/IAM behavior.
+DESIGN-029/030/032/033/034/036/038/045/048 and DESIGN-023/025 are IMPLEMENTED
+for their scoped contracts. BEHAVIOR-BUCKET-014 and DESIGN-022 are IMPLEMENTED
+with LOCAL_SIMULATION fidelity for parent enforcement. DESIGN-035 stays PARTIAL
+for exact duplicate/ambiguous query behavior (SPEC-SIGNING-EDGES), with local
+override validation and anonymous/HEAD extensions in SPEC-XML-RESPONSE-OVERRIDES.
+DESIGN-037 stays PARTIAL under SPEC-SIGNED-PAYLOAD; DESIGN-044 retains exact
+signature errors/precedence under SPEC-SIGNING-EDGES. DESIGN-055 retains
+separately configured/proxy-derived origins; DESIGN-002 and broad XML/IAM rows
+retain their named advanced and provider cases. DESIGN-024 remains PARTIAL for
+ACL/default-object-ACL exceptions and SPEC-PAP-EDGES. UX-006 awaits final Compose
+guide execution before promotion.
 HMAC, Authorization-header V4, V2, POST policy and signed resumable rows are unchanged.
 Next: delivery order 18, actual signed browser transfers using existing CORS/TLS.
 
@@ -108,3 +152,22 @@ The application Cargo.lock SHA256 is
 Go go.sum is `1fe4e981f7239be32bec257908d18fea019b970e85ec86ffdcf559094d01fc38`;
 Ruby Gemfile.lock is `ff1b0325b28745729a962668ffbb906167c895e19104b5ea393e509ba46c3df6`.
 No dependency version was added or changed by the upload slice.
+
+## Pinned comparison source review
+
+Checked **2026-10-23**, source review only. No new reference-emulator execution
+or Google request is claimed. README comparisons use these fixed source files:
+
+| Source | SHA256 |
+| --- | --- |
+| [fake-gcs-server object handlers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/object.go) | `cfd884eb03aa429f6b681bef8ca1923c600b24beb850c0620121c0c23110a56b` |
+| [fake-gcs-server router](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go) | `abe448cd575fbc5687a2527031c3b72fc1ff4b109b12333d1b1d031ab533c005` |
+| [gcp-storage-emulator object handlers](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) | `e382f1715e55805a0b7459c1f9c8f21b8f38443da6c8d863ea6994bf1c1f4c4f` |
+| [gcp-storage-emulator router](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/server.py) | `b0227517548e0c34304b06029712351de277bd2a8bb1c7c45e71d0a27ec55837` |
+
+The fake-gcs-server download handler sets both response override headers, and its
+router includes bucket-host reads/uploads. The gcp-storage-emulator handler sets
+Content-Disposition only; public routes are path-style without HEAD or bucket
+Host selection. Neither reviewed request path verifies signing credentials or
+public IAM/PAP grants. Accepting signed-shaped requests is distinguished from
+signature/expiry/permission enforcement.
