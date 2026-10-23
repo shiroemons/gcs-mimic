@@ -1,5 +1,6 @@
 use super::{ObjectActivity, await_upload_catalog};
 use crate::{
+    bucket::BucketAccess,
     config::Config,
     json,
     object::{ObjectError, ObjectRecord},
@@ -46,6 +47,7 @@ async fn checkpoint_at(
 pub(super) async fn execute(
     catalog: &Catalog,
     source: DerivedSource,
+    source_access: BucketAccess,
     destination: DerivedDestination,
     source_location: Option<String>,
     config: &Config,
@@ -102,6 +104,11 @@ pub(super) async fn execute(
             &transfer.id,
             destination,
             move |connection, destination| {
+                Catalog::check_derived_bucket_access_in_transaction(
+                    connection,
+                    &source_record.bucket,
+                    &source_access,
+                )?;
                 if source_record.component_count.is_some() {
                     let location: String = connection
                         .query_row(
@@ -224,6 +231,7 @@ mod tests {
     fn start(
         catalog: &Catalog,
         source: DerivedSource,
+        source_access: BucketAccess,
         destination: DerivedDestination,
         after_bytes: u64,
         wait_ms: u64,
@@ -244,6 +252,7 @@ mod tests {
             execute(
                 &catalog,
                 source,
+                source_access,
                 destination,
                 Some("US".into()),
                 &config,
@@ -277,7 +286,14 @@ mod tests {
         let source = source(&catalog).await;
         let expected = source.object.md5;
         let target = destination(&source, "copy", b"");
-        let (request, progress, resume) = start(&catalog, source, target, BYTE_BUDGET, 250);
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Unchecked,
+            target,
+            BYTE_BUDGET,
+            250,
+        );
         let progress = progress.await.unwrap();
         assert_eq!(progress.offset, BYTE_BUDGET);
         assert!(progress.offset < progress.total);
@@ -311,7 +327,8 @@ mod tests {
         let existing = put(&catalog, "copy", b"preserved".to_vec()).await;
         let mut target = destination(&source, "copy", b"");
         target.conditions.if_generation_match = Some(0);
-        let (request, observed, _resume) = start(&catalog, source, target, 0, 5000);
+        let (request, observed, _resume) =
+            start(&catalog, source, BucketAccess::Unchecked, target, 0, 5000);
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(5), request)
                 .await
@@ -338,7 +355,8 @@ mod tests {
             let (catalog, path) = fixture().await;
             let source = source(&catalog).await;
             let target = destination(&source, "copy", b"");
-            let (request, progress, resume) = start(&catalog, source, target, 0, 5000);
+            let (request, progress, resume) =
+                start(&catalog, source, BucketAccess::Unchecked, target, 0, 5000);
             let progress = progress.await.unwrap();
             if drop_handler {
                 request.abort();
@@ -375,7 +393,14 @@ mod tests {
             let source = source(&catalog).await;
             let selected = source.object.clone();
             let target = destination(&source, target_name, b"");
-            let (request, progress, resume) = start(&catalog, source, target, BYTE_BUDGET, 5000);
+            let (request, progress, resume) = start(
+                &catalog,
+                source,
+                BucketAccess::Unchecked,
+                target,
+                BYTE_BUDGET,
+                5000,
+            );
             let progress = progress.await.unwrap();
             assert_eq!(
                 fs::metadata(path.join("staging").join(&progress.id))
@@ -398,12 +423,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn copy_rechecks_source_read_grant_before_publication() {
+        use crate::auth::{Auth, Binding, OBJECTS_GET, Policy, Registry};
+
+        let (catalog, path) = fixture().await;
+        let auth = Auth::strict(
+            Registry::parse(br#"{"identities":[{"id":"reader","tokens":["token"]}]}"#).unwrap(),
+        );
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", "Bearer token".parse().unwrap());
+        let caller = auth.authenticate(&headers, None).unwrap().unwrap();
+        catalog
+            .set_policy(
+                "bucket",
+                Policy {
+                    bindings: vec![Binding {
+                        role: "roles/storage.objectViewer".into(),
+                        members: vec!["user:reader".into()],
+                    }],
+                    etag: None,
+                },
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        let access = catalog
+            .bucket_access("bucket", Some(caller.principal().unwrap()), OBJECTS_GET)
+            .await
+            .unwrap();
+        let source = catalog
+            .resolve_derived_source("bucket", "source", None, Default::default(), &access)
+            .await
+            .unwrap();
+        let target = destination(&source, "copy", b"");
+        let (request, progress, resume) =
+            start(&catalog, source, access, target, BYTE_BUDGET, 5000);
+        let progress = progress.await.unwrap();
+        assert_eq!(progress.offset, BYTE_BUDGET);
+        catalog
+            .set_policy(
+                "bucket",
+                Policy {
+                    bindings: vec![],
+                    etag: None,
+                },
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        resume.send(()).unwrap();
+        let error = request.await.unwrap().unwrap_err();
+        assert_eq!(error, ObjectError::Forbidden);
+        assert_eq!(
+            json::JsonError::from(error).status,
+            hyper::StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            catalog
+                .get_object("bucket", "copy", None, Default::default())
+                .await,
+            Err(ObjectError::ObjectNotFound)
+        );
+        clean(&catalog, &path, &progress.id).await;
+        let connection = rusqlite::Connection::open(path.join("catalog.sqlite3")).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM derived_transfers", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(connection);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn copy_rechecks_destination_conditions_after_the_advisory_check() {
         let (catalog, path) = fixture().await;
         let source = source(&catalog).await;
         let mut target = destination(&source, "copy", b"");
         target.conditions.if_generation_match = Some(0);
-        let (request, progress, resume) = start(&catalog, source, target, BYTE_BUDGET, 5000);
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Unchecked,
+            target,
+            BYTE_BUDGET,
+            5000,
+        );
         let progress = progress.await.unwrap();
         let competing = put(&catalog, "copy", b"concurrent destination".to_vec()).await;
         resume.send(()).unwrap();
@@ -426,7 +534,14 @@ mod tests {
         rusqlite::Connection::open(path.join("catalog.sqlite3")).unwrap().execute("UPDATE objects SET component_count = 3, storage_class = 'NEARLINE' WHERE name = 'source'", []).unwrap();
         let source = source(&catalog).await;
         let target = destination(&source, "copy", b"{}");
-        let (request, progress, resume) = start(&catalog, source, target, BYTE_BUDGET, 5000);
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Unchecked,
+            target,
+            BYTE_BUDGET,
+            5000,
+        );
         let progress = progress.await.unwrap();
         rusqlite::Connection::open(path.join("catalog.sqlite3"))
             .unwrap()
@@ -450,7 +565,14 @@ mod tests {
         let source = source(&catalog).await;
         let length = source.object.size;
         let target = destination(&source, "copy", b"");
-        let (request, progress, resume) = start(&catalog, source, target, length, 100);
+        let (request, progress, resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Unchecked,
+            target,
+            length,
+            100,
+        );
         let progress = progress.await.unwrap();
         assert_eq!(progress.offset, progress.total);
         let (entered, blocked) = oneshot::channel();
@@ -500,7 +622,14 @@ mod tests {
         let source = source(&catalog).await;
         let selected = source.object.clone();
         let target = destination(&source, "copy", b"");
-        let (request, progress, _resume) = start(&catalog, source, target, BYTE_BUDGET, 5000);
+        let (request, progress, _resume) = start(
+            &catalog,
+            source,
+            BucketAccess::Unchecked,
+            target,
+            BYTE_BUDGET,
+            5000,
+        );
         let progress = progress.await.unwrap();
         assert!(progress.offset > 0 && progress.offset < progress.total);
         request.abort();

@@ -222,6 +222,15 @@ fn transfer(
 }
 
 impl Catalog {
+    /// Recheck grants without changing the adapter's selection-time source snapshot.
+    pub(crate) fn check_derived_bucket_access_in_transaction(
+        connection: &Connection,
+        bucket: &str,
+        access: &BucketAccess,
+    ) -> Result<(), ObjectError> {
+        objects::authorized_bucket(connection, bucket, access).map(|_| ())
+    }
+
     pub fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
         DerivedRequestGuard {
             catalog: self.clone(),
