@@ -7,7 +7,7 @@ toolchain go1.27.3
 require (
 	cloud.google.com/go/storage v1.70.0
 	golang.org/x/oauth2 v0.37.0
-	google.golang.org/api v0.307.0
+	google.golang.org/api v0.308.0
 )
 
 require (
