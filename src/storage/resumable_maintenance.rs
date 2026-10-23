@@ -169,9 +169,11 @@ impl Catalog {
 
     async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
         let now = unix_millis(self.0.clock.now())?;
-        let derived_deadline = self.maintain_derived_transfers_at(now).await?;
+        let (derived_deadline, mut failure) = match self.maintain_derived_transfers_at(now).await {
+            Ok(deadline) => (deadline, None),
+            Err(error) => (None, Some(error)),
+        };
         let mut after = String::new();
-        let mut failure = None;
         loop {
             let catalog = self.clone();
             let (last, error) = self

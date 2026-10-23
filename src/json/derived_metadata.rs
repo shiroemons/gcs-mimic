@@ -1,13 +1,29 @@
 use super::JsonError;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 
+/// Rewrite preserves composite identity in the same location/class and collapses its component
+/// count to one when either changes; adapters retain the source snapshot for this decision.
+pub fn derived_component_count(
+    source: &ObjectRecord,
+    destination_class: &str,
+    same_location: bool,
+) -> Option<i64> {
+    source.component_count.map(|count| {
+        if same_location && destination_class == source.storage_class {
+            count
+        } else {
+            1
+        }
+    })
+}
+
 /// Empty bodies inherit editable source metadata except holds. A supplied resource replaces
 /// that metadata, including `{}`; path bucket/name always win over resource values.
 pub fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
 ) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
-    if bytes.is_empty() {
+    if bytes.is_empty() || bytes.trim_ascii() == b"null" {
         return Ok((
             ObjectMetadataUpdate {
                 content_type: Some(Some(source.content_type.clone())),
@@ -83,6 +99,20 @@ mod tests {
         source.metadata.insert("source".into(), "value".into());
         source.event_based_hold = true;
         let (inherit, class, _) = derived_metadata(b"", &source).unwrap();
+        assert_eq!(
+            derived_metadata(b" \nnull\t", &source).unwrap(),
+            derived_metadata(b"", &source).unwrap()
+        );
+        source.component_count = Some(3);
+        assert_eq!(
+            derived_component_count(&source, &source.storage_class, true),
+            Some(3)
+        );
+        assert_eq!(derived_component_count(&source, "NEARLINE", true), Some(1));
+        assert_eq!(
+            derived_component_count(&source, &source.storage_class, false),
+            Some(1)
+        );
         assert_eq!(class, Some(source.storage_class.clone()));
         assert_eq!(inherit.event_based_hold, None);
         let (replace, class, _) = derived_metadata(
