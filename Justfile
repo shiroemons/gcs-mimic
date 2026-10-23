@@ -13,7 +13,7 @@ check-dependencies:
 
 # Run the complete pinned Go and Ruby SDK suites against isolated servers.
 check-sdk:
-    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
+    env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh --with-ruby
 
 # Build and smoke-test both Linux container architectures.
 check-containers:

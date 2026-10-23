@@ -260,6 +260,42 @@ func TestV4RSASignedDownload(t *testing.T) {
 		if body := call("GET", get, "text/plain", http.StatusOK); string(body) != "signed private bytes" {
 			t.Fatalf("unexpected bytes: %q", body)
 		}
+		before, err := bucket.Object(name).Attrs(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256([]byte("signed private bytes"))
+		digestHeader := hex.EncodeToString(digest[:])
+		digestURL, err := storage.SignedURL(bucket.BucketName(), name, &storage.SignedURLOptions{
+			Scheme: storage.SigningSchemeV4, GoogleAccessID: "local-admin@example.invalid", PrivateKey: key,
+			Method: "PUT", ContentType: "text/plain", Headers: []string{"x-goog-content-sha256:" + digestHeader},
+			Expires: time.Now().Add(5 * time.Minute), Hostname: portless.Host, Insecure: endpoint.Scheme == "http",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The pinned SDK substitutes this header into the payload line; query signing requires UNSIGNED-PAYLOAD.
+		for _, input := range []string{"signed private bytes", "changed bytes"} {
+			req, err := http.NewRequestWithContext(ctx, "PUT", digestURL, strings.NewReader(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "text/plain")
+			req.Header.Set("x-goog-content-sha256", digestHeader)
+			res, err := defaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, readErr := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+			closeErr := res.Body.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatalf("read/close: %v / %v", readErr, closeErr)
+			}
+			if res.StatusCode != http.StatusForbidden || !bytes.Contains(body, []byte("<Code>SignatureDoesNotMatch</Code>")) {
+				t.Fatalf("digest substitution returned %d: %s", res.StatusCode, body)
+			}
+			requireStrictObjectUnchanged(t, ctx, bucket, before, []byte("signed private bytes"))
+		}
 		unsigned, err := http.NewRequestWithContext(ctx, "GET", portless.String()+"/"+bucket.BucketName()+"/"+name, nil)
 		if err != nil {
 			t.Fatal(err)

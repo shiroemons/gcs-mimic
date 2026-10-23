@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+with_ruby=false
+case "${1:-}" in
+  --help) echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]'; exit 0 ;;
+  --with-ruby) with_ruby=true; shift ;;
+esac
+if [[ $# != 0 ]]; then echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]' >&2; exit 2; fi
+
 cd "$(dirname "$0")/.."
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
@@ -110,7 +117,7 @@ export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoin
 GOTOOLCHAIN=auto go vet ./...
 GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
 
-if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   cd ../ruby
   BUNDLE_FROZEN=true bundle check
   bundle exec ruby https.rb --self-check

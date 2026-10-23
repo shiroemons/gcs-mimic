@@ -397,7 +397,12 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
             "host;x-goog-content-sha256",
         )
         .unwrap();
-        assert!(canonical.ends_with("\nUNSIGNED-PAYLOAD"));
+        assert_eq!(
+            canonical,
+            format!(
+                "PUT\n/bucket/o\n\nhost:localhost\nx-goog-content-sha256:{payload}\n\nhost;x-goog-content-sha256\nUNSIGNED-PAYLOAD"
+            )
+        );
         let url = signed("http://localhost/bucket/o", &Method::GET, headers.clone());
         assert!(verify(&url, &Method::GET, headers.clone(), now).is_ok());
         headers.insert("x-goog-content-sha256", "0".repeat(64).parse().unwrap());

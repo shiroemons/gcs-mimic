@@ -185,6 +185,20 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       default_url = normal_file.signed_url(version: :v4, method: "GET", issuer: issuer, signing_key: key,
         expires: 300, headers: { "Content-Type" => "text/plain" })
       raise "endpoint URL unexpectedly changed" unless URI(default_url).authority == authority
+      default_uri = URI(default_url)
+      parameters = URI.decode_www_form(default_uri.query).to_h
+      canonical_query = default_uri.query.split("&").reject { |pair| pair.start_with?("X-Goog-Signature=") }.join("&")
+      canonical = ["GET", default_uri.path, canonical_query,
+        "content-type:text/plain\nhost:storage.googleapis.com\n", "content-type;host", "UNSIGNED-PAYLOAD"].join("\n")
+      signing_input = lambda do |request|
+        ["GOOG4-RSA-SHA256", parameters.fetch("X-Goog-Date"),
+          parameters.fetch("X-Goog-Credential").split("/", 2).last, Digest::SHA256.hexdigest(request)].join("\n")
+      end
+      rsa = OpenSSL::PKey::RSA.new(key)
+      signature = [parameters.fetch("X-Goog-Signature")].pack("H*")
+      raise "Ruby canonical host assumption differs from the SDK" unless rsa.verify("SHA256", signature, signing_input.call(canonical))
+      actual_host = canonical.sub("host:storage.googleapis.com\n", "host:#{authority}\n")
+      raise "Ruby signer unexpectedly bound the endpoint host" if rsa.verify("SHA256", signature, signing_input.call(actual_host))
       call.call("GET", default_url, "text/plain", 403)
       call.call("PUT", put_url, "changed", 403)
       call.call("PUT", put_url, nil, 403)
