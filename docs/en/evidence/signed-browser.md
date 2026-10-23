@@ -2,7 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Executed **2026-10-23** against the native strict emulator. The reusable
+Final integrated verification executed **2026-10-23 UTC** against source
+`2218d001b3fe4e158f05d9d6c62a0eb68c986d84`. The reusable
 [`signed-browser.sh`](../../../scripts/signed-browser.sh) prepares URLs using the
 project's own offline `url sign` CLI, then serves
 [`signed-browser.html`](../../../scripts/signed-browser.html) from a distinct
@@ -12,7 +13,9 @@ trusted HTTPS origin. The browser uses each signed URL unchanged: the final
 Both browser commands exited **0**: strict initial **51 PASS** lines and strict
 restart **10 PASS** lines, **61** total. The [plain output](signed-browser.txt)
 contains the actual browser output and the final empty-catalog JSON response.
-No server change was required by these browser cases.
+The integrated server retains CORS on signed errors and malformed object names,
+selects the bucket independently of query validity, and rejects invalid
+virtual-host bucket names before preflight.
 
 ## Runtime and trust
 
@@ -153,7 +156,8 @@ do not publish them. Successful fetches use the original manifest strings,
   signed GET/HEAD/PUT denial under matching CORS with PAP through
   `signed_preflight_never_grants_permission_and_pap_preserves_signer_access`
   and `signed_failures_keep_cors_and_preserve_object`. Those tests belong to
-  the separately integrated wire-test work; they were not run in this checkout.
+  the integrated wire suite; all nine tests passed in this checkout's final
+  `just check` run.
 - Tampered signature, expired URL and changed signed metadata header yield
   readable **403 SignatureDoesNotMatch**, **400 ExpiredToken** and **403
   SignatureDoesNotMatch**, respectively, without publication. Anonymous private
@@ -167,7 +171,9 @@ authorization, so it would not add evidence for those claims. Virtual-host
 browser access is not exercised because the built-in certificate does not cover
 bucket-prefixed hostnames; supplied SAN-matching certificates remain a separate
 case. This does not claim real Google, iOS, browser-cache revocation, large-object
-resource measurements or full guide/SDK/container-suite execution.
+resource measurements, the entire guide or real Rails integration. The affected
+native guide blocks, SDK suites and both container architectures were executed
+as recorded below.
 
 The local contract was checked against Google's [CORS reference](https://docs.cloud.google.com/storage/docs/cross-origin)
 and [signed URL overview](https://docs.cloud.google.com/storage/docs/access-control/signed-urls)
@@ -176,14 +182,15 @@ Chromium evidence.
 
 ## Source and validation
 
-Native runtime source baseline: `760b12a320719a385301492decdafe7f6234012a`.
+Native runtime source baseline: `2218d001b3fe4e158f05d9d6c62a0eb68c986d84`.
 Harness commit: `8fe61a7712340f5fc9289725a51ba6a48b9f74d9`. Runtime and protocol
 inputs were unchanged across both phases; the runtime is copied before launch
 to keep concurrent Cargo commands from replacing it.
 
 ```text
-642159030e3b677b10d6e83d889d48355f388ffbecf738c4dac9978b56ca6061  target/signed-browser-run/runtime
-f9a8f77a272ccc40017fb3f1de15d73ae97b68a6cb1936bdb1a4f537cb67a427  src/server.rs
+186c0a9d236ac669fc79af4bc54ef54d21817434cda5a0f2750dae43942a3ab9  target/signed-browser-run/runtime
+a3bb1adfbb1400b9e7f52bbad3ce7c32630e1f6ec859cbd9c8ba2d2368fd5e5c  src/server.rs
+4bef6cf37c8325425ed6b855b4e45f4bd5e798eedf3118af773256d77b08b601  src/xml/mod.rs
 bf322d9d2e83321e4834d9bab8f1f522dd29881a6c27187407e78b42d3a191b8  src/xml/cors.rs
 c6a4c2ccf06ddee783f7cd327109f6188c0a54c3a17e9d9a7b5eddffae011e46  src/xml/put.rs
 9e1db1ca25999c69863ed86215ac46167ceca17291664b45b0839af6e3bed47d  src/auth/signature.rs
@@ -194,16 +201,69 @@ c6a4c2ccf06ddee783f7cd327109f6188c0a54c3a17e9d9a7b5eddffae011e46  src/xml/put.rs
 3b8100d00d9d1b534fce001b07e8329cd2d26aaba19bdfe4678dd79ae718116b  Cargo.lock
 ```
 
-All final commands exited zero:
+## Combined final verification
 
-```sh
-bash -n scripts/signed-browser.sh
-cargo fmt --check
-cargo clippy --all-targets --locked --offline -- -D warnings
-cargo test --locked --offline --test auth_http --test sign_url_cli --test tls
-```
+All executions below used the same final runtime source on **2026-10-23 UTC**
+(the native guide and final SDK completion crossed midnight into 2026-10-24
+in Asia/Tokyo). Documentation/ledger updates do not change that runtime.
+Environment: macOS 27.0.1, ARM64, Rust/Cargo 1.99.1, Node 24.22.1 and Docker
+client/server 29.9.2. Linux ARM64 is native; AMD64 uses Docker Desktop emulation.
+The [combined transcript](signed-browser.txt) contains real command output,
+including the failed full-test output and the successful focused recheck.
+Local path prefixes are redacted; no signed manifests or private generated keys
+are included.
 
-Rust results: `auth_http` **93 passed**, `sign_url_cli` **4 passed**, `tls`
-**9 passed**, no ignored or failed tests. These existing targets cover CORS,
-signing, helper behavior and verified TLS. The new browser fixture itself
-contains the end-to-end assertions; no new Rust logic was introduced.
+| Executed command or journey | Exit | Final observation |
+| --- | ---: | --- |
+| `just check` | 0 | Pinned fetch/fmt/Clippy, shell checks, compatibility check and **665 workspace tests** pass, zero failed/ignored; signed wire **9**, auth/CORS **93**, TLS **9** |
+| `cargo test --locked` | 101 | Existing `resumable_http::object_caps_apply_to_known_unknown_and_streamed_lengths` fails with `Connection reset by peer`; that target has 32 passed, 1 failed |
+| `cargo test --locked --test resumable_http object_caps_apply_to_known_unknown_and_streamed_lengths -- --exact` | 0 | The failed test passes alone; the same test also passed in `just check`, without source changes |
+| `signed-browser.sh prepare` and `run`, strict initial/restart, as above | 0 each | **51 + 10 = 61** checks, normal SIGINT/zero exit between phases, fresh signatures and empty final catalog |
+| `cors-browser.sh https://gcs:54475 cors-browser-strict strict initial` and `restart` | 0 each | **38 + 7** checks |
+| `cors-browser.sh https://gcs:54476 cors-browser-permissive permissive initial` and `restart` | 0 each | **36 + 7** checks; existing CORS total remains **88**, so historical `cors-browser.txt/.md` results are unchanged |
+| `GCS_MIMIC_SDK_SCHEME=https just check-sdk` | 0 after environment recovery | Go 1.27.3, Storage 1.70.0/API 0.308.0: vet and **46** top-level tests; Ruby 4.0.9/Bundler 4.0.23/Storage 1.62.1: origin guard and both profiles, including official signed GET/PUT |
+| `just check-containers` | 0 | Both architectures build and pass isolated probes/CRUD, CORS, read-only/resource settings, persistence, seed/reset and signals |
+| `cargo xtask dependencies check` | 0 | All 36 compiler/library/SDK/container inputs report CURRENT; no manifest or lockfile change |
+| Native signed guide: shell blocks under “Signed private downloads and uploads” | 0 | Private GET/PUT, method/object/host/expiry/header denials, 412 preservation, overrides, PAP, virtual hosts and public reactivation |
+| Native CORS guide: shell block under “Browser CORS and mobile application origins” | 0 | Exact/default-port/custom origins, preflight, independent JSON, denied origin, stale 412 and fixture deletion |
+| Signed-browser guide subsection | 0 | Preparation/run blocks use the native fixed binary and isolated trusted Chromium; the initial evidence command also checks caller-relative manifest resolution |
+
+The standalone full `cargo test --locked` gate is **not green**. Its exact
+failure is retained rather than replaced with the passing recheck. No negative
+assertion, timeout, error handling or test was weakened. This existing
+resumable transport failure is outside the signed-browser acceptance; its cause
+is not established by a single passing recheck. All signed-browser and CORS
+acceptance tests passed in the complete final `just check` run. No later source
+edits or additional full/container/browser runs were made to hide the failure.
+
+The first two SDK attempts exited 1 after all Go tests passed: an inherited
+version-manager shim selected Ruby 3.4.1 for `bundle exec ruby`, contrary to
+the 4.0.9 Gemfile pin. The successful recovery uses a PATH without those shims
+and the Ruby 4.0.9 prefix matching the cached gem native extensions. Both the
+matching Ruby prefix and gem cache were selected externally; repository sources,
+Gemfile and lockfile were unchanged. HTTPS uses the built-in development CA;
+Go's virtual-host case asserts its expected SAN rejection, while existing
+HTTP wire tests exercise successful virtual-host transfers. No HTTPS virtual-host
+success is inferred.
+
+Final application image/index IDs:
+
+| Architecture | Image/index ID |
+| --- | --- |
+| Linux AMD64, emulated | `sha256:8b5e609cf491eccc6f1516da27942416df27e21d297012f0e76747cef9a48eb3` |
+| Linux ARM64, native | `sha256:a2b5985297e14247d1df453c9f1a5c76157151cd560e0e0472b1b20448f4dcd9` |
+
+The unchanged nine-test signed wire suite covers path-style and virtual hosts,
+full-query unauthenticated OPTIONS, origin/method/header denials, 400/401/403/412
+CORS and failed-write preservation, signed headers, role-less signers, PAP,
+clearing/replacement, persistence, JSON independence, two-bucket selection,
+decoded slash/space names and malformed `%ZZ`/dot names. The added invalid-host
+case retains 400 with no CORS. Provider OPTIONS examples, exact error/Vary
+headers and malformed-input precedence remain OPEN in SPEC-CORS-EDGES and
+SPEC-SIGNING-EDGES; local passing tests do not resolve them.
+
+The runtime and all listed source digests were rechecked unchanged after the
+browser phases. All four native verification listeners stopped with SIGINT and
+exit zero, and the disposable browser container was removed. Only local test
+resources were used; no host trust setting, Google resource or publication was
+changed. Generated signed manifests were removed after execution.
