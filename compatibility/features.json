@@ -7689,26 +7689,251 @@
       "interface": "storage.objects.compose",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "IN_PROGRESS",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
+        "https://docs.cloud.google.com/storage/docs/composite-objects",
+        "https://docs.cloud.google.com/storage/quotas"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: destinationBucket, destinationObject. Query parameters: destinationPredefinedAcl, dropContextGroups, ifGenerationMatch, ifMetagenerationMatch, kmsKeyName, userProject.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields/noAcl/full metadata subset and strict get/create/delete checks. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows.",
+      "dependencies": [
+        "BEHAVIOR-OBJECT-025",
+        "BEHAVIOR-OBJECT-026",
+        "BEHAVIOR-OBJECT-027"
+      ],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-CONSTRUCTION",
+          "description": "Ordered one/empty/repeated/32-source and nested composition; same bucket/class, selected source generations, atomic destination conditions and one race winner.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_storage_class_defaults_and_event_holds"
+          ]
+        },
+        {
+          "id": "COMPOSE-VALIDATION",
+          "description": "Malformed shapes, names/generations, source count/body/metadata caps, method/query/fields and advanced-input errors preserve existing objects.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+            "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+            "compose_body_rejects_malformed_source_and_destination_shapes",
+            "compose_body_rejects_invalid_generation_values",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+            "compose_body_checks_final_custom_metadata_size_before_transfer",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_method_body_and_selector_boundaries"
+          ]
+        },
+        {
+          "id": "COMPOSE-AUTHORIZATION",
+          "description": "Strict read/create/delete grants allow and deny correctly; publication rechecks grants, holds and destination conditions after the durable checkpoint.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+            "compose_rechecks_read_and_create_grants_after_streaming",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_destination_condition_is_rechecked_after_streaming",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETION",
+          "description": "Atomic hard deletion under versioning, selected noncurrent deletion, deduplication, destination-name exclusion, physical reclaim and late-failure rollback; replacements are never deleted.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_source_generation_change_never_deletes_the_replacement"
+          ]
+        },
+        {
+          "id": "COMPOSE-METADATA",
+          "description": "Component count accumulation/saturation, CRC32C combination, absent MD5, XML component count, opaque JSON/XML ETags, fields/list/metadata update and restart persistence.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components"
+          ]
+        },
+        {
+          "id": "COMPOSE-RESOURCE-RECOVERY",
+          "description": "Aggregate size cap and cleanup, one-snapshot pinning across source changes, ephemeral/restart recovery and original-error preservation on cleanup failure.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart"
+          ]
+        },
+        {
+          "id": "COMPOSE-GO",
+          "description": "Pinned Go ComposerFrom generation/condition/metadata/deletion and strict-permission workflows against guarded local endpoints.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        },
+        {
+          "id": "COMPOSE-UNSUPPORTED-INPUTS",
+          "description": "Recognized ACL/KMS/billing/contexts/retention/temporary holds and every explicit storageClass input return the documented local 501 with no mutation; provider questions are outside the declared scope in SPEC-COMPOSE-EDGES.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+        "compose_concurrent_create_if_absent_has_one_winner",
+        "compose_storage_class_defaults_and_event_holds",
+        "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+        "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+        "compose_body_rejects_malformed_source_and_destination_shapes",
+        "compose_body_rejects_invalid_generation_values",
+        "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+        "compose_body_checks_final_custom_metadata_size_before_transfer",
+        "compose_rejects_invalid_or_unsupported_input_without_mutation",
+        "compose_method_body_and_selector_boundaries",
+        "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+        "compose_rechecks_read_and_create_grants_after_streaming",
+        "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+        "compose_hold_added_after_streaming_preserves_destination_and_sources",
+        "compose_destination_condition_is_rechecked_after_streaming",
+        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+        "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_order_checksums_metadata_fields_and_restart",
+        "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+        "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+        "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+        "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+        "compose_incarnation_change_preserves_original_error_and_recovers_after_restart",
+        "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+        "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
+        "TestObjectCompose",
+        "TestObjectComposeStrictPermissions"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_body_preserves_source_order_duplicates_generations_and_metadata",
+            "compose_body_accepts_one_and_thirty_two_sources_and_empty_destination",
+            "compose_body_rejects_malformed_source_and_destination_shapes",
+            "compose_body_rejects_invalid_generation_values",
+            "compose_body_rejects_recognized_unsupported_and_unknown_semantics",
+            "compose_body_checks_final_custom_metadata_size_before_transfer",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_method_body_and_selector_boundaries",
+            "compose_strict_requires_both_read_create_and_delete_for_destructive_cases",
+            "compose_rechecks_read_and_create_grants_after_streaming",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_destination_condition_is_rechecked_after_streaming",
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_order_checksums_metadata_fields_and_restart",
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib storage::catalog",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; ComposerFrom",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose",
+            "TestObjectComposeStrictPermissions"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{destinationBucket}/o/{destinationObject}/compose",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -19878,26 +20103,139 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IN_PROGRESS",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Source ordering/generations, maximum sources, same-bucket rules, metadata and checksums.",
+      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final-source process checks are pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-ORDER-CLASS",
+          "description": "One/empty/repeated/32-source and nested construction preserves order and source storage class; mixed classes and invalid source requests fail without mutation.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation"
+          ]
+        },
+        {
+          "id": "COMPOSE-GENERATIONS",
+          "description": "Selected source generations/conditions and atomic destination conditions; source replacement is never deleted; concurrent and checkpoint-time destination changes reject stale writes.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_destination_condition_is_rechecked_after_streaming"
+          ]
+        },
+        {
+          "id": "COMPOSE-BOUNDS-RECOVERY",
+          "description": "Checked aggregate size, pinned source bytes across overwrite/deletion, one-snapshot resolution and ephemeral restart cleanup use the bounded derived foundation.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+          ]
+        },
+        {
+          "id": "COMPOSE-CONSTRUCTION-SDK",
+          "description": "Pinned official Go ComposerFrom ordered/generation-pinned source workflow.",
+          "result": "PASS",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "compose_storage_class_defaults_and_event_holds",
+        "compose_rejects_invalid_or_unsupported_input_without_mutation",
+        "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+        "compose_concurrent_create_if_absent_has_one_winner",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_destination_condition_is_rechecked_after_streaming",
+        "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+        "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+        "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+        "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+        "TestObjectCompose"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_storage_class_defaults_and_event_holds",
+            "compose_rejects_invalid_or_unsupported_input_without_mutation",
+            "compose_source_and_destination_preconditions_preserve_failed_overwrites",
+            "compose_concurrent_create_if_absent_has_one_winner",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_destination_condition_is_rechecked_after_streaming"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib storage::catalog",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
+            "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
+            "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-026",
@@ -19907,26 +20245,118 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IN_PROGRESS",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "componentCount, no assumed MD5/ETag identity, nested compositions.",
+      "notes": "Declared documented metadata scope: nested/repeated component accumulation with int32 saturation and no 1024 limit, exact combined CRC32C, absent MD5, non-MD5 changeable ETags, JSON resource/list/fields and XML component-count headers, metadata update and restart preservation. Exact provider opaque ETag spelling and JSON wire header questions remain on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES. Copy/rewrite transformations belong to their own slices. Final-source process checks are pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSITE-COUNT",
+          "description": "Nested/repeated sources exceed the obsolete 1024 limit and saturate componentCount at int32 maximum; ordinary reupload clears composite identity.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links"
+          ]
+        },
+        {
+          "id": "COMPOSITE-HASH",
+          "description": "CRC32C combination matches direct bytes for every split, arbitrary bounded component lists, empty/binary data and associativity; composites omit MD5.",
+          "result": "PASS",
+          "test_ids": [
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+            "compose_order_checksums_metadata_fields_and_restart"
+          ]
+        },
+        {
+          "id": "COMPOSITE-REPRESENTATIONS",
+          "description": "Metadata/list/fields, XML GET/HEAD component count, non-MD5 JSON/XML ETags, metadata invalidation and restart equality are consistent; pinned SDK observes count/CRC32C and absent MD5.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+        "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+        "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+        "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
+        "compose_order_checksums_metadata_fields_and_restart",
+        "TestObjectCompose"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "compose_order_checksums_metadata_fields_and_restart"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib storage::catalog",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-027",
@@ -19936,26 +20366,125 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IN_PROGRESS",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/compose",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_OR_DISCOVERY_REQUIRES_CONFIRMATION",
-      "notes": "deleteSourceObjects is present in current schema/docs; validate hard-delete and failure atomicity semantics.",
+      "source_checked_at": "2026-10-23",
+      "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
+      "notes": "Declared documented JSON flag scope: omitted/false preserves sources; true permanently deletes selected live/noncurrent sources after successful composition, bypassing Object Versioning; failed composition preserves previous destination and sources. Local extra delete permission, held-source rejection, deduplication, destination-name exclusion and single-transaction safety behavior are separately recorded on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES, not claimed as provider wire parity. Final-source process checks are pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "COMPOSE-DELETE-DEFAULT",
+          "description": "Default/false composition preserves complete sources; JSON and pinned SDK observe unchanged source generations and bytes.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETE-SUCCESS",
+          "description": "Successful hard deletion removes selected live/noncurrent sources permanently under versioning, releases physical blobs without restart, and preserves the newly published destination.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "TestObjectCompose"
+          ]
+        },
+        {
+          "id": "COMPOSE-DELETE-FAILURE",
+          "description": "Missing/held/changed selected source, revoked source-delete grant and injected late source deletion failure leave previous destination and remaining sources intact; held noncurrent self-sources are rechecked and newer source generations are never deleted.",
+          "result": "PASS",
+          "test_ids": [
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "compose_order_checksums_metadata_fields_and_restart",
+        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+        "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+        "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+        "compose_hold_added_after_streaming_preserves_destination_and_sources",
+        "compose_source_generation_change_never_deletes_the_replacement",
+        "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+        "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
+        "TestObjectCompose"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "compose_order_checksums_metadata_fields_and_restart",
+            "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+            "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
+            "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
+            "compose_hold_added_after_streaming_preserves_destination_and_sources",
+            "compose_source_generation_change_never_deletes_the_replacement"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-compose.md",
+          "test_ids": [
+            "TestObjectCompose"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-028",

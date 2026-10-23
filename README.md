@@ -78,8 +78,10 @@ Bucket metadata PUT is delivered in its [documented replacement subset](docs/en/
 with [final verification](docs/en/evidence/bucket-metadata-put.md).
 The [basic JSON contract gate](docs/en/evidence/basic-json-contract.md) is closed
 for the frozen local profile, documented conditions/checksums/error envelopes
-and explicit remaining-gap mapping. Next implement **Object copy** (order 9),
-then bounded continuation rewrite and compose. Verify
+and explicit remaining-gap mapping. Derived operations have separate copy,
+bounded rewrite and [compose](docs/en/slices/object-compose.md) slices. Compose
+passes scoped native and targeted Go checks; its final integrated gate is pending.
+Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
 and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
 and bucket-configured XML-read CORS, with actual-browser verification, before
@@ -164,7 +166,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
 | Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
 | Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
-| Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
+| Object compose (`objects.compose`) | 🚧 Ordered 1..32 pinned sources, nested component/CRC32C metadata without MD5, atomic conditions and source hard deletion; final integrated gate pending | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
 | Single generation/metageneration mutation Match conditions, including failed-resource preservation | ✅ Object media/multipart/PATCH/PUT/delete and bucket PATCH/PUT/delete; zero create-if-absent and live-object rejection | 🚧 Upload generation conditions only; [upload](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/upload.go), [object](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/object.go) and [bucket](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go), source review only | ❌ Conditions unused in [object](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/objects.py) and [bucket](https://github.com/oittaa/gcp-storage-emulator/blob/v2026.07.19/src/gcp_storage_emulator/handlers/buckets.py) handlers, source review only |
@@ -226,9 +228,11 @@ The scoped checkmarks above use recorded execution evidence:
 [range](docs/en/evidence/object-range.md) and
 [final integrated regressions](docs/en/evidence/resumable-upload.md).
 Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
-wire-edge gaps remain recorded in the ledger. Copy, rewrite
-and compose remain unavailable until implemented and verified; the new roadmap
-does not turn them into completed features.
+wire-edge gaps remain recorded in the ledger. The
+[compose verification](docs/en/evidence/object-compose.md) records native and
+targeted Go coverage, explicit 501 boundaries and local deletion safety rules.
+Its scoped ledger rows await the single final integrated SDK/container/guide gate;
+the roadmap does not turn a pending gate into completed verification.
 
 The pinned comparison source review covers
 [fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),
