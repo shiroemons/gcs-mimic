@@ -65,7 +65,9 @@ const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
 PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
-                      default_event_based_hold, cors";
+                      default_event_based_hold, cors, public_access_prevention_enforced";
+const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
+PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
 PRAGMA user_version = 12;";
 const BUCKET_SETTINGS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN versioning_enabled INTEGER NOT NULL DEFAULT 0 CHECK(versioning_enabled IN (0, 1));
@@ -192,6 +194,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(BUCKET_CORS_SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 13 {
+        expected
+            .execute_batch(BUCKET_PAP_SCHEMA)
+            .map_err(unavailable)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 32")
@@ -281,9 +288,9 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=12).contains(&version) {
+            if !(0..=13).contains(&version) {
                 return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 12"
+                    "unsupported catalog schema version {version}; supported version is 13"
                 )));
             }
             if version == 2 {
@@ -401,6 +408,12 @@ impl Catalog {
                 transaction.execute_batch(BUCKET_CORS_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
+            if version < 13 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(BUCKET_PAP_SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
             let recovery_now = unix_millis(clock.now())?;
             rewrite::recover_due(&mut connection, recovery_now)?;
             resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
@@ -547,7 +560,7 @@ impl Catalog {
             let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
             let changed = transaction
                 .execute(
-                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(name) DO NOTHING"),
                     params![
                         record.name,
@@ -562,6 +575,7 @@ impl Catalog {
                         record.versioning_enabled,
                         record.default_event_based_hold,
                         cors_value(&record.cors).to_string(),
+                        record.public_access_prevention_enforced,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -654,6 +668,14 @@ impl Catalog {
                 .map_err(unavailable)?
                 .ok_or(CatalogError::NotFound)?;
             check_access(&transaction, &name, &record.project, &access)?;
+            let pap = update.public_access_prevention_enforced.unwrap_or(!replace && record.public_access_prevention_enforced);
+            if pap != record.public_access_prevention_enforced
+                && let BucketAccess::Policy { identity, project, .. } = &access
+            {
+                check_access(&transaction, &name, &record.project, &BucketAccess::Policy {
+                    identity: identity.clone(), project: project.clone(), permission: crate::auth::BUCKETS_SET_IAM.into(),
+                })?;
+            }
             if if_metageneration_match.is_some_and(|value| value != record.metageneration)
                 || if_metageneration_not_match == Some(record.metageneration)
             {
@@ -672,6 +694,7 @@ impl Catalog {
                 record.storage_class = "STANDARD".into();
                 record.versioning_enabled = false;
                 record.default_event_based_hold = false;
+                record.public_access_prevention_enforced = false;
             }
             if let Some(labels) = update.labels {
                 if let Some(labels) = labels {
@@ -712,6 +735,9 @@ impl Catalog {
             if let Some(hold) = update.default_event_based_hold {
                 record.default_event_based_hold = hold;
             }
+            if let Some(enforced) = update.public_access_prevention_enforced {
+                record.public_access_prevention_enforced = enforced;
+            }
             if let Some(cors) = update.cors {
                 validate_cors(&cors)?;
                 record.cors = cors;
@@ -726,7 +752,7 @@ impl Catalog {
                 .execute(
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
-                     metageneration = ?6, updated = ?7, cors = ?8 WHERE name = ?1",
+                     metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -736,6 +762,7 @@ impl Catalog {
                         record.metageneration,
                         updated,
                         cors_value(&record.cors).to_string(),
+                        record.public_access_prevention_enforced,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -992,6 +1019,7 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         updated: system_time(row.get(8)?)?,
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
+        public_access_prevention_enforced: row.get(12)?,
         cors: cors_from_value(
             &serde_json::from_str(&row.get::<_, String>(11)?).map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(11, Type::Text, Box::new(e))
@@ -1359,7 +1387,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 12),
+                    ("user_version", 13),
                 ] {
                     assert_eq!(
                         connection

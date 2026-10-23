@@ -1,6 +1,6 @@
 use gcs_mimic::{
     auth::{Auth, Registry},
-    clock::SystemClock,
+    clock::{Clock, SystemClock},
     config::Config,
     server::{self, State},
     storage::Catalog,
@@ -22,6 +22,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic healthcheck --url URL [--ca-cert PATH]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -34,6 +35,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
   --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
@@ -57,12 +59,29 @@ HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_interna
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 const URL_PUBLIC_HELP: &str =
-    "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME
+    "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME [--style path|virtual-hosted]
 
-Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Every option is
-required exactly once, in any order. The object name is percent-encoded except for RFC 3986
+Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Base URL, bucket
+and object are required exactly once, in any order. The name is percent-encoded except for RFC 3986
 unreserved characters and '/'; if any '/'-separated segment is '.' or '..', '/' is encoded as %2F.
+Style defaults to path; virtual-hosted uses <bucket>.<base-domain>/<object>, without a base path.
+Enable the DNS base in --xml-virtual-host-domains; HTTPS needs a matching supplied certificate.
 No config file, environment, data directory or network is read, and no permission is changed.";
+
+const URL_SIGN_HELP: &str =
+    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
+       --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
+       [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
+
+Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
+Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
+Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
+Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
+Headers may repeat; Host is derived from the final URL and cannot be overridden.
+Query names and values are literal, encoded before signing; duplicate names are rejected.
+Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no path prefix.
+Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
+No Google IAM call, server configuration read or permission change occurs.";
 
 fn main() -> ExitCode {
     match run() {
@@ -102,6 +121,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", url_public(rest)?);
             Ok(())
         }
+        [command, kind, help] if command == "url" && kind == "sign" && help == "--help" => {
+            println!("{URL_SIGN_HELP}");
+            Ok(())
+        }
+        [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
+            println!("{}", url_sign(rest)?);
+            Ok(())
+        }
         [command, rest @ ..] if command == "serve" => {
             let env: BTreeMap<_, _> = std::env::vars()
                 .filter(|(key, _)| key.starts_with("GCS_MIMIC_"))
@@ -136,6 +163,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let clock = Arc::new(SystemClock);
                 let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(io::Error::other)?;
+                catalog.configure_public_access_prevention(auth.public_access_prevention_projects()).await.map_err(io::Error::other)?;
                 let seed = match gcs_mimic::seed::import(&catalog, &config, clock.as_ref()).await {
                     Ok(seed) => seed,
                     Err(error) => {
@@ -251,7 +279,10 @@ fn url_public(args: &[String]) -> Result<String, String> {
                 "url public options require --name VALUE pairs\n{URL_PUBLIC_HELP}"
             ));
         };
-        if !matches!(name.as_str(), "--base-url" | "--bucket" | "--object") {
+        if !matches!(
+            name.as_str(),
+            "--base-url" | "--bucket" | "--object" | "--style"
+        ) {
             return Err(format!(
                 "unknown url public option: {name}\n{URL_PUBLIC_HELP}"
             ));
@@ -266,10 +297,120 @@ fn url_public(args: &[String]) -> Result<String, String> {
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_PUBLIC_HELP}"))
     };
-    gcs_mimic::url::public_object_url(
+    let build = match options.get("--style").copied().unwrap_or("path") {
+        "path" => gcs_mimic::url::public_object_url,
+        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
+        _ => return Err("style must be path or virtual-hosted".into()),
+    };
+    build(
         required("--base-url")?,
         required("--bucket")?,
         required("--object")?,
+    )
+}
+
+fn url_sign(args: &[String]) -> Result<String, String> {
+    use std::io::Read;
+    let mut options = BTreeMap::new();
+    let mut headers = hyper::HeaderMap::new();
+    let mut query = Vec::new();
+    for pair in args.chunks(2) {
+        let [name, value] = pair else {
+            return Err(format!(
+                "url sign options require --name VALUE pairs\n{URL_SIGN_HELP}"
+            ));
+        };
+        if name == "--header" {
+            let (key, value) = value.split_once(':').ok_or("header must be NAME:VALUE")?;
+            let key = hyper::header::HeaderName::from_bytes(key.as_bytes())
+                .map_err(|_| "invalid header name")?;
+            headers.append(key, value.parse().map_err(|_| "invalid header value")?);
+        } else if name == "--query" {
+            let (key, value) = value.split_once('=').ok_or("query must be NAME=VALUE")?;
+            if key.is_empty() {
+                return Err("query name must not be empty".into());
+            }
+            query.push(format!(
+                "{}={}",
+                gcs_mimic::auth::signature::encode_query_component(key),
+                gcs_mimic::auth::signature::encode_query_component(value)
+            ));
+        } else {
+            if !matches!(
+                name.as_str(),
+                "--base-url"
+                    | "--bucket"
+                    | "--object"
+                    | "--method"
+                    | "--expires"
+                    | "--signer"
+                    | "--private-key"
+                    | "--timestamp"
+                    | "--style"
+            ) {
+                return Err(format!("unknown url sign option: {name}"));
+            }
+            if options.insert(name.as_str(), value.as_str()).is_some() {
+                return Err(format!("duplicate option: {name}"));
+            }
+        }
+    }
+    let required = |name| {
+        options
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
+    };
+    let build = match options.get("--style").copied().unwrap_or("path") {
+        "path" => gcs_mimic::url::public_object_url,
+        "virtual-hosted" => gcs_mimic::url::virtual_host_object_url,
+        _ => return Err("style must be path or virtual-hosted".into()),
+    };
+    let mut url = build(
+        required("--base-url")?,
+        required("--bucket")?,
+        required("--object")?,
+    )?;
+    if !query.is_empty() {
+        url.push('?');
+        url.push_str(&query.join("&"));
+    }
+    let method = required("--method")?
+        .parse()
+        .map_err(|_| "invalid signing method")?;
+    let duration = required("--expires")?;
+    let (digits, multiplier) = match duration.as_bytes().last() {
+        Some(b's') => (&duration[..duration.len() - 1], 1),
+        Some(b'm') => (&duration[..duration.len() - 1], 60),
+        Some(b'h') => (&duration[..duration.len() - 1], 3600),
+        Some(b'd') => (&duration[..duration.len() - 1], 86400),
+        _ => (duration, 1),
+    };
+    let expires = digits
+        .parse::<u64>()
+        .ok()
+        .filter(|_| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.checked_mul(multiplier))
+        .ok_or("invalid signing duration")?;
+    let now = options
+        .get("--timestamp")
+        .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
+        .transpose()?
+        .unwrap_or_else(|| SystemClock.now());
+    let mut key = Vec::new();
+    std::fs::File::open(required("--private-key")?)
+        .map_err(|e| format!("private key: {e}"))?
+        .take(16385)
+        .read_to_end(&mut key)
+        .map_err(|e| format!("private key: {e}"))?;
+    gcs_mimic::auth::signature::sign_url(
+        &url,
+        &method,
+        required("--signer")?,
+        &key,
+        expires,
+        now,
+        headers,
     )
 }
 

@@ -48,11 +48,66 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         labels: BTreeMap::from([("team".into(), "storage".into())]),
         versioning_enabled: false,
         default_event_based_hold: false,
+        public_access_prevention_enforced: false,
         cors: Vec::new(),
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_micros(42_123_456),
         updated: UNIX_EPOCH + Duration::from_micros(43_987_654),
     }
+}
+
+#[tokio::test]
+async fn pap_migrates_version_twelve_and_persists_configured_state() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog
+        .insert_bucket(bucket("pap-migration", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; PRAGMA user_version = 12;").unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("pap-migration").await.unwrap(),
+        Some(original.clone())
+    );
+    let enforced = catalog
+        .patch_bucket(
+            "pap-migration",
+            BucketMetadataUpdate {
+                public_access_prevention_enforced: Some(true),
+                ..Default::default()
+            },
+            Some(original.metageneration),
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        13
+    );
+    assert!(
+        connection
+            .execute(
+                "UPDATE buckets SET public_access_prevention_enforced = 2",
+                []
+            )
+            .is_err()
+    );
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("pap-migration").await.unwrap(),
+        Some(enforced)
+    );
 }
 
 #[tokio::test]
@@ -67,7 +122,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
+        .execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
         .unwrap();
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -825,7 +880,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            12
+            13
         );
         assert_eq!(
             connection
@@ -889,7 +944,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 13)
+                .pragma_update(None, "user_version", 14)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -963,7 +1018,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 13"));
+            assert!(error.to_string().contains("schema version 14"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1023,7 +1078,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -1128,7 +1183,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     assert_eq!(
         connection
@@ -1148,7 +1203,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 13)
+        .pragma_update(None, "user_version", 14)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -1160,7 +1215,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 13")
+                .contains("schema version 14")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -1180,7 +1235,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 13;",
+            "future" => "PRAGMA user_version = 14;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

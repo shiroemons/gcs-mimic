@@ -3,10 +3,198 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-PAP-EDGES",
+      "title": "PAP local parent policy and unverified input/error edges",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-BUCKET-014",
+        "DESIGN-022",
+        "DESIGN-023",
+        "DESIGN-024",
+        "DESIGN-025",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-003",
+        "JSON-BUCKETS-005",
+        "JSON-BUCKETS-006",
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-011",
+        "JSON-BUCKETS-013"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/using-public-access-prevention",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
+        "https://docs.cloud.google.com/storage/docs/org-policy-constraints",
+        "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
+        "https://docs.cloud.google.com/go/docs/reference/cloud.google.com/go/storage/latest"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Current bucket reference and pinned Discovery accept inherited or enforced, default inherited. Go storage v1.70.0 retains unspecified as deprecated in favor of inherited; the local JSON adapter deliberately keeps 400 invalidArgument for that legacy spelling, null and other invalid values, so older clients sending unspecified remain incompatible. An omitted PATCH setting is preserved; PUT resets configured PAP to inherited with other modeled defaults. Official PATCH/PUT permission sections require update plus setIamPolicy for PAP updates; the local comparison requires setIamPolicy only when the resulting stored value changes, allowing update-only read-modify-write of an unchanged value. Unchanged-value cloud permission parity is unverified. Python google-cloud-storage 3.4.1 IAMConfiguration constructor/setter sends uniformBucketLevelAccess enabled:false with PAP; an exact-shape wire test passes without running Python. Disabled UBLA/bucketPolicyOnly without lockedTime is an accepted no-op, while enabled/null/empty/invalid forms and lockedTime remain 501. Responses omit both uniformBucketLevelAccess and bucketPolicyOnly, a known fields-parity deviation. Parent enforcement is a bounded startup identity-registry fixture, public_access_prevention_projects, representing effective organization/project policy without Google contact, hierarchy or propagation/cache simulation. Direct catalog callers deduplicate valid projects; registry duplicates remain invalid. Existing public bindings/etag remain stored; both public principal sets grant nothing, while explicit bearer/signer permissions remain effective. Public policy submissions fail with documented 412; conditionNotMet/message and rejection of unchanged submitted public bindings are local choices. Removing public members remains allowed. ACL enforcement and UBLA transitions remain unsupported.",
+      "required_resolution": "Revisit legacy unspecified/null acceptance, PUT omitted-field semantics, unchanged-value permission parity, omitted UBLA response fields and precise PAP JSON error reason/message/precedence with authoritative clarification or opted-in provider evidence. Add version-pinned Python SDK execution in its dedicated lane; source-derived wire coverage does not establish SDK end-to-end compatibility. Keep parent policy fidelity LOCAL_SIMULATION and permissive authentication explicitly unauthenticated. Do not add organization APIs or propagation claims to this scope. Contract and evidence: docs/en/slices/public-access-prevention.md and docs/en/evidence/public-access-prevention.md."
+    },
+    {
+      "id": "SPEC-XML-VIRTUAL-HOST",
+      "title": "Explicit local virtual-host domains and dotted-bucket extension",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-048",
+        "DESIGN-033",
+        "DESIGN-055",
+        "EXT-XML-012",
+        "EXT-XML-017",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/overview"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Official XML endpoints use bucket.storage.googleapis.com/object, with the bucket absent from the canonical URI and present in canonical Host. The endpoint guide explicitly excludes domain-named buckets from virtual-host addressing. The requested local extension nevertheless accepts dotted bucket prefixes under an explicit configured suffix, and tests supplied-certificate HTTPS for the exact dotted hostname. This is a deliberate emulator addressing extension, not a claim that Google serves dotted buckets this way. XML domain selection defaults off, accepts at most 32 validated DNS suffixes, is case-insensitive, uses the longest configured suffix and treats a configured base host itself as path-style. Only the actual single Host selects a virtual bucket; forwarded headers and advertised API URLs have no effect. Virtual hosts expose XML object names even under JSON/admin-looking paths, not JSON or helper operations; bucket-only operations remain XML 501. Standard Host/port and raw path signature binding stay exact and unchanged. The built-in certificate has no wildcard SAN, so matching supplied certificates are required for HTTPS virtual hosts; ordinary wildcard certificates do not cover dotted bucket prefixes. Contract and evidence: docs/en/slices/xml-virtual-host.md and docs/en/evidence/xml-virtual-host.md. An advertised API authority that would select a bucket is rejected at startup. When either side selects a virtual bucket, conflicting absolute-form target authority and Host are rejected before CORS/dispatch with XML 400 InvalidArgument for unsigned/bearer requests or 403 SignatureDoesNotMatch for signed requests. Matching authority succeeds; HEAD errors remain bodyless. Trailing-dot hosts and IPv6 literals deliberately remain path-style. Helper DNS hosts are lowercased before signing; underscore bucket names receive a DNS-specific helper error.",
+      "required_resolution": "Retain the explicit opt-in, dotted-bucket local extension and TLS/DNS deployment requirements in documentation. The requested local scope is frozen and verified; any future claim of Google domain-named-bucket, CNAME, arbitrary-host or proxy-derived routing parity requires separate authoritative evidence and its own acceptance scope. Do not infer JSON availability on bucket hosts or weaken actual Host/port signing to accommodate SDK defects."
+    },
+    {
+      "id": "SPEC-XML-RESPONSE-OVERRIDES",
+      "title": "XML response override validation and unauthenticated/HEAD scope",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-035",
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The XML reference lists only response-content-type and response-content-disposition, for authenticated GET. Local scope additionally applies them to authorized anonymous/public and permissive reads and HEAD as explicitly requested. Values are percent-decoded once by the existing bounded query parser. Empty values, leading/trailing whitespace and CR/LF, NUL, DEL or other invalid controls return XML 400 InvalidArgument; interior HTAB is allowed. Values not representable as text HTTP headers, including raw non-ASCII values, return 501 NotImplemented until authoritative provider evidence establishes their behavior; RFC 5987 ASCII filename parameters pass CLI-to-server GET/HEAD with their literal percent escapes preserved. These validation/error choices are local, not established Google behavior; HEAD suppresses error bodies. No MIME or disposition grammar parsing is claimed. Overrides replace only the two success-response headers after selected-record metadata construction, without changing stored metadata, checksums, ranges, generations, Cache-Control or CORS rules; 404/412/416 errors do not receive overrides. Signed value changes, additions and removals fail with 403 SignatureDoesNotMatch, including public objects. Undocumented response-* names and all other unsupported query inputs remain 501 NotImplemented. Duplicate decoded query names retain local 400 rejection; exact provider duplicate/ambiguous-name behavior remains SPEC-SIGNING-EDGES. Contract and final evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md.",
+      "required_resolution": "Obtain authoritative clarification or authorized provider evidence for anonymous/HEAD override behavior, empty/edge-whitespace/non-ASCII/header grammar validation and exact errors, unknown response-* handling and duplicate/ambiguous names. Preserve explicit local behavior and fail-closed signatures; do not infer support for S3 response-cache-control, response-content-language, response-content-encoding or response-expires. DESIGN-035 remains PARTIAL under the existing completion policy because its pre-existing provider-exactness acceptance is unresolved."
+    },
+    {
+      "id": "SPEC-SIGNED-PAYLOAD",
+      "title": "Optional SHA256 query header versus SDK payload substitution and exact failure errors",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-037",
+        "DESIGN-044",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go",
+        "https://github.com/googleapis/google-cloud-ruby/blob/google-cloud-storage/v1.62.1/google-cloud-storage/lib/google/cloud/storage/file/signer_v4.rb"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The canonical-request guide explicitly specifies UNSIGNED-PAYLOAD for signed URLs and separates Authorization-header payload hashing. The XML header page documents lowercase SHA256 or UNSIGNED-PAYLOAD and optional canonical inclusion. Pinned Go and Ruby signers substitute a supplied content-sha256 into the canonical payload. The integrated server/helper follow the query UNSIGNED-PAYLOAD rule; signed headers bind a declared digest and both signed/unsigned declared digests are checked incrementally before sending the upload End marker. Strict malformed declarations return 400 InvalidAuthentication; permissive query malformed declarations return 400 InvalidDigest; completed-body SHA256 mismatch returns 400 BadDigest. No mismatch publishes bytes, metadata or generation. Optional unsigned digest replacement is not an authorization restriction. Ordinary bearer PUT retains its explicit unsupported content-sha256 behavior. Authorization-header V4 remains rejected in strict mode. No real Google request was made. Go storage v1.70.0 storage.go:871-883 is the exact substitution site. The unmodified official SignedURL digest-bound PUT is tested with a portless authority: both matching and changed bodies return 403 SignatureDoesNotMatch and preserve the prior metadata/generation/bytes. Users must omit SDK x-goog-content-sha256/SHA256 signing options or use the local helper.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence for optional query hash acceptance/checking and exact malformed/mismatch status/header/precedence. Reconcile SDK substitution on deliberate updates without accepting a second canonical payload form or weakening digest validation. DESIGN-037 stays PARTIAL with a named provider pending case; DESIGN-039 remains unchanged. Contract and evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md."
+    },
+    {
+      "id": "SPEC-RUBY-SIGNER-ENDPOINT",
+      "title": "Pinned Ruby V4 signer custom endpoint and bucket-bound host/path adaptation",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-030",
+        "DESIGN-033",
+        "DESIGN-045",
+        "EXT-XML-012",
+        "EXT-XML-022",
+        "UX-006"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/google-cloud-ruby/blob/google-cloud-storage/v1.62.1/google-cloud-storage/lib/google/cloud/storage/file/signer_v4.rb",
+        "https://cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage-File"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Storage 1.62.1 signer_v4.rb emits the configured service root URL, retaining its non-default port, but default host_name returns storage.googleapis.com. The strict test asserts that a normal custom-endpoint File#signed_url fails with 403 SignatureDoesNotMatch. The public bucket_bound_hostname option binds the supplied final host:port and omits the bucket path prefix; a lookup-free File named bucket/name supplies that full path before signing. Unmodified generated GET/PUT URLs then target the actual path-style resource and pass, including signed Content-Type and tamper rejection. URL, Host and SDK source are never rewritten after signing. The test confines every request to the explicit loopback endpoint with no proxy/redirect and verified HTTPS trust. This adaptation does not implement virtual-host routing.",
+      "required_resolution": "Recheck official signer endpoint/port/path behavior when updating the pinned gem. Preserve the asserted default-endpoint limitation and explicit bucket-bound path adaptation; recommend gcs-mimic url sign for normal local path-style use. Never relax server canonical Host or rewrite signed URLs. Combined evidence: docs/en/evidence/signed-urls.md; SDK details: sdk-tests/ruby/README.md."
+    },
+    {
+      "id": "SPEC-SIGNING-EDGES",
+      "title": "V4 query error details and duplicate inputs need provider clarification",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-002",
+        "DESIGN-030",
+        "DESIGN-035",
+        "DESIGN-037",
+        "DESIGN-044",
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. The documented response-content-type/disposition overrides now succeed on authorized GET/HEAD, with explicit signature tamper tests; local validation/public/HEAD/unknown-input choices are tracked in SPEC-XML-RESPONSE-OVERRIDES. Optional content-sha256 canonicalization and streamed PUT checking are now tracked in SPEC-SIGNED-PAYLOAD. The integrated query canonical payload follows UNSIGNED-PAYLOAD. Canonical query behavior was rechecked on 2026-10-23: parameters sort by name using code point order, but repeated decoded-name and ambiguous-encoding semantics remain unspecified. Response-override contract/evidence: docs/en/slices/xml-response-overrides.md and docs/en/evidence/xml-response-overrides.md; previous signing evidence remains docs/en/evidence/signed-urls.md.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider observations for query-specific errors, expiry boundary/error mapping and duplicate/ambiguous query encoding. Keep DESIGN-035 PARTIAL for its existing provider-exactness acceptance; the completion policy forbids narrowing an existing row merely to remove deviations. Preserve the tested duplicate decoded-name rejection and fail-closed signature/permission errors. Optional payload issues belong to SPEC-SIGNED-PAYLOAD."
+    },
+    {
+      "id": "SPEC-GO-SIGNER-PORT",
+      "title": "Pinned Go V4 signer removes non-default port from canonical Host",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-030",
+        "DESIGN-033",
+        "DESIGN-045",
+        "EXT-XML-012",
+        "EXT-XML-017",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go#L854"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Pinned storage v1.70.0 storage.go:854 adds host using u.Hostname(), dropping a port configured through SignedURLOptions.Hostname. Tests assert that unmodified SDK URLs fail with 403 SignatureDoesNotMatch at actual host:port, while unmodified URLs succeed at a portless authority mapped by a guarded client dialer to the isolated ephemeral listener. An independent Go canonical request matches the SDK SignBytes message after omitting the port, then corrects only the host port and signs with standard-library RSA; corrected requests, ranges, HEAD, Unicode paths and tamper rejection pass over HTTP and trusted HTTPS. No SDK source, module pin or server Host rule is changed. Use gcs-mimic url sign for local explicit ports, or expose a default-port endpoint. These two types of SDK evidence remain distinct. Official SignedURL PUT with ContentType also passes unchanged at a default-port authority and fails at an explicit non-default port; see the SignedUpload subtest in TestV4RSASignedDownload.",
+      "required_resolution": "Recheck upstream signer behavior on a deliberate SDK update. Retain the asserted limitation and default-port/unmodified versus explicit-port/independent evidence until a fixed official signer is verified. Never drop the actual Host port or rewrite a signed host in strict mode to accommodate this SDK behavior."
+    },
+    {
+      "id": "SPEC-XML-PUT-EDGES",
+      "title": "XML PUT parser, checksum errors and commit cancellation boundaries remain local",
+      "status": "OPEN",
+      "affected_features": [
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The PUT method requires Content-Length unless chunked, defines replacement, Content-MD5 InvalidDigest/BadDigest, and returns empty 200. The headers reference defines octet-stream serving fallback, 8 KiB custom metadata and big-endian CRC32C; IAM requires create plus delete for overwrite. Local PUT uses the existing JSON bounded bridge and transactional publication/recovery. Configured size excess returns XML 400 EntityTooLarge, missing framing 411 MissingContentLength, malformed/conflicting hash declarations 400 InvalidDigest including CRC32C, and any supplied checksum mismatch 400 BadDigest. The status catalog separately names InvalidCrc; precise CRC-specific errors remain a declared deviation. HTTP names normalize to lowercase; duplicate fixed/precondition/custom fields return 400 ExcessHeaderValues, empty custom suffixes and non-ASCII values return 400 InvalidArgument, and the metadata cap counts stored suffix/value bytes as shared storage does, rather than the HTTP prefix. Empty optional fixed values clear those fields; omitted content type is stored as application/octet-stream. Hyper owns transport-invalid framing and automatic 100-continue; trailers are explicitly unsupported, announced trailers fail before body reads and unannounced trailer frames abort without publication. Unknown query/x-goog inputs follow SPEC-XML-INPUTS 501; all x-amz extensions also fail 501. Retry tokens need generation match and have no response replay. Existing local XML path/ETag/auth/permission-precedence choices remain SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017. Complete bodies may finish publication after response timeout, disconnect or shutdown; only pre-EOF interruption guarantees no publication. Rust wire cases verify 13 scoped behaviors and recovery without claiming provider differential parity, every fsync crash boundary, power loss, measured RSS/cgroup bounds or actual-browser signed transfers. The integrated signed-upload adapter additionally checks optional signed or unsigned x-goog-content-sha256 incrementally and maps body mismatch to 400 BadDigest; malformed strict signing declarations are 400 InvalidAuthentication. These local choices and the SDK substitution conflict are SPEC-SIGNED-PAYLOAD.",
+      "required_resolution": "Keep EXT-XML-022 PARTIAL. Implement ACLs, encryption, requester billing, class overrides, retention/explicit holds, custom time, copy/resumable/multipart variants and other advanced inputs in their owning slices. Establish authoritative or explicitly authorized provider evidence for duplicate/non-ASCII/metadata-size accounting, hash conflict and CRC-specific errors, mixed-error ordering, framing/trailers and complete response headers. Preserve bounded streaming and atomic create/delete/condition checks, and never promise rollback of a commit already running after EOF. Run integrated signed-browser/container/SDK gates separately; Go storage v1.70.0 writes JSON Objects.Insert, so these XML PUT cases use Rust raw HTTP rather than claiming SDK write coverage. Source digests, exact scope and final commands are in docs/en/slices/xml-put-object.md and docs/en/evidence/xml-put-object.md. V4 RSA query PUT and streamed optional SHA256 now have separate signed-upload and official Go/Ruby SDK evidence in docs/en/evidence/signed-urls.md."
+    },
+    {
       "id": "SPEC-CORS-EDGES",
       "title": "CORS provider header lists, custom mobile origins and malformed-input details remain unverified",
       "status": "OPEN",
-      "affected_features": ["DESIGN-051", "DESIGN-052", "BEHAVIOR-BUCKET-009", "UX-007", "JSON-BUCKETS-002", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
+      "affected_features": [
+        "DESIGN-051",
+        "DESIGN-052",
+        "BEHAVIOR-BUCKET-009",
+        "UX-007",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-013"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -25,7 +213,12 @@
       "id": "SPEC-DERIVED-METADATA",
       "title": "Copy/rewrite empty metadata resources, null and class defaults need provider clarification",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023", "JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "affected_features": [
+        "JSON-OBJECTS-003",
+        "BEHAVIOR-OBJECT-023",
+        "JSON-OBJECTS-012",
+        "BEHAVIOR-OBJECT-024"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
@@ -41,7 +234,10 @@
       "id": "SPEC-COPY-PLACEMENT",
       "title": "Copy single-rewrite size limits, placement and exact error behavior are not simulated",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023"],
+      "affected_features": [
+        "JSON-OBJECTS-003",
+        "BEHAVIOR-OBJECT-023"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
@@ -57,7 +253,10 @@
       "id": "SPEC-REWRITE-EDGES",
       "title": "Rewrite token errors, replay retention and source-change timing require provider evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "affected_features": [
+        "JSON-OBJECTS-012",
+        "BEHAVIOR-OBJECT-024"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://docs.cloud.google.com/storage/docs/request-preconditions",

@@ -91,6 +91,31 @@ the SDK sends an object rather than unsupported `destination: null`.
 The remaining methods use the high-level SDK. Every generated and high-level
 call shares the same guarded connection and optional static fixture token.
 
+The repository-root `just check-sdk` now runs both pinned Go and Ruby suites
+against isolated permissive/strict servers. Install the pinned Ruby/Bundler/gems
+above first; the command does not substitute the host Ruby or install dependencies
+silently. `GCS_MIMIC_SDK_SCHEME=https just check-sdk` uses the exported built-in CA
+with verification enabled. A targeted `GCS_MIMIC_GO_TEST_RUN` retains Go-only
+iteration; the unfiltered recipe executes Ruby as well.
+
+The strict run adds official `File#signed_url(version: :v4, method: "GET"/"PUT",
+issuer:, signing_key:)` checks with the clearly public fixture key and a temporary
+registry granting its admin signer permissions. It verifies private exact bytes,
+signed Content-Type, missing/changed headers, changed query/object/Host/method and
+anonymous denial. No bearer header is attached to signed requests.
+
+Storage 1.62.1's `file/signer_v4.rb` uses the service endpoint for the emitted URL,
+but its default `host_name` is `storage.googleapis.com`. The test asserts that
+this normal custom-endpoint URL retains the actual port yet fails strict
+verification. The public `bucket_bound_hostname:` option instead binds the supplied
+host:port and suppresses the normal bucket prefix. A lookup-free File with name
+`"#{bucket.name}/signed.txt"` supplies the full path before signing, producing
+`/bucket/signed.txt` on the final endpoint. The test asserts both authority and path,
+then uses the resulting URL unchanged. This is an explicit SDK endpoint adaptation,
+not virtual-host support. See SPEC-RUBY-SIGNER-ENDPOINT and the
+[combined evidence](../../docs/en/evidence/signed-urls.md). Prefer `gcs-mimic url sign`
+for the ordinary local path-style workflow.
+
 Official sources:
 
 - [Ruby stable downloads](https://www.ruby-lang.org/en/downloads/)

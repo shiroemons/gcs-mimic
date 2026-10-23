@@ -64,9 +64,9 @@ remain in the named evidence files.
 | Object media | Live-generation upload/read/delete, hashes and atomic conditions | Header/error parity, token replay and advanced semantics | [Media verification](evidence/object-media.md) |
 | List and metadata | Prefix/delimiter/keyset paging; PATCH merge and PUT replacement | History, filters, full projection and legacy-input parity | [Integrated verification](evidence/object-list-metadata.md) |
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
-| Local strict authentication | Local tokens, project-level predefined roles and pure URL builder | Signatures and full strict behavior | [Authentication verification](evidence/strict-auth.md) |
+| Local strict authentication | Local bearer/V4 RSA identities, project-plus-bucket roles and offline URL helpers | Other signing formats, full IAM/ACL and provider identity | [Authentication](evidence/strict-auth.md), [signed access](evidence/signed-urls.md) |
 | Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
-| Public object reads | Verified path-style XML GET/HEAD, live-generation selection, single ranges, match conditions, public/registered-only grants, revocation/restart and pinned Go/host/peer journeys | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines, signatures and complete XML/authentication wire parity | [Final public-read verification](evidence/public-object-reads.md) |
+| Public and signed object transfers | Path-style and opt-in virtual-host XML GET/HEAD/PUT, V4 RSA signer permissions, response overrides, PAP, final-host binding, expiry/tamper rejection, bounded integrity checks and atomic conditions | Advanced XML/listing, ACL/UBLA transitions, other signing formats and provider duplicate-query/override/error/payload parity; actual signed browsers are next | [Public reads](evidence/public-object-reads.md), [combined signed access](evidence/signed-urls.md) |
 | JSON resumable upload | Sessions, bounded chunks/status/retry, atomic finalization, cancellation, fixed seven-day expiry, selected process-kill/restart recovery, client-reachable configured Location and normal pinned Go Writer; measured native large/slow/concurrent buffering | XML/signed initiation, token response replay, provider edge parity, power-loss durability and Linux/cgroup memory guarantees | [Final resumable verification](evidence/resumable-upload.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
@@ -104,8 +104,8 @@ success stub does not complete a workflow.
 | 13 | JSON CORS defaults | Independent JSON defaults, actual-browser CRUD/uploads, exposed headers and strict denial pass the [CORS gate](evidence/cors.md) | Delivered: DESIGN-051 and DESIGN-053 IMPLEMENTED for the frozen scope |
 | 14 | Bucket/XML CORS | Persistent configuration, validation/conditions/races, XML read/preflight rules, custom origins/default ports and browser restart pass the [CORS gate](evidence/cors.md) | Delivered: BEHAVIOR-BUCKET-009 and DESIGN-052 IMPLEMENTED; broad bucket methods remain PARTIAL |
 | 15 | Basic API, CORS and HTTPS verification | Six bucket/nine object HTTP methods, pinned Go/Ruby, trusted HTTPS browser, Rust regressions and native/container journeys pass the [integrated gate](evidence/cors.md) | Delivered: UX-007 IMPLEMENTED for JSON browser transfers and XML reads; broader SDK/Rails and method parity remain explicit |
-| 16 | V4 RSA signed download | Basic verification gate, final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
-| 17 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
+| 16 | V4 RSA signed download | Private GET/HEAD, final-host canonicalization, signer permission, expiry, tamper rejection and pinned Go/Ruby signers; integrated virtual-host and response override follow-ups; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-030/032/033/034/036/038/045/048 IMPLEMENTED; DESIGN-035/044 and broad XML/auth rows remain PARTIAL for provider-exactness and advanced cases |
+| 17 | V4 RSA signed upload | Bounded XML PUT, signed headers, streamed declared SHA256, atomic conditions/preservation, wire CORS, PAP and final Rust/SDK/container/native/Compose guide gate; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-029, BEHAVIOR-BUCKET-014, DESIGN-022/023/025 and UX-006 IMPLEMENTED; bucket/parent policy fidelity stays LOCAL_SIMULATION where declared; DESIGN-037/055 and EXT-XML-022 remain PARTIAL for provider/proxy/advanced cases |
 | 18 | Signed browser transfers | Reuse implemented CORS/TLS; real-browser signed upload/download, allowed/denied origins, preflight and exposed headers | Complete signed browser workflows over HTTPS |
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
@@ -133,7 +133,21 @@ and [final evidence](evidence/object-copy.md). Its behavior row is IMPLEMENTED/E
 the method remains PARTIAL for full ACL/owner projection.
 Provider metadata/error/placement questions remain outside declared local acceptance.
 Order 11 compose also passes the shared final gate. The next implementation slice
-is order 16 **V4 RSA signed download**. Orders 13–15 are closed by the
+is order 18 **Signed browser transfers**. Orders 16–17 are delivered in the
+[combined signed-access evidence](evidence/signed-urls.md), with
+[download](slices/signed-download.md) and [upload](slices/signed-upload.md) contracts.
+Their integrated follow-ups add [response overrides](slices/xml-response-overrides.md),
+[opt-in virtual hosts](slices/xml-virtual-host.md) and
+[PAP](slices/public-access-prevention.md), including public-grant preservation and
+signed transfers. The updated native and source-image/strict-Compose guides pass,
+including PAP and restart. DESIGN-035 stays PARTIAL for duplicate and
+ambiguous-query provider rules (SPEC-SIGNING-EDGES), with local
+override extensions in SPEC-XML-RESPONSE-OVERRIDES. DESIGN-037 remains PARTIAL under
+SPEC-SIGNED-PAYLOAD; DESIGN-044 retains exact errors/precedence under
+SPEC-SIGNING-EDGES. DESIGN-055 still needs proxy-derived/separately configured
+origins. Other signature formats, XML advanced methods and ACL/UBLA transitions
+are not completed by this integration.
+Orders 13–15 are closed by the
 [CORS and basic API evidence](evidence/cors.md), including independent JSON/XML
 behavior and mobile-origin research without a real-device/cloud claim. Order 12
 **Local HTTPS/TLS** is delivered in the [final TLS evidence](evidence/local-tls.md),
@@ -281,10 +295,10 @@ SPEC-013 remains open until that behavior is implemented and evidenced.
 
 Before public grants, model the supported access restrictions and reject
 recognized unsupported policy semantics rather than ignoring them. Full
-ACL/default ACL, UBLA/PAP transitions and conditional IAM remain separate
-acceptance work; no public-read slice may bypass a restriction it claims to
-support. Signed access must preserve the supported PAP distinction between
-anonymous public grants and authorized signed requests.
+ACL/default ACL, UBLA transitions, remaining PAP provider edges and conditional
+IAM remain separate acceptance work; no public-read slice may bypass a
+restriction it claims to support. Signed access must preserve the supported PAP
+distinction between anonymous public grants and authorized signed requests.
 
 ## Migration track and prerequisites
 
@@ -401,7 +415,7 @@ queue above takes precedence over their historical numeric ordering.
 | --- | --- |
 | P0 Foundation | Local HTTPS/TLS is required before signing; maintenance extensions, full legacy dual listeners and platform/distribution evidence retain separate scopes |
 | P1 Core data path | Basic bucket updates, supported fields and HTTP conditions are scheduled before signing; advanced fields, transcoding and broader resource guarantees remain later |
-| P2 Access and URLs | JSON and bucket/XML-read CORS are required before signing; remaining ACL/default ACL, UBLA/PAP, conditional policies, HMAC/V2 and endpoint breadth retain separate scopes |
+| P2 Access and URLs | JSON and bucket/XML-read CORS are required before signing; remaining ACL/default ACL, UBLA transitions, PAP provider edges, conditional policies, HMAC/V2 and proxy endpoint breadth retain separate scopes |
 | P3 Transfer and HTTP breadth | Rewrite continuations, HTTP batch, remaining XML/multipart and extended SDKs |
 | P4 Protection and lifecycle | Versioning, soft delete/restore, holds, retention, lifecycle and Autoclass |
 | P5 Hierarchy and control | HNS/managed folders, inherited access, storage layout and shared LROs |

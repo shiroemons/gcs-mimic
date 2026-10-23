@@ -33,6 +33,39 @@ pub fn public_object_url(base_url: &str, bucket: &str, object: &str) -> Result<S
     Ok(format!("{base}{path}"))
 }
 
+/// Build the final bucket host before signing; virtual-host bases must have no path prefix.
+pub fn virtual_host_object_url(
+    base_url: &str,
+    bucket: &str,
+    object: &str,
+) -> Result<String, String> {
+    let base = normalize_base_url(base_url)?;
+    validate_bucket_name(bucket).map_err(|e| format!("bucket: {}", e.message))?;
+    validate_object_name(object).map_err(|e| format!("object: {}", e.message))?;
+    let uri: hyper::Uri = base.parse().map_err(|_| "invalid base URL")?;
+    if uri.path() != "/" && !uri.path().is_empty() {
+        return Err("virtual-host base URL must not have a path prefix".into());
+    }
+    let authority = uri.authority().ok_or("missing base URL authority")?;
+    crate::config::validate_dns_name(authority.host())?;
+    crate::config::validate_dns_name(bucket)
+        .map_err(|_| "bucket name must be a DNS label sequence for virtual-host URLs")?;
+    let host = format!("{bucket}.{}", authority.host().to_ascii_lowercase());
+    crate::config::validate_dns_name(&host)?;
+    if authority.as_str().contains(':') && authority.port_u16().is_none() {
+        return Err("invalid virtual-host base URL port".into());
+    }
+    Ok(format!(
+        "{}://{host}{}/{}",
+        uri.scheme_str().unwrap(),
+        authority
+            .port_u16()
+            .map(|port| format!(":{port}"))
+            .unwrap_or_default(),
+        encode_object_name(object)
+    ))
+}
+
 /// Percent-encode every UTF-8 byte except RFC 3986 unreserved characters and `/`. Clients and
 /// proxies normalize `.` and `..` path segments away, so when any segment is a dot segment every
 /// `/` is encoded as `%2F` and the whole name stays a single opaque path segment.
@@ -57,6 +90,43 @@ pub fn encode_object_name(object: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn virtual_host_urls_preserve_final_authority_and_raw_object_path() {
+        assert_eq!(
+            virtual_host_object_url(
+                "https://storage.invalid:4443/",
+                "dotted.bucket",
+                "é//a b/%2F"
+            )
+            .unwrap(),
+            "https://dotted.bucket.storage.invalid:4443/%C3%A9//a%20b/%252F"
+        );
+        assert_eq!(
+            virtual_host_object_url("http://storage.invalid", "bucket", "storage/v1/b").unwrap(),
+            "http://bucket.storage.invalid/storage/v1/b"
+        );
+        assert_eq!(
+            virtual_host_object_url("https://Storage.Invalid:4443", "bucket", "o").unwrap(),
+            "https://bucket.storage.invalid:4443/o"
+        );
+        assert!(
+            virtual_host_object_url("https://storage.invalid", "bucket_name", "o")
+                .unwrap_err()
+                .contains("bucket name must be a DNS label sequence")
+        );
+        for base in [
+            "http://127.0.0.1",
+            "http://[::1]",
+            "http://storage.invalid/prefix",
+            "http://storage.invalid:invalid",
+        ] {
+            assert!(
+                virtual_host_object_url(base, "bucket", "object").is_err(),
+                "{base}"
+            );
+        }
+    }
 
     fn url(object: &str) -> String {
         public_object_url("http://127.0.0.1:4443", "bucket", object).unwrap()

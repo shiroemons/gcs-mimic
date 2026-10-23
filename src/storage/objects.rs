@@ -781,7 +781,12 @@ impl Catalog {
             let remaining = record.size;
             let publicly_readable = super::policies::read_policy(&transaction, &bucket)
                 .map_err(object_unavailable)?
-                .allows(None, crate::auth::OBJECTS_GET);
+                .allows(
+                    None,
+                    crate::auth::OBJECTS_GET,
+                    super::policies::public_access_prevention(&transaction, &bucket)
+                        .map_err(object_unavailable)?,
+                );
             Ok((
                 record,
                 ObjectReader {
@@ -1713,6 +1718,7 @@ mod tests {
                     labels: Default::default(),
                     versioning_enabled: false,
                     default_event_based_hold: false,
+                    public_access_prevention_enforced: false,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,
@@ -1787,6 +1793,7 @@ mod tests {
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
+                public_access_prevention_enforced: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -1937,6 +1944,7 @@ mod tests {
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
+                public_access_prevention_enforced: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -2084,6 +2092,75 @@ mod tests {
             Ok(current)
         );
         assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn pap_is_rechecked_after_upload_admission_and_before_reads() {
+        use crate::auth::{Binding, OBJECTS_CREATE, OBJECTS_GET, Policy};
+        for parent in [false, true] {
+            let directory = temp_catalog_dir("pap-recheck");
+            let catalog = Catalog::open(&directory).await.unwrap();
+            create_bucket(&catalog, "project").await;
+            let current = put(&catalog, "object", b"original").await;
+            let policy = Policy {
+                bindings: vec![Binding {
+                    role: "roles/storage.admin".into(),
+                    members: vec!["allUsers".into()],
+                }],
+                etag: None,
+            };
+            let stored = catalog
+                .set_policy("bucket", policy, &BucketAccess::Unchecked)
+                .await
+                .unwrap();
+            let read = catalog
+                .bucket_access("bucket", None, OBJECTS_GET)
+                .await
+                .unwrap();
+            let create = catalog
+                .bucket_access("bucket", None, OBJECTS_CREATE)
+                .await
+                .unwrap();
+            let permit = catalog
+                .prepare_object_upload("bucket", "fresh", Default::default(), &create)
+                .await
+                .unwrap();
+            if parent {
+                catalog
+                    .configure_public_access_prevention(&["project".into(), "project".into()])
+                    .await
+                    .unwrap();
+            } else {
+                catalog
+                    .patch_bucket(
+                        "bucket",
+                        crate::bucket::BucketMetadataUpdate {
+                            public_access_prevention_enforced: Some(true),
+                            ..Default::default()
+                        },
+                        None,
+                        None,
+                        &BucketAccess::Unchecked,
+                    )
+                    .await
+                    .unwrap();
+            }
+            assert_all_forbidden(&catalog, &read, &current).await;
+            assert_eq!(
+                publish(&catalog, "fresh", permit, create).await,
+                Err(ObjectError::Forbidden)
+            );
+            assert_eq!(
+                catalog
+                    .get_policy("bucket", &BucketAccess::Unchecked)
+                    .await
+                    .unwrap(),
+                stored
+            );
+            assert_eq!(fs::read_dir(directory.join("staging")).unwrap().count(), 0);
+            catalog.close().await.unwrap();
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[tokio::test]

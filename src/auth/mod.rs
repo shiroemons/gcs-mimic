@@ -3,11 +3,12 @@
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
 //! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
-//! ACLs and signed URLs are not modeled.
+//! ACLs are not modeled. Strict XML query signatures use registered RSA public keys.
 //! Nothing here contacts Google or the metadata server.
 
 mod policy;
 pub(crate) mod roles;
+pub mod signature;
 pub use policy::{Binding, Policy};
 
 use hyper::{HeaderMap, header::AUTHORIZATION};
@@ -43,14 +44,17 @@ const MAX_PROJECTS: usize = 64;
 const MAX_ROLES: usize = 32;
 
 /// Query parameters that carry credentials in Google APIs (OAuth tokens and V2/V4 signatures).
-/// Strict mode rejects them instead of ignoring them, so they can never grant or fall back to
-/// anonymous access before signed URLs are implemented.
+/// Strict JSON/bearer authentication rejects them instead of falling back to anonymous access;
+/// the XML adapter dispatches supported V4 query credentials to the RSA verifier separately.
 const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "access_token",
     "oauth_token",
     "X-Goog-Signature",
     "X-Goog-Credential",
     "X-Goog-Algorithm",
+    "X-Goog-Date",
+    "X-Goog-Expires",
+    "X-Goog-SignedHeaders",
     "Signature",
     "GoogleAccessId",
 ];
@@ -203,6 +207,8 @@ impl<'a> Caller<'a> {
 pub struct Registry {
     identities: Vec<Identity>,
     tokens: HashMap<String, usize>,
+    signing_keys: HashMap<String, Vec<signature::PublicKey>>,
+    public_access_prevention_projects: Vec<String>,
 }
 
 impl Registry {
@@ -225,8 +231,34 @@ impl Registry {
         let top = value
             .as_object()
             .ok_or_else(|| error("top level must be a JSON object".into()))?;
-        if let Some(key) = top.keys().find(|key| *key != "identities") {
+        if let Some(key) = top.keys().find(|key| {
+            !matches!(
+                key.as_str(),
+                "identities" | "public_access_prevention_projects"
+            )
+        }) {
             return Err(error(format!("unknown field: {key}")));
+        }
+        let mut public_access_prevention_projects = Vec::new();
+        if let Some(value) = top.get("public_access_prevention_projects") {
+            let projects = value.as_array().filter(|projects| projects.len() <= MAX_PROJECTS)
+                .ok_or_else(|| error("public_access_prevention_projects must be an array of at most 64 project identifiers".into()))?;
+            for project in projects {
+                let project = project.as_str().ok_or_else(|| {
+                    error("public_access_prevention_projects entries must be strings".into())
+                })?;
+                crate::json::validate_project(project)
+                    .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
+                if public_access_prevention_projects
+                    .iter()
+                    .any(|existing| existing == project)
+                {
+                    return Err(error(
+                        "duplicate public_access_prevention_projects entry".into(),
+                    ));
+                }
+                public_access_prevention_projects.push(project.to_owned());
+            }
         }
         let entries = top
             .get("identities")
@@ -241,15 +273,18 @@ impl Registry {
         let mut identities = Vec::with_capacity(entries.len());
         let mut ids = BTreeSet::new();
         let mut tokens = HashMap::new();
+        let mut signing_keys = HashMap::new();
         for (index, entry) in entries.iter().enumerate() {
             let error = |message: String| format!("identity_file: identities[{index}]: {message}");
             let entry = entry
                 .as_object()
                 .ok_or_else(|| error("must be a JSON object".into()))?;
-            if let Some(key) = entry
-                .keys()
-                .find(|key| !matches!(key.as_str(), "id" | "tokens" | "project_roles"))
-            {
+            if let Some(key) = entry.keys().find(|key| {
+                !matches!(
+                    key.as_str(),
+                    "id" | "tokens" | "project_roles" | "public_keys"
+                )
+            }) {
                 return Err(error(format!("unknown field: {key}")));
             }
             let id = entry
@@ -265,12 +300,35 @@ impl Registry {
             if !ids.insert(id.to_owned()) {
                 return Err(error(format!("duplicate id: {id}")));
             }
+            if let Some(keys) = entry.get("public_keys") {
+                let keys = keys
+                    .as_array()
+                    .filter(|keys| (1..=8).contains(&keys.len()))
+                    .ok_or_else(|| {
+                        error(
+                            "public_keys must be an array of 1..=8 inline public PEM strings"
+                                .into(),
+                        )
+                    })?;
+                let keys =
+                    keys.iter()
+                        .map(|key| {
+                            signature::PublicKey::parse(key.as_str().ok_or_else(|| {
+                                error("public_keys entries must be strings".into())
+                            })?)
+                            .map_err(error)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                signing_keys.insert(id.to_owned(), keys);
+            }
             let token_values = entry
                 .get("tokens")
                 .ok_or_else(|| error("missing required field: tokens".into()))?
                 .as_array()
                 .ok_or_else(|| error("tokens must be an array".into()))?;
-            if !(1..=MAX_TOKENS).contains(&token_values.len()) {
+            if token_values.len() > MAX_TOKENS
+                || (token_values.is_empty() && !signing_keys.contains_key(id))
+            {
                 return Err(error(format!(
                     "tokens must contain 1..={MAX_TOKENS} entries"
                 )));
@@ -336,7 +394,12 @@ impl Registry {
                 permissions,
             });
         }
-        Ok(Self { identities, tokens })
+        Ok(Self {
+            identities,
+            tokens,
+            signing_keys,
+            public_access_prevention_projects,
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -379,6 +442,13 @@ impl Auth {
 
     pub fn identity_count(&self) -> Option<usize> {
         self.registry.as_ref().map(Registry::len)
+    }
+
+    /// Local simulation of the effective parent organization policy, loaded before readiness.
+    pub fn public_access_prevention_projects(&self) -> &[String] {
+        self.registry
+            .as_ref()
+            .map_or(&[], |registry| &registry.public_access_prevention_projects)
     }
 
     /// Resolve the caller from request metadata only; never reads a body or the catalog.
@@ -463,6 +533,136 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pap_parent_fixture_rejects_malformed_and_unbounded_projects() {
+        for projects in [
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!({}),
+            serde_json::json!([1]),
+            serde_json::json!([""]),
+            serde_json::json!(["has space"]),
+            serde_json::json!(["p", "p"]),
+            serde_json::json!((0..65).map(|n| format!("p{n}")).collect::<Vec<_>>()),
+        ] {
+            let value = serde_json::json!({"identities":[{"id":"local","tokens":["token"]}],"public_access_prevention_projects":projects});
+            assert!(
+                Registry::parse(value.to_string().as_bytes())
+                    .unwrap_err()
+                    .contains("public_access_prevention_projects")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pap_mutations_require_update_and_set_iam_permissions() {
+        use crate::{
+            bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
+            storage::Catalog,
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "gcs-mimic-pap-permissions-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let catalog = Catalog::open(&dir).await.unwrap();
+        let record = crate::json::parse_insert(
+            br#"{"name":"pap-permissions"}"#,
+            "project",
+            std::time::UNIX_EPOCH,
+        )
+        .unwrap();
+        catalog.insert_bucket(record.clone()).await.unwrap();
+        let identity = Identity {
+            id: "local".into(),
+            permissions: BTreeMap::from([("project".into(), BTreeSet::from([BUCKETS_UPDATE]))]),
+        };
+        let access = BucketAccess::Policy {
+            identity: Some(identity),
+            permission: BUCKETS_UPDATE.into(),
+            project: Some("project".into()),
+        };
+        for replace in [false, true] {
+            let update = BucketMetadataUpdate {
+                public_access_prevention_enforced: Some(true),
+                ..Default::default()
+            };
+            let result = if replace {
+                catalog
+                    .replace_bucket("pap-permissions", update, None, None, &access)
+                    .await
+            } else {
+                catalog
+                    .patch_bucket("pap-permissions", update, None, None, &access)
+                    .await
+            };
+            assert_eq!(result, Err(CatalogError::Forbidden));
+            assert_eq!(
+                catalog.get_bucket("pap-permissions").await.unwrap(),
+                Some(record.clone())
+            );
+        }
+        for enforced in [false, true] {
+            catalog
+                .patch_bucket(
+                    "pap-permissions",
+                    BucketMetadataUpdate {
+                        public_access_prevention_enforced: Some(enforced),
+                        ..Default::default()
+                    },
+                    None,
+                    None,
+                    &BucketAccess::Unchecked,
+                )
+                .await
+                .unwrap();
+            for replace in [false, true] {
+                for value in [None, Some(enforced), Some(!enforced)] {
+                    let before = catalog
+                        .get_bucket("pap-permissions")
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let update = BucketMetadataUpdate {
+                        public_access_prevention_enforced: value,
+                        labels: Some(Some(BTreeMap::from([(
+                            "team".into(),
+                            Some("storage".into()),
+                        )]))),
+                        ..Default::default()
+                    };
+                    let result = if replace {
+                        catalog
+                            .replace_bucket("pap-permissions", update, None, None, &access)
+                            .await
+                    } else {
+                        catalog
+                            .patch_bucket("pap-permissions", update, None, None, &access)
+                            .await
+                    };
+                    let expected = value.unwrap_or(!replace && enforced);
+                    if expected == enforced {
+                        let after = result.unwrap();
+                        assert_eq!(after.public_access_prevention_enforced, enforced);
+                        assert_eq!(after.labels["team"], "storage");
+                        assert_eq!(after.metageneration, before.metageneration + 1);
+                    } else {
+                        assert_eq!(result, Err(CatalogError::Forbidden));
+                        assert_eq!(
+                            catalog.get_bucket("pap-permissions").await.unwrap(),
+                            Some(before)
+                        );
+                    }
+                }
+            }
+        }
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn role_snapshot_is_sorted_unique_storage_permission_data() {

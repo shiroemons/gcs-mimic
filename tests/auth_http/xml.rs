@@ -607,13 +607,13 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
     for (method, path) in [
         ("GET", "/iam-bucket"),
         ("GET", "/iam-bucket/"),
-        ("PUT", OBJECT),
+        ("PUT", "/iam-bucket/object?acl"),
         ("POST", OBJECT),
         ("DELETE", OBJECT),
         ("OPTIONS", OBJECT),
         ("GET", "/iam-bucket/object?acl"),
         ("GET", "/iam-bucket/object?uploads"),
-        ("GET", "/iam-bucket/object?response-content-type=text/plain"),
+        ("GET", "/iam-bucket/object?response-cache-control=no-cache"),
     ] {
         let request =
             format!("{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\n\r\n");
@@ -864,10 +864,10 @@ fn xml_permissive_reads_ignore_credentials_without_granting_public_policy() {
 }
 
 #[test]
-fn public_access_prevention_and_uniform_access_settings_fail_closed() {
+fn uniform_access_settings_fail_closed() {
     let (_config, _data, server) = fixture();
     for setting in [
-        json!({"publicAccessPrevention":"enforced"}),
+        json!({"bucketPolicyOnly":{"enabled":true}}),
         json!({"uniformBucketLevelAccess":{"enabled":true}}),
     ] {
         server

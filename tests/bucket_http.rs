@@ -979,7 +979,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "defaultObjectAcl",
             "encryption",
             "hierarchicalNamespace",
-            "iamConfiguration",
             "ipFilter",
             "lifecycle",
             "logging",
@@ -2149,7 +2148,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "defaultObjectAcl",
             "encryption",
             "hierarchicalNamespace",
-            "iamConfiguration",
             "ipFilter",
             "lifecycle",
             "logging",
@@ -2204,7 +2202,6 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
             ],
         );
         for settings in [
-            json!({"iamConfiguration":{"publicAccessPrevention":"enforced"}}),
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":true}}}),
             json!({"retentionPolicy":{"retentionPeriod":"86400"}}),
             json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}),
@@ -2471,7 +2468,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            12
+            13
         );
     }
 }

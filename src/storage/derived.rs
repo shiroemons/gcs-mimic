@@ -974,6 +974,7 @@ mod tests {
                 labels: Default::default(),
                 versioning_enabled: false,
                 default_event_based_hold: false,
+                public_access_prevention_enforced: false,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -1954,7 +1955,7 @@ mod tests {
             .execute_batch("DROP TABLE rewrite_sessions;")
             .unwrap();
         assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_schema AS schema, pragma_foreign_key_list(schema.name) WHERE schema.type = 'table'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
-        connection.execute_batch("ALTER TABLE buckets DROP COLUMN cors; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE objects DROP COLUMN component_count; PRAGMA user_version = 9;").unwrap();
+        connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE objects DROP COLUMN component_count; PRAGMA user_version = 9;").unwrap();
         assert!(
             !connection
                 .prepare("PRAGMA foreign_key_check")

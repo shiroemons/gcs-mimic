@@ -61,7 +61,7 @@ mod resumable;
 mod rewrite;
 
 #[derive(Clone, Copy, Default)]
-struct ObjectActivity {
+pub(crate) struct ObjectActivity {
     awaiting_catalog: bool,
     deadline: Option<tokio::time::Instant>,
 }
@@ -218,9 +218,9 @@ async fn serve_connection(
     .await;
 }
 
-type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
+pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;
 
-fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
+pub(crate) fn boxed(response: Response<Full<Bytes>>) -> Response<ResponseBody> {
     response.map(|body| body.map_err(|never| match never {}).boxed_unsync())
 }
 
@@ -230,7 +230,12 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
-    if json::cors::is_route(request.uri()) {
+    if let Some(error) = xml::authority_error(request.uri(), request.headers(), config) {
+        return boxed(error.response(request.method() == Method::HEAD));
+    }
+    if xml::virtual_bucket(request.headers(), &config.xml_virtual_host_domains).is_none()
+        && json::cors::is_route(request.uri())
+    {
         let preflight = json::cors::is_preflight(request.method(), request.headers());
         let mut headers = match json::cors::response_headers(request.headers(), preflight) {
             Ok(headers) => headers,
@@ -260,7 +265,8 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), config.compat_profile) {
+    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), request.headers(), config)
+    {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;
         let cors = if has_origin {
@@ -319,6 +325,43 @@ async fn respond_routed(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
+    if let Some(parsed) = xml::route(request.method(), request.uri(), request.headers(), config) {
+        let head = request.method() == Method::HEAD;
+        let put = request.method() == Method::PUT;
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match xml::authenticate(
+            &state.auth,
+            request.method(),
+            request.uri(),
+            request.headers(),
+            state.clock.as_ref(),
+        ) {
+            Ok(caller) => match parsed {
+                Ok(operation) if put => {
+                    xml::put::respond(
+                        request, operation, caller, state, config, activity, deadline,
+                    )
+                    .await
+                }
+                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
+        };
+        if head || put || result.is_err() {
+            activity.send_replace(ObjectActivity::default());
+        }
+        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     if let Some(parsed) =
         json::resumable::session_route(request.method(), request.uri(), config.compat_profile)
     {
@@ -458,34 +501,10 @@ async fn respond_routed(
             .insert("connection", "close".parse().unwrap());
         return boxed(response);
     }
-    if let Some(parsed) = xml::route(request.method(), request.uri(), config.compat_profile) {
-        let head = request.method() == Method::HEAD;
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
-        activity.send_replace(ObjectActivity {
-            awaiting_catalog: false,
-            deadline: Some(deadline),
-        });
-        let result = match authenticate() {
-            Ok(caller) => match parsed {
-                Ok(operation) => xml_response(request, operation, caller, state, activity).await,
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error.into()),
-        };
-        if head || result.is_err() {
-            activity.send_replace(ObjectActivity::default());
-        }
-        let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));
-        response
-            .headers_mut()
-            .insert("connection", "close".parse().unwrap());
-        return response;
-    }
     boxed(probe_or_unknown(&request, state))
 }
 
-fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
+pub(crate) fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
     if matches!(caller, Some(Caller::Anonymous)) && error.status == StatusCode::FORBIDDEN {
         auth::AuthFailure::LoginRequired.into()
     } else {
@@ -499,7 +518,7 @@ fn anonymous_error(error: JsonError, caller: Option<Caller<'_>>) -> JsonError {
 /// the owner it observes in its own transaction: the bucket can be deleted and recreated under
 /// another project after this lookup. Permissive mode returns `Unchecked` without catalog
 /// access. Anonymous callers have no project grants and are evaluated against bucket policy.
-async fn authorize_bucket(
+pub(crate) async fn authorize_bucket(
     state: &State,
     caller: Option<Caller<'_>>,
     permission: &str,
@@ -915,7 +934,7 @@ async fn object_response(
             tokio::pin!(upload);
             let record = tokio::select! {
                 result = &mut upload => result?,
-                result = stream_upload(request.into_body(), &sender, max_bytes, activity) => {
+                result = stream_upload(request.into_body(), &sender, max_bytes, activity, None) => {
                     if let Err(error) = result {
                         if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
                             return Err(upload.await.err().unwrap_or(error).into());
@@ -1104,6 +1123,7 @@ async fn xml_response(
         .await
         .map_err(|error| anonymous_error(error.into(), caller))?;
     let mut headers = xml::media_headers(&record, reader.publicly_readable)?;
+    headers.extend(operation.response_overrides);
     json::validate_object_media_encoding(request.headers(), &record)?;
     let head = request.method() == Method::HEAD;
     let range = match json::object_media_range(request.headers(), record.size) {
@@ -1155,13 +1175,15 @@ async fn xml_response(
     Ok(response)
 }
 
-async fn stream_upload(
+pub(crate) async fn stream_upload(
     mut body: Incoming,
     sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
+    expected_sha256: Option<[u8; 32]>,
 ) -> Result<(), ObjectError> {
     let mut size = 0_u64;
+    let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
         let bytes = frame
@@ -1172,6 +1194,9 @@ async fn stream_upload(
             .filter(|size| *size <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
         activity.send_modify(|progress| progress.awaiting_catalog = false);
+        if let Some(hash) = &mut sha256 {
+            hash.update(&bytes);
+        }
         // Copy bounded chunks so queued slices cannot retain arbitrarily large transport frames.
         for part in bytes.chunks(64 * 1024) {
             if sender
@@ -1184,10 +1209,16 @@ async fn stream_upload(
             }
         }
     }
+    if sha256
+        .zip(expected_sha256)
+        .is_some_and(|(hash, expected)| hash.finish().as_ref() != expected)
+    {
+        return Err(ObjectError::ChecksumMismatch);
+    }
     Ok(())
 }
 
-async fn await_upload_catalog<T, E: From<ObjectError>>(
+pub(crate) async fn await_upload_catalog<T, E: From<ObjectError>>(
     operation: impl Future<Output = Result<T, E>>,
     timeout: Duration,
     request_deadline: tokio::time::Instant,

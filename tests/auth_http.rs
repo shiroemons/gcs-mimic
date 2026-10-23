@@ -6,8 +6,17 @@ mod iam;
 #[path = "auth_http/xml.rs"]
 mod xml;
 
+#[path = "auth_http/xml_put.rs"]
+mod xml_put;
+
 #[path = "auth_http/cors.rs"]
 mod cors;
+
+#[path = "auth_http/signing.rs"]
+mod signing;
+
+#[path = "auth_http/virtual_host.rs"]
+mod virtual_host;
 
 use common::TestDir;
 use serde_json::{Value, json};

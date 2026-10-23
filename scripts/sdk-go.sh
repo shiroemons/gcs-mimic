@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+with_ruby=false
+case "${1:-}" in
+  --help) echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]'; exit 0 ;;
+  --with-ruby) with_ruby=true; shift ;;
+esac
+if [[ $# != 0 ]]; then echo 'Usage: bash scripts/sdk-go.sh [--with-ruby]' >&2; exit 2; fi
+
 cd "$(dirname "$0")/.."
 env -u RUSTUP_TOOLCHAIN cargo build --locked
 server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --format-version 1 | jq -er .target_directory)/debug/gcs-mimic"
@@ -75,6 +82,7 @@ start_server() {
   origin="$scheme://$address"
   env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
     -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
+    -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS \
     -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
     -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
     "$server" serve --scheme "$scheme" --listen "$address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
@@ -99,10 +107,22 @@ endpoint=
 strict_endpoint=
 start_server pid endpoint server.log '' --data-dir "$work/data"
 # The identity file holds local-only fixture principals; its tokens are not Google credentials.
+jq --rawfile key fixtures/signing/test-only-public.pem \
+  '.identities |= map(if .id == "local-admin@example.invalid" then . + {public_keys: [$key]} else . end)' \
+  config/identities.json > "$work/identities.json"
 start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$work/strict-data" \
-  --auth-mode strict --identity-file config/identities.json
+  --auth-mode strict --identity-file "$work/identities.json" \
+  --xml-virtual-host-domains storage.example.invalid
 
 cd sdk-tests/go
 export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"
 GOTOOLCHAIN=auto go vet ./...
 GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
+
+if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+  cd ../ruby
+  BUNDLE_FROZEN=true bundle check
+  bundle exec ruby https.rb --self-check
+  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb
+  GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 bundle exec ruby https.rb
+fi

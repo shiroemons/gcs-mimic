@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-23T10:35:56Z",
-  "scope": "JSON/XML CORS, bounded bucket listing and basic API verification: twelve direct Rust crates, Rust/Go/Ruby toolchains, pinned Go/Ruby SDK graphs and Bundler, container inputs, BuildKit/SBOM generator and release Actions. All 35 checked inputs are CURRENT; no dependencies or lockfile resolutions changed for CORS or the resource repair.",
+  "checked_at_utc": "2026-10-23T11:22:49Z",
+  "scope": "V4 RSA signed downloads: thirteen direct Rust crates after promoting the existing ring 0.17.14 TLS edge, Rust/Go/Ruby toolchains, pinned SDK graphs, container inputs and release Actions. No resolved dependency version changes; ring supplies RSA and SHA-256 without another crypto crate.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/cors-dependencies.txt",
-    "follow_up": "All 35 inputs report CURRENT with no freshness exceptions; existing pins and all lockfiles are unchanged. The detector checks the real direct Cargo resolution edges, including duplicate-named transitive package versions, and the Go/Ruby SDK manifests. The existing daily 03:17 UTC workflow fetches locked packages and runs the detector without an ecosystem runtime requirement. Scheduled remote execution and release-platform verification remain unobserved; runtime/container/SDK behavior is recorded separately in docs/en/evidence/cors.md."
+    "artifact": "docs/en/evidence/signed-download-dependencies.txt",
+    "follow_up": "The slice-start check reports all 35 existing inputs CURRENT; the final post-promotion check includes ring as the 36th input. Daily detection reads the actual direct Cargo edges and pinned Go/Ruby manifests. Scheduled remote execution and release-platform checks remain unobserved; no container builds were run in this slice."
   },
   "toolchain": {
     "channel": "stable",
@@ -17,6 +17,16 @@
     "release_url": "https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/"
   },
   "direct_dependencies": [
+    {
+      "name": "ring", "current": "0.17.14", "latest_non_yanked_stable": "0.17.14",
+      "license": "Apache-2.0 AND ISC", "compressed_crate_bytes": 1502610, "minimum_rust": "1.66.0",
+      "purpose": "RSA PKCS#1 v1.5 SHA-256 query-signature verification, local URL signing and canonical-request hashing; reuses the TLS graph's existing cryptography.",
+      "features": ["alloc", "dev_urandom_fallback"],
+      "maintenance": "Official publisher repository is not archived; GitHub metadata reports last push 2026-07-23T18:48:09Z. Non-yanked stable version checked from the official Cargo index on 2026-10-23.",
+      "source_urls": ["https://index.crates.io/ri/ng/ring", "https://static.crates.io/crates/ring/ring-0.17.14.crate", "https://api.github.com/repos/briansmith/ring"],
+      "source_sha256": "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7",
+      "resolution_constraints": "Promoted unchanged from the already locked tokio-rustls/rustls graph. No new package or resolved version; PEM parsing reuses rustls-pki-types through the existing re-export."
+    },
     {
       "name": "serde_json",
       "current": "1.0.154",

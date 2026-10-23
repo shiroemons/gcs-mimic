@@ -6,7 +6,7 @@
 
 Build a resource-efficient Cloud Storage emulator for local development and CI. Ship a Rust binary and Docker image with familiar fixture loading and endpoint configuration. Expand compatibility incrementally while keeping a precise, evidence-backed progress ledger.
 
-P0 implements a bounded HTTP/1 health/readiness shell, CLI/configuration, Clock injection, Docker/Compose and Rust ledger/freshness tooling. P1 adds persistent JSON bucket create/get/list/delete and object media/multipart upload, metadata/list/update/download/delete with checksums and atomic generation conditions. P2 adds explicit permissive/strict authentication profiles, a local principal registry, additive project/bucket predefined-role enforcement, persistent scoped bucket IAM policies and a public URL helper. Path-style XML GET/HEAD and strict bucket allUsers/allAuthenticatedUsers grants are implemented for the documented read subset; object ACLs and signed URLs remain unimplemented. The JSON resumable engine below has wire, SDK, restart, guide and native resource [evidence](evidence/resumable-upload.md), with explicit remaining boundaries. No comparative performance result is claimed. Current status is authoritative only in `compatibility/features.json`. The project name, CLI binary and repository slug are **gcs-mimic**. Selected description: **A lightweight Google Cloud Storage emulator in Rust.**
+P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose and ledger/freshness tooling. P1 adds persistent JSON bucket/object operations with checksums and atomic conditions. P2 implements explicit permissive/strict profiles, registered local principals, additive project/bucket roles, bucket IAM policies and public/signed URL helpers. Path-style and opt-in virtual-host XML GET/HEAD/PUT supports bearer and V4 RSA query authentication, bounded uploads, declared integrity checks and atomic conditions; GET/HEAD supports two response overrides. PAP preserves public bindings while suppressing their authorization, without blocking explicit signer grants. Its parent policy fixture remains LOCAL_SIMULATION. The [combined evidence](evidence/signed-urls.md) records integrated behavior, SDK adaptations and native/container journeys. Object ACLs, UBLA transitions and other signing formats remain pending. Provider duplicate-query, override validation, signature error and optional payload parity keep DESIGN-035/037/044 and broad XML/auth rows PARTIAL under their named gaps. The JSON resumable engine retains its [evidence and limits](evidence/resumable-upload.md). No comparative performance result is claimed. `compatibility/features.json` is authoritative. The project, CLI and repository name is **gcs-mimic**: **A lightweight Google Cloud Storage emulator in Rust.**
 
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
@@ -32,7 +32,7 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`; `main` owns runtime creation, signals, identity-registry loading, catalog opening and listener setup, plus the side-effect-free `url public` command. JSON parsing/rendering remains separate from the transport-independent records/catalog. The server routes bucket CRUD and IAM get/set, object media/multipart/resumable upload, list/get/update/delete and internal probes; unknown routes return 404 without reading bodies. The XML adapter serves path-style object GET/HEAD with shared authorization and selected immutable bytes; gRPC is unavailable. `xtask` owns ledger validation/rendering and explicit online dependency checks. Existing `serde_json` supplies bounded configuration, bucket metadata and policy parsing.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`. `main` owns startup/shutdown and offline `url public` / `url sign` helpers. JSON parsing/rendering remains separate from shared records/catalog. The server routes bucket CRUD/IAM, object media/multipart/resumable/list/get/update/delete and probes; unknown routes return 404 without reading bodies. XML serves path-style and configured bucket-host GET/HEAD/PUT using shared permissions, generation selection and publication. Virtual hosts route only XML before reserved namespaces; signing retains the original object-only path. Read overrides apply after selected-record response construction without metadata mutation. `auth::signature` owns bounded RSA query verification; `xml::put` reuses the two-slot streaming bridge and withholds EOF until optional SHA256 validation succeeds. The server registry contains public keys only. gRPC is unavailable. `xtask` owns ledger validation/rendering and online freshness checks; existing `serde_json` handles bounded JSON inputs.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
@@ -424,6 +424,26 @@ before readiness and rearm the next deadline. Tests advance the injected clock
 and invoke maintenance without waiting a week.
 
 ## Access and URL contract
+
+The [PAP contract](slices/public-access-prevention.md) persists configured
+`inherited`/`enforced` state in schema 13. Effective enforcement combines that
+state with the startup registry's bounded project fixture. Shared catalog
+transactions suppress both public principal sets for reads, writes, derived
+transfers and publication, while preserving stored policy bindings/etag and
+explicit bearer/signer grants. Disabling effective enforcement reactivates those
+bindings. Parent policy is LOCAL_SIMULATION; ACL/UBLA transitions, organization
+APIs and propagation/cache effects are outside this scope (SPEC-PAP-EDGES).
+
+The [virtual-host contract](slices/xml-virtual-host.md) defaults off and requires
+configured DNS suffixes, client DNS and a supplied matching SAN certificate for
+HTTPS. The raw Host/port and object-only path remain signature-bound. Dotted
+bucket hosts are a declared local extension (SPEC-XML-VIRTUAL-HOST).
+The [response override contract](slices/xml-response-overrides.md) supports only
+Content-Type and Content-Disposition through literal `url sign --query` options.
+Duplicate-name provider parity and local validation/anonymous/HEAD extensions
+remain SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other signing formats,
+proxy-derived origins, exact signature errors and optional digest provider rules
+remain pending; they are not completed by these integrations.
 
 | Mechanism | Expected local behavior |
 | --- | --- |

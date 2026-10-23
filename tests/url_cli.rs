@@ -51,6 +51,36 @@ fn prints_one_encoded_url_for_options_in_any_order() {
 }
 
 #[test]
+fn prints_virtual_host_url_with_dotted_bucket_and_explicit_port() {
+    assert_success(
+        &run(&[
+            "--base-url",
+            "http://storage.invalid:4443",
+            "--bucket",
+            "dotted.bucket",
+            "--object",
+            "é//a b",
+            "--style",
+            "virtual-hosted",
+        ]),
+        "http://dotted.bucket.storage.invalid:4443/%C3%A9//a%20b",
+    );
+    assert_failure(
+        &run(&[
+            "--base-url",
+            "http://storage.invalid",
+            "--bucket",
+            "bucket",
+            "--object",
+            "o",
+            "--style",
+            "invalid",
+        ]),
+        "style must be",
+    );
+}
+
+#[test]
 fn prints_usage_for_help() {
     let output = run(&["--help"]);
     assert!(output.status.success(), "{output:?}");

@@ -4,6 +4,7 @@ require "bundler/setup"
 require "digest"
 require "google/cloud/storage"
 require "ipaddr"
+require "net/http"
 require "securerandom"
 require "tempfile"
 require "uri"
@@ -127,6 +128,103 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     object = bucket.create_file(source, "dir/日本語 +%?.bin", content_type: "application/octet-stream",
                                 if_generation_match: 0)
     objects << object
+
+    if ENV["GCS_MIMIC_SIGNED_TESTS"] == "1"
+      key = File.read(File.expand_path("../../fixtures/signing/test-only-private.pem", __dir__))
+      issuer = "local-admin@example.invalid"
+      authority = origin.authority
+      # The SDK's bucket-bound mode preserves host:port but omits its bucket path prefix.
+      signing_file = bucket.file("#{bucket.name}/signed.txt", skip_lookup: true)
+      signed_url = lambda do |method, query = {}|
+        signing_file.signed_url(version: :v4, method: method, issuer: issuer, signing_key: key,
+          expires: 300, scheme: origin.scheme, bucket_bound_hostname: authority,
+          headers: { "Content-Type" => "text/plain" }, query: query)
+      end
+      call = lambda do |method, url, content_type, expected_status, changed_host = nil|
+        uri = URI(url)
+        unless [uri.scheme, uri.host, uri.port] == [origin.scheme, origin.host, origin.port]
+          raise "refusing signed request outside the emulator origin"
+        end
+        http = Net::HTTP.new(uri.host, uri.port, nil)
+        http.ipaddr = "127.0.0.1" if uri.hostname == "localhost"
+        http.open_timeout = http.read_timeout = http.write_timeout = 10
+        if uri.scheme == "https"
+          http.use_ssl = true
+          http.ca_file = ca
+          http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+          http.verify_hostname = true
+        end
+        request = Net::HTTPGenericRequest.new(method, method == "PUT", true, uri.request_uri)
+        request["Content-Type"] = content_type if content_type
+        request["Host"] = changed_host if changed_host
+        request.body = "Ruby signed private bytes" if method == "PUT"
+        bytes = +""
+        status = nil
+        http.start do |client|
+          client.request(request) do |response|
+            status = response.code.to_i
+            if expected_status == 200 && uri.query.include?("response-content-disposition=")
+              raise "Ruby disposition override differs" unless response["Content-Disposition"] == 'attachment; filename="Ruby + file.csv"'
+              raise "Ruby type override differs" unless response["Content-Type"] == "text/csv"
+            end
+            response.read_body do |chunk|
+              bytes << chunk
+              raise "signed response exceeded test limit" if bytes.bytesize > 64 * 1024
+            end
+          end
+        end
+        raise "signed #{method} expected #{expected_status}, got #{status}: #{bytes}" unless status == expected_status
+        if expected_status == 403 && !bytes.include?("<Code>SignatureDoesNotMatch</Code>")
+          raise "unexpected signature error: #{bytes}"
+        end
+        bytes
+      end
+      put_url = signed_url.call("PUT")
+      get_url = signed_url.call("GET")
+      raise "Ruby signer lost the port" unless URI(put_url).authority == authority
+      raise "Ruby signer changed the path" unless URI(put_url).path == "/#{bucket.name}/signed.txt"
+      call.call("PUT", put_url, "text/plain", 200)
+      objects << bucket.file("signed.txt")
+      normal_file = bucket.file("signed.txt", skip_lookup: true)
+      default_url = normal_file.signed_url(version: :v4, method: "GET", issuer: issuer, signing_key: key,
+        expires: 300, headers: { "Content-Type" => "text/plain" })
+      raise "endpoint URL unexpectedly changed" unless URI(default_url).authority == authority
+      default_uri = URI(default_url)
+      parameters = URI.decode_www_form(default_uri.query).to_h
+      canonical_query = default_uri.query.split("&").reject { |pair| pair.start_with?("X-Goog-Signature=") }.join("&")
+      canonical = ["GET", default_uri.path, canonical_query,
+        "content-type:text/plain\nhost:storage.googleapis.com\n", "content-type;host", "UNSIGNED-PAYLOAD"].join("\n")
+      signing_input = lambda do |request|
+        ["GOOG4-RSA-SHA256", parameters.fetch("X-Goog-Date"),
+          parameters.fetch("X-Goog-Credential").split("/", 2).last, Digest::SHA256.hexdigest(request)].join("\n")
+      end
+      rsa = OpenSSL::PKey::RSA.new(key)
+      signature = [parameters.fetch("X-Goog-Signature")].pack("H*")
+      raise "Ruby canonical host assumption differs from the SDK" unless rsa.verify("SHA256", signature, signing_input.call(canonical))
+      actual_host = canonical.sub("host:storage.googleapis.com\n", "host:#{authority}\n")
+      raise "Ruby signer unexpectedly bound the endpoint host" if rsa.verify("SHA256", signature, signing_input.call(actual_host))
+      call.call("GET", default_url, "text/plain", 403)
+      call.call("PUT", put_url, "changed", 403)
+      call.call("PUT", put_url, nil, 403)
+      call.call("PUT", "#{put_url}&tampered=1", "text/plain", 403)
+      call.call("PUT", put_url.sub("/signed.txt?", "/changed.txt?"), "text/plain", 403)
+      call.call("PUT", put_url, "text/plain", 403, "changed.invalid")
+      call.call("GET", put_url, "text/plain", 403)
+      call.call("PUT", get_url, "text/plain", 403)
+      raise "signed bytes differ" unless call.call("GET", get_url, "text/plain", 200) == "Ruby signed private bytes"
+      overrides = { "response-content-disposition" => 'attachment; filename="Ruby + file.csv"', "response-content-type" => "text/csv" }
+      override_url = signed_url.call("GET", overrides)
+      raise "Ruby override bytes differ" unless call.call("GET", override_url, "text/plain", 200) == "Ruby signed private bytes"
+      changed_override = override_url.sub("text%2Fcsv", "text%2Fhtml")
+      raise "Ruby override tamper did not change URL" if changed_override == override_url
+      call.call("GET", changed_override, "text/plain", 403)
+      raise "Ruby override mutated metadata" unless bucket.file("signed.txt").content_type == "text/plain"
+      puts "Ruby V4 response overrides passed: official query option, exact headers and bytes, value tamper rejection and unchanged metadata"
+      private_url = "#{origin.to_s.delete_suffix('/')}/#{bucket.name}/signed.txt"
+      call.call("GET", private_url, nil, 401)
+      puts "Ruby V4 GET/PUT passed: default endpoint signer binds storage.googleapis.com and fails locally; bucket-bound host:port with an explicit bucket/name path succeeds without rewriting signed URLs"
+      objects.pop.delete
+    end
     raise "object size mismatch" unless object.size == source.size
     raise "object metadata mismatch" unless bucket.file(object.name).generation == object.generation
     raise "object absent from list" unless bucket.files.any? { |item| item.name == object.name }
