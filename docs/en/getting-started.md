@@ -1859,7 +1859,8 @@ as well for overwrites.
 SHA256/Content-MD5 failures preserve the old object; sign headers to constrain
 metadata, digest declarations and conditions. SHA256 checking is incremental;
 the canonical URL payload remains UNSIGNED-PAYLOAD. CORS grants no permission.
-Wire-level signed PUT CORS is tested; actual browser execution is next.
+The [trusted HTTPS Chromium journey](evidence/signed-browser.md) verifies actual
+signed PUT/GET/HEAD, exposed headers, CORS denials, strict errors and restart.
 
 Go storage v1.70.0 omits non-default ports from canonical Host. Prefer the helper
 for local ports or expose a default-port endpoint. Ruby Storage 1.62.1 signs
@@ -1881,7 +1882,8 @@ encodes them before signing. These change response headers without mutating
 stored metadata. Query changes invalidate the signature. Duplicate decoded names
 are rejected locally, while exact provider duplicate/validation behavior stays
 open in SPEC-SIGNING-EDGES and SPEC-XML-RESPONSE-OVERRIDES. Other response-* names
-return 501. Signed browser transfers remain the next slice.
+return 501. The [signed-browser subsection](#signed-browser-upload-and-download)
+documents the separate actual-browser preparation/run workflow.
 
 When using the pinned SDK signers, omit x-goog-content-sha256/SHA256 signing
 options for PUT URLs. Go v1.70.0 substitutes a supplied header into the canonical

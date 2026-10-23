@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
-| project_requirement | 92 | 38 | 0 | 27 | 27 | 0 | 0 |
+| project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -863,7 +863,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | 非公開・公開の権限制御フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
-| UX-007 | ブラウザCORS・直接アップロード | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
+| UX-007 | ブラウザCORS・直接アップロード | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | 再起動後のデータ・権限保持 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | 停止と明示的データ初期化の区別 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | 並列CI実行の分離 | PARTIAL | P0 | PROJECT | PROJECT | 0 |

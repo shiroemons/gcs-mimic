@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
-| project_requirement | 92 | 38 | 0 | 27 | 27 | 0 | 0 |
+| project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -863,7 +863,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | Signed access and invalid-signature journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
-| UX-007 | Browser CORS and direct upload journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
+| UX-007 | Browser CORS and direct upload journey | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | Stop versus deliberate reset semantics | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |

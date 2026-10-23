@@ -134,6 +134,7 @@ No Google, ADC, metadata server, browser or external DNS is involved.
 | SIGNED-BUCKET-SELECTION | Two buckets with distinct rules select the virtual-host bucket before the path; path-style selects its own bucket for preflight and actual PUT/GET | `signed_cors_selects_the_host_bucket_before_the_path_bucket` |
 | SIGNED-ENCODED-PATHS | Encoded slash/space object names preserve preflight and signed PUT/GET; tampered encoded names retain CORS on signature failure | `signed_encoded_paths_keep_preflight_transfer_and_error_cors` |
 | SIGNED-INVALID-NAMES | Invalid object names receive metadata-only preflight and matching-origin CORS on actual 400 errors, including malformed percent paths; validation and object preservation remain enforced | `signed_invalid_object_names_keep_error_cors_without_bypassing_validation` |
+| SIGNED-INVALID-BUCKET | Invalid virtual-host bucket names retain 400 InvalidArgument without CORS on preflight and actual GET | `invalid_virtual_host_bucket_names_reject_preflight_without_cors` |
 
 Existing `auth_http` CORS tests retain first-rule, malformed/duplicate Origin,
 default max-age, wildcard and basic permission cases. Existing signing tests
@@ -167,8 +168,10 @@ support. Integrated browser execution and artifacts are recorded separately in
 
 ## Open source questions and remaining scope
 
-`SPEC-CORS-EDGES` and `SPEC-SIGNING-EDGES` in `compatibility/gaps.json` remain
-**OPEN**. This slice does not edit them. Proposed additions to their evidence are:
+`SPEC-CORS-EDGES`, `SPEC-SIGNING-EDGES` and the integrated
+`SPEC-SIGNED-BROWSER-CORS` in `compatibility/gaps.json` remain **OPEN**.
+The integrated gap records these source questions without treating local
+verification as provider resolution:
 
 - The CORS guide advises against adding OPTIONS to configuration, while the
   configuration examples include it. The guide also spells the requested-method

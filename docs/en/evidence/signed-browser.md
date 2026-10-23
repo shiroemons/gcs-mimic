@@ -227,13 +227,19 @@ are included.
 | Native signed guide: shell blocks under “Signed private downloads and uploads” | 0 | Private GET/PUT, method/object/host/expiry/header denials, 412 preservation, overrides, PAP, virtual hosts and public reactivation |
 | Native CORS guide: shell block under “Browser CORS and mobile application origins” | 0 | Exact/default-port/custom origins, preflight, independent JSON, denied origin, stale 412 and fixture deletion |
 | Signed-browser guide subsection | 0 | Preparation/run blocks use the native fixed binary and isolated trusted Chromium; the initial evidence command also checks caller-relative manifest resolution |
+| `cargo xtask compatibility render` and `cargo xtask compatibility check` | 0 each | 591-row ledger and both generated English/Japanese views agree |
+| `npx --yes markdownlint-cli2` on the five hand-edited Markdown files and both generated matrices | 0 each | No issues; matrices use the existing long-table convention and MD024 `siblings_only` |
+| `git diff --check` on changed source/docs and repository-wide local-path `git grep -nE` | 0 / 1 | No whitespace issues outside preserved raw output; no local-path matches |
 
 The standalone full `cargo test --locked` gate is **not green**. Its exact
 failure is retained rather than replaced with the passing recheck. No negative
 assertion, timeout, error handling or test was weakened. This existing
 resumable transport failure is outside the signed-browser acceptance; its cause
 is not established by a single passing recheck. All signed-browser and CORS
-acceptance tests passed in the complete final `just check` run. No later source
+acceptance tests passed in the complete final `just check` run. The behavior rows
+BEHAVIOR-BUCKET-009 and DESIGN-051/052/053 retain IMPLEMENTED for their passing
+scope; UX-007 remains PARTIAL with the failed expanded final regression case.
+No later source
 edits or additional full/container/browser runs were made to hide the failure.
 
 The first two SDK attempts exited 1 after all Go tests passed: an inherited
@@ -261,6 +267,14 @@ decoded slash/space names and malformed `%ZZ`/dot names. The added invalid-host
 case retains 400 with no CORS. Provider OPTIONS examples, exact error/Vary
 headers and malformed-input precedence remain OPEN in SPEC-CORS-EDGES and
 SPEC-SIGNING-EDGES; local passing tests do not resolve them.
+
+`SPEC-SIGNED-BROWSER-CORS` consolidates the additional OPTIONS/example and
+signed-error questions without closing either earlier gap. Markdown validation
+keeps the hand-edited documents' existing MD013 convention. Generated matrices
+also disable MD013 for their wide tables and permit repeated category headings
+only under distinct parent sections through MD024 `siblings_only`; all other
+rules stay enabled. Raw Docker/guide output is preserved, including trailing
+spaces, so whitespace checks exclude only the combined `.txt` transcript.
 
 The runtime and all listed source digests were rechecked unchanged after the
 browser phases. All four native verification listeners stopped with SIGINT and

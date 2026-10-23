@@ -3202,3 +3202,25 @@ google.golang.org/api: CURRENT current=v0.308.0 latest=v0.308.0
 Ruby toolchain: CURRENT current=4.0.9 latest=4.0.9
 google-cloud-storage: CURRENT current=1.62.1 latest=1.62.1
 bundler: CURRENT current=4.0.23 latest=4.0.23
+
+Command output: target/signed-browser-final-render.log
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility render`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+
+Command output: target/signed-browser-final-compatibility.log
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+
+Command output: target/signed-browser-final-markdownlint.log
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: README.md docs/en/getting-started.md docs/en/roadmap.md docs/en/slices/signed-browser.md docs/en/evidence/signed-browser.md
+Linting: 5 files
+Summary: 0 issues in 0 files
+
+Command output: target/signed-browser-final-matrix-lint.log
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: docs/en/feature-matrix.md planning/notes-ja/feature-matrix.md
+Linting: 2 files
+Summary: 0 issues in 0 files
