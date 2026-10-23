@@ -7701,7 +7701,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md. Independent 128-entry ephemeral and continuable quotas keep abandoned rewrites from exhausting copy/compose capacity; total transfers remain bounded at 256 and recovery preserves continuable accounting.",
       "dependencies": [
         "BEHAVIOR-OBJECT-025",
         "BEHAVIOR-OBJECT-026",
@@ -7774,14 +7774,16 @@
         },
         {
           "id": "COMPOSE-RESOURCE-RECOVERY",
-          "description": "Aggregate size cap and cleanup, one-snapshot pinning across source changes, ephemeral/restart recovery and original-error preservation on cleanup failure.",
+          "description": "Aggregate size cap and cleanup, one-snapshot pinning across source changes, ephemeral/restart recovery and original-error preservation on cleanup failure. Copy/compose succeed with 128 abandoned rewrites before and after restart; both transfer kinds remain independently bounded.",
           "result": "PASS",
           "test_ids": [
             "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
             "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
             "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
             "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
-            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart"
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         },
         {
@@ -7852,7 +7854,9 @@
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
-        "getting-started:copy-rewrite-compose:docker"
+        "getting-started:copy-rewrite-compose:docker",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -7923,6 +7927,16 @@
           "test_ids": [
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         }
       ],
@@ -8004,7 +8018,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior. Final integrated evidence: docs/en/evidence/derived-objects.md. Copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 with no destination or transfer residue. Independent quotas reserve 128 ephemeral copy/compose slots and 128 continuable slots, with unchanged seven-day rewrite expiry.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8051,10 +8065,11 @@
         },
         {
           "id": "COPY-PERMISSIONS",
-          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants.",
+          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants. Source grant revocation during streaming returns 403 and leaves no destination, staging files or transfer rows.",
           "test_ids": [
             "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
-            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants"
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+            "server::copy::tests::copy_rechecks_source_read_grant_before_publication"
           ],
           "result": "PASS"
         },
@@ -8086,14 +8101,16 @@
         },
         {
           "id": "DERIVED-OWNERSHIP",
-          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown.",
+          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown. Independent 128-entry ephemeral/continuable quotas preserve copy/compose capacity and restart accounting at a bounded total of 256.",
           "test_ids": [
             "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
             "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
             "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
             "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
             "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
-            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine"
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ],
           "result": "PASS"
         },
@@ -8199,7 +8216,10 @@
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
         "getting-started:copy-rewrite-compose:docker",
-        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
+        "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -8271,6 +8291,17 @@
           "test_ids": [
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         }
       ],
@@ -12399,7 +12430,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow. Final integrated evidence: docs/en/evidence/derived-objects.md. Continuable transfers and ephemeral copy/compose transfers each have 128 reserved slots, for at most 256 transfers; full continuable capacity returns 503 backendError while copy/compose still succeed across restart. The fixed seven-day token lifetime is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12471,6 +12502,15 @@
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
           ]
+        },
+        {
+          "id": "REWRITE-CAPACITY",
+          "description": "A full 128-entry continuable quota returns 503 without blocking copy/compose; independent bounded quotas and accounting survive restart, and completion makes a slot reusable without changing seven-day expiry.",
+          "result": "PASS",
+          "test_ids": [
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
+          ]
         }
       ],
       "test_ids": [
@@ -12493,7 +12533,9 @@
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
-        "getting-started:copy-rewrite-compose:docker"
+        "getting-started:copy-rewrite-compose:docker",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -12546,6 +12588,16 @@
           "test_ids": [
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         }
       ],
@@ -20515,7 +20567,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Provider body/default/error/placement questions are outside declared acceptance and remain in gaps.json. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Provider body/default/error/placement questions are outside declared acceptance and remain in gaps.json. Final integrated evidence: docs/en/evidence/derived-objects.md. Copy rechecks source read grants at publication while retaining selection-time generation/condition semantics; revocation returns 403 with no destination or transfer residue. Independent quotas reserve 128 ephemeral copy/compose slots and 128 continuable slots, with unchanged seven-day rewrite expiry.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -20562,10 +20614,11 @@
         },
         {
           "id": "COPY-PERMISSIONS",
-          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants.",
+          "description": "Strict source get, destination create, overwrite delete and allowed/denied grants. Source grant revocation during streaming returns 403 and leaves no destination, staging files or transfer rows.",
           "test_ids": [
             "strict_copy_requires_source_read_destination_create_and_delete_for_overwrite",
-            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants"
+            "strict_cross_bucket_copy_uses_distinct_source_and_destination_grants",
+            "server::copy::tests::copy_rechecks_source_read_grant_before_publication"
           ],
           "result": "PASS"
         },
@@ -20597,14 +20650,16 @@
         },
         {
           "id": "DERIVED-OWNERSHIP",
-          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown.",
+          "description": "Atomic binding, cancelled begin, dropped owners, fixed expiry, busy-writer coexistence, nonowned ID protection and cascade teardown. Independent 128-entry ephemeral/continuable quotas preserve copy/compose capacity and restart accounting at a bounded total of 256.",
           "test_ids": [
             "storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership",
             "storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer",
             "storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer",
             "storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs",
             "storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source",
-            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine"
+            "storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ],
           "result": "PASS"
         },
@@ -20704,7 +20759,10 @@
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
         "getting-started:copy-rewrite-compose:docker",
-        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer",
+        "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -20777,6 +20835,17 @@
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "server::copy::tests::copy_rechecks_source_read_grant_before_publication",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -20818,7 +20887,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md. Continuable transfers and ephemeral copy/compose transfers each have 128 reserved slots, for at most 256 transfers; full continuable capacity returns 503 backendError while copy/compose still succeed across restart. The fixed seven-day token lifetime is unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -20858,13 +20927,15 @@
         },
         {
           "id": "REWRITE-LIFETIME",
-          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations.",
+          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations. Separate 128-entry continuable and ephemeral quotas preserve copy/compose capacity and restart accounting without shortening token lifetime.",
           "result": "PASS",
           "test_ids": [
             "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
             "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
             "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
-            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites"
+            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         },
         {
@@ -20924,7 +20995,9 @@
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
-        "getting-started:copy-rewrite-compose:docker"
+        "getting-started:copy-rewrite-compose:docker",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -20983,6 +21056,16 @@
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -21023,7 +21106,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
+      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md. Independent 128-entry ephemeral and continuable quotas keep abandoned rewrites from exhausting copy/compose capacity; total transfers remain bounded at 256 and recovery preserves continuable accounting.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -21051,13 +21134,15 @@
         },
         {
           "id": "COMPOSE-BOUNDS-RECOVERY",
-          "description": "Checked aggregate size, pinned source bytes across overwrite/deletion, one-snapshot resolution and ephemeral restart cleanup use the bounded derived foundation.",
+          "description": "Checked aggregate size, pinned source bytes across overwrite/deletion, one-snapshot resolution and ephemeral restart cleanup use the bounded derived foundation. Copy/compose succeed with 128 abandoned rewrites before and after restart; both transfer kinds remain independently bounded.",
           "result": "PASS",
           "test_ids": [
             "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
             "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
             "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
-            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         },
         {
@@ -21096,7 +21181,9 @@
         "scripts/smoke-containers.sh:linux/amd64",
         "scripts/smoke-containers.sh:linux/arm64",
         "getting-started:copy-rewrite-compose:native",
-        "getting-started:copy-rewrite-compose:docker"
+        "getting-started:copy-rewrite-compose:docker",
+        "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+        "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
       ],
       "verification": [
         {
@@ -21145,6 +21232,16 @@
           "test_ids": [
             "getting-started:copy-rewrite-compose:native",
             "getting-started:copy-rewrite-compose:docker"
+          ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart",
+            "storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart"
           ]
         }
       ],

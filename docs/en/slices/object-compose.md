@@ -88,7 +88,10 @@ every split point, repeated sources and nested associativity. Never re-read all
 source data merely to calculate the combined checksum.
 
 Stage to a random opaque blob ID, sync and publish using the shared derived-object
-foundation's filesystem/catalog recovery protocol. The final short transaction
+foundation's filesystem/catalog recovery protocol. Copy/compose share a reserved
+128-entry ephemeral quota, independent of 128 continuable transfers; abandoned
+rewrites cannot consume it. The eight-stream execution budget remains shared.
+The final short transaction
 checks the bucket incarnation, current effective grants, destination conditions
 and active destination hold, then publishes one immutable destination generation
 with metageneration 1. An old live destination becomes noncurrent when versioning

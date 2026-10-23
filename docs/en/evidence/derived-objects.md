@@ -2,9 +2,28 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Checked on 2026-10-23. This is the final shared evidence set for the declared [copy](../slices/object-copy.md), [rewrite](../slices/object-rewrite.md) and [compose](../slices/object-compose.md) contracts. `compatibility/features.json` remains the status authority. The integrated source is `285d92f7eec57340c3f4e678761fb118c4d579cf`, after compose merge `6dff22689bf6b8bfa59d55ed04fc8ef2a1a54096` and rewrite merge `38160733a8534847ee0125810552513063383905`. No dependency was added.
+Checked on 2026-10-23. This is the shared evidence set for the declared [copy](../slices/object-copy.md), [rewrite](../slices/object-rewrite.md) and [compose](../slices/object-compose.md) contracts. `compatibility/features.json` remains the status authority. The security-hardened source is `3000cf1f6de5fe2e603b5e63a769024bcded7b52`. The earlier integrated baseline is `285d92f7eec57340c3f4e678761fb118c4d579cf`, after compose merge `6dff22689bf6b8bfa59d55ed04fc8ef2a1a54096` and rewrite merge `38160733a8534847ee0125810552513063383905`. No dependency was added.
+
+## Security hardening verification
+
+Copy now rechecks source storage.objects.get against the current bucket policy/project inside destination publication. The deterministic checkpoint revokes a registered strict reader after 16 MiB of progress and proves 403, no destination, zero transfer rows and no staging files. Source generation and conditions remain pinned at selection; the concurrent replacement regression still passes. Removing the publication grant check makes the regression fail because copy incorrectly succeeds.
+
+Continuable and ephemeral copy/compose transfers each have an independent 128-entry quota, for at most 256 transfers. A wire test abandons 128 multi-call rewrites, verifies 503 backendError for the next rewrite and exact successful copy/compose bytes before and after restart, then completes a token and reuses the freed slot. A storage test fills both quotas, rejects each overflow, reopens the 256-transfer catalog and verifies ephemeral cleanup and preserved continuable accounting. Restoring shared admission makes that storage regression fail with `derived transfer limit reached`. The fixed seven-day rewrite lifetime and shared eight-stream execution budget are unchanged; phase-local execution admission can still reject competing active work.
+
+| Check | Result |
+| --- | --- |
+| `cargo fmt --all --check` | PASS |
+| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS |
+| `cargo test --workspace --locked --offline` | PASS: 565 tests |
+| `GCS_MIMIC_GO_TEST_RUN='TestObject(Copy\|Rewrite\|Compose)' bash scripts/sdk-go.sh` | PASS: five top-level tests and go vet with the pinned SDK graph |
+| `cargo xtask dependencies check` | PASS: all 31 inputs CURRENT |
+| `cargo xtask compatibility validate`, `render`, `check` | PASS; rendered matrices and feature statuses unchanged |
+
+Commands and sanitized output are appended to the existing [checks](derived-objects-checks.txt), [Go SDK](derived-objects-sdk-go.txt) and [dependency](derived-objects-dependencies.txt) logs. The intentional mutation failures are recorded alongside restored-source success. Containers, guide blocks and unrelated Go workflows were not rerun for this hardening; their earlier baseline results below remain historical evidence.
 
 ## Final-source checks
+
+The following results apply to the earlier integrated baseline, not the security-hardened source.
 
 | Check | Result |
 | --- | --- |
@@ -26,7 +45,7 @@ BEHAVIOR-OBJECT-023 through BEHAVIOR-OBJECT-027 and JSON-OBJECTS-002 satisfy eve
 
 ## Acceptance evidence
 
-- Copy has nine wire cases and eight deterministic workflow cases. These cover source/destination conditions and races, strict get/create/delete authority, metadata inheritance/replacement, holds/versioning, empty and multi-buffer bodies, checksum failures, stable generations, source replacement, atomic composite metadata, cancellation, advance failure, advisory rejection before staging, bounded publication admission and restart recovery.
+- Copy has nine wire cases and nine deterministic workflow cases. These cover source/destination conditions and races, strict get/create/delete authority and publication-time source read revocation, metadata inheritance/replacement, holds/versioning, empty and multi-buffer bodies, checksum failures, stable generations, source replacement, atomic composite metadata, cancellation, advance failure, advisory rejection before staging, bounded publication admission and restart recovery.
 - Rewrite covers request-bound random tokens, one/multi-call byte budgets, immediate retry without duplicate publication, strict per-call grants, expiration/eviction, corruption and unknown-token rejection, selected source state, persisted hash/offset recovery, final atomic destination publication and class/component metadata chosen in that transaction.
 - Compose covers ordered 1..32 sources, repeated/empty/nested sources, selected generations, saturating component counts, combined CRC32C and absent MD5, JSON/XML ETags, class/hold/versioning interactions, strict grants, destination races and all-or-nothing selected-source hard deletion. Pinned Discovery revision 20261013 declares no compose projection parameter; both projection values return 400 before mutation, while fields selection succeeds.
 - The shared foundation has persistent bounded streaming/hash checkpoints, immutable source links, foreign-key binding teardown, request ownership, fixed expiry, rollback, corrupt-prefix quarantine, rename recovery, tagged post-commit reclamation and cleanup retry tests. A published catalog reference to a missing blob remains a readiness failure.
