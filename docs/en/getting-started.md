@@ -352,6 +352,78 @@ semantics and the open body/default/large-object parity questions. The commands 
 await final integrated guide execution; the [recorded wire/Go checks](evidence/object-copy.md)
 cover the same operation independently.
 
+## Rewrite an object and follow continuation tokens
+
+Rewrite selects source bytes on the server. This example uses the object and
+generation from the upload block above and completes in one request:
+
+```sh
+curl --disable --noproxy '*' --fail -X POST \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt/rewriteTo/b/demo-bucket/o/notes%2Frewritten.txt?sourceGeneration=$generation&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-one.json"
+jq -e '.kind == "storage#rewriteResponse" and .done == true and
+  .objectSize == "22" and .totalBytesRewritten == "22" and
+  .resource.name == "notes/rewritten.txt" and (has("rewriteToken") | not)' \
+  "$work_dir/rewrite-one.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt?alt=media" \
+  --output "$work_dir/rewrite-one.txt"
+cmp "$work_dir/upload.txt" "$work_dir/rewrite-one.txt"
+curl --disable --noproxy '*' --fail -X DELETE \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Frewritten.txt"
+```
+
+For a multi-call example, change storage class and request a 1 MiB maximum.
+The maximum must be positive and divisible by 1048576; it only applies across
+different locations or storage classes. Same-location/class rewrites complete
+in one call. An absent or JSON `null` body inherits editable source metadata
+except holds; `{}` replaces the modeled metadata with local omission defaults.
+The `null` interpretation supports nil resources from official clients.
+
+```sh
+dd if=/dev/zero of="$work_dir/rewrite-source.bin" bs=1048576 count=3
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/octet-stream' \
+  --data-binary @"$work_dir/rewrite-source.bin" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=rewrite%2Fsource.bin&ifGenerationMatch=0" \
+  > "$work_dir/rewrite-source.json"
+rewrite_url="$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Fsource.bin/rewriteTo/b/demo-bucket/o/rewrite%2Ffinished.bin?maxBytesRewrittenPerCall=1048576&ifGenerationMatch=0"
+curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' \
+  --data '{"storageClass":"NEARLINE","metadata":{"workflow":"rewrite"}}' \
+  "$rewrite_url" > "$work_dir/rewrite-progress.json"
+jq -e '.done == false and .totalBytesRewritten == "1048576" and
+  .objectSize == "3145728" and (has("resource") | not)' \
+  "$work_dir/rewrite-progress.json"
+while ! jq -e '.done == true' "$work_dir/rewrite-progress.json" >/dev/null; do
+  rewrite_token=$(jq -er '.rewriteToken' "$work_dir/rewrite-progress.json")
+  curl --disable --noproxy '*' --fail -X POST \
+    "$rewrite_url&rewriteToken=$rewrite_token" > "$work_dir/rewrite-next.json"
+  mv "$work_dir/rewrite-next.json" "$work_dir/rewrite-progress.json"
+done
+jq -e '.totalBytesRewritten == "3145728" and .resource.storageClass == "NEARLINE" and
+  .resource.metadata.workflow == "rewrite" and (has("rewriteToken") | not)' \
+  "$work_dir/rewrite-progress.json"
+curl --disable --noproxy '*' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2Ffinished.bin?alt=media" \
+  --output "$work_dir/rewrite-finished.bin"
+cmp "$work_dir/rewrite-source.bin" "$work_dir/rewrite-finished.bin"
+for rewrite_name in source finished; do
+  curl --disable --noproxy '*' --fail -X DELETE \
+    "$endpoint/storage/v1/b/demo-bucket/o/rewrite%2F$rewrite_name.bin"
+done
+```
+
+Continuation may omit optional parameters/body; repeated values must match the
+first request. The immediately previous token replays its response, including
+the original completed generation, without another publication. Sessions expire
+after a fixed week. At most 128 active sessions and 128 completed responses are
+retained separately; older completion responses can be evicted before expiry.
+Malformed/mismatched requests fail 400; unavailable, altered or expired keys fail
+local 410. Changed unqualified sources fail 412; explicitly selected retained
+generations can continue. The [contract](slices/object-rewrite.md) records these
+local choices and provider questions. Strict calls require source read,
+destination create and delete for overwrite; each call rechecks grants.
+KMS/CSEK, ACL/owner, requester billing and context/retention remain unsupported.
+
 ## Select response fields and validate cached reads
 
 Select from supported JSON response fields with comma lists, slash paths or

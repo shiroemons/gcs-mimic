@@ -1869,6 +1869,9 @@ mod tests {
         catalog.close().await.unwrap();
         drop(catalog);
         let connection = Connection::open(path.join("catalog.sqlite3")).unwrap();
+        connection
+            .execute_batch("DROP TABLE rewrite_sessions;")
+            .unwrap();
         assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_schema AS schema, pragma_foreign_key_list(schema.name) WHERE schema.type = 'table'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
         connection.execute_batch("DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE objects DROP COLUMN component_count; PRAGMA user_version = 9;").unwrap();
         assert!(

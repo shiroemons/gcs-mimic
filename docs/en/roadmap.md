@@ -98,7 +98,7 @@ success stub does not complete a workflow.
 | 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
 | 8 | Basic JSON contract | Frozen live-resource profile, documented single conditions/checksums/error envelopes, fields/read ETags and remaining-gap mapping passed final Rust/Go/reference/both-architecture containers and native/Docker guide checks on 2026-10-23 | Delivered: BEHAVIOR-COMMON-007/011 and BEHAVIOR-OBJECT-005 IMPLEMENTED in their declared scope; broad method rows remain PARTIAL; [final verification](evidence/basic-json-contract.md) |
 | 9 | Object copy | Generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds, composites and restart pass Rust/targeted Go checks; [evidence](evidence/object-copy.md); final integration gates pending | Exact frozen copy subset is delivered; behavior awaits integration, method additionally lacks full ACL/owner projection |
-| 10 | Object rewrite | Bounded progress, request-bound continuation tokens, one atomic destination and restart/retry evidence | Complete one-call and multi-call rewrites |
+| 10 | Object rewrite | Local code/SDK/restart/retry checks pass; [evidence](evidence/object-rewrite.md) records the remaining integrated gate | One-call and multi-call rewrite delivered; behavior promotion awaits integration and the method remains PARTIAL for full ACL projection |
 | 11 | Object compose | Ordered bounded sources, component/checksum rules and atomic source-deletion semantics pass native/targeted Go checks; integrated final-source gate pending in [compose evidence](evidence/object-compose.md) | Concatenate objects into one destination in the declared local scope |
 | 12 | Local HTTPS/TLS | HTTP-only/HTTPS-only modes, supplied certificate/key, bounded handshake, verified client trust, advertised endpoints and native/container/browser checks | Use local HTTPS without disabling certificate or hostname verification |
 | 13 | JSON CORS defaults | Official JSON simple/preflight/default-header rules independent of bucket settings; real-browser JSON CRUD and permission denial | Use basic JSON APIs from a different browser origin before signing |
@@ -109,6 +109,15 @@ success stub does not complete a workflow.
 | 18 | Signed browser transfers | Reuse implemented CORS/TLS; real-browser signed upload/download, allowed/denied origins, preflight and exposed headers | Complete signed browser workflows over HTTPS |
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
+
+Order 10's declared local implementation is delivered in
+[object rewrite evidence](evidence/object-rewrite.md): request-bound continuation,
+atomic publication, immediate replay, strict grants, process-kill/corruption
+recovery, fixed expiry, bounded sessions and pinned Go Copier. Its
+`FINAL-INTEGRATION` case stays pending until the shared full SDK/container/guide
+gate after copy/rewrite/compose merge; then the frozen behavior scope can reach
+IMPLEMENTED/EXACT. Accepted full projection without ACL/owner semantics keeps
+the broad method PARTIAL. Provider questions remain in SPEC-REWRITE-EDGES.
 
 Order 8 is closed by the [final basic JSON evidence](evidence/basic-json-contract.md).
 The [frozen live-resource contract](slices/basic-json-contract.md) maps completion

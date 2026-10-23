@@ -312,7 +312,7 @@ pub(crate) fn parse_query(raw: &str) -> Result<BTreeMap<String, String>, JsonErr
     Ok(query)
 }
 
-fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonError> {
+pub(super) fn common(query: &mut BTreeMap<String, String>) -> Result<(), JsonError> {
     unsupported(
         query,
         &[

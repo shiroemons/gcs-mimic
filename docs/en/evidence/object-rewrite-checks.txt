@@ -1,0 +1,770 @@
+Local checkout path prefixes have been replaced with <checkout>.
+Checked: 2026-10-23
+Runtime implementation: 851aca26677a24582e83360f42f53de72360f0a2
+
+$ cargo fmt --all --check
+PASS (exit 0)
+
+$ cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+PASS (exit 0)
+
+$ cargo xtask dependencies check
+PASS (exit 0); all 31 detected inputs CURRENT, checked_at_unix_seconds=1792731839.
+Rust 1.99.1, Go 1.27.3, Storage v1.70.0, API v0.308.0; no dependency changes.
+
+$ cargo test --workspace --locked --offline
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.59s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-71df96ffc9fba5fd)
+
+running 129 tests
+test auth::tests::notable_role_consequences_follow_the_snapshot ... ok
+test auth::tests::role_snapshot_is_sorted_unique_storage_permission_data ... ok
+test http_conditions::tests::etag_comparison_rejects_invalid_tags_even_after_a_matching_member ... ok
+test http_conditions::tests::etag_comparison_uses_http_lists_and_strong_or_weak_matching ... ok
+test auth::tests::strict_caller_resolution ... ok
+test json::derived_metadata::tests::empty_body_inherits_and_explicit_resource_replaces_metadata_without_source_holds ... ok
+test config::tests::object_limit_precedence_and_bounds ... ok
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test config::tests::authentication_profile_precedence_and_validation ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison ... ok
+test auth::tests::registry_file_read_is_bounded ... ok
+test json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters ... ok
+test config::tests::compat_profile_precedence_and_validation ... ok
+test auth::tests::evaluation_is_driven_by_snapshot_data ... ok
+test json::object_tests::obj_error_001_status_reason_envelope_and_private_diagnostics ... ok
+test json::fields::tests::fields_persisted_selection_does_not_depend_on_current_schema ... ok
+test config::tests::transfer_timeout_precedence_and_bounds ... ok
+test auth::tests::registry_validation_rejects_invalid_files_without_partial_load ... ok
+test json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata ... ok
+test json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation ... ok
+test json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values ... ok
+test json::fields::tests::fields_reject_malformed_unknown_and_scalar_children ... ok
+test json::object_tests::obj_headers_001_upload_defaults_hashes_and_multiple_headers ... ok
+test json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas ... ok
+test json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected ... ok
+test json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value ... ok
+test json::object_tests::obj_headers_002_invalid_hashes_and_unsupported_semantics ... ok
+test json::fields::tests::fields_bound_length_depth_and_selection_count ... ok
+test json::object_tests::obj_name_001_exactly_once_decoding_and_utf8_boundaries ... ok
+test json::object_tests::obj_query_001_required_upload_and_unsupported_types ... ok
+test json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links ... ok
+test json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes ... ok
+test json::object_tests::obj_route_001_media_upload_metadata_download_delete ... ok
+test json::object_tests::obj_query_002_duplicates_invalid_scalars_and_method_parameters ... ok
+test json::object_tests::obj_route_002_namespace_and_method_boundaries ... ok
+test json::object_tests::obj_signed_int64_and_download_endpoint_regressions ... ok
+test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
+test json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test json::rewrite::tests::rewrite_route_decodes_once_and_bounds_byte_budgets ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
+test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
+test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test storage::catalog::derived::tests::all_source_conditions_are_checked_before_pinning_and_ranges_are_validated ... ok
+test storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins ... ok
+test json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split ... ok
+test storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer ... ok
+test storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries ... ok
+test storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error ... ok
+test storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart ... ok
+test storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine ... ok
+test json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry ... ok
+test storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds ... ok
+test storage::catalog::derived::tests::corrupt_transfer_is_discarded_without_blocking_catalog_recovery ... ok
+test server::copy::tests::shutdown_during_copy_recovers_without_a_destination ... ok
+test storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer ... ok
+test server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit ... ok
+test storage::catalog::derived::tests::destination_race_has_one_winner_and_failed_publication_cleans_staging ... ok
+test server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check ... ok
+test server::copy::tests::timed_out_publication_admission_never_commits_after_the_response ... ok
+test storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object ... ok
+test storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs ... ok
+test server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer ... ok
+test storage::catalog::objects::tests::failed_v1_migration_never_commits_an_unreopenable_v2_catalog ... ok
+test storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure ... ok
+test storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress ... ok
+test storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership ... ok
+test storage::catalog::objects::tests::object_range_reader_seeks_sparse_blob_and_bounds_every_chunk ... ok
+test storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix ... ok
+test storage::catalog::objects::tests::object_list_skips_noncurrent_rows_with_bounded_sql_work ... ok
+test server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget ... ok
+test storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table ... ok
+test storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work ... ok
+test storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources ... ok
+test storage::catalog::resumable::tests::failed_session_migration_rolls_back_tables_indexes_and_version ... ok
+test storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers ... ok
+test storage::catalog::rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+test storage::catalog::rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+test storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create ... ok
+test storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail ... ok
+test storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source ... ok
+test storage::catalog::tests::bucket_settings_migration_rolls_back_columns_and_version_after_late_failure ... ok
+test storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication ... ok
+test storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination ... ok
+test storage::catalog::tests::immutable_uri_preserves_native_windows_paths ... ok
+test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
+test url::tests::encodes_reserved_and_non_ascii_bytes ... ok
+test url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment ... ok
+test storage::catalog::tests::immutable_uri_reads_exact_unicode_and_reserved_filename ... ok
+test url::tests::normalizes_base_urls ... ok
+test url::tests::rejects_invalid_base_urls ... ok
+test url::tests::rejects_invalid_bucket_names ... ok
+test url::tests::rejects_invalid_object_names ... ok
+test storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation ... ok
+test storage::catalog::tests::close_waits_for_cancelled_blocking_work_and_invalidates_clones ... ok
+test storage::catalog::rewrite::tests::rewrite_initial_request_owner_reclaims_undelivered_state ... ok
+test storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation ... ok
+test storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation ... ok
+test storage::catalog::rewrite::tests::rewrite_committed_completion_does_not_reread_an_expired_token ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
+test storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project ... ok
+test server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement ... ok
+test storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations ... ok
+test storage::catalog::rewrite::tests::rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others ... ok
+test json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames ... ok
+
+test result: ok. 129 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.58s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-7abd585c3d582d21)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/auth_http.rs (target/debug/deps/auth_http-1d7c014f1d377f17)
+
+running 46 tests
+test auth_http_strict_rejects_anonymous_and_unsupported_credentials ... ok
+test iam::iam_default_policy_and_versions ... ok
+test auth_http_rejected_uploads_do_not_read_or_stage_the_body ... ok
+test iam::auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects ... ok
+test auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden ... ok
+test iam::iam_bucket_grants_authorize_only_the_target_bucket ... ok
+test iam::auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming ... ok
+test auth_http_concurrent_creates_without_delete_have_one_winner ... ok
+test iam::iam_bucket_grants_cover_existing_routes ... ok
+test auth_http_startup_rejects_invalid_profiles_and_registries ... ok
+test iam::iam_preserves_duplicate_members_and_role_bindings ... ok
+test auth_http_project_roles_gate_each_route ... ok
+test auth_http_permissive_ignores_any_authorization ... ok
+test iam::iam_recreated_bucket_has_fresh_policy ... ok
+test iam::iam_permissive_policy_and_cas ... ok
+test iam::iam_principal_and_body_limits ... ok
+test auth_http_admin_full_crud_and_restart_with_same_registry ... ok
+test iam::iam_policy_round_trip_and_unconditional_versions ... ok
+test iam::iam_policy_survives_restart ... ok
+test iam::iam_rejects_unsupported_policy_semantics ... ok
+test iam::iam_rejects_queries_paths_and_bodies ... ok
+test iam::iam_rejects_invalid_policy_shapes ... ok
+test iam::iam_requires_effective_get_and_set_permissions ... ok
+test iam::iam_stale_and_concurrent_etags ... ok
+test xml::public_access_prevention_and_uniform_access_settings_fail_closed ... ok
+test iam::iam_migrates_v5_catalog ... ok
+test xml::anonymous_bucket_and_policy_operations_require_granted_permissions ... ok
+test xml::public_grants_survive_restart_and_revocation_preserves_etag_checks ... ok
+test xml::xml_head_matches_get_headers_and_selected_metadata ... ok
+test xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated ... ok
+test xml::xml_missing_resources_follow_effective_permission_disclosure ... ok
+test xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors ... ok
+test xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback ... ok
+test xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy ... ok
+test iam::iam_revocation_races_object_reads ... ok
+test xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads ... ok
+test xml::anonymous_object_mutations_require_each_granted_permission ... ok
+test xml::xml_read_idempotency_tokens_require_one_nonempty_value ... ok
+test xml::xml_ranges_generation_and_preconditions_use_one_live_generation ... ok
+test xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests ... ok
+test xml::xml_bucket_paths_reserve_only_api_namespaces ... ok
+test xml::xml_unsupported_operations_fail_before_reading_a_body ... ok
+test xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access ... ok
+test xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly ... ok
+test xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization ... ok
+test xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.39s
+
+     Running tests/basic_contract_http.rs (target/debug/deps/basic_contract_http-fa06810766dc612b)
+
+running 12 tests
+test basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection ... ok
+test basic_contract_generation_match_zero_rejects_live_reads_and_metadata_mutations ... ok
+test basic_contract_multipart_metadata_only_checksums_validate_stored_bytes ... ok
+test basic_contract_json_errors_keep_complete_envelopes_with_fields_selection ... ok
+test basic_contract_local_bucket_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_bucket_metageneration_match_matrix_preserves_failed_resources ... ok
+test basic_contract_single_request_resumable_checksums_validate_stored_bytes ... ok
+test basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites ... ok
+test basic_contract_object_metageneration_match_matrix_preserves_failed_resources ... ok
+test basic_contract_local_object_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_object_generation_match_matrix_preserves_failed_resources ... ok
+test basic_contract_local_object_generation_not_match_mutations_use_412_without_side_effects ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-c5d1fe5869268f1b)
+
+running 56 tests
+test bkt_http_failed_recovery_never_reports_ready ... ok
+test bkt_http_sorted_scoped_pagination_and_limits ... ok
+test bucket_core_create_get_defaults ... ok
+test bkt_http_crud_metadata_conditions_and_errors ... ok
+test bkt_http_malformed_conditions_preserve_all_bucket_methods ... ok
+test bucket_core_missing_and_delete_recreate ... ok
+test bkt_http_query_body_name_and_route_boundaries ... ok
+test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
+test bucket_core_native_restart_preserves_source_only_names_without_exposing_them ... ok
+test bucket_core_invalid_requests_preserve_state ... ok
+test bucket_core_nonempty_delete_preserves_objects ... ok
+test bucket_api_settings_drive_versioning_and_hold_effects ... ok
+test bucket_core_profile_lookup_names_and_json_framing ... ok
+test bucket_core_settings_round_trip ... ok
+test bucket_core_strict_protection_settings_never_create_an_unprotected_bucket ... ok
+test bucket_core_strict_permissions ... ok
+test bucket_core_source_input_shape ... ok
+test bucket_core_migrates_v7_settings ... ok
+test bucket_get_rejects_patch_only_acl_query_parameters ... ok
+test bucket_patch_accepts_only_empty_lifecycle_rules ... ok
+test bucket_core_project_and_names ... ok
+test bucket_patch_conditioned_race_has_one_winner ... ok
+test bucket_patch_conditions_and_query_contract ... ok
+test bucket_patch_missing_bucket_validates_body_before_lookup ... ok
+test bucket_patch_legacy_rendering_and_restart ... ok
+test bucket_patch_full_resource_round_trip_preserves_unchanged_fields ... ok
+test bucket_patch_location_comparison_is_case_insensitive ... ok
+test bucket_core_restart_settings ... ok
+test bucket_patch_merges_labels_class_and_preserves_resources ... ok
+test bucket_patch_rejects_get_only_generation_query_parameter ... ok
+test bucket_patch_empty_null_and_invalid_inputs ... ok
+test bucket_core_unsupported_settings_preserve_state ... ok
+test bucket_patch_null_settings_follow_profile_defaults ... ok
+test bucket_profile_name_bound_keeps_created_buckets_reachable ... ok
+test bucket_patch_label_boundaries_and_classes ... ok
+test bucket_profile_paging_preserves_names_and_resource_defaults ... ok
+test bucket_patch_strict_permissions_and_policy_preservation ... ok
+test bucket_put_conditioned_race_has_one_winner ... ok
+test bucket_put_full_resource_round_trip_preserves_unchanged_fields ... ok
+test bucket_patch_unsupported_and_output_inputs_preserve_state ... ok
+test bucket_put_legacy_rendering_and_restart ... ok
+test bucket_put_location_comparison_is_case_insensitive ... ok
+test bucket_put_missing_bucket_validates_body_before_lookup ... ok
+test bucket_put_empty_null_and_invalid_inputs ... ok
+test bucket_put_label_boundaries_and_classes ... ok
+test bucket_put_rejects_get_only_generation_query_parameter ... ok
+test bucket_patch_settings_control_future_object_effects ... ok
+test bucket_put_null_settings_follow_profile_defaults ... ok
+test bucket_put_conditions_and_query_contract ... ok
+test bucket_put_strict_permissions_and_policy_preservation ... ok
+test bkt_http_conditional_delete_and_metadata_mutation_have_one_winner ... ok
+test bucket_put_replaces_omitted_fields_and_preserves_resources ... ok
+test bucket_put_settings_control_future_object_effects ... ok
+test bucket_put_unsupported_and_output_inputs_preserve_state ... ok
+test bucket_profile_names_support_object_and_xml_routes ... ok
+test bkt_http_list_clamps_to_1000_with_lookahead ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.81s
+
+     Running tests/catalog.rs (target/debug/deps/catalog-0a398d648ca54326)
+
+running 17 tests
+test catalog_child_process ... ok
+test bucket_put_uses_clock_and_rolls_back_invalid_replacement ... ok
+test recovers_committed_wal_after_process_exit_without_drop ... ok
+test bucket_patch_uses_clock_and_rolls_back_invalid_merge ... ok
+test concurrent_duplicate_creates_have_exactly_one_winner ... ok
+test delete_preconditions_are_atomic_and_preserve_failed_records ... ok
+test rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters ... ok
+test indexed_listing_orders_filters_pages_and_limits ... ok
+test drop_releases_lock_while_a_forked_child_has_not_execed ... ok
+test directory_lock_lives_until_the_last_handle_drops ... ok
+test create_get_delete_and_restart_preserve_every_field ... ok
+test policy_migration_visits_every_bucket_in_binary_name_order ... ok
+test failed_policy_migration_rolls_back_and_restarts_from_version_five ... ok
+test rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes ... ok
+test bucket_settings_migrate_supported_catalogs ... ok
+test rejects_future_schema_unversioned_data_and_corruption ... ok
+test repeated_concurrent_use_close_and_reopen_preserves_data ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+
+     Running tests/fields_http.rs (target/debug/deps/fields_http-685ae130a65b93f5)
+
+running 8 tests
+test fields_bucket_methods_and_policy_preserve_mutations ... ok
+test fields_invalid_selection_precedes_read_etag_evaluation ... ok
+test fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged ... ok
+test fields_read_etag_validators_use_the_complete_resource ... ok
+test fields_invalid_selectors_and_errors_never_filter_or_mutate ... ok
+test fields_object_methods_lists_and_zero_byte_metadata ... ok
+test fields_invalid_selectors_leave_all_routes_unchanged ... ok
+test fields_resumable_final_response_survives_restart_and_replay ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-5064eccc901d2aeb)
+
+running 13 tests
+test config_precedence_validation_and_size_limit ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
+test cli_help_errors_and_bind_failure ... ok
+test shutdown_releases_catalog_before_return_with_state_clones_alive ... ok
+test process_shutdown_reports_stopped_and_releases_catalog_for_restart ... ok
+test live_wildcard_and_specific_listeners_are_exclusive ... ok
+{"event":"bind_wait","listen":"127.0.0.1:65428","reason":"address_in_use","timeout_ms":65000}
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+test process_restarts_on_same_port_without_allowing_a_second_live_listener ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.58s
+
+     Running tests/object_copy_http.rs (target/debug/deps/object_copy_http-9948dad109e4dcb8)
+
+running 9 tests
+test copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation ... ok
+test strict_copy_requires_source_read_destination_create_and_delete_for_overwrite ... ok
+test strict_cross_bucket_copy_uses_distinct_source_and_destination_grants ... ok
+test copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes ... ok
+test concurrent_copy_create_if_absent_publishes_exactly_one_generation ... ok
+test copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it ... ok
+test copy_validates_checksums_and_holds_without_inheriting_source_hold ... ok
+test copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets ... ok
+test copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+     Running tests/object_effects_support.rs (target/debug/deps/object_effects_support-e695659cadf34ae0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/object_hold_http.rs (target/debug/deps/object_hold_http-404b04855007c553)
+
+running 4 tests
+test event_hold_permissions_and_invalid_input ... ok
+test event_hold_metadata_release_and_restart ... ok
+test held_objects_reject_delete_and_replacement ... ok
+test default_hold_applies_to_all_upload_modes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/object_http.rs (target/debug/deps/object_http-d9a00931ee96b00e)
+
+running 27 tests
+test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
+test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
+test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
+test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
+test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
+test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
+test obj_http_encoded_names_and_invalid_names ... ok
+test obj_http_concurrent_create_if_absent_has_one_winner ... ok
+test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
+test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
+test obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body ... ok
+test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
+test obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
+test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
+test obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish ... ok
+test obj_http_zero_multichunk_binary_and_size_limits ... ok
+test resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot ... ok
+connection deadline or object body inactivity timeout exceeded
+test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
+test resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail ... ok
+test resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes ... ok
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_http_trickle_upload_deadline_releases_permits_without_publication ... ok
+object request deadline exceeded
+test obj_http_trickle_download_stops_at_absolute_deadline ... ok
+test resumable_sigkill_after_final_checkpoint_restores_active_staging ... ok
+test resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.66s
+
+     Running tests/object_list_http.rs (target/debug/deps/object_list_http-e476eeea05dda6f1)
+
+running 6 tests
+test object_list_invalid_unsupported_and_missing_bucket_errors ... ok
+test object_list_tokens_bind_query_and_reject_corruption ... ok
+test object_list_resources_defaults_empty_and_restart ... ok
+test object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors ... ok
+test object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages ... ok
+test object_list_default_and_upper_page_limit_are_1000_for_both_projections ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.85s
+
+     Running tests/object_metadata_http.rs (target/debug/deps/object_metadata_http-67b4509afd8207c2)
+
+running 5 tests
+test metadata_boundaries_encoding_negotiation_and_reupload_defaults ... ok
+test all_conditions_generation_selectors_and_conditioned_races ... ok
+test invalid_and_unsupported_metadata_never_mutates_objects ... ok
+test patch_merges_put_replaces_and_download_reflects_persistent_metadata ... ok
+test conditional_delete_and_metadata_patch_have_one_winner ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/object_multipart_http.rs (target/debug/deps/object_multipart_http-eb92948c29e29d96)
+
+running 21 tests
+test obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks ... ok
+test fields_multipart_response_preserves_uploaded_metadata_and_bytes ... ok
+test obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging ... ok
+test obj_multipart_http_query_name_overrides_only_valid_metadata_names ... ok
+test obj_multipart_http_malformed_checksum_json_preserves_existing_generation ... ok
+test obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without_leaks ... ok
+test obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation ... ok
+test obj_http_malformed_conditions_reject_every_object_method_without_mutation ... ok
+test obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part ... ok
+test obj_multipart_http_media_json_and_custom_metadata_caps ... ok
+test obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body ... ok
+test obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation ... ok
+test obj_multipart_http_truncated_checksum_part_preserves_existing_generation ... ok
+test obj_multipart_http_round_trip_metadata_hashes_and_restart ... ok
+test obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary ... ok
+test obj_multipart_http_rejects_malformed_framing_and_bounds_final_json ... ok
+test obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication ... ok
+test obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_media_and_multipart_independent_checksum_vectors_across_chunks ... ok
+test obj_http_media_and_multipart_recheck_each_condition_after_streaming ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+
+     Running tests/object_range_http.rs (target/debug/deps/object_range_http-474f9424c3b8a390)
+
+running 16 tests
+test obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding ... ok
+test etag::json_etag_read_if_match_overrides_if_unmodified_since ... ok
+test etag::json_etag_read_unsupported_lists_dates_and_writes ... ok
+test obj_range_http_single_ranges_and_representation_headers ... ok
+test etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions ... ok
+test etag::json_etag_read_object_metadata_media_and_range ... ok
+test etag::json_etag_read_combined_query_conditions_use_one_selected_record ... ok
+test etag::json_etag_read_authorization_precedes_validators ... ok
+test etag::json_etag_read_syntax_and_missing_resources ... ok
+test etag::json_etag_read_selected_generation_zero_byte_and_public_cache ... ok
+test obj_range_http_strict_authorization_precedes_range_evaluation ... ok
+test etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior ... ok
+test obj_range_http_unsatisfiable_empty_and_ignored_ranges ... ok
+test etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles ... ok
+test obj_range_http_generation_preconditions_and_overwrite_pin_open_reader ... ok
+test etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+
+     Running tests/object_storage.rs (target/debug/deps/object_storage-68f9ca0e9e3ae7e7)
+
+running 23 tests
+test concurrent_create_if_absent_has_exactly_one_winner_and_no_orphans ... ok
+test limits_bad_hashes_and_body_errors_leave_no_generation_or_blob ... ok
+test generation_selection_nonempty_bucket_and_open_readers_survive_unlink ... ok
+test metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog ... ok
+test cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup ... ok
+test committed_mutations_succeed_when_reclaim_is_deferred_to_restart ... ok
+test empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes ... ok
+test producer_closure_without_eof_never_publishes_partial_bytes ... ok
+test deleted_generations_are_never_reused_after_restart_or_backward_clock ... ok
+test failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed ... ok
+test metadata_update_races_with_delete_and_upload_preserve_atomic_identity ... ok
+test stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded ... ok
+test upload_precheck_rejects_without_waiting_for_body_or_creating_staging ... ok
+test unreleased_v2_catalog_is_rejected_without_changing_data ... ok
+test round_trip_exact_hashes_opaque_names_and_restart ... ok
+test missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock ... ok
+test recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects ... ok
+test all_four_preconditions_apply_to_reads_uploads_and_deletes ... ok
+test v1_migration_is_transactional_and_current_schema_reopens_idempotently ... ok
+test recovery_ignores_os_metadata_and_names_other_stray_entries ... ok
+test incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only ... ok
+test recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry ... ok
+test conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.89s
+
+     Running tests/object_versioning_http.rs (target/debug/deps/object_versioning_http-8c8158c378229edb)
+
+running 8 tests
+test versioned_strict_permissions ... ok
+test versioned_overwrite_and_generation_reads ... ok
+test versioned_delete_and_permanent_generation_delete ... ok
+test disabled_versioning_preserves_history_and_bucket_nonempty ... ok
+deferred blob reclaim d21dfbad8ea83dff29a2291ecfd01b07: catalog unavailable: Operation not permitted (os error 1)
+test versioned_crash_recovery_preserves_referenced_generations ... ok
+test versioned_listing_pages_and_query_boundaries ... ok
+test versioned_overwrite_delete_race ... ok
+test versioned_schema_migrations_preserve_objects ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+
+     Running tests/resumable_http.rs (target/debug/deps/resumable_http-c2bb961bb5aff664)
+
+running 33 tests
+test contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session ... ok
+test checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried ... ok
+test busy_session_rejects_competing_writer_while_other_sessions_progress ... ok
+test final_metadata_and_completion_snapshot_survive_catalog_restart ... ok
+test cancellation_racing_append_respects_writer_and_prevents_later_publication ... ok
+test finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout ... ok
+test acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail ... ok
+test initiation_checks_strict_create_and_overwrite_permissions_before_staging ... ok
+test chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots ... ok
+test initiation_returns_opaque_fixed_location_and_status_without_publication ... ok
+test initiation_preserves_encoded_names_metadata_and_query_precedence ... ok
+test checksum_and_final_metadata_failures_preserve_the_previous_full_resource ... ok
+test invalid_initiation_and_status_leave_no_session_or_file ... ok
+test all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed ... ok
+test capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation ... ok
+test interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes ... ok
+test sdk_initiation_accepts_one_retry_token_without_generation_conditions ... ok
+test malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix ... ok
+test failed_finalization_and_cancel_cleanup_retry_before_session_deadline ... ok
+test cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes ... ok
+test object_caps_apply_to_known_unknown_and_streamed_lengths ... ok
+test session_deadline_during_transfer_returns_not_found_without_acknowledging_tail ... ok
+test obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files ... ok
+test strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline ... ok
+test sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion ... ok
+test two_create_if_absent_sessions_have_one_finalization_winner ... ok
+test retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation ... ok
+test obj_http_resumable_independent_empty_and_multichunk_checksum_vectors ... ok
+test unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix ... ok
+test single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite ... ok
+test final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget ... ok
+test host_follows_returned_location_and_streams_large_body_in_small_buffers ... ok
+test initiation_session_cap_and_status_prefix_are_bounded ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.27s
+
+     Running tests/resumable_lifecycle.rs (target/debug/deps/resumable_lifecycle-4d8750cadcb1c89f)
+
+running 19 tests
+test recovery_rejects_symlink_prefix_without_changing_its_target ... ok
+test expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it ... ok
+test expiry_waits_for_writer_and_retries_after_lease_release ... ok
+test completed_session_cannot_be_cancelled_or_have_its_bytes_removed ... ok
+test recovery_rejects_ambiguous_active_publication_without_deleting_either_copy ... ok
+test cancel_obeys_writer_lease_and_only_one_cancellation_wins ... ok
+test idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup ... ok
+test cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline ... ok
+test cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot ... ok
+test writer_lease_is_reacquired_after_drop_and_panic ... ok
+test scheduler_retries_failed_cleanup_and_clears_its_error_after_repair ... ok
+test cancel_reloads_terminal_state_when_transition_no_longer_matches ... ok
+test restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes ... ok
+test restart_discards_write_before_offset_commit_and_preserves_committed_prefix ... ok
+test anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline ... ok
+test missing_short_and_nonfile_acknowledged_prefixes_block_readiness ... ok
+test restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry ... ok
+test recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs ... ok
+test expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.83s
+
+     Running tests/resumable_storage.rs (target/debug/deps/resumable_storage-6679d3eba5a43678)
+
+running 4 tests
+test checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired_sessions ... ok
+test sessions_persist_options_offsets_deadline_and_exclusive_admission ... ok
+test previous_schema_migrates_and_invalid_session_options_are_rejected_read_only ... ok
+test retained_session_cap_is_atomic_and_rejection_creates_no_file ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.68s
+
+     Running tests/rewrite_http.rs (target/debug/deps/rewrite_http-9134f8fabe8bcab1)
+
+running 24 tests
+test rewrite_composite_source_preserves_or_resets_component_count_without_md5 ... ok
+test rewrite_create_if_absent_race_has_one_atomic_winner ... ok
+test rewrite_expired_completed_session_never_journals_the_live_blob_on_restart ... ok
+test rewrite_all_conditions_preserve_failed_destination_and_retained_source ... ok
+resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached
+test rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds ... ok
+test rewrite_completion_replay_rejects_recreated_buckets ... ok
+discarding invalid derived transfer 2f9351f45b13a17dbb1b07a458ccd9ee: catalog unavailable: No such file or directory (os error 2)
+test rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite ... ok
+test rewrite_continuation_rechecks_strict_grants_and_destination_conditions ... ok
+test rewrite_metadata_checksums_validate_and_identity_is_path_selected ... ok
+test rewrite_expired_token_and_restart_cleanup_preserve_live_destination ... ok
+test rewrite_concurrent_token_retry_has_one_progress_checkpoint ... ok
+test rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail ... ok
+test rewrite_strict_permissions_holds_versioning_and_unsupported_inputs ... ok
+test rewrite_composite_count_uses_the_bucket_class_selected_at_publication ... ok
+test rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state ... ok
+test rewrite_one_call_empty_metadata_fields_and_same_name ... ok
+discarding invalid derived transfer e54d40098f1882e278fa47c230172acd: catalog unavailable: derived prefix is shorter than its checkpoint
+test rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget ... ok
+test rewrite_progress_replay_reclaims_state_after_bucket_recreation ... ok
+test rewrite_progress_retry_restart_and_completion_replay_publish_once ... ok
+discarding invalid derived transfer ccafcd4de2c25939aea2f12494f89385: catalog unavailable: derived prefix checksum differs from checkpoint
+test rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart ... ok
+test rewrite_source_overwrite_delete_and_metadata_change_fail_closed ... ok
+test rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget ... ok
+test rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success ... ok
+test rewrite_completed_cache_evicts_without_rejecting_new_rewrites ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.53s
+
+     Running tests/rewrite_token.rs (target/debug/deps/rewrite_token-7dfdb1eccc836960)
+
+running 2 tests
+test rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+test rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/seed.rs (target/debug/deps/seed-5138dfa75697b538)
+
+running 11 tests
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+test disabled_startup_never_replays_fixtures_later ... ok
+{"event":"seeding"}
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+test symlinks_and_special_files_fail_closed ... ok
+{"event":"seeding"}
+test populated_v4_catalog_migrates_without_seeding ... ok
+{"event":"seeding"}
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+{"event":"seeding"}
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.87s
+
+     Running tests/url_cli.rs (target/debug/deps/url_cli-219213cad628591e)
+
+running 6 tests
+test ignores_config_file_environment_and_data_directory ... ok
+test prints_usage_for_help ... ok
+test prints_one_encoded_url_for_options_in_any_order ... ok
+test rejects_missing_duplicate_unknown_and_unpaired_options ... ok
+test rejects_invalid_inputs_without_stdout ... ok
+test rejects_reserved_api_collisions_without_stdout ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-e45f266866316b9c)
+
+running 20 tests
+test dependencies::tests::docker_hub_registry_default_preserves_token_authentication ... ok
+test container::tests::malformed_and_prerelease_versions_cannot_publish ... ok
+test dependencies::tests::gcr_oci_index_and_lowercase_digest_headers_are_preserved ... ok
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test dependencies::tests::public_gcr_registry_does_not_request_or_send_authentication ... ok
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test dependencies::tests::unknown_or_malformed_registry_is_rejected_before_network_access ... ok
+test release::tests::binary_version_must_match_exactly ... ok
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test container::tests::aliases_never_move_backwards_and_zero_major_is_not_an_alias ... ok
+test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
+test release::tests::native_notice_requirements_follow_the_target_runtime ... ok
+test release::tests::missing_notices_and_escaping_license_files_fail_closed ... ok
+test release::tests::all_root_notices_and_explicit_license_file_are_retained ... ok
+test release::tests::reviewed_crc32c_sources_are_retained_and_new_versions_require_review ... ok
+test release::tests::invalid_target_and_existing_output_are_rejected_without_mutation ... ok
+test tests::schema_enumerations_match_validator ... ok
+test release::tests::notice_only_output_needs_neither_git_nor_an_executable ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-92618f879fbf0beb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-7caede798487b2d4)
+
+running 11 tests
+test partial_and_simulated_work_remain_explicit ... ok
+test coverage_dimensions_remain_separate ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test baseline_and_completed_evidence_validate ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-f0178a9c96503935)
+
+running 2 tests
+test go_sdk_scope_and_lockfile_are_declared ... ok
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+   Doc-tests gcs_mimic
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Command exit status: 0; total passed across suites: 532.

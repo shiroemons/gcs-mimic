@@ -94,6 +94,16 @@ The [README](../../README.md) and [runnable guide](getting-started.md) cover Doc
 
 ## 1. Prerequisites and source build
 
+The [object rewrite journey](getting-started.md#rewrite-an-object-and-follow-continuation-tokens)
+must execute a generation-selected one-call rewrite and a 3 MiB rewrite that
+changes storage class with `maxBytesRewrittenPerCall=1048576`. Follow returned
+tokens until done, verify string byte counts/resource presence, metadata and
+download equality, then delete only the example objects. Execute these blocks
+against native and Docker endpoints after source finalization. Rust/Go tests
+separately cover binding, grants, conditions, replay, process-kill recovery,
+corruption rejection, expiry and admission. The
+[contract](slices/object-rewrite.md) names local rules and unsupported semantics.
+
 Support Linux amd64, Linux arm64 and Docker Desktop on Apple Silicon macOS. The container workflow requires Git, Docker Engine/Desktop, Docker Compose v2 supporting both `up --wait` and `start --wait`, and curl. A native Rust toolchain is optional for Docker users; document the exact latest-stable Rust baseline separately for contributors according to [the dependency policy](dependency-policy.md). OpenSSL is required only for the strict signing walkthrough.
 
 The first supported installation route is a source build:

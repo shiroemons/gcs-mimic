@@ -24,6 +24,7 @@ mod page_token;
 mod query;
 pub(crate) mod resumable;
 pub mod resumable_cancel;
+pub(crate) mod rewrite;
 
 pub use body::read_body;
 pub(crate) use buckets::{bucket_etag, timestamp, validate_bucket_name_for_profile};

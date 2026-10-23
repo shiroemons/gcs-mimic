@@ -23,7 +23,10 @@ pub fn derived_metadata(
     bytes: &[u8],
     source: &ObjectRecord,
 ) -> Result<(ObjectMetadataUpdate, Option<String>, ExpectedHashes), JsonError> {
-    if bytes.is_empty() || bytes.trim_ascii() == b"null" {
+    if bytes.is_empty()
+        || std::str::from_utf8(bytes)
+            .is_ok_and(|value| value.trim_matches([' ', '\t', '\r', '\n']) == "null")
+    {
         return Ok((
             ObjectMetadataUpdate {
                 content_type: Some(Some(source.content_type.clone())),
@@ -95,6 +98,7 @@ mod tests {
 
     #[test]
     fn empty_body_inherits_and_explicit_resource_replaces_metadata_without_source_holds() {
+        assert!(derived_metadata(b"\x0bnull", &crate::json::object_tests::record()).is_err());
         let mut source = crate::json::object_tests::record();
         source.metadata.insert("source".into(), "value".into());
         source.event_based_hold = true;

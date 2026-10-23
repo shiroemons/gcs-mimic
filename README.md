@@ -83,7 +83,7 @@ and explicit remaining-gap mapping. **Object copy** is available in its
 [Rust and pinned Go evidence](docs/en/evidence/object-copy.md).
 [Compose](docs/en/slices/object-compose.md) passes scoped native and targeted Go
 checks. Their final integrated container/SDK/guide gate remains pending.
-Next integrate bounded continuation rewrite. Verify
+Rewrite also passes its scoped checks. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
 and native/container journeys. Then implement local HTTPS/TLS, JSON CORS defaults
 and bucket-configured XML-read CORS, with actual-browser verification, before
@@ -167,7 +167,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Object content/custom metadata PUT (replacement/omission reset; `objects.update`) | ✅ All scoped fields; omitted fields reset | 🚧 No `contentEncoding` input; omitted fixed fields retained | ❌ |
 | Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
 | Object copy (`objects.copy`) | 🚧 Generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds and checksums; advanced semantics/provider parity pending | ✅ | ✅ |
-| Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
+| Object rewrite (`objects.rewrite`) | 🚧 Scoped one-call/continuation, request-bound tokens, atomic publication, strict grants and restart/retry; final integrated gate and full ACL projection pending | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
 | Object compose (`objects.compose`) | 🚧 Ordered 1..32 pinned sources, nested component/CRC32C metadata without MD5, atomic conditions and source hard deletion; final integrated gate pending | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
@@ -236,6 +236,13 @@ wire-edge gaps remain recorded in the ledger. Copy has scoped
 targeted Go coverage, explicit 501 boundaries and local deletion safety rules.
 Their scoped ledger rows await the single final integrated SDK/container/guide gate;
 the roadmap does not turn a pending gate into completed verification.
+Rewrite supports the declared
+[local contract](docs/en/slices/object-rewrite.md), including bounded continuation,
+request-bound tokens, immediate retry, strict permissions and restart recovery.
+Its method row remains PARTIAL for full ACL projection; the local session row
+awaits the shared integrated verification gate.
+Once rewrite mutation starts, it awaits its durable result across the configured
+request deadline so a timeout cannot hide a later publication.
 
 The pinned comparison source review covers
 [fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),

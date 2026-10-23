@@ -57,6 +57,8 @@ pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 mod copy;
 #[path = "server/resumable.rs"]
 mod resumable;
+#[path = "server/rewrite.rs"]
+mod rewrite;
 
 #[derive(Clone, Copy, Default)]
 struct ObjectActivity {
@@ -200,6 +202,31 @@ async fn respond(
                 )
                 .await
             }
+            Err(error) => Err(error),
+        };
+        activity.send_replace(ObjectActivity::default());
+        let mut response = result.unwrap_or_else(|error| boxed(error.into_response()));
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
+    if let Some(parsed) =
+        json::rewrite::route(request.method(), request.uri(), config.compat_profile)
+    {
+        let parsed = authenticate().and_then(|caller| parsed.map(|operation| (operation, caller)));
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
+        activity.send_replace(ObjectActivity {
+            awaiting_catalog: false,
+            deadline: Some(deadline),
+        });
+        let result = match parsed {
+            Ok((operation, caller)) => rewrite::respond(
+                request, operation, caller, state, config, activity, deadline,
+            )
+            .await
+            .map_err(|error| anonymous_error(error, caller)),
             Err(error) => Err(error),
         };
         activity.send_replace(ObjectActivity::default());

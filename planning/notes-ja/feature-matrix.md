@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 280 | 1 | 17 | 0 | 0 | 0 |
-| behavior | 201 | 152 | 3 | 29 | 17 | 0 | 0 |
+| api_operation | 298 | 279 | 1 | 18 | 0 | 0 | 0 |
+| behavior | 201 | 151 | 3 | 30 | 17 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 280 | 4 | 14 | 0 | 0 | 0 |
-| behavior | 152 | 22 | 25 | 2 | 0 | 0 |
+| api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
+| behavior | 151 | 23 | 25 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -176,7 +176,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
-| JSON-OBJECTS-012 | objects.rewrite | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
 | JSON-OBJECTS-013 | objects.setIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-014 | objects.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-015 | objects.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
@@ -705,7 +705,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-021 | 世代・Soft deleteの一覧 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-022 | contextsによるオブジェクト一覧検索 | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-023 | コピー時の意味論 | PARTIAL | P3 | EXACT | EXACT | 1 |
-| BEHAVIOR-OBJECT-024 | rewriteの継続セッション | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-024 | rewriteの継続セッション | PARTIAL | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-025 | オブジェクト合成 | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-026 | 合成オブジェクトのメタデータ | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | IN_PROGRESS | P3 | EXACT | EXACT | 1 |
