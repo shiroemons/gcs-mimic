@@ -4,8 +4,8 @@
 
 Contract checked on **2026-10-23** for `JSON-OBJECTS-012` and
 `BEHAVIOR-OBJECT-024`. This document defines the frozen local acceptance scope;
-[verification](../evidence/object-rewrite.md) records passing local checks and
-the remaining integrated gate.
+[verification](../evidence/object-rewrite.md) records the passing final integrated
+gate and the explicit remaining full-projection method boundary.
 The [feature ledger](../../../compatibility/features.json) alone owns status.
 The [frozen basic JSON profile](basic-json-contract.md) remains the baseline.
 Storage v2 RPC, batch rewrite and enrichment rewrite are outside this slice;

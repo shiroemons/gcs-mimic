@@ -200,7 +200,7 @@ JSON MIME inheritance/defaults, unknown/output-only inputs, JSON component-count
 header presence and complete error precedence likewise remain source questions
 outside the explicitly declared local acceptance scope. Every documented request
 field is implemented or explicitly rejected with a documented error. The four
-feature rows await the integrated final-source gate before scoped promotion;
+feature rows are IMPLEMENTED/EXACT after the [final integrated gate](../evidence/derived-objects.md);
 neither scoped completion nor explicit 501 responses claim full Google-service
 parity. The obsolete 1024 limit is resolved by current official quotas; it must
 not become a local compatibility limit.

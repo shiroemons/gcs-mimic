@@ -7689,7 +7689,7 @@
       "interface": "storage.objects.compose",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -7701,14 +7701,14 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner; undeclared projection returns 400 and strict get/create/delete checks. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows.",
+      "notes": "Bounded JSON compose of 1..32 generation-pinned same-bucket/class sources, atomic destination Match conditions, componentCount/CRC32C without MD5, fields-selected metadata without ACL/owner and strict get/create/delete checks. Undeclared projection returns 400. deleteSourceObjects hard-deletes selected sources atomically with publication under declared local safety rules. Current quotas supersede the obsolete 1024 limit. Full contract and provider questions: docs/en/slices/object-compose.md and SPEC-COMPOSE-EDGES; XML/gRPC compose are separate rows. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [
         "BEHAVIOR-OBJECT-025",
         "BEHAVIOR-OBJECT-026",
         "BEHAVIOR-OBJECT-027"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "COMPOSE-CONSTRUCTION",
@@ -7804,9 +7804,14 @@
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -7843,24 +7848,18 @@
         "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
         "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
         "TestObjectCompose",
-        "TestObjectComposeStrictPermissions"
+        "TestObjectComposeStrictPermissions",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --locked --offline --test object_compose_http",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
-          "test_ids": [
-            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
-            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
-          ]
-        },
-        {
-          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
-          "result": "PASS",
-          "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
             "compose_source_and_destination_preconditions_preserve_failed_overwrites",
@@ -7883,15 +7882,6 @@
             "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
             "compose_source_generation_change_never_deletes_the_replacement",
             "compose_order_checksums_metadata_fields_and_restart",
-            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart"
-          ]
-        },
-        {
-          "command": "cargo test --locked --offline --lib storage::catalog",
-          "result": "PASS",
-          "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
-          "test_ids": [
             "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
             "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
             "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
@@ -7899,17 +7889,40 @@
             "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
             "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
             "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
-            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers"
+            "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
+            "compose_incarnation_change_preserves_original_error_and_recovers_after_restart",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose",
             "TestObjectComposeStrictPermissions"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -7921,10 +7934,10 @@
           "version": "v1.70.0",
           "api_client_version": "v0.308.0",
           "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; ComposerFrom",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose",
             "TestObjectComposeStrictPermissions"
@@ -7932,7 +7945,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{destinationBucket}/o/{destinationObject}/compose",
@@ -7991,7 +8004,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Final integrated gate remains pending. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. The method additionally remains PARTIAL because accepted full projection omits ACL/owner resources and their additional permission behavior. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -8116,13 +8129,18 @@
         },
         {
           "id": "COPY-FINAL-INTEGRATION",
-          "description": "The integrated heavy gate runs once after copy/rewrite/compose merge; full SDK/container/native-Docker guide verification is pending.",
-          "test_ids": [],
-          "result": "PENDING"
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ],
+          "result": "PASS"
         },
         {
           "id": "COPY-REQUEST-CONTROL",
-          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination.",
+          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
           "test_ids": [
             "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
             "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
@@ -8130,7 +8148,8 @@
             "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
             "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
             "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ],
           "result": "PASS"
         },
@@ -8175,14 +8194,19 @@
         "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
         "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
         "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker",
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
       ],
       "verification": [
         {
-          "command": "cargo test --workspace --locked --offline",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-tests.txt",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
             "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
@@ -8214,26 +8238,39 @@
             "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
             "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
             "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response"
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCopy' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-go.txt",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCopyJSON",
             "TestObjectCopyHighLevelCopierUsesRewrite"
           ]
         },
         {
-          "command": "cargo test --lib --locked --offline shutdown_during_copy_recovers_without_a_destination",
+          "command": "bash scripts/smoke-containers.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-tests.txt",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
           "test_ids": [
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -8247,8 +8284,8 @@
           "transport": "Generated HTTP JSON Objects.Copy; hermetic CopierFrom rewrite transport assertion",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCopy' bash scripts/sdk-go.sh",
-          "artifact": "docs/en/evidence/object-copy-go.txt",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCopyJSON",
             "TestObjectCopyHighLevelCopierUsesRewrite"
@@ -8258,7 +8295,7 @@
       "known_deviations": [
         "Accepted projection=full omits ACL/owner resources and their additional permission behavior; full method stays PARTIAL for this exact missing surface."
       ],
-      "implemented_in": "edc59c420c14d6116efd16fbc8706dc17d08cff1",
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/copyTo/b/{destinationBucket}/o/{destinationObject}",
@@ -12362,7 +12399,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow.",
+      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -12371,31 +12408,52 @@
           "id": "REWRITE-RESOURCE",
           "description": "Encoded source/destination paths, one-call/empty/same-name completion, metadata inheritance/replacement, string byte counts, conditional resource/token presence and response fields.",
           "result": "PASS",
-          "test_ids": ["rewrite_one_call_empty_metadata_fields_and_same_name", "rewrite_metadata_checksums_validate_and_identity_is_path_selected", "rewrite_composite_source_preserves_or_resets_component_count_without_md5", "rewrite_composite_count_uses_the_bucket_class_selected_at_publication"]
+          "test_ids": [
+            "rewrite_one_call_empty_metadata_fields_and_same_name",
+            "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+            "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+            "rewrite_composite_count_uses_the_bucket_class_selected_at_publication"
+          ]
         },
         {
           "id": "REWRITE-CONDITIONS",
           "description": "All eight source/destination conditions, explicit retained source generation, source changes and atomic create-if-absent races preserve failed destinations.",
           "result": "PASS",
-          "test_ids": ["rewrite_all_conditions_preserve_failed_destination_and_retained_source", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_create_if_absent_race_has_one_atomic_winner", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite"]
+          "test_ids": [
+            "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_create_if_absent_race_has_one_atomic_winner",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite"
+          ]
         },
         {
           "id": "REWRITE-STRICT",
           "description": "Strict source read/destination create/overwrite delete, cross-bucket grants and revocation, holds and explicit rejection of unsupported encryption/ACL/billing/context semantics.",
           "result": "PASS",
-          "test_ids": ["rewrite_strict_permissions_holds_versioning_and_unsupported_inputs", "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds", "rewrite_continuation_rechecks_strict_grants_and_destination_conditions", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state"]
+          "test_ids": [
+            "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+            "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+            "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state"
+          ]
         },
         {
           "id": "REWRITE-SDK",
           "description": "Pinned official Go Copier uses one-call and cross-location continuation, ProgressFunc, a one-MiB test maximum, exact boundaries, empty objects, metadata/hashes and destination conditions.",
           "result": "PASS",
-          "test_ids": ["TestObjectRewriteCopier"]
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
         },
         {
           "id": "REWRITE-STREAM-BUDGET",
           "description": "A 16 MiB+17 rewrite completes despite a tiny catalog wait budget, and an owned initial mutation awaits its durable result across a blocked transaction and request deadline.",
           "result": "PASS",
-          "test_ids": ["rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+          "test_ids": [
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
         },
         {
           "id": "REWRITE-FULL-PROJECTION-PENDING",
@@ -12405,9 +12463,14 @@
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "The coordinator records the single integrated full SDK, container and native/Docker guide gate after copy/rewrite/compose merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -12426,25 +12489,87 @@
         "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state",
         "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
         "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
-        "TestObjectRewriteCopier"
+        "TestObjectRewriteCopier",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --workspace --locked --offline",
-          "result": "PASS", "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-rewrite-checks.txt",
-          "test_ids": ["rewrite_one_call_empty_metadata_fields_and_same_name", "rewrite_metadata_checksums_validate_and_identity_is_path_selected", "rewrite_composite_source_preserves_or_resets_component_count_without_md5", "rewrite_composite_count_uses_the_bucket_class_selected_at_publication", "rewrite_all_conditions_preserve_failed_destination_and_retained_source", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_create_if_absent_race_has_one_atomic_winner", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs", "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds", "rewrite_continuation_rechecks_strict_grants_and_destination_conditions", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state", "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "rewrite_one_call_empty_metadata_fields_and_same_name",
+            "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+            "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+            "rewrite_composite_count_uses_the_bucket_class_selected_at_publication",
+            "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_create_if_absent_race_has_one_atomic_winner",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+            "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+            "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state",
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh",
-          "result": "PASS", "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-rewrite-sdk-go.txt",
-          "test_ids": ["TestObjectRewriteCopier"]
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
-      "sdk_evidence": [{"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.308.0","transport":"HTTP JSON Copier; real rewrite/continuation and ProgressFunc with one-MiB testing query injected by the recorder; isolated local endpoint","result":"PASS","verified_at":"2026-10-23","command":"GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh","artifact":"docs/en/evidence/object-rewrite-sdk-go.txt","test_ids":["TestObjectRewriteCopier"]}],
-      "known_deviations": ["projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, requester billing, contexts/retention and advanced metadata are explicitly rejected, not silently accepted. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."],
-      "implemented_in": "851aca26677a24582e83360f42f53de72360f0a2",
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON Copier; real rewrite/continuation and ProgressFunc with one-MiB testing query injected by the recorder; isolated local endpoint",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, requester billing, contexts/retention and advanced metadata are explicitly rejected, not silently accepted. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."
+      ],
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/rewriteTo/b/{destinationBucket}/o/{destinationObject}",
@@ -20379,7 +20504,7 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20390,10 +20515,10 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Final integrated gate remains pending. Provider body/default/error/placement questions are outside declared acceptance and remain in gaps.json; this behavior can close after integration.",
+      "notes": "The frozen local copy subset has exact scoped behavior: generation-pinned bounded bytes, declared metadata rules, strict get/create/delete checks, atomic destination conditions, holds/versioning, checksums, fields, composites and persistence. Contract/evidence: docs/en/slices/object-copy.md and docs/en/evidence/object-copy.md. Provider body/default/error/placement questions are outside declared acceptance and remain in gaps.json. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "COPY-METADATA",
@@ -20515,13 +20640,18 @@
         },
         {
           "id": "COPY-FINAL-INTEGRATION",
-          "description": "The integrated heavy gate runs once after copy/rewrite/compose merge; full SDK/container/native-Docker guide verification is pending.",
-          "test_ids": [],
-          "result": "PENDING"
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ],
+          "result": "PASS"
         },
         {
           "id": "COPY-REQUEST-CONTROL",
-          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination.",
+          "description": "Deterministic slow streaming exceeds the catalog wait budget without false failure; handler drop and advance failure reclaim transfers; source/destination replacement and class changes during streaming honor selected boundaries; publication admission timeout cannot later commit. Shutdown/reopen reclaims an interrupted transfer without publishing a destination. A failed advisory create-if-absent check never begins a transfer; publication-timeout regression has an outer bounded failure.",
           "test_ids": [
             "server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget",
             "server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer",
@@ -20529,7 +20659,8 @@
             "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
             "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
             "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ],
           "result": "PASS"
         }
@@ -20568,14 +20699,19 @@
         "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
         "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
         "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
-        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+        "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker",
+        "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
       ],
       "verification": [
         {
-          "command": "cargo test --workspace --locked --offline",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-tests.txt",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it",
             "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
@@ -20607,26 +20743,39 @@
             "server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement",
             "server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check",
             "server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit",
-            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response"
+            "server::copy::tests::timed_out_publication_admission_never_commits_after_the_response",
+            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination",
+            "server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer"
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCopy' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-go.txt",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCopyJSON",
             "TestObjectCopyHighLevelCopierUsesRewrite"
           ]
         },
         {
-          "command": "cargo test --lib --locked --offline shutdown_during_copy_recovers_without_a_destination",
+          "command": "bash scripts/smoke-containers.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-copy-tests.txt",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
           "test_ids": [
-            "server::copy::tests::shutdown_during_copy_recovers_without_a_destination"
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -20640,18 +20789,16 @@
           "transport": "Generated HTTP JSON Objects.Copy; hermetic CopierFrom rewrite transport assertion",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCopy' bash scripts/sdk-go.sh",
-          "artifact": "docs/en/evidence/object-copy-go.txt",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCopyJSON",
             "TestObjectCopyHighLevelCopierUsesRewrite"
           ]
         }
       ],
-      "known_deviations": [
-        "Final merged container, full SDK and native/Docker guide verification is pending."
-      ],
-      "implemented_in": "edc59c420c14d6116efd16fbc8706dc17d08cff1",
+      "known_deviations": [],
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23"
     },
     {
@@ -20662,7 +20809,7 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20671,52 +20818,85 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Only FINAL-INTEGRATION remains pending before promotion to IMPLEMENTED/EXACT. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES.",
+      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "REWRITE-TOKENS",
           "description": "Opaque random tokens bind the selected source, destination, all supplied conditions/parameters/body, permit omitted continuation fields and reject tampered or mismatched reuse.",
           "result": "PASS",
-          "test_ids": ["tokens_are_opaque_and_tampering_never_selects_the_original_token", "continuation_binds_every_supplied_parameter_body_and_path", "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget"]
+          "test_ids": [
+            "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+            "continuation_binds_every_supplied_parameter_body_and_path",
+            "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget"
+          ]
         },
         {
           "id": "REWRITE-PROGRESS-REPLAY",
           "description": "One-MiB granularity, monotonic byte counts, immediate token retry and concurrent retry never double advance; completion replay never creates another destination generation.",
           "result": "PASS",
-          "test_ids": ["rewrite_route_decodes_once_and_bounds_byte_budgets", "rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_concurrent_token_retry_has_one_progress_checkpoint", "rewrite_committed_completion_does_not_reread_an_expired_token", "TestObjectRewriteCopier"]
+          "test_ids": [
+            "rewrite_route_decodes_once_and_bounds_byte_budgets",
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+            "rewrite_committed_completion_does_not_reread_an_expired_token",
+            "TestObjectRewriteCopier"
+          ]
         },
         {
           "id": "REWRITE-RECOVERY",
           "description": "Restart/process kill preserve acknowledged bytes and request binding; unacknowledged suffixes are discarded, invalid prefixes cleanly reject and remove active session state, and completion publishes exactly one durable object.",
           "result": "PASS",
-          "test_ids": ["rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail", "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart", "rewrite_initial_request_owner_reclaims_undelivered_state"]
+          "test_ids": [
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+            "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+            "rewrite_initial_request_owner_reclaims_undelivered_state"
+          ]
         },
         {
           "id": "REWRITE-LIFETIME",
           "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations.",
           "result": "PASS",
-          "test_ids": ["rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others", "rewrite_expired_token_and_restart_cleanup_preserve_live_destination", "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart", "rewrite_completed_cache_evicts_without_rejecting_new_rewrites"]
+          "test_ids": [
+            "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+            "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+            "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites"
+          ]
         },
         {
           "id": "REWRITE-SOURCE-STATE",
           "description": "Unqualified changed/deleted sources fail closed, explicit retained source generations may continue, and recreated buckets cannot reuse completed state.",
           "result": "PASS",
-          "test_ids": ["rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_progress_replay_reclaims_state_after_bucket_recreation"]
+          "test_ids": [
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_progress_replay_reclaims_state_after_bucket_recreation"
+          ]
         },
         {
           "id": "REWRITE-STREAM-BUDGET",
           "description": "Large-source streaming and a blocked initial transaction await their durable outcome across tiny catalog wait/request deadlines.",
           "result": "PASS",
-          "test_ids": ["rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+          "test_ids": [
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "The coordinator records the single integrated full SDK, container and native/Docker guide gate after copy/rewrite/compose merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -20740,25 +20920,90 @@
         "rewrite_completion_replay_rejects_recreated_buckets",
         "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
         "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
-        "TestObjectRewriteCopier"
+        "TestObjectRewriteCopier",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --workspace --locked --offline",
-          "result": "PASS", "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-rewrite-checks.txt",
-          "test_ids": ["tokens_are_opaque_and_tampering_never_selects_the_original_token", "continuation_binds_every_supplied_parameter_body_and_path", "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget", "rewrite_route_decodes_once_and_bounds_byte_budgets", "rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_concurrent_token_retry_has_one_progress_checkpoint", "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail", "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart", "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others", "rewrite_committed_completion_does_not_reread_an_expired_token", "rewrite_initial_request_owner_reclaims_undelivered_state", "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart", "rewrite_completed_cache_evicts_without_rejecting_new_rewrites", "rewrite_progress_replay_reclaims_state_after_bucket_recreation", "rewrite_expired_token_and_restart_cleanup_preserve_live_destination", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
+          "test_ids": [
+            "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+            "continuation_binds_every_supplied_parameter_body_and_path",
+            "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget",
+            "rewrite_route_decodes_once_and_bounds_byte_budgets",
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+            "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+            "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+            "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+            "rewrite_committed_completion_does_not_reread_an_expired_token",
+            "rewrite_initial_request_owner_reclaims_undelivered_state",
+            "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+            "rewrite_completed_cache_evicts_without_rejecting_new_rewrites",
+            "rewrite_progress_replay_reclaims_state_after_bucket_recreation",
+            "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+            "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+            "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+            "rewrite_completion_replay_rejects_recreated_buckets",
+            "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+            "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"
+          ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh",
-          "result": "PASS", "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-rewrite-sdk-go.txt",
-          "test_ids": ["TestObjectRewriteCopier"]
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
-      "sdk_evidence": [{"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.308.0","transport":"HTTP JSON Copier; real rewrite continuation and ProgressFunc with a one-MiB testing query; isolated local endpoint","result":"PASS","verified_at":"2026-10-23","command":"GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh","artifact":"docs/en/evidence/object-rewrite-sdk-go.txt","test_ids":["TestObjectRewriteCopier"]}],
-      "known_deviations": ["Only FINAL-INTEGRATION remains pending: record the coordinator-owned integrated full SDK, container and native/Docker guide evidence after copy/rewrite/compose merge, then remove this temporary gate note and promote the frozen local behavior scope to IMPLEMENTED/EXACT."],
-      "implemented_in": "851aca26677a24582e83360f42f53de72360f0a2",
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON Copier; real rewrite continuation and ProgressFunc with a one-MiB testing query; isolated local endpoint",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
+          "test_ids": [
+            "TestObjectRewriteCopier"
+          ]
+        }
+      ],
+      "known_deviations": [],
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23"
     },
     {
@@ -20769,7 +21014,7 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20778,10 +21023,10 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final-source process checks are pending.",
+      "notes": "Declared documented construction scope: 1..32 ordered same-bucket/class sources, pinned selected generations/source Match conditions, atomic destination Match conditions, bounded streaming, aggregate size cap, failure preservation and restart. Composite metadata is BEHAVIOR-OBJECT-026; destructive flag behavior is BEHAVIOR-OBJECT-027. Advanced method inputs and provider/local safety questions remain on JSON-OBJECTS-002 and SPEC-COMPOSE-EDGES. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "COMPOSE-ORDER-CLASS",
@@ -20825,9 +21070,14 @@
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -20842,14 +21092,18 @@
         "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
         "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
         "storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers",
-        "TestObjectCompose"
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
             "compose_storage_class_defaults_and_event_holds",
@@ -20857,15 +21111,7 @@
             "compose_source_and_destination_preconditions_preserve_failed_overwrites",
             "compose_concurrent_create_if_absent_has_one_winner",
             "compose_source_generation_change_never_deletes_the_replacement",
-            "compose_destination_condition_is_rechecked_after_streaming"
-          ]
-        },
-        {
-          "command": "cargo test --locked --offline --lib storage::catalog",
-          "result": "PASS",
-          "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
-          "test_ids": [
+            "compose_destination_condition_is_rechecked_after_streaming",
             "storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer",
             "storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail",
             "storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins",
@@ -20873,12 +21119,32 @@
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -20890,17 +21156,17 @@
           "version": "v1.70.0",
           "api_client_version": "v0.308.0",
           "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose"
           ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23"
     },
     {
@@ -20911,7 +21177,7 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -20920,10 +21186,10 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Declared documented metadata scope: nested/repeated component accumulation with int32 saturation and no 1024 limit, exact combined CRC32C, absent MD5, non-MD5 changeable ETags, JSON resource/list/fields and XML component-count headers, metadata update and restart preservation. Exact provider opaque ETag spelling and JSON wire header questions remain on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES. Copy/rewrite transformations belong to their own slices. Final-source process checks are pending.",
+      "notes": "Declared documented metadata scope: nested/repeated component accumulation with int32 saturation and no 1024 limit, exact combined CRC32C, absent MD5, non-MD5 changeable ETags, JSON resource/list/fields and XML component-count headers, metadata update and restart preservation. Exact provider opaque ETag spelling and JSON wire header questions remain on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES. Copy/rewrite transformations belong to their own slices. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "COMPOSITE-COUNT",
@@ -20956,9 +21222,14 @@
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -20968,38 +21239,54 @@
         "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
         "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
         "compose_order_checksums_metadata_fields_and_restart",
-        "TestObjectCompose"
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit",
+            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
+            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
+            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components",
             "compose_order_checksums_metadata_fields_and_restart"
           ]
         },
         {
-          "command": "cargo test --locked --offline --lib storage::catalog",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
-            "storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links",
-            "storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c",
-            "storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c",
-            "storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components"
+            "TestObjectCompose"
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "bash scripts/smoke-containers.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
           "test_ids": [
-            "TestObjectCompose"
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -21011,17 +21298,17 @@
           "version": "v1.70.0",
           "api_client_version": "v0.308.0",
           "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose"
           ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23"
     },
     {
@@ -21032,7 +21319,7 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "IN_PROGRESS",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
@@ -21041,10 +21328,10 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_AND_DISCOVERY_CONFIRMED",
-      "notes": "Declared documented JSON flag scope: omitted/false preserves sources; true permanently deletes selected live/noncurrent sources after successful composition, bypassing Object Versioning; failed composition preserves previous destination and sources. Local extra delete permission, held-source rejection, deduplication, destination-name exclusion and single-transaction safety behavior are separately recorded on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES, not claimed as provider wire parity. Final-source process checks are pending.",
+      "notes": "Declared documented JSON flag scope: omitted/false preserves sources; true permanently deletes selected live/noncurrent sources after successful composition, bypassing Object Versioning; failed composition preserves previous destination and sources. Local extra delete permission, held-source rejection, deduplication, destination-name exclusion and single-transaction safety behavior are separately recorded on JSON-OBJECTS-002/SPEC-COMPOSE-EDGES, not claimed as provider wire parity. Final integrated evidence: docs/en/evidence/derived-objects.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "COMPOSE-DELETE-DEFAULT",
@@ -21080,9 +21367,14 @@
         },
         {
           "id": "FINAL-INTEGRATION",
-          "description": "Single integrated full SDK, both container architectures and complete native/Docker guide gate after the copy/rewrite/compose branches merge.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Final integrated source passes full Rust/Go checks, both Linux container architectures, unchanged affected native/Docker guide blocks and exact derived-object restart/persistence checks.",
+          "result": "PASS",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64",
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
+          ]
         }
       ],
       "test_ids": [
@@ -21094,40 +21386,56 @@
         "compose_source_generation_change_never_deletes_the_replacement",
         "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
         "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication",
-        "TestObjectCompose"
+        "TestObjectCompose",
+        "scripts/smoke-containers.sh:linux/amd64",
+        "scripts/smoke-containers.sh:linux/arm64",
+        "getting-started:copy-rewrite-compose:native",
+        "getting-started:copy-rewrite-compose:docker"
       ],
       "verification": [
         {
-          "command": "cargo test --locked --offline --test object_compose_http",
+          "command": "cargo test --workspace --locked --offline (via just pre-push)",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
-          "test_ids": [
-            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
-            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
-          ]
-        },
-        {
-          "command": "cargo test --locked --offline --test compose_validation --test object_compose_http",
-          "result": "PASS",
-          "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-checks.txt",
           "test_ids": [
             "compose_order_checksums_metadata_fields_and_restart",
             "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
             "compose_strict_admin_can_replace_self_source_and_delete_other_sources",
             "compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions",
             "compose_hold_added_after_streaming_preserves_destination_and_sources",
-            "compose_source_generation_change_never_deletes_the_replacement"
+            "compose_source_generation_change_never_deletes_the_replacement",
+            "compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed",
+            "compose_same_name_noncurrent_source_hold_is_rechecked_before_publication"
           ]
         },
         {
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-containers.txt",
+          "test_ids": [
+            "scripts/smoke-containers.sh:linux/amd64",
+            "scripts/smoke-containers.sh:linux/arm64"
+          ]
+        },
+        {
+          "command": "bash -euxo pipefail (unchanged affected native/Docker getting-started blocks and persistence chain)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/derived-objects-guide.txt",
+          "test_ids": [
+            "getting-started:copy-rewrite-compose:native",
+            "getting-started:copy-rewrite-compose:docker"
           ]
         }
       ],
@@ -21139,17 +21447,17 @@
           "version": "v1.70.0",
           "api_client_version": "v0.308.0",
           "transport": "HTTP JSON; guarded local endpoints; ComposerFrom",
-          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectCompose' bash scripts/sdk-go.sh",
+          "command": "env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/object-compose.md",
+          "artifact": "docs/en/evidence/derived-objects-sdk-go.txt",
           "test_ids": [
             "TestObjectCompose"
           ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "0ceae24905d80df899fe072474109645ebdc8b00",
+      "implemented_in": "285d92f7eec57340c3f4e678761fb118c4d579cf",
       "last_verified": "2026-10-23"
     },
     {

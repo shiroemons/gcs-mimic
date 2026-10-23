@@ -97,9 +97,9 @@ success stub does not complete a workflow.
 | 6 | Bucket metadata PATCH | Declared label merge/removal, default class, versioning/default holds, conditions, strict permission and persistence passed final Rust/Go/container/guide checks on 2026-10-23; both pinned reference backends compared | Delivered: change basic settings without recreating the bucket; JSON-BUCKETS-008 and affected broad behavior rows remain PARTIAL; [final verification](evidence/bucket-metadata-patch.md) |
 | 7 | Bucket metadata PUT | Declared replacement/local defaults, conditions, strict permission and resource preservation passed final Rust/Go/reference/both-architecture container/native/Docker checks on 2026-10-23, including Docker restart equality | Delivered: replace the modeled settings; JSON-BUCKETS-013 remains PARTIAL; [final verification](evidence/bucket-metadata-put.md) includes the verified API client update |
 | 8 | Basic JSON contract | Frozen live-resource profile, documented single conditions/checksums/error envelopes, fields/read ETags and remaining-gap mapping passed final Rust/Go/reference/both-architecture containers and native/Docker guide checks on 2026-10-23 | Delivered: BEHAVIOR-COMMON-007/011 and BEHAVIOR-OBJECT-005 IMPLEMENTED in their declared scope; broad method rows remain PARTIAL; [final verification](evidence/basic-json-contract.md) |
-| 9 | Object copy | Generation-pinned streaming, metadata, strict permissions, atomic conditions, versioning/holds, composites and restart pass Rust/targeted Go checks; [evidence](evidence/object-copy.md); final integration gates pending | Exact frozen copy subset is delivered; behavior awaits integration, method additionally lacks full ACL/owner projection |
-| 10 | Object rewrite | Local code/SDK/restart/retry checks pass; [evidence](evidence/object-rewrite.md) records the remaining integrated gate | One-call and multi-call rewrite delivered; behavior promotion awaits integration and the method remains PARTIAL for full ACL projection |
-| 11 | Object compose | Ordered bounded sources, component/checksum rules and atomic source-deletion semantics pass native/targeted Go checks; integrated final-source gate pending in [compose evidence](evidence/object-compose.md) | Concatenate objects into one destination in the declared local scope |
+| 9 | Object copy | Generation-pinned streaming, metadata, strict permissions, atomic conditions, holds/versioning, composites and restart pass the [final integrated gate](evidence/derived-objects.md) | Delivered: BEHAVIOR-OBJECT-023 IMPLEMENTED/EXACT; JSON-OBJECTS-003 remains PARTIAL for full ACL/owner projection |
+| 10 | Object rewrite | One/multi-call progress, request-bound tokens, atomic destination, retry/restart and pinned Copier pass the [final integrated gate](evidence/derived-objects.md) | Delivered: BEHAVIOR-OBJECT-024 IMPLEMENTED/EXACT; JSON-OBJECTS-012 remains PARTIAL for full ACL/owner projection |
+| 11 | Object compose | Ordered bounded sources, component/CRC32C metadata and atomic source deletion pass the [final integrated gate](evidence/derived-objects.md) | Delivered: JSON-OBJECTS-002 and BEHAVIOR-OBJECT-025/026/027 IMPLEMENTED/EXACT in the declared local scope |
 | 12 | Local HTTPS/TLS | HTTP-only/HTTPS-only modes, supplied certificate/key, bounded handshake, verified client trust, advertised endpoints and native/container/browser checks | Use local HTTPS without disabling certificate or hostname verification |
 | 13 | JSON CORS defaults | Official JSON simple/preflight/default-header rules independent of bucket settings; real-browser JSON CRUD and permission denial | Use basic JSON APIs from a different browser origin before signing |
 | 14 | Bucket/XML CORS | Persistent JSON bucket GET/PATCH/PUT CORS settings; XML GET/HEAD and preflight allow/deny/header rules; real browser and restart | Configure bucket CORS and use existing XML reads from a browser |
@@ -114,9 +114,9 @@ Order 10's declared local implementation is delivered in
 [object rewrite evidence](evidence/object-rewrite.md): request-bound continuation,
 atomic publication, immediate replay, strict grants, process-kill/corruption
 recovery, fixed expiry, bounded sessions and pinned Go Copier. Its
-`FINAL-INTEGRATION` case stays pending until the shared full SDK/container/guide
-gate after copy/rewrite/compose merge; then the frozen behavior scope can reach
-IMPLEMENTED/EXACT. Accepted full projection without ACL/owner semantics keeps
+integrated acceptance passed the [shared final gate](evidence/derived-objects.md),
+closing the frozen behavior scope at IMPLEMENTED/EXACT.
+Accepted full projection without ACL/owner semantics keeps
 the broad method PARTIAL. Provider questions remain in SPEC-REWRITE-EDGES.
 
 Order 8 is closed by the [final basic JSON evidence](evidence/basic-json-contract.md).
@@ -129,12 +129,11 @@ mixed/missing-resource precedence, multipart header and multi-request resumable
 MD5 questions remain open; every original case, deviation and historical
 verification is preserved. Broad API methods remain PARTIAL.
 Order 9 **Object copy** has its [declared local implementation](slices/object-copy.md)
-and [Rust/targeted Go evidence](evidence/object-copy.md). Final-source container,
-full SDK and native/Docker guide gates remain pending; the two broad ledger rows
-stay PARTIAL until that gate; the method additionally lacks full ACL/owner projection.
+and [final evidence](evidence/object-copy.md). Its behavior row is IMPLEMENTED/EXACT;
+the method remains PARTIAL for full ACL/owner projection.
 Provider metadata/error/placement questions remain outside declared local acceptance.
-The next implementation slice is order 10 **Object rewrite**, using the shared
-persistent derived-transfer foundation; compose remains order 11.
+Order 11 compose also passes the shared final gate. The next implementation slice
+is order 12 **Local HTTPS/TLS**, before JSON and bucket/XML CORS.
 Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
 covering the [frozen replacement contract](slices/bucket-metadata-put.md),
 Rust/Go checks, both reference backends and local profiles, both container

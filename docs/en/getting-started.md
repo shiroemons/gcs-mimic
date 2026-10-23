@@ -4,7 +4,8 @@
 
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
-metadata get/patch/update, generation-pinned copy, prefix/delimiter/paged listing, whole-object and single-range download and delete,
+metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,
+prefix/delimiter/paged listing, whole-object and single-range download and delete,
 with a persistent SQLite catalog and disk blobs.
 Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
@@ -348,9 +349,10 @@ curl --disable --noproxy '*' --fail -X DELETE \
 ```
 
 The [copy contract](slices/object-copy.md) lists unsupported ACL/KMS/billing/retention
-semantics and the open body/default/large-object parity questions. The commands above
-await final integrated guide execution; the [recorded wire/Go checks](evidence/object-copy.md)
-cover the same operation independently.
+semantics and the open body/default/large-object parity questions. Copy, one/multi-call
+rewrite and compose blocks pass against the native release and final Docker image;
+the [shared final evidence](evidence/derived-objects.md) also records exact resource/byte
+persistence through restart. These are local builds, not a published-image claim.
 
 ## Rewrite an object and follow continuation tokens
 
