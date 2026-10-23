@@ -119,7 +119,7 @@ fn signing_cli_outputs_a_verified_final_host_url_and_repeated_headers() {
         "--header",
         "x-reviewer:john",
         "--query",
-        "response-content-disposition=attachment; filename=\"é + 100%.csv\"",
+        "response-content-disposition=attachment; filename*=UTF-8''%C3%A9%20%2B%20100%25.csv",
         "--query",
         "response-content-type=text/csv",
     ]);
@@ -130,7 +130,7 @@ fn signing_cli_outputs_a_verified_final_host_url_and_repeated_headers() {
     assert!(text.starts_with("https://localhost:4443/example-bucket/%C3%A9/a%20b?"));
     assert!(text.contains("X-Goog-Expires=900"));
     assert!(text.contains("response-content-type=text%2Fcsv"));
-    assert!(text.contains("filename%3D%22%C3%A9%20%2B%20100%25.csv%22"));
+    assert!(text.contains("filename%2A%3DUTF-8%27%27%25C3%25A9%2520%252B%2520100%2525.csv"));
     let uri: Uri = text.trim().parse().unwrap();
     let mut headers = HeaderMap::new();
     headers.insert("host", "localhost:4443".parse().unwrap());

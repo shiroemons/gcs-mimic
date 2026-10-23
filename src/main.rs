@@ -318,8 +318,8 @@ fn url_sign(args: &[String]) -> Result<String, String> {
             }
             query.push(format!(
                 "{}={}",
-                gcs_mimic::url::encode_object_name(key),
-                gcs_mimic::url::encode_object_name(value)
+                gcs_mimic::auth::signature::encode_query_component(key),
+                gcs_mimic::auth::signature::encode_query_component(value)
             ));
         } else {
             if !matches!(
