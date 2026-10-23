@@ -29,6 +29,8 @@ pub(super) async fn initiate(
     state: &State,
     max: u64,
 ) -> Result<Response<ResponseBody>, JsonError> {
+    let response_fields =
+        json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
     let (mime, expected, total) = resumable::headers(request.headers(), params, max)?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
@@ -62,9 +64,10 @@ pub(super) async fn initiate(
             "Metadata requires application/json",
         ));
     }
-    let (name, options) = resumable::options(
+    let (name, mut options) = resumable::options(
         &bytes, name, mime, expected, params, access, origin, encoding,
     )?;
+    options.response_fields = response_fields;
     let session = state
         .catalog
         .create_resumable_session(bucket, &name, options, total)
@@ -282,6 +285,13 @@ pub(super) async fn session_response(
     };
     let (sender, body) = mpsc::channel(2);
     let base = state.api_base_url.clone();
+    let fields = lease
+        .session
+        .options
+        .response_fields
+        .as_deref()
+        .map(json::Fields::parse_syntax)
+        .transpose()?;
     let projection = if lease.session.options.projection_full {
         json::Projection::Full
     } else {
@@ -290,8 +300,12 @@ pub(super) async fn session_response(
     let upload = state
         .catalog
         .write_resumable_session(lease, chunk, body, permit, move |record| {
-            json::object_resource(record, &base, projection)
-                .map_err(|e| ObjectError::Unavailable(e.to_string()))
+            let mut value = json::object_resource(record, &base, projection)
+                .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
+            if let Some(fields) = &fields {
+                fields.apply(&mut value);
+            }
+            Ok(value)
         });
     let upload = async { upload.await.map_err(JsonError::from) };
     tokio::pin!(upload);

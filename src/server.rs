@@ -3,8 +3,9 @@ use crate::{
     bucket::{BucketAccess, CatalogError},
     clock::Clock,
     config::{CompatProfile, Config},
+    http_conditions::{EtagError, etag_not_modified},
     json::{self, BucketRequest, JsonError, ObjectRequest},
-    object::{ObjectError, UploadChunk},
+    object::{ObjectConditions, ObjectError, UploadChunk},
     storage::Catalog,
     xml,
 };
@@ -379,6 +380,18 @@ async fn object_response(
     deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let max_bytes = config.max_object_bytes;
+    let fields = if matches!(operation, ObjectRequest::Delete { .. }) {
+        json::Fields::from_query(None, "Object")?
+    } else {
+        json::Fields::from_query(
+            request.uri().query(),
+            if matches!(operation, ObjectRequest::List(_)) {
+                "Objects"
+            } else {
+                "Object"
+            },
+        )?
+    };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
@@ -394,6 +407,10 @@ async fn object_response(
     // that decision, and publication enforces it inside the catalog transaction if the name is
     // live, so a concurrent create cannot be overwritten.
     let access = authorize_bucket(state, caller, permission, bucket).await?;
+    json::validate_read_condition_headers(
+        request.headers(),
+        matches!(operation, ObjectRequest::Get { .. }),
+    )?;
     if !matches!(
         operation,
         ObjectRequest::Insert { .. }
@@ -410,7 +427,7 @@ async fn object_response(
             "This method requires an empty body",
         ));
     }
-    let value = match operation {
+    let mut value = match operation {
         ObjectRequest::Resumable {
             bucket,
             name,
@@ -644,17 +661,23 @@ async fn object_response(
             name,
             params,
         } => {
+            // Match failures precede both query and HTTP cache validators on one snapshot.
+            let mixed = request.headers().contains_key("if-match")
+                || request.headers().contains_key("if-none-match");
+            let conditions = if mixed {
+                ObjectConditions {
+                    if_generation_not_match: None,
+                    if_metageneration_not_match: None,
+                    ..params.conditions
+                }
+            } else {
+                params.conditions
+            };
             if params.media {
                 json::validate_object_get_headers(request.headers(), true)?;
                 let (record, mut reader) = state
                     .catalog
-                    .open_object_authorized(
-                        &bucket,
-                        &name,
-                        params.generation,
-                        params.conditions,
-                        &access,
-                    )
+                    .open_object_authorized(&bucket, &name, params.generation, conditions, &access)
                     .await?;
                 let mut headers = json::object_media_headers(&record)?;
                 if reader.publicly_readable {
@@ -675,6 +698,15 @@ async fn object_response(
                     );
                 }
                 json::validate_object_media_encoding(request.headers(), &record)?;
+                if read_etag_not_modified(request.headers(), &json::object_etag(&record))?
+                    || params.conditions.if_generation_not_match == Some(record.generation)
+                    || params.conditions.if_metageneration_not_match == Some(record.metageneration)
+                {
+                    return Ok(boxed(not_modified_response(
+                        &headers["etag"],
+                        &headers["cache-control"],
+                    )));
+                }
                 let range = match json::object_media_range(request.headers(), record.size) {
                     Ok(range) => range,
                     Err(error) => {
@@ -714,15 +746,16 @@ async fn object_response(
             json::validate_object_get_headers(request.headers(), false)?;
             let record = state
                 .catalog
-                .get_object_authorized(
-                    &bucket,
-                    &name,
-                    params.generation,
-                    params.conditions,
-                    &access,
-                )
+                .get_object_authorized(&bucket, &name, params.generation, conditions, &access)
                 .await?;
-            json::object_resource(&record, &state.api_base_url, params.projection)?
+            return Ok(boxed(read_metadata_response(
+                request.headers(),
+                &json::object_etag(&record),
+                json::object_resource(&record, &state.api_base_url, params.projection)?,
+                &fields,
+                params.conditions.if_generation_not_match == Some(record.generation)
+                    || params.conditions.if_metageneration_not_match == Some(record.metageneration),
+            )?));
         }
         ObjectRequest::Delete {
             bucket,
@@ -738,6 +771,7 @@ async fn object_response(
             return Ok(boxed(empty_response(StatusCode::NO_CONTENT)));
         }
     };
+    fields.apply(&mut value);
     Ok(boxed(
         Response::builder()
             .header("content-type", "application/json; charset=UTF-8")
@@ -930,6 +964,13 @@ async fn bucket_response(
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
     };
+    json::validate_read_condition_headers(
+        request.headers(),
+        matches!(
+            operation,
+            BucketRequest::Get { .. } | BucketRequest::GetIam { .. }
+        ),
+    )?;
     if !matches!(
         operation,
         BucketRequest::Insert(_)
@@ -946,8 +987,18 @@ async fn bucket_response(
             "This method requires an empty body",
         ));
     }
+    let fields = if matches!(operation, BucketRequest::Delete { .. }) {
+        json::Fields::from_query(None, "Bucket")?
+    } else {
+        let schema = match operation {
+            BucketRequest::List(_) => "Buckets",
+            BucketRequest::GetIam { .. } | BucketRequest::SetIam { .. } => "Policy",
+            _ => "Bucket",
+        };
+        json::Fields::from_query(request.uri().query(), schema)?
+    };
     let replace = matches!(operation, BucketRequest::Update { .. });
-    let value = match operation {
+    let mut value = match operation {
         BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let update = if replace {
@@ -988,7 +1039,16 @@ async fn bucket_response(
         }
         BucketRequest::GetIam { bucket } => {
             let policy = state.catalog.get_policy(&bucket, &access).await?;
-            json::policy_resource(&policy, &bucket)
+            return read_metadata_response(
+                request.headers(),
+                &format!(
+                    "\"{}\"",
+                    policy.etag.as_deref().expect("stored policy etag")
+                ),
+                json::policy_resource(&policy, &bucket),
+                &fields,
+                false,
+            );
         }
         BucketRequest::SetIam { bucket } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
@@ -1030,15 +1090,26 @@ async fn bucket_response(
             {
                 return Err(CatalogError::PreconditionFailed.into());
             }
-            if conditions.if_metageneration_not_match == Some(record.metageneration) {
+            let query_not_modified =
+                conditions.if_metageneration_not_match == Some(record.metageneration);
+            if query_not_modified
+                && !request.headers().contains_key("if-match")
+                && !request.headers().contains_key("if-none-match")
+            {
                 return Ok(empty_response(StatusCode::NOT_MODIFIED));
             }
-            json::bucket_resource_with_profile(
-                &record,
-                &state.api_base_url,
-                params.projection,
-                profile,
-            )?
+            return read_metadata_response(
+                request.headers(),
+                &json::bucket_etag(&record),
+                json::bucket_resource_with_profile(
+                    &record,
+                    &state.api_base_url,
+                    params.projection,
+                    profile,
+                )?,
+                &fields,
+                query_not_modified,
+            );
         }
         BucketRequest::List(params) => {
             let limit = params.max_results as usize;
@@ -1090,6 +1161,7 @@ async fn bucket_response(
             });
         }
     };
+    fields.apply(&mut value);
     Ok(Response::builder()
         .header("content-type", "application/json; charset=UTF-8")
         .body(Full::new(Bytes::from(value.to_string())))
@@ -1127,6 +1199,47 @@ fn bucket_catalog_error(
         }
     }
     error.into()
+}
+
+fn read_etag_not_modified(headers: &hyper::HeaderMap, etag: &str) -> Result<bool, JsonError> {
+    etag_not_modified(headers, etag).map_err(|error| match error {
+        EtagError::Invalid => JsonError::invalid_parameter("Invalid ETag precondition header"),
+        EtagError::PreconditionFailed => ObjectError::PreconditionFailed.into(),
+    })
+}
+
+fn not_modified_response(
+    etag: &hyper::header::HeaderValue,
+    cache_control: &hyper::header::HeaderValue,
+) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header("etag", etag)
+        .header("cache-control", cache_control)
+        .body(Full::new(Bytes::new()))
+        .unwrap()
+}
+
+fn read_metadata_response(
+    headers: &hyper::HeaderMap,
+    etag: &str,
+    mut value: serde_json::Value,
+    fields: &json::Fields,
+    query_not_modified: bool,
+) -> Result<Response<Full<Bytes>>, JsonError> {
+    if read_etag_not_modified(headers, etag)? || query_not_modified {
+        return Ok(not_modified_response(
+            &etag.parse().unwrap(),
+            &hyper::header::HeaderValue::from_static("no-cache"),
+        ));
+    }
+    fields.apply(&mut value);
+    Ok(Response::builder()
+        .header("content-type", "application/json; charset=UTF-8")
+        .header("etag", etag)
+        .header("cache-control", "no-cache")
+        .body(Full::new(Bytes::from(value.to_string())))
+        .unwrap())
 }
 
 fn empty_response(status: StatusCode) -> Response<Full<Bytes>> {

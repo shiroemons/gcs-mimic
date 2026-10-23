@@ -179,6 +179,7 @@ pub(crate) fn options(
             access,
             origin,
             projection_full: params.projection == Projection::Full,
+            response_fields: None,
         },
     ))
 }

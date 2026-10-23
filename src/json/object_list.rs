@@ -14,8 +14,8 @@ pub struct ObjectListParams {
 
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
+    super::Fields::take(&mut params, "Objects")?;
     for name in [
-        "fields",
         "userProject",
         "key",
         "oauth_token",

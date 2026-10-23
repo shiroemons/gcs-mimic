@@ -414,7 +414,7 @@ pub fn bucket_resource_with_profile(
         "selfLink": format!("{}/storage/v1/b/{}", base_url.trim_end_matches('/'), encode_segment(&bucket.name)),
         "projectNumber": project_number, "metageneration": bucket.metageneration.to_string(),
         "timeCreated": timestamp(bucket.time_created)?, "updated": timestamp(bucket.updated)?,
-        "etag": format!("\"b-{}-{}-{}\"", epoch_millis(bucket.time_created), epoch_millis(bucket.updated), bucket.metageneration),
+        "etag": bucket_etag(bucket),
         "location": bucket.location, "locationType": bucket.location_type, "storageClass": bucket.storage_class,
     });
     if !bucket.labels.is_empty() {
@@ -438,6 +438,15 @@ pub fn bucket_resource_with_profile(
         }
     }
     Ok(value)
+}
+
+pub(crate) fn bucket_etag(bucket: &BucketRecord) -> String {
+    format!(
+        "\"b-{}-{}-{}\"",
+        epoch_millis(bucket.time_created),
+        epoch_millis(bucket.updated),
+        bucket.metageneration
+    )
 }
 
 /// Render one already bounded, sorted catalog page; the caller decides whether a token is due.

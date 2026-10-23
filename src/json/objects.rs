@@ -176,8 +176,14 @@ fn parse_object_query(
     raw: &str,
 ) -> Result<ObjectRequest, JsonError> {
     let mut query = parse_query(raw)?;
+    if method == Method::DELETE {
+        query.remove("fields");
+    } else if query.contains_key("fields") && query.get("alt").is_some_and(|v| v == "media") {
+        return Err(JsonError::unsupported_object("fields with alt=media"));
+    } else {
+        super::Fields::take(&mut query, "Object")?;
+    }
     for key in [
-        "fields",
         "key",
         "oauth_token",
         "quotaUser",
@@ -387,10 +393,7 @@ fn unsupported_headers(headers: &HeaderMap) -> Result<(), JsonError> {
         if name.starts_with("x-goog-encryption-")
             || name.starts_with("x-goog-copy-source-encryption-")
             || name.starts_with("x-goog-meta-")
-            || matches!(
-                name,
-                "x-goog-user-project" | "x-http-method-override" | "if-match" | "if-none-match"
-            )
+            || matches!(name, "x-goog-user-project" | "x-http-method-override")
         {
             return Err(JsonError::unsupported_object(name));
         }
@@ -404,6 +407,7 @@ pub fn parse_object_upload_headers(
     conditions: ObjectConditions,
 ) -> Result<(String, ExpectedHashes), JsonError> {
     unsupported_headers(headers)?;
+    validate_read_condition_headers(headers, false)?;
     // shortcut: tokens rely on generation checks; add response replay for strict retry fidelity.
     if headers.contains_key("x-goog-gcs-idempotency-token")
         && conditions.if_generation_match.is_none()
@@ -478,12 +482,37 @@ pub fn parse_object_upload_headers(
     Ok((content_type.to_owned(), hashes))
 }
 
-/// Reject unsupported conditional/encryption headers explicitly.
+/// Reject unsupported encryption and range-validator headers explicitly.
 // shortcut: GET/DELETE tokens do not deduplicate retries; add replay storage for strict retry fidelity.
 pub fn validate_object_get_headers(headers: &HeaderMap, media: bool) -> Result<(), JsonError> {
     unsupported_headers(headers)?;
     if media && headers.contains_key("if-range") {
         return Err(JsonError::unsupported_object("If-Range"));
+    }
+    Ok(())
+}
+
+/// Keep unsupported conditional headers explicit on routes without validators.
+pub(crate) fn validate_read_condition_headers(
+    headers: &HeaderMap,
+    etags_supported: bool,
+) -> Result<(), JsonError> {
+    if etags_supported {
+        for name in ["if-range", "if-modified-since", "if-unmodified-since"] {
+            if (name == "if-modified-since" && headers.contains_key("if-none-match"))
+                || (name == "if-unmodified-since" && headers.contains_key("if-match"))
+            {
+                continue;
+            }
+            if headers.contains_key(name) {
+                return Err(JsonError::unsupported_object(name));
+            }
+        }
+    }
+    for name in ["if-match", "if-none-match"] {
+        if headers.contains_key(name) && !etags_supported {
+            return Err(JsonError::unsupported_object(name));
+        }
     }
     Ok(())
 }
@@ -579,7 +608,7 @@ pub fn object_resource(
         "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
         "storageClass": object.storage_class,
         "size": object.size.to_string(), "md5Hash": base64(&object.md5),
-        "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": etag(object),
+        "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": object_etag(object),
         "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
         "timeFinalized": timestamp(object.time_created)?,
         "timeStorageClassUpdated": timestamp(object.time_created)?,
@@ -643,7 +672,7 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
                 .clone()
                 .unwrap_or_else(|| "identity".into()),
         ),
-        ("etag", etag(object)),
+        ("etag", object_etag(object)),
     ] {
         headers.insert(
             key,
@@ -753,7 +782,7 @@ pub fn validate_object_media_encoding(
     }
 }
 
-fn etag(object: &ObjectRecord) -> String {
+pub(crate) fn object_etag(object: &ObjectRecord) -> String {
     format!(
         "\"o-{}-{}-{}\"",
         base64(&object.md5),

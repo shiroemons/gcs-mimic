@@ -317,6 +317,55 @@ docker run --rm --read-only --network "${COMPOSE_PROJECT_NAME}_default" "$peer_i
   --disable --noproxy '*' --fail -X DELETE 'http://gcs:4443/storage/v1/b/demo-bucket/o/peer%2Fhello.txt'
 ```
 
+## Select response fields and validate cached reads
+
+Select from supported JSON response fields with comma lists, slash paths or
+parentheses. Selection changes the response, preserving the complete stored
+resource and its HTTP validator. Empty/whitespace selectors, wildcard children
+and `fields` with `alt=media` return 501; unknown fields return 400. The
+[fields contract](slices/json-response-fields.md) records the local limits.
+
+```sh
+curl --disable --noproxy '*' --fail --get \
+  --data-urlencode 'fields=name,size' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '. == {name:"notes/hello.txt",size:"22"}' "$work_dir/selected.json"
+curl --disable --noproxy '*' --fail --get \
+  --data-urlencode 'fields=items(name),nextPageToken' --data-urlencode 'maxResults=1' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk 'tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '%{http_code}' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '*' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '%{http_code}' \
+  -H 'If-Match: "stale"' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '.error.code == 412 and .error.errors[0].reason == "conditionNotMet"' \
+  "$work_dir/stale-etag.json"
+```
+
+Use the response `ETag` header, including its quotes. Object metadata/media GET
+and bucket/policy GET support these validators; the legacy-emulator bucket JSON `etag`
+field can differ from its record-derived HTTP header. A metadata update or
+overwrite changes the validator. If-Match uses strong comparison, If-None-Match
+uses weak comparison, and conditions precede Range. Generation/metageneration
+query conditions can combine with either header: Match query-condition or
+If-Match failures return 412 before NotMatch query-condition or If-None-Match
+304 responses. Write/list validators return 501.
+Standalone date validators and If-Range also return 501; If-Modified-Since is
+ignored with If-None-Match, and If-Unmodified-Since is ignored with If-Match.
+See the [read validator contract](slices/json-read-etag-validators.md).
+
 ## Upload metadata and media in one multipart request
 
 Write a `multipart/related` body with CRLF delimiters, JSON metadata first and media

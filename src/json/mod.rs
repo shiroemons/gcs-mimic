@@ -11,6 +11,7 @@
 mod body;
 mod buckets;
 mod error;
+mod fields;
 mod iam;
 mod multipart;
 mod object_list;
@@ -22,13 +23,14 @@ pub(crate) mod resumable;
 pub mod resumable_cancel;
 
 pub use body::read_body;
+pub(crate) use buckets::{bucket_etag, timestamp, validate_bucket_name_for_profile};
 pub use buckets::{
     bucket_list, bucket_list_with_profile, bucket_resource, bucket_resource_with_profile,
     parse_bucket_patch, parse_bucket_replacement, parse_insert, parse_insert_with_profile,
     validate_bucket_name,
 };
-pub(crate) use buckets::{timestamp, validate_bucket_name_for_profile};
 pub use error::JsonError;
+pub use fields::Fields;
 pub(crate) use iam::policy_etag;
 pub use iam::{parse_policy, policy_resource};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
@@ -39,6 +41,7 @@ pub use objects::{
     object_resource, parse_object_upload_headers, route_object, route_object_with_profile,
     validate_object_get_headers, validate_object_media_encoding, validate_object_name,
 };
+pub(crate) use objects::{object_etag, validate_read_condition_headers};
 pub use page_token::{decode_page_token, encode_page_token};
 pub use query::{
     BucketRequest, Conditions, GetParams, InsertParams, ListParams, Projection, route,

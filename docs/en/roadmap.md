@@ -110,11 +110,17 @@ success stub does not complete a workflow.
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
-The next implementation slice is **Basic JSON contract** within order 8:
-freeze the basic local profile, implement supported response field selection
-and read ETag validators as separate small slices, and close named conditions,
-checksums and error gaps before copy/rewrite/compose. Keep existing broad cases
-and provider questions visible.
+Order 8 has delivered supported response field selection and JSON read ETag
+validators, with combined fields/condition ordering, pinned Go, both-architecture
+containers and native/Compose guide evidence in the
+[final verification](evidence/basic-json-fields-etag.md).
+The next implementation slice remains **Basic JSON contract** within order 8:
+freeze the complete basic local profile and reconcile the existing atomic
+generation/metageneration, supplied MD5/CRC32C rejection and error-order cases
+against SPEC-008, SPEC-009, SPEC-011 and SPEC-012. Map each remaining basic
+condition/checksum/error gap to a verified case or explicit deferred scope before
+copy/rewrite/compose. Completion conditions 1, 3 and 4 remain open; delivery of
+fields and read validators does not close the whole gate.
 Order 7 is closed by the [final PUT evidence](evidence/bucket-metadata-put.md),
 covering the [frozen replacement contract](slices/bucket-metadata-put.md),
 Rust/Go checks, both reference backends and local profiles, both container
@@ -191,8 +197,11 @@ general XML writes remain outside this scoped delivery. A preflight success
 does not prove an XML upload works; real signed PUT transfers are checked after
 the XML-write/signing slice exists, in the later signed-browser gate.
 
-The basic-contract deliverable adds response `fields` selection over supported
-resources, then read ETag validators, as separate small slices. Copy, rewrite and
+The basic-contract deliverable now includes response `fields` selection over
+supported resources and JSON read ETag validators, including policy GET and
+combined query conditions. The two documented behavior scopes are IMPLEMENTED
+with unchanged EXACT targets. Undocumented edges and provider wire questions
+remain on named gaps and PARTIAL method rows. Copy, rewrite and
 compose each have separate completion conditions, including failure preservation
 and source/destination races. Rewrite must exercise continuation; an immediate
 copy stub is insufficient. PATCH and PUT require distinct merge/replacement

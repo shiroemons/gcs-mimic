@@ -1135,7 +1135,7 @@ fn bucket_metadata_conditions(method: &str) {
             "predefinedDefaultObjectAcl=private",
             "userProject=project",
             "predefinedAcl=",
-            "fields=name",
+            "fields=",
         ] {
             server
                 .request(
@@ -2688,7 +2688,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         assert_eq!(reply.status, 400, "{query}: {}", reply.body);
     }
     for query in [
-        "fields=name",
+        "fields=",
         "softDeleted=true",
         "returnPartialSuccess=true",
         "userProject=x",

@@ -331,29 +331,38 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     let existing = server.upload("name=existing", "", b"old");
     assert_eq!(existing.status, 200);
     let generation = existing.json()["generation"].as_str().unwrap().to_owned();
-    for header in [
-        "If-Match: opaque\r\n",
-        "If-None-Match: *\r\n",
-        "X-Goog-Encryption-Key: key\r\n",
-        "X-Goog-Meta-Example: value\r\n",
+    for (header, read_status, read_reason) in [
+        ("If-Match: opaque\r\n", 400, "invalidParameter"),
+        ("If-None-Match: *\r\n", 304, "notModified"),
+        ("X-Goog-Encryption-Key: key\r\n", 501, "notImplemented"),
+        ("X-Goog-Meta-Example: value\r\n", 501, "notImplemented"),
     ] {
         server
             .upload("name=existing", header, b"new")
             .error(501, "notImplemented");
         server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=existing HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{header}\r\n").as_bytes()).error(501, "notImplemented");
-        for method in ["GET", "DELETE"] {
-            server
-                .request(method, "/storage/v1/b/test-bucket/o/existing", header, b"")
-                .error(501, "notImplemented");
-        }
         server
             .request(
-                "GET",
-                "/storage/v1/b/test-bucket/o/existing?alt=media",
+                "DELETE",
+                "/storage/v1/b/test-bucket/o/existing",
                 header,
                 b"",
             )
             .error(501, "notImplemented");
+        for query in ["", "?alt=media"] {
+            let reply = server.request(
+                "GET",
+                &format!("/storage/v1/b/test-bucket/o/existing{query}"),
+                header,
+                b"",
+            );
+            if read_status == 304 {
+                assert_eq!(reply.status, 304);
+                assert!(reply.body.is_empty());
+            } else {
+                reply.error(read_status, read_reason);
+            }
+        }
     }
     server
         .request(
@@ -364,7 +373,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "If-Match: \"x\"\r\n",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(412, "conditionNotMet");
     server
         .request(
             "GET",

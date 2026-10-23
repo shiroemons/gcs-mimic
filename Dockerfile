@@ -5,6 +5,7 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY xtask/Cargo.toml ./xtask/Cargo.toml
 COPY xtask/src ./xtask/src
 COPY src ./src
+COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
 COPY LICENSE-MIT LICENSE-APACHE ./
 COPY distribution/notices ./distribution/notices
 RUN cargo fetch --locked \

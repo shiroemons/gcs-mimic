@@ -562,7 +562,7 @@ fn iam_rejects_queries_paths_and_bodies() {
             .error(400, "invalidParameter");
     }
     for method in ["GET", "PUT"] {
-        for query in ["userProject=project-a", "userProject=", "fields=etag"] {
+        for query in ["userProject=project-a", "userProject=", "fields="] {
             server
                 .request(method, &format!("{IAM}?{query}"), ADMIN, b"")
                 .error(501, "notImplemented");
