@@ -36,7 +36,10 @@ pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReade
 
 #[path = "derived.rs"]
 mod derived;
-pub use derived::{DerivedDestination, DerivedSegment, DerivedSource, DerivedTransfer};
+pub use derived::{
+    DerivedDestination, DerivedRequestGuard, DerivedSegment, DerivedSource, DerivedSourceSpec,
+    DerivedTransfer,
+};
 
 #[path = "policies.rs"]
 mod policies;
@@ -189,6 +192,7 @@ struct Inner {
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
+    derived_wake: Notify,
     maintenance_wake: Arc<Notify>,
     maintenance_error: Mutex<Option<String>>,
     maintenance_started: AtomicBool,
@@ -357,8 +361,9 @@ impl Catalog {
                 transaction.execute_batch(derived::SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
-            resumable_maintenance::recover_due(&connection, &data_dir, unix_millis(clock.now())?)?;
-            objects::recover(&connection, &data_dir)?;
+            let recovery_now = unix_millis(clock.now())?;
+            resumable_maintenance::recover_due(&connection, &data_dir, recovery_now)?;
+            objects::recover(&connection, &data_dir, recovery_now)?;
             Ok(Self(Arc::new(Inner {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
@@ -367,6 +372,7 @@ impl Catalog {
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
+                derived_wake: Notify::new(),
                 maintenance_wake: Arc::new(Notify::new()),
                 maintenance_error: Mutex::new(None),
                 maintenance_started: AtomicBool::new(false),

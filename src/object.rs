@@ -25,6 +25,7 @@ pub struct ObjectRecord {
     pub size: u64,
     pub md5: [u8; 16],
     pub crc32c: u32,
+    pub component_count: Option<i64>,
     pub storage_class: String,
     /// Millisecond precision, matching bucket timestamps.
     pub time_created: SystemTime,
@@ -133,6 +134,11 @@ pub enum ObjectError {
     ChecksumMismatch,
     TooLarge,
     InvalidMetadata,
+    InvalidDerivedArgument(String),
+    DerivedTransferNotFound,
+    DerivedTransferExpired,
+    DerivedTransferBusy,
+    DerivedTransferIncomplete,
     UnsupportedMetadata(String),
     /// The request body ended early or failed while streaming.
     BodyAborted(String),
@@ -152,6 +158,13 @@ impl fmt::Display for ObjectError {
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),
             Self::TooLarge => formatter.write_str("object too large"),
             Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
+            Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
+            Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),
+            Self::DerivedTransferExpired => formatter.write_str("derived transfer expired"),
+            Self::DerivedTransferBusy => formatter.write_str("derived transfer is already in use"),
+            Self::DerivedTransferIncomplete => {
+                formatter.write_str("derived transfer is incomplete")
+            }
             Self::UnsupportedMetadata(field) => {
                 write!(formatter, "unsupported metadata change: {field}")
             }

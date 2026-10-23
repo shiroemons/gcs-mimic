@@ -119,6 +119,9 @@ impl Drop for WriterGuard {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&self.id);
+        if self.id.starts_with("derived:") {
+            self.catalog.0.derived_wake.notify_waiters();
+        }
     }
 }
 impl SessionLease {
