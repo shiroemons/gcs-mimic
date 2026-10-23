@@ -21,6 +21,14 @@ layout or replacing the metadata engine. The contract is in
 Do not introduce a generic backend framework before a concrete second runtime
 backend needs one.
 
+Replacement also requires bidirectional synchronization with an inspectable
+bucket/object directory. One-time import alone is insufficient. SQLite can
+remain the index/catalog while a visible working tree feeds safe ingestion and
+reflects API mutations. This synchronization is not implemented; conflict and
+name-mapping decisions remain open. The
+[filesystem investigation](fake-gcs-server-storage.md) records source behavior,
+executed macOS edit/reseed cases and the required follow-up.
+
 ## Selection criteria
 
 Evaluate every candidate against the same requirements:
@@ -189,7 +197,7 @@ separately. No new dependency or default change is authorized by this report.
 
 ## Sources consulted
 
-The comparison versions remain identified in the existing README comparison.
+The comparison versions are identified in the [detailed comparison](feature-comparison.md).
 
 | Source | Material |
 | --- | --- |

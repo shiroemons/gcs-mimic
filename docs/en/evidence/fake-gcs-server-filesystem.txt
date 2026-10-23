@@ -1,0 +1,60 @@
+Target: fake-gcs-server v1.56.1
+Revision: 896ece51e49eed0946089f3089f6343855c0d106
+Verified: 2026-10-24 Asia/Tokyo
+Platform: macOS ARM64; filesystem backend with user.metadata xattrs
+Source archive SHA-256: 13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc
+Build: GOTOOLCHAIN=go1.27.3 go build -mod=readonly -o reference-emulator .
+Execution: an ad hoc Node.js assert probe launched the pinned binary on an
+isolated loopback port, with separate temporary seed/storage directories.
+The temporary probe is not a retained project test. Its actions and expected
+results are described in docs/en/fake-gcs-server-storage.md.
+No Google Cloud resources, credentials or Pub/Sub configuration were used.
+The probe stopped its child servers and removed its fixture directories.
+
+Final probe output (exit 0):
+PASS: nested seed tree and empty second bucket loaded
+PASS: runtime object uses nested real path; seed and persistence are separate
+PASS: additional bucket created through API
+PASS: API upload writes bucket/object real file
+PASS: seed edit is not watched during runtime
+PASS: in-place body edit changes GET and size, but leaves hashes and generation stale
+PASS: macOS persistence uses user.metadata xattr
+PASS: atomic editor-style replacement loses xattr and GET returns 404
+PASS: metadata-free file is not a valid object; listing returns 404
+PASS: bucket CORS PATCH ignored; global wildcard CORS applies to both buckets
+PASS: filesystem reseed overwrites seed-named object, retains unrelated API object
+PASS: restart with seed replays fixture over API mutation
+PASS: direct runtime-file deletion is visible without a watcher
+
+Inspected source SHA-256:
+5517104974a0834c033cd0404562b77cc6673b4d14d295c5178757dbd8687a67  internal/config/config.go
+abe448cd575fbc5687a2527031c3b72fc1ff4b109b12333d1b1d031ab533c005  fakestorage/server.go
+10ce9467ad92381b8a84627d84b4dbf6cdcbae82dcb10ae8b0f48bd3cf0b29e6  internal/backend/fs.go
+e67dc29a29ae7c5119f8e22f6d0ae383a1422700b6261fad24501c1f6f771a4a  internal/backend/metadata_file.go
+80a4e03ae452dbe17582fc1ff411c8fd0b0d7a166e7c9aff3237c90e3dd71d91  internal/backend/metadata_xattr.go
+68bf94072325308a84074b1bd89270b7f93a86f672b49bb492fc52e2b31cfbe7  internal/backend/writefile_unix.go
+d466e797aa68c85d76d5125064782389afc944387d9156b2e49291f801c1d5b1  internal/backend/memory.go
+012ec26e09ad7610dc258e1cff6e54da8d794211269c748cdd8c64130815c890  Dockerfile
+
+Not executed: upstream test suite, memory/sidecar runtime branches, Linux/Windows,
+Docker, power-loss or concurrent-editor tests. No performance claim is made.
+
+Related gcs-mimic checks on the final documentation change:
+cargo +1.99.1 test --locked --offline --test bucket_http bucket_cors_
+PASS: 4 tests; 0 failed.
+cargo +1.99.1 test --locked --offline --test auth_http cors
+PASS: 8 tests; 0 failed.
+cargo +1.99.1 test --locked --offline --test bucket_http bkt_http_sorted_scoped_pagination_and_limits
+PASS: 1 test; 0 failed.
+cargo +1.99.1 xtask compatibility check
+PASS: 591 feature rows; generated views match.
+JSON Schema validation with jsonschema:
+PASS: ledger conforms; all 591 feature records unchanged from HEAD.
+markdownlint-cli2 0.24.0:
+PASS: README and six affected documentation files; 0 issues.
+Relative documentation links:
+PASS: 154 local file targets resolved before the final comparison edits.
+docker compose config --quiet
+PASS: configuration resolves. Container startup/build was not rerun.
+git diff --check
+PASS.

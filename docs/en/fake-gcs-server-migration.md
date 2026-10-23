@@ -4,23 +4,24 @@
 
 ## Goal and current state
 
-The product goal is a complete behavioral superset of fake-gcs-server after the
-documented environment-name change and data conversion. Existing applications
-and tests should keep working while gcs-mimic adds stricter
-Google-contract validation, broader capabilities and measured resource controls.
+The migration goal is to preserve existing application workflows while adding
+stricter Google-contract validation, broader capabilities and resource controls.
+CLI spelling, configuration structure and internal storage need not be identical
+to fake-gcs-server. Document equivalent uses and explicit differences; the broader
+full-superset gate below tracks remaining functional coverage.
 This is a target, not a current compatibility claim. Migration importers,
-equivalent renamed settings, a Go compatibility package and the compatibility
-profile described here are not implemented.
+Go embedding and source-only startup settings remain unavailable.
+The existing `legacy-emulator` profile covers a limited bucket contract; it does
+not implement the complete migration profile described here.
 
-Native gcs-mimic now serves the [path-style XML object GET/HEAD subset](slices/public-object-reads.md),
-including public `allUsers` and registered-only `allAuthenticatedUsers` bucket
-grants in strict mode. Its URL helper only constructs an encoded address;
-the policy determines access. This does not yet replace fake-gcs-server's
-virtual-host routing, broader XML reads/writes/listing, permissive signed URLs
-or full public-host configuration. ACL and UBLA/PAP state machines remain
-unavailable; do not infer migration parity from a successful public download.
+gcs-mimic serves path-style and opt-in virtual-host XML GET/HEAD/PUT, strict
+V4 RSA signed transfers and scoped public access prevention, with
+[recorded evidence](evidence/signed-urls.md). URL construction and authorization
+remain separate. Broader XML/listing, ACLs, UBLA transitions, permissive legacy
+signing and complete endpoint/configuration equivalence remain gaps.
 
-The first reference is the fake-gcs-server release in the README comparison.
+The first reference is the fake-gcs-server release in the
+[detailed comparison](feature-comparison.md).
 Record its complete surface before implementation and add later releases as
 explicit baselines. Do not present one release's passing tests as proof about
 all versions. No baseline
@@ -53,7 +54,7 @@ with no skipped profile. The reference is release `v1.56.1`, commit
 | Create by name | Source-valid names, omitted project, duplicates and failed-state preservation pass; both settings persist and affect HTTP object mutations | Native requires project/Google-oriented names. Profile retains strict project ownership, input bounds and 501 for unsupported protection; fs reference rejects versioning true |
 | Basic resource | Create/GET match in every target; profile emits both booleans and source US-CENTRAL1/project/ETag defaults; list items match profile GET; restart/migration and strict permissions pass | Millisecond timestamps, local parser messages, native list scoping/paging, 666-byte profile name cap and unsupported trailing collection slash |
 | Empty deletion | Profile returns exact 200 JSON null/newline and nonempty 412; native returns 204/409. Repeat/missing, recreate, protected histories and preserved object bytes pass | Atomic/history-aware delete and enforced holds intentionally exceed source live-only/no-hold behavior |
-| Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Bucket settings PATCH/PUT, propagation/provider edge parity, temporary holds, retention and soft delete remain pending |
+| Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Propagation/provider edge parity, temporary holds, retention and soft delete remain pending; supported PATCH/PUT settings are now delivered |
 
 Source identities inspected at that revision are unchanged:
 
@@ -73,8 +74,9 @@ googleapis definitions remain the contract authority.
 
 The three broad JSON bucket rows remain PARTIAL with their original policy,
 ACL/owner and advanced cases. Versioning/default-hold behavior rows also remain
-PARTIAL because changing bucket settings and unresolved provider interactions are
-still open. The next slice is bucket metadata PATCH for labels/default class.
+PARTIAL for unresolved provider interactions. Supported setting updates are now
+delivered through [PATCH](evidence/bucket-metadata-patch.md) and
+[PUT](evidence/bucket-metadata-put.md); this does not complete the broad methods.
 All other source surfaces, configuration flags, helpers/events, Go embedding,
 legacy gRPC and lossless import/export remain required by the full-superset
 gate below; this delivery does not remove them.
@@ -88,7 +90,7 @@ executable contract; these examples are not the entire inventory.
 
 | Surface | Observed source behavior | Required migration result |
 | --- | --- | --- |
-| Startup | Flags and `FAKE_GCS_*` environment variables; flags take precedence | Rename the prefix to `GCS_MIMIC_*`; preserve setting semantics and CLI precedence without reading legacy keys |
+| Startup | Flags and `FAKE_GCS_*` environment variables; flags take precedence | Provide documented equivalent uses with native `GCS_MIMIC_*` settings; identical option names are not required |
 | Listener/TLS | HTTPS by default; HTTP and dual-listener modes, certificate settings | Existing scheme/ports/trust configuration continue to work |
 | Endpoints | Public/virtual-host and API routes, external upload URLs and mutable internal configuration | Preserve client-visible host/path/query behavior; map advertised addresses explicitly |
 | HTTP semantics | JSON/XML, uploads, ranges, conditions, metadata, ACLs, batching and error shapes | Run the same client scenarios and negative cases against both implementations |
@@ -106,58 +108,88 @@ data conversion are deployment steps, which must be documented and tested.
 Do not claim literal in-process Go library replacement merely because equivalent
 HTTP operations exist.
 
-### Environment-name migration
+## Startup options and current equivalents
 
-Use `GCS_MIMIC_` in place of `FAKE_GCS_`, retaining the suffix, value meaning and
-CLI-over-environment precedence for the migration settings. Do not accept
-`FAKE_GCS_*` as aliases, fallback values or a trigger for compatibility mode.
-If supplied, fail with a key-renaming diagnostic rather than silently applying
-the old value or starting with unexpected defaults. These mappings are planned;
-the current binary does not implement the complete settings below.
+The [complete environment reference](fake-gcs-server-configuration.md) lists all
+19 source variables, defaults, CLI precedence and current native mappings.
+Source variables are not accepted aliases in the current gcs-mimic binary.
 
-| Source key | Target key | Preserved meaning |
+These are role mappings, not accepted aliases. gcs-mimic uses `serve --name VALUE`
+and native `GCS_MIMIC_*` environment variables. Do not copy a source command and
+assume that changing the image name is sufficient.
+
+| fake-gcs-server option | Current gcs-mimic setting | Difference |
 | --- | --- | --- |
-| `FAKE_GCS_SCHEME` | `GCS_MIMIC_SCHEME` | HTTP, HTTPS or both in the selected compatibility profile |
-| `FAKE_GCS_HOST` | `GCS_MIMIC_HOST` | Listener host |
-| `FAKE_GCS_PORT` | `GCS_MIMIC_PORT` | Server listener port in direct-server configuration |
-| `FAKE_GCS_PORT_HTTP` | `GCS_MIMIC_PORT_HTTP` | HTTP listener port in dual-listener mode |
-| `FAKE_GCS_DATA` | `GCS_MIMIC_DATA` | Seed input, equivalent to native `GCS_MIMIC_SEED_DIR` when its format/profile matches |
-| `FAKE_GCS_FILESYSTEM_ROOT` | `GCS_MIMIC_FILESYSTEM_ROOT` | Persistent storage location, with explicit conversion for an existing legacy root |
-| `FAKE_GCS_BACKEND` | `GCS_MIMIC_BACKEND` | Persistent versus ephemeral backend behavior |
-| `FAKE_GCS_EXTERNAL_URL` | `GCS_MIMIC_EXTERNAL_URL` | Advertised external API/upload endpoint |
-| `FAKE_GCS_PUBLIC_HOST` | `GCS_MIMIC_PUBLIC_HOST` | Accepted public host/port |
-| `FAKE_GCS_CORS_HEADERS` | `GCS_MIMIC_CORS_HEADERS` | Source-compatible response-header configuration |
-| `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | `GCS_MIMIC_EVENT_PUBSUB_PROJECT_ID` | Event project |
-| `FAKE_GCS_EVENT_PUBSUB_TOPIC` | `GCS_MIMIC_EVENT_PUBSUB_TOPIC` | Event topic |
-| `FAKE_GCS_EVENT_BUCKET` | `GCS_MIMIC_EVENT_BUCKET` | Event bucket filter |
-| `FAKE_GCS_EVENT_OBJECT_PREFIX` | `GCS_MIMIC_EVENT_OBJECT_PREFIX` | Event object-prefix filter |
-| `FAKE_GCS_EVENT_LIST` | `GCS_MIMIC_EVENT_LIST` | Selected event types |
-| `FAKE_GCS_LOCATION` | `GCS_MIMIC_LOCATION` | Default location |
-| `FAKE_GCS_CERT_LOCATION` | `GCS_MIMIC_CERT_LOCATION` | TLS certificate input |
-| `FAKE_GCS_PRIVATE_KEY_LOCATION` | `GCS_MIMIC_PRIVATE_KEY_LOCATION` | TLS private-key input |
-| `FAKE_GCS_LOG_LEVEL` | `GCS_MIMIC_LOG_LEVEL` | Log level |
+| `-scheme http` / `https` | `--scheme`, `GCS_MIMIC_SCHEME` | One listener; `both` is unavailable |
+| `-host`, `-port` | `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | Combined listener setting; container port publication remains separate |
+| `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
+| `-public-host` | `url public --base-url` and `--xml-virtual-host-domains` | Separate URL construction and virtual-host routing; no single public-host option or equivalent path-style Host filter |
+| `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR` | Initial import into a fresh catalog, not startup replay or live synchronization |
+| `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
+| `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
+| `-cors-headers` | Bucket `cors` through the JSON API | Source setting extends globally allowed request headers; gcs-mimic XML rules are per bucket, JSON defaults are fixed |
+| `-backend memory` | None | Current backend is persistent SQLite metadata plus files |
 
-Verify this inventory against the source before implementing it; later releases
-may add settings.
-Do not map seed `DATA` to native `DATA_DIR`: the latter is durable destination
-storage. Existing `LISTEN`, `SEED_DIR`, `DATA_DIR` and `API_BASE_URL` retain their
-native meanings. Specify field-level conflict handling when a renamed setting
-and its native equivalent are both supplied: CLI wins over environment, while
-contradictory values at the same precedence level fail instead of depending on
-map iteration order. Renaming must not enable unsupported semantics silently.
+The source's `-public-host` controls public URL construction and Host matching
+on relevant public routes; it does not select the listener. A configured port
+participates in its matching. `-external-url` separately controls API-generated
+URLs. Native virtual-host domains are DNS suffixes without a port; the actual
+request authority still includes the port for strict signature checks.
+Neither product's public-host/URL setting grants bucket permissions.
 
-`GCS_MIMIC_PORT` already controls the host-published port in `compose.yaml`;
-that Compose variable is not currently forwarded as a server listener setting.
-Keep host port publication and the container listener distinct when adding the
-renamed settings, including a published port of zero. Verify direct-server and
-Compose use independently. The compatibility profile supplies source defaults;
-it must not silently change the current native profile's defaults.
+For example, native `url public --base-url http://localhost:4443 --bucket assets
+--object hello.txt` generates a path-style URL. For `assets.storage.test`, enable
+`--xml-virtual-host-domains storage.test` and arrange client DNS. HTTPS also needs
+a matching certificate. Neither action changes IAM or makes a private object
+public. Sign the final recipient-visible URL; strict signatures cannot survive
+arbitrary host rewrites.
+
+Source: pinned [configuration](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/config/config.go)
+and [routes and URL helpers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go).
+The table is not a complete flag inventory; event, logging, dual-listener and
+other source-only settings still need individually scoped decisions.
+
+Use native names where they already express the intended role. Retaining every
+source suffix or adding aliases is not required. Keep CLI > environment > server
+JSON > default precedence. If aliases are added later, reject contradictory
+values at the same precedence rather than depending on iteration order.
+Legacy `FAKE_GCS_*` keys must not become implicit compatibility-mode switches;
+the planned diagnostic for them is not implemented.
+
+`GCS_MIMIC_PORT` in the repository's source-build Compose file controls host
+publication only. It is not a native server option. Seed input, durable storage,
+listener addresses and advertised URLs must retain their distinct meanings.
+
+## Configuration compatibility and extensions
+
+Keep server-wide settings in CLI options, environment variables or the existing
+server JSON file. Store CORS, IAM, labels and supported versioning settings per
+bucket through the shared bucket API and catalog. Do not create per-bucket
+environment-variable suffixes or overload a global public-host setting with
+bucket permissions or CORS.
+
+The agreed extension is an initialization file listing multiple buckets and
+their individual settings, with later API updates. On startup, create only
+missing buckets. Existing bucket settings and objects survive unchanged, even
+when the file differs; removing an entry does not delete its bucket. This keeps
+restart from undoing API changes. Changing an existing bucket remains an API
+operation. This initializer is not implemented; the file syntax and CLI entry
+point are still to be designed.
+
+The initializer must use the same field validation, authorization, persistence
+and unsupported-setting errors as the bucket API. Validate the whole file before
+mutations, reject duplicate names, and verify retry behavior after interruption.
+Two buckets with different CORS/versioning rules must stay independent after
+API changes and restart. Do not claim that accepting a field implements its
+behavior. The planning record is
+`delivery_plan.migration.configuration_contract` in the feature ledger.
 
 ## Profiles and conflicting behavior
 
 Keep Google-contract/strict behavior and legacy emulator compatibility distinct.
-The working name `fake-gcs-server compatibility profile` is a design label, not
-an accepted CLI option. Freeze its activation and configuration with its slice.
+The accepted option `--compat-profile legacy-emulator` implements the limited
+bucket baseline above. The broader `fake-gcs-server compatibility profile`
+remains a design target; freeze additional behavior with each affected slice.
 The existing `auth_mode=permissive` is not already a complete legacy profile.
 
 - A compatibility corpus reproduces the pinned emulator's observable contract,
@@ -175,6 +207,22 @@ Record contract conflicts and their profile-specific expectations. Passing a
 legacy case is not Google `EXACT` fidelity. New strict restrictions cannot be
 silently imposed on applications selecting the legacy contract. An unresolved
 required conflict blocks the full compatibility claim.
+
+## Editable directory requirement
+
+Replacement also requires a visible bucket/object directory with bidirectional
+synchronization: external additions, changes and deletions reach the API, and API
+mutations appear in that directory. This is not implemented. Native seed import
+and the planned one-time source converter do not satisfy this requirement.
+
+SQLite may remain the metadata/index catalog. A synchronized working tree can
+feed the existing bounded publication engine while preserving immutable internal
+blobs. Conflict behavior, synchronization delay and unusual-name representation
+must be settled before implementation. The planning contract is
+`delivery_plan.migration.filesystem_sync_contract` in the feature ledger.
+See the [source investigation and executed file-edit cases](fake-gcs-server-storage.md).
+Safe reconciliation must update hashes and generations; copying the source's
+stale-metadata behavior is not a sufficient editing contract.
 
 ## Data movement without coupling internal formats
 
@@ -269,6 +317,10 @@ release claim only after the complete pinned baseline and preserved-data checks
 pass. Additional APIs, strict authorization and resource/performance results are
 reported separately with their own evidence. New upstream releases expand the
 baseline explicitly rather than silently changing the denominator.
+
+Product **1.0.0** additionally requires the fixed extension scopes and stable
+public contract in the [release policy](release-policy.md#the-100-gate).
+Earlier useful increments ship as `0.x` releases without a full-superset claim.
 
 ## Sources consulted
 

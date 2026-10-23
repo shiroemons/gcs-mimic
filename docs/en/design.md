@@ -11,12 +11,18 @@ P0 implements the bounded HTTP/1 runtime, configuration, Clock, Docker/Compose a
 The target is publicly observable protocol and behavior compatibility. A single local process cannot reproduce Google's physical regional redundancy, production durability/SLA, billing system, identity issuance, managed ML inference, or network placement. Represent those boundaries explicitly and provide useful local simulations or optional integrations. Do not count a simulated billing charge as a reproduced billing service.
 
 The product also targets a complete behavioral superset of fake-gcs-server
-after the documented environment-key rename and explicit data conversion.
+after documented configuration mapping and explicit data conversion.
 This is a product goal, not an achieved replacement claim. The migration
 contract is `docs/en/fake-gcs-server-migration.md`; it includes Go embedding,
 legacy Storage v1 gRPC, TLS/defaults, helpers/events and both backend modes.
 Google strict behavior and permissive source behavior need separate profiles
 and evidence. The existing permissive auth mode is not a complete legacy profile.
+
+Replacement also requires an inspectable bucket/object directory with
+bidirectional synchronization. This is not implemented. SQLite may remain the
+catalog while external edits enter shared ingestion and API changes update a
+visible working tree. The [filesystem investigation](fake-gcs-server-storage.md)
+records the requirement and open conflict/name-mapping decisions.
 
 P0-P7 group coverage; the ordered capabilities and prerequisites in
 `delivery_plan` determine execution. Complete a bounded useful scope before
@@ -491,13 +497,14 @@ persisted volumes, health/readiness, structured logs, graceful shutdown and
 clear error messages.
 
 Provide migration examples for fake-gcs-server's data-directory and endpoint
-patterns. Replace only the environment prefix with `GCS_MIMIC_`, preserving
-each setting's meaning; never accept `FAKE_GCS_*` aliases or fallback values.
-Reject contradictory native/renamed settings at the same precedence, retaining
-CLI precedence. Distinguish seed `DATA`, durable `DATA_DIR` and Compose
-host-port publication. These migration settings are planned, not currently
-accepted equivalents. The source README's permissive signed URL behavior
-belongs to the legacy profile, separate from strict validation.
+patterns, using native options where their role matches. Identical option names
+and suffixes are not required. Keep server-wide options separate from per-bucket
+API settings. The planned bucket initialization file creates missing buckets
+only; restart preserves existing settings and later API changes. See the
+[option mapping and configuration contract](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
+Seed input, durable storage and Compose host-port publication remain distinct.
+The source README's permissive signed URL behavior belongs to the legacy profile,
+separate from strict validation.
 
 Docker targets are `linux/amd64` and `linux/arm64`, supporting both standard CI hosts and Apple Silicon development. Use a multi-stage build, a non-root runtime, explicit writable data/temp mounts, and bounded optional tmpfs. A read-only root must not break SQLite WAL or temporary uploads. Keep seeding input distinct from durable storage so reboots do not silently reimport or overwrite data. Provide native binary installation after the core workflow works.
 

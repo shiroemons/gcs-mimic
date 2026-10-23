@@ -2,6 +2,9 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+For image-based use without a checkout, start with [Docker usage](container-usage.md).
+This guide covers source builds and detailed integration checks.
+
 The current slice supports JSON bucket create/get/list/delete and metadata PATCH/PUT, bucket IAM policy
 get/set and object media/multipart upload,
 metadata get/patch/update, generation-pinned copy, continuation rewrite, ordered compose,

@@ -1,9 +1,13 @@
 # Container distribution through GHCR
 
+<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+
 Publication infrastructure is configured for
-`ghcr.io/shiroemons/gcs-mimic` on Linux amd64 and arm64. No GHCR package or public
-container release has been created by this implementation slice. The first
-release retains the [roadmap requirements](roadmap.md#first-useful-release).
+`ghcr.io/shiroemons/gcs-mimic` on Linux amd64 and arm64. Public image publication
+is pending. The [Docker usage guide](container-usage.md) supplies the consumer
+workflow; [local preparation evidence](evidence/container-onboarding.md) records
+both image builds, container smoke checks and the README walkthrough.
+The first release retains the [roadmap requirements](roadmap.md#first-useful-release).
 
 ## Tags and immutable identity
 
