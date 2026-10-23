@@ -607,12 +607,17 @@ pub fn object_resource(
         "name": object.name, "bucket": object.bucket,
         "generation": object.generation.to_string(), "metageneration": object.metageneration.to_string(),
         "storageClass": object.storage_class,
-        "size": object.size.to_string(), "md5Hash": base64(&object.md5),
+        "size": object.size.to_string(),
         "crc32c": base64(&object.crc32c.to_be_bytes()), "etag": object_etag(object),
         "timeCreated": timestamp(object.time_created)?, "updated": timestamp(object.updated)?,
         "timeFinalized": timestamp(object.time_created)?,
         "timeStorageClassUpdated": timestamp(object.time_created)?,
     });
+    if let Some(count) = object.component_count {
+        value["componentCount"] = json!(count);
+    } else {
+        value["md5Hash"] = json!(base64(&object.md5));
+    }
     if !object.content_type.is_empty() {
         value["contentType"] = json!(object.content_type);
     }
@@ -658,11 +663,15 @@ pub fn object_media_headers(object: &ObjectRecord) -> Result<HeaderMap, JsonErro
         ("x-goog-metageneration", object.metageneration.to_string()),
         (
             "x-goog-hash",
-            format!(
-                "crc32c={},md5={}",
-                base64(&object.crc32c.to_be_bytes()),
-                base64(&object.md5)
-            ),
+            if object.component_count.is_some() {
+                format!("crc32c={}", base64(&object.crc32c.to_be_bytes()))
+            } else {
+                format!(
+                    "crc32c={},md5={}",
+                    base64(&object.crc32c.to_be_bytes()),
+                    base64(&object.md5)
+                )
+            },
         ),
         ("x-goog-stored-content-length", object.size.to_string()),
         (

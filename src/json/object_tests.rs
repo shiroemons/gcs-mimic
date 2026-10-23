@@ -23,6 +23,7 @@ pub(super) fn record() -> ObjectRecord {
         size: 5,
         md5: [0; 16],
         crc32c: 0x01020304,
+        component_count: None,
         storage_class: "STANDARD".to_owned(),
         time_created: UNIX_EPOCH + Duration::from_millis(1234),
         updated: UNIX_EPOCH + Duration::from_millis(2345),

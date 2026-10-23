@@ -169,6 +169,7 @@ impl Catalog {
 
     async fn maintain_resumable_inner(&self) -> Result<Option<SystemTime>, CatalogError> {
         let now = unix_millis(self.0.clock.now())?;
+        let derived_deadline = self.maintain_derived_transfers_at(now).await?;
         let mut after = String::new();
         let mut failure = None;
         loop {
@@ -208,18 +209,23 @@ impl Catalog {
         if let Some(error) = failure {
             return Err(error);
         }
-        self.run(|connection| {
-            let deadline: Option<i64> = connection
-                .query_row("SELECT min(deadline) FROM resumable_sessions", [], |row| {
-                    row.get(0)
-                })
-                .map_err(unavailable)?;
-            deadline
-                .map(super::system_time)
-                .transpose()
-                .map_err(unavailable)
+        let resumable_deadline = self
+            .run(|connection| {
+                let deadline: Option<i64> = connection
+                    .query_row("SELECT min(deadline) FROM resumable_sessions", [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(unavailable)?;
+                deadline
+                    .map(super::system_time)
+                    .transpose()
+                    .map_err(unavailable)
+            })
+            .await?;
+        Ok(match (resumable_deadline, derived_deadline) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
         })
-        .await
     }
 
     /// Starts one scheduler. Its owner must call `close` before releasing directory ownership.
