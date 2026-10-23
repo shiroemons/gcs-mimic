@@ -15,8 +15,8 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 138 | 0 | 32 | 31 | 0 | 0 |
-| project_requirement | 92 | 39 | 0 | 27 | 26 | 0 | 0 |
+| behavior | 201 | 137 | 0 | 32 | 32 | 0 | 0 |
+| project_requirement | 92 | 38 | 0 | 28 | 26 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -36,8 +36,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 138 | 35 | 26 | 2 | 0 | 0 |
-| project_requirement | 39 | 0 | 0 | 0 | 0 | 53 |
+| behavior | 137 | 36 | 26 | 2 | 0 | 0 |
+| project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
 
 ## api_operation
 
@@ -403,7 +403,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-009 | PUT Bucket ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-010 | DELETE Object | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | EXT-XML-011 | Abort multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| EXT-XML-012 | GET Object / download | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 4 |
 | EXT-XML-013 | GET Object / list parts | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-014 | GET Object ACL | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-015 | GET Object encryption | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -413,7 +413,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-019 | Initiate XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | Complete XML multipart upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-021 | HTML form upload | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
+| EXT-XML-022 | PUT Object / upload | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | EXT-XML-023 | Upload XML multipart part | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-024 | Copy Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-025 | Compose Object | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -646,7 +646,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-026 | IAM policy version 3 conditions | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAM policy etag concurrency | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-028 | testIamPermissions effective result | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-029 | Signer permissions checked for signed requests | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
+| DESIGN-029 | Signer permissions checked for signed requests | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 
 ### Insights semantics
 
@@ -745,15 +745,15 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-030 | V4 RSA signed URL verification | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-031 | V4 HMAC signed URL verification | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-032 | Signed URL time and expiration bounds | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
-| DESIGN-033 | V4 canonical host and port | PARTIAL | P2 | EXACT | EXACT | 1 |
+| DESIGN-033 | V4 canonical host and port | PARTIAL | P2 | EXACT | EXACT | 3 |
 | DESIGN-034 | V4 path encoding and Unicode | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | DESIGN-035 | V4 query sorting and encoding | PARTIAL | P2 | EXACT | EXACT | 1 |
-| DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-036 | V4 signed headers normalization | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
+| DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
+| DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-039 | V4 Authorization header signatures | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-040 | Legacy V2 signed URLs | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-041 | Signed POST form policy validation | NOT_STARTED | P3 | EXACT | NONE | 0 |
@@ -862,7 +862,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
-| UX-006 | Signed access and invalid-signature journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| UX-006 | Signed access and invalid-signature journey | PARTIAL | P2 | PROJECT | PROJECT | 0 |
 | UX-007 | Browser CORS and direct upload journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | Stop versus deliberate reset semantics | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
@@ -948,7 +948,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| DESIGN-045 | Local signing helper and fixture keys | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
+| DESIGN-045 | Local signing helper and fixture keys | IMPLEMENTED | P2 | PROJECT | PROJECT | 2 |
 
 ### Storage maintenance
 

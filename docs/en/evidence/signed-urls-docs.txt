@@ -1,0 +1,16 @@
+Local path prefixes are redacted as <checkout>, <home> and <temp>.
+Command: actionlint
+PASS: workflow syntax (Go CI remains Go-only)
+Command: npx --yes markdownlint-cli2 (changed documentation)
+markdownlint-cli2 v0.24.0 (markdownlint v0.42.0)
+Finding: README.md docs/en/development.md docs/en/design.md docs/en/roadmap.md docs/en/getting-started.md docs/en/getting-started-spec.md docs/en/slices/signed-upload.md docs/en/slices/signed-download.md docs/en/slices/xml-put-object.md docs/en/evidence/signed-urls.md docs/en/evidence/signed-download.md sdk-tests/ruby/README.md
+Linting: 12 files
+Summary: 0 issues in 0 files
+Command: cargo xtask compatibility validate
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running `target/debug/xtask compatibility validate`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+Command: cargo xtask compatibility check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.

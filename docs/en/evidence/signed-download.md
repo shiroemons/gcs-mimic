@@ -2,6 +2,11 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+This is the original download-slice evidence. The [combined evidence](signed-urls.md)
+supersedes next-slice/status statements and optional payload substitution: query
+canonical requests now always use UNSIGNED-PAYLOAD. Original results below keep
+their historical scope.
+
 Verified on 2026-10-23 for the [frozen contract](../slices/signed-download.md).
 Code and tests are committed as `e2431fe623494cbfbf788248a08e6efdf998f7af`, with
 canonicalization and incomplete-credential fixes in `4729d5a3657394eaa9edd0da116f377424c3ac9a`.

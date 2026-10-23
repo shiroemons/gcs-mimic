@@ -1,0 +1,885 @@
+Local path prefixes are redacted as <checkout>, <home> and <temp>.
+bash scripts/smoke-containers.sh
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.1s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 1.3s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.1s done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.4s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 1.5s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 331B done
+#6 DONE 0.1s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.1s done
+#8 DONE 0.1s
+
+#9 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#9 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#9 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.1s done
+#9 DONE 0.1s
+
+#8 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#8 DONE 0.1s
+
+#7 [internal] load build context
+#7 transferring context: 1.07MB 0.0s done
+#7 DONE 0.1s
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 DONE 0.1s
+
+#12 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#12 DONE 0.0s
+
+#13 [build  5/10] COPY xtask/src ./xtask/src
+#13 DONE 0.0s
+
+#14 [build  6/10] COPY src ./src
+#14 DONE 0.1s
+
+#15 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#15 DONE 0.0s
+
+#16 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 DONE 0.1s
+
+#17 [build  9/10] COPY distribution/notices ./distribution/notices
+#17 DONE 0.0s
+
+#18 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#18 0.460 info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+#18 0.928 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#18 0.946 info: downloading 2 components
+#18 2.012     Updating crates.io index
+#18 2.952  Downloading crates ...
+#18 3.098   Downloaded windows-link v0.2.1
+#18 3.110   Downloaded rustc_version v0.4.1
+#18 3.174   Downloaded errno v0.3.14
+#18 3.176   Downloaded tokio-macros v2.7.2
+#18 3.182   Downloaded subtle v2.6.1
+#18 3.185   Downloaded crc32c v0.6.8
+#18 3.188   Downloaded httpdate v1.0.3
+#18 3.193   Downloaded untrusted v0.9.0
+#18 3.196   Downloaded itoa v1.0.18
+#18 3.198   Downloaded cfg-if v1.0.5
+#18 3.199   Downloaded futures-core v0.3.34
+#18 3.207   Downloaded block-buffer v0.12.1
+#18 3.209   Downloaded atomic-waker v1.1.2
+#18 3.210   Downloaded fallible-streaming-iterator v0.1.9
+#18 3.211   Downloaded crypto-common v0.2.2
+#18 3.218   Downloaded http-body v1.1.0
+#18 3.220   Downloaded pin-project-lite v0.2.17
+#18 3.227   Downloaded quote v1.0.47
+#18 3.229   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#18 3.231   Downloaded windows-targets v0.52.6
+#18 3.232   Downloaded tokio-rustls v0.26.6
+#18 3.233   Downloaded signal-hook-registry v1.4.8
+#18 3.235   Downloaded zeroize v1.9.1
+#18 3.237   Downloaded digest v0.11.3
+#18 3.239   Downloaded pkg-config v0.3.34
+#18 3.241   Downloaded shlex v2.0.1
+#18 3.242   Downloaded find-msvc-tools v0.1.15
+#18 3.243   Downloaded md-5 v0.11.0
+#18 3.245   Downloaded rustls-pki-types v1.15.1
+#18 3.247   Downloaded unicode-ident v1.0.27
+#18 3.251   Downloaded hybrid-array v0.4.15
+#18 3.253   Downloaded once_cell v1.21.4
+#18 3.256   Downloaded fallible-iterator v0.3.0
+#18 3.257   Downloaded zmij v1.0.23
+#18 3.259   Downloaded httparse v1.10.1
+#18 3.262   Downloaded http-body-util v0.1.5
+#18 3.263   Downloaded semver v1.0.28
+#18 3.267   Downloaded getrandom v0.2.17
+#18 3.272   Downloaded smallvec v1.16.3
+#18 3.342   Downloaded serde_core v1.0.229
+#18 3.344   Downloaded bitflags v2.13.2
+#18 3.348   Downloaded getrandom v0.4.3
+#18 3.352   Downloaded proc-macro2 v1.0.107
+#18 3.357   Downloaded socket2 v0.6.5
+#18 3.360   Downloaded serde_derive v1.0.229
+#18 3.364   Downloaded r-efi v6.0.0
+#18 3.370   Downloaded bytes v1.12.1
+#18 3.374   Downloaded rustls-webpki v0.103.16
+#18 3.377   Downloaded serde v1.0.229
+#18 3.380   Downloaded typenum v1.20.1
+#18 3.384   Downloaded http v1.5.0
+#18 3.387   Downloaded mio v1.2.4
+#18 3.392   Downloaded memchr v2.8.3
+#18 3.398   Downloaded hyper-util v0.1.21
+#18 3.405   Downloaded cc v1.9.0
+#18 3.409   Downloaded rusqlite v0.40.2
+#18 3.416   Downloaded serde_json v1.0.154
+#18 3.423   Downloaded hyper v1.12.0
+#18 3.429   Downloaded vcpkg v0.2.15
+#18 3.482   Downloaded syn v3.0.9
+#18 3.492   Downloaded rustls v0.23.46
+#18 3.506   Downloaded windows_x86_64_gnullvm v0.52.6
+#18 3.514   Downloaded windows_aarch64_gnullvm v0.52.6
+#18 3.521   Downloaded windows_i686_gnullvm v0.52.6
+#18 3.576   Downloaded windows_x86_64_msvc v0.52.6
+#18 3.587   Downloaded windows_x86_64_gnu v0.52.6
+#18 3.602   Downloaded tokio v1.54.1
+#18 3.643   Downloaded libc v0.2.191
+#18 3.689   Downloaded windows_aarch64_msvc v0.52.6
+#18 3.700   Downloaded windows_i686_msvc v0.52.6
+#18 3.712   Downloaded windows_i686_gnu v0.52.6
+#18 3.741   Downloaded ring v0.17.14
+#18 3.780   Downloaded windows-sys v0.61.2
+#18 3.852   Downloaded windows-sys v0.52.0
+#18 3.939   Downloaded libsqlite3-sys v0.38.2
+#18 4.995    Compiling libc v0.2.191
+#18 4.996    Compiling shlex v2.0.1
+#18 6.098    Compiling find-msvc-tools v0.1.15
+#18 7.168    Compiling cc v1.9.0
+#18 8.118    Compiling proc-macro2 v1.0.107
+#18 9.419    Compiling quote v1.0.47
+#18 10.14    Compiling unicode-ident v1.0.27
+#18 10.42    Compiling cfg-if v1.0.5
+#18 10.74    Compiling bytes v1.12.1
+#18 12.88    Compiling syn v3.0.9
+#18 13.04    Compiling ring v0.17.14
+#18 14.31    Compiling errno v0.3.14
+#18 15.52    Compiling itoa v1.0.18
+#18 16.18    Compiling tokio-macros v2.7.2
+#18 17.00    Compiling signal-hook-registry v1.4.8
+#18 18.90    Compiling mio v1.2.4
+#18 20.82    Compiling socket2 v0.6.5
+#18 23.02    Compiling typenum v1.20.1
+#18 24.44    Compiling pin-project-lite v0.2.17
+#18 24.95    Compiling tokio v1.54.1
+#18 29.59    Compiling hybrid-array v0.4.15
+#18 30.85    Compiling http v1.5.0
+#18 34.36    Compiling getrandom v0.2.17
+#18 35.42    Compiling httparse v1.10.1
+#18 35.85    Compiling untrusted v0.9.0
+#18 36.49    Compiling zeroize v1.9.1
+#18 36.67    Compiling semver v1.0.28
+#18 37.67    Compiling vcpkg v0.2.15
+#18 37.81    Compiling pkg-config v0.3.34
+#18 39.09    Compiling rustc_version v0.4.1
+#18 39.14    Compiling libsqlite3-sys v0.38.2
+#18 40.32    Compiling rustls-pki-types v1.15.1
+#18 42.83    Compiling http-body v1.1.0
+#18 43.82    Compiling rustls v0.23.46
+#18 44.42    Compiling zmij v1.0.23
+#18 45.39    Compiling serde_core v1.0.229
+#18 46.01    Compiling futures-core v0.3.34
+#18 46.36    Compiling smallvec v1.16.3
+#18 47.28    Compiling rustls-webpki v0.103.16
+#18 49.53    Compiling crc32c v0.6.8
+#18 50.96    Compiling block-buffer v0.12.1
+#18 51.90    Compiling crypto-common v0.2.2
+#18 53.72    Compiling once_cell v1.21.4
+#18 55.03    Compiling subtle v2.6.1
+#18 55.80    Compiling httpdate v1.0.3
+#18 57.49    Compiling serde_json v1.0.154
+#18 58.27    Compiling getrandom v0.4.3
+#18 59.14    Compiling atomic-waker v1.1.2
+#18 60.13    Compiling hyper v1.12.0
+#18 80.93    Compiling digest v0.11.3
+#18 86.52    Compiling fallible-iterator v0.3.0
+#18 87.58    Compiling memchr v2.8.3
+#18 88.99    Compiling bitflags v2.13.2
+#18 90.10    Compiling fallible-streaming-iterator v0.1.9
+#18 90.84    Compiling rusqlite v0.40.2
+#18 94.36    Compiling md-5 v0.11.0
+#18 95.70    Compiling tokio-rustls v0.26.6
+#18 96.75    Compiling hyper-util v0.1.21
+#18 97.07    Compiling http-body-util v0.1.5
+#18 98.07    Compiling gcs-mimic v0.1.0 (/build)
+#18 126.8     Finished `release` profile [optimized] target(s) in 2m 02s
+#18 127.2    Compiling zmij v1.0.23
+#18 127.2    Compiling serde_core v1.0.229
+#18 127.2    Compiling serde_json v1.0.154
+#18 127.2    Compiling itoa v1.0.18
+#18 127.2    Compiling memchr v2.8.3
+#18 132.2    Compiling xtask v0.1.0 (/build/xtask)
+#18 139.0     Finished `release` profile [optimized] target(s) in 11.93s
+#18 139.0      Running `target/release/xtask release notices /distribution-licenses`
+#18 DONE 139.9s
+
+#19 [runtime 2/5] WORKDIR /app
+#19 CACHED
+
+#20 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#20 CACHED
+
+#21 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#21 DONE 0.0s
+
+#22 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 0.3s done
+#23 exporting manifest sha256:40b850c5cab0853688807d6b7cdcce870c8e181d1597953fa7864bd9c95a602b done
+#23 exporting config sha256:4a4bdfe65fab2c2a9e5e4b0b5cfc1c1aff2f2976af47eea7f01b659d7e3e7992 done
+#23 exporting attestation manifest sha256:e25a2aab88ce6eb49e42d1ee5df3a21d68f6b092ea7c4fc51e1f39c1551bf846 done
+#23 exporting manifest list sha256:52212c51fabd4d34e5b489b798efdd29b5b32412d7f77d5ffe4eaeb38a92da9d done
+#23 naming to docker.io/library/gcs-mimic:bucket-smoke-amd64-18765 done
+#23 DONE 0.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/lpxi4c6m17023vq8qdttek5ru
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic tls ca
+       gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --scheme MODE                https (http|https; one listener)
+  --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
+  --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
+  --data-dir PATH              data (exclusive persistent catalog)
+  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-project ID            local-project (owning project for seeded buckets)
+  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --max-connections N          32 (1..1024)
+  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
+  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
+Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
+Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
+identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
+development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Authentication is permissive by default; strict mode checks local bearer tokens and grants.
+gcs-mimic 0.1.0
+error: Connection refused (os error 111)
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-18765-gcs-run-dfd191303a88 Creating 
+ Container gcs-mimic-bucket-amd64-18765-gcs-run-dfd191303a88 Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-18765_default Removing 
+ Network gcs-mimic-bucket-amd64-18765_default Removed 
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removed 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Removing 
+ Network gcs-mimic-bucket-amd64-18765_default Removing 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-18765_default Removed 
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Network gcs-mimic-bucket-amd64-18765_default Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Network gcs-mimic-bucket-amd64-18765_default Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-18765-gcs-1 Removed 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Removing 
+ Network gcs-mimic-bucket-amd64-18765_default Removing 
+ Volume gcs-mimic-bucket-amd64-18765_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-18765_default Removed 
+PASS: linux/amd64 build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Creating 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Created 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-18765_default Removing 
+ Network gcs-mimic-seed-amd64-18765_default Removed 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-18765_default Removing 
+ Network gcs-mimic-seed-amd64-18765_default Removed 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removed 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Removing 
+ Network gcs-mimic-seed-amd64-18765_default Removing 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Removed 
+ Network gcs-mimic-seed-amd64-18765_default Removed 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Network gcs-mimic-seed-amd64-18765_default Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Created 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Network gcs-mimic-seed-amd64-18765_default Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-18765-gcs-1 Removed 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Removing 
+ Network gcs-mimic-seed-amd64-18765_default Removing 
+ Volume gcs-mimic-seed-amd64-18765_gcs-data Removed 
+ Network gcs-mimic-seed-amd64-18765_default Removed 
+PASS: linux/amd64 read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 0.0s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 331B done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#8 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.0s done
+#8 DONE 0.0s
+
+#9 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#9 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#9 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.0s done
+#9 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 3.43kB done
+#7 DONE 0.0s
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 DONE 0.0s
+
+#12 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#12 DONE 0.0s
+
+#13 [build  5/10] COPY xtask/src ./xtask/src
+#13 DONE 0.0s
+
+#14 [build  6/10] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#15 DONE 0.0s
+
+#16 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 DONE 0.0s
+
+#17 [build  9/10] COPY distribution/notices ./distribution/notices
+#17 DONE 0.0s
+
+#18 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#18 0.209 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#18 0.578 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#18 0.590 info: downloading 2 components
+#18 1.323     Updating crates.io index
+#18 1.850  Downloading crates ...
+#18 1.982   Downloaded windows-link v0.2.1
+#18 1.987   Downloaded httpdate v1.0.3
+#18 2.014   Downloaded zmij v1.0.23
+#18 2.036   Downloaded subtle v2.6.1
+#18 2.046   Downloaded tokio-macros v2.7.2
+#18 2.050   Downloaded crypto-common v0.2.2
+#18 2.055   Downloaded fallible-streaming-iterator v0.1.9
+#18 2.057   Downloaded windows-targets v0.52.6
+#18 2.062   Downloaded untrusted v0.9.0
+#18 2.064   Downloaded atomic-waker v1.1.2
+#18 2.064   Downloaded http-body v1.1.0
+#18 2.069   Downloaded futures-core v0.3.34
+#18 2.076   Downloaded itoa v1.0.18
+#18 2.077   Downloaded crc32c v0.6.8
+#18 2.081   Downloaded block-buffer v0.12.1
+#18 2.087   Downloaded cfg-if v1.0.5
+#18 2.088   Downloaded rustc_version v0.4.1
+#18 2.100   Downloaded pkg-config v0.3.34
+#18 2.102   Downloaded shlex v2.0.1
+#18 2.103   Downloaded find-msvc-tools v0.1.15
+#18 2.104   Downloaded http-body-util v0.1.5
+#18 2.106   Downloaded md-5 v0.11.0
+#18 2.107   Downloaded signal-hook-registry v1.4.8
+#18 2.110   Downloaded errno v0.3.14
+#18 2.111   Downloaded digest v0.11.3
+#18 2.113   Downloaded tokio-rustls v0.26.6
+#18 2.117   Downloaded unicode-ident v1.0.27
+#18 2.119   Downloaded quote v1.0.47
+#18 2.121   Downloaded getrandom v0.2.17
+#18 2.123   Downloaded fallible-iterator v0.3.0
+#18 2.124   Downloaded once_cell v1.21.4
+#18 2.126   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#18 2.127   Downloaded zeroize v1.9.1
+#18 2.129   Downloaded rustls-pki-types v1.15.1
+#18 2.130   Downloaded hybrid-array v0.4.15
+#18 2.132   Downloaded semver v1.0.28
+#18 2.134   Downloaded pin-project-lite v0.2.17
+#18 2.138   Downloaded smallvec v1.16.3
+#18 2.139   Downloaded httparse v1.10.1
+#18 2.141   Downloaded getrandom v0.4.3
+#18 2.144   Downloaded socket2 v0.6.5
+#18 2.145   Downloaded serde_core v1.0.229
+#18 2.147   Downloaded bitflags v2.13.2
+#18 2.150   Downloaded serde_derive v1.0.229
+#18 2.153   Downloaded r-efi v6.0.0
+#18 2.156   Downloaded proc-macro2 v1.0.107
+#18 2.158   Downloaded bytes v1.12.1
+#18 2.212   Downloaded rustls-webpki v0.103.16
+#18 2.215   Downloaded serde v1.0.229
+#18 2.218   Downloaded memchr v2.8.3
+#18 2.222   Downloaded typenum v1.20.1
+#18 2.224   Downloaded http v1.5.0
+#18 2.227   Downloaded mio v1.2.4
+#18 2.232   Downloaded hyper-util v0.1.21
+#18 2.237   Downloaded cc v1.9.0
+#18 2.241   Downloaded serde_json v1.0.154
+#18 2.246   Downloaded rusqlite v0.40.2
+#18 2.251   Downloaded hyper v1.12.0
+#18 2.257   Downloaded vcpkg v0.2.15
+#18 2.294   Downloaded syn v3.0.9
+#18 2.302   Downloaded rustls v0.23.46
+#18 2.311   Downloaded windows_x86_64_gnullvm v0.52.6
+#18 2.317   Downloaded windows_aarch64_gnullvm v0.52.6
+#18 2.323   Downloaded windows_i686_gnullvm v0.52.6
+#18 2.354   Downloaded windows_x86_64_msvc v0.52.6
+#18 2.378   Downloaded windows_aarch64_msvc v0.52.6
+#18 2.386   Downloaded windows_x86_64_gnu v0.52.6
+#18 2.399   Downloaded windows_i686_msvc v0.52.6
+#18 2.408   Downloaded libc v0.2.191
+#18 2.448   Downloaded windows_i686_gnu v0.52.6
+#18 2.461   Downloaded tokio v1.54.1
+#18 2.493   Downloaded ring v0.17.14
+#18 2.523   Downloaded windows-sys v0.61.2
+#18 2.581   Downloaded windows-sys v0.52.0
+#18 2.635   Downloaded libsqlite3-sys v0.38.2
+#18 2.772    Compiling libc v0.2.191
+#18 2.772    Compiling shlex v2.0.1
+#18 2.881    Compiling find-msvc-tools v0.1.15
+#18 2.944    Compiling cc v1.9.0
+#18 3.322    Compiling proc-macro2 v1.0.107
+#18 3.457    Compiling quote v1.0.47
+#18 3.501    Compiling unicode-ident v1.0.27
+#18 3.533    Compiling bytes v1.12.1
+#18 3.807    Compiling cfg-if v1.0.5
+#18 3.819    Compiling syn v3.0.9
+#18 3.827    Compiling ring v0.17.14
+#18 3.992    Compiling errno v0.3.14
+#18 4.030    Compiling itoa v1.0.18
+#18 4.092    Compiling signal-hook-registry v1.4.8
+#18 4.924    Compiling tokio-macros v2.7.2
+#18 5.171    Compiling mio v1.2.4
+#18 5.387    Compiling socket2 v0.6.5
+#18 5.671    Compiling pin-project-lite v0.2.17
+#18 5.691    Compiling typenum v1.20.1
+#18 5.975    Compiling hybrid-array v0.4.15
+#18 6.154    Compiling tokio v1.54.1
+#18 6.816    Compiling http v1.5.0
+#18 7.509    Compiling getrandom v0.2.17
+#18 7.567    Compiling httparse v1.10.1
+#18 7.653    Compiling untrusted v0.9.0
+#18 7.678    Compiling zeroize v1.9.1
+#18 7.722    Compiling vcpkg v0.2.15
+#18 7.903    Compiling pkg-config v0.3.34
+#18 8.045    Compiling semver v1.0.28
+#18 8.122    Compiling rustc_version v0.4.1
+#18 8.192    Compiling libsqlite3-sys v0.38.2
+#18 8.325    Compiling rustls-pki-types v1.15.1
+#18 10.14    Compiling http-body v1.1.0
+#18 10.17    Compiling serde_core v1.0.229
+#18 10.25    Compiling futures-core v0.3.34
+#18 10.29    Compiling smallvec v1.16.3
+#18 10.36    Compiling rustls v0.23.46
+#18 10.36    Compiling zmij v1.0.23
+#18 10.44    Compiling rustls-webpki v0.103.16
+#18 11.33    Compiling crc32c v0.6.8
+#18 11.42    Compiling crypto-common v0.2.2
+#18 11.80    Compiling block-buffer v0.12.1
+#18 11.85    Compiling getrandom v0.4.3
+#18 11.93    Compiling subtle v2.6.1
+#18 11.98    Compiling serde_json v1.0.154
+#18 12.04    Compiling httpdate v1.0.3
+#18 12.15    Compiling atomic-waker v1.1.2
+#18 12.18    Compiling once_cell v1.21.4
+#18 19.25    Compiling hyper v1.12.0
+#18 20.45    Compiling digest v0.11.3
+#18 21.35    Compiling memchr v2.8.3
+#18 21.61    Compiling bitflags v2.13.2
+#18 21.71    Compiling fallible-streaming-iterator v0.1.9
+#18 21.74    Compiling fallible-iterator v0.3.0
+#18 22.79    Compiling md-5 v0.11.0
+#18 22.92    Compiling hyper-util v0.1.21
+#18 22.97    Compiling tokio-rustls v0.26.6
+#18 23.07    Compiling http-body-util v0.1.5
+#18 35.44    Compiling rusqlite v0.40.2
+#18 35.72    Compiling gcs-mimic v0.1.0 (/build)
+#18 50.51     Finished `release` profile [optimized] target(s) in 47.77s
+#18 50.56    Compiling serde_core v1.0.229
+#18 50.56    Compiling zmij v1.0.23
+#18 50.56    Compiling serde_json v1.0.154
+#18 50.56    Compiling itoa v1.0.18
+#18 50.56    Compiling memchr v2.8.3
+#18 51.72    Compiling xtask v0.1.0 (/build/xtask)
+#18 52.75     Finished `release` profile [optimized] target(s) in 2.20s
+#18 52.76      Running `target/release/xtask release notices /distribution-licenses`
+#18 DONE 55.2s
+
+#19 [runtime 2/5] WORKDIR /app
+#19 CACHED
+
+#20 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#20 CACHED
+
+#21 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#21 DONE 0.0s
+
+#22 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 0.2s done
+#23 exporting manifest sha256:b6a75685bbf19a4c25aaf00ec2fa50eccbbdcef26b9245719c3c41740c808eca done
+#23 exporting config sha256:3b87026c9fe3a574a785d5331e1dc0867734cc8db76c7725b46abe9e41c8153c done
+#23 exporting attestation manifest sha256:d6ad7f950acd4678819f39d8b1525557e43ac0cabe182d3caf9fb728c1a1c4a6 0.0s done
+#23 exporting manifest list sha256:3dce28ff80e9512543b767d81aba0f2219b121f2d88caf78a3be16f213fe4cc3 done
+#23 naming to docker.io/library/gcs-mimic:bucket-smoke-arm64-18765 done
+#23 unpacking to docker.io/library/gcs-mimic:bucket-smoke-arm64-18765 0.1s done
+#23 DONE 0.4s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/jqv4x795plsfkaqlilt9ierhf
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic tls ca
+       gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --scheme MODE                https (http|https; one listener)
+  --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
+  --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
+  --data-dir PATH              data (exclusive persistent catalog)
+  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-project ID            local-project (owning project for seeded buckets)
+  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --max-connections N          32 (1..1024)
+  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
+  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
+Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
+Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
+identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
+development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Authentication is permissive by default; strict mode checks local bearer tokens and grants.
+gcs-mimic 0.1.0
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Creating 
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-18765-gcs-run-e052e0b8a59c Creating 
+ Container gcs-mimic-bucket-arm64-18765-gcs-run-e052e0b8a59c Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removed 
+ Network gcs-mimic-bucket-arm64-18765_default Removing 
+ Network gcs-mimic-bucket-arm64-18765_default Removed 
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removed 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Removing 
+ Network gcs-mimic-bucket-arm64-18765_default Removing 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-18765_default Removed 
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Network gcs-mimic-bucket-arm64-18765_default Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Network gcs-mimic-bucket-arm64-18765_default Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-18765-gcs-1 Removed 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Removing 
+ Network gcs-mimic-bucket-arm64-18765_default Removing 
+ Volume gcs-mimic-bucket-arm64-18765_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-18765_default Removed 
+PASS: linux/arm64 build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Creating 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Created 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removed 
+ Network gcs-mimic-seed-arm64-18765_default Removing 
+ Network gcs-mimic-seed-arm64-18765_default Removed 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removed 
+ Network gcs-mimic-seed-arm64-18765_default Removing 
+ Network gcs-mimic-seed-arm64-18765_default Removed 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removed 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Removing 
+ Network gcs-mimic-seed-arm64-18765_default Removing 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Removed 
+ Network gcs-mimic-seed-arm64-18765_default Removed 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Network gcs-mimic-seed-arm64-18765_default Creating 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Created 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Network gcs-mimic-seed-arm64-18765_default Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-18765-gcs-1 Removed 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Removing 
+ Network gcs-mimic-seed-arm64-18765_default Removing 
+ Volume gcs-mimic-seed-arm64-18765_gcs-data Removed 
+ Network gcs-mimic-seed-arm64-18765_default Removed 
+PASS: linux/arm64 read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding

@@ -501,6 +501,44 @@
           "docs/en/evidence/cors-browser.md",
           "docs/en/slices/cors-mobile-origins.md"
         ]
+      },
+      {
+        "id": "v4-signed-transfers",
+        "title": "V4 RSA signed GET/HEAD and bounded XML PUT",
+        "scope": "Delivered path-style download/upload scopes on 2026-10-23: signer create/get/delete permissions, final-host/path/query/method/header canonicalization, clock expiry/skew, streamed optional SHA256 and MD5, atomic conditions/failure preservation, XML CORS wire cases, pinned Go/Ruby signed GET/PUT, both container architectures and native/source-image/strict-Compose host/peer/restart guide pass. DESIGN-029/030/032/034/036/038/045 are IMPLEMENTED. Virtual-host addressing, response overrides/duplicate parity, optional payload provider/errors, exact signature errors, proxy-derived origins, PAP and advanced XML/IAM keep DESIGN-033/035/037/044/055, UX-006, DESIGN-002 and EXT-XML-012/017/022 PARTIAL. No PAP, other signing formats, signed resumable, actual-browser, Rails or real-cloud claim. Next is signed browser transfer integration.",
+        "feature_ids": [
+          "DESIGN-029",
+          "DESIGN-030",
+          "DESIGN-032",
+          "DESIGN-033",
+          "DESIGN-034",
+          "DESIGN-035",
+          "DESIGN-036",
+          "DESIGN-037",
+          "DESIGN-038",
+          "DESIGN-044",
+          "DESIGN-045",
+          "DESIGN-055",
+          "UX-006",
+          "EXT-XML-012",
+          "EXT-XML-017",
+          "EXT-XML-022"
+        ],
+        "acceptance_case_refs": [
+          "DESIGN-029/DESIGN-029-WRITE",
+          "DESIGN-036/DESIGN-036-PUT",
+          "DESIGN-037/DESIGN-037-STREAM",
+          "DESIGN-038/DESIGN-038-PUT",
+          "UX-006/UX-006-GUIDE",
+          "EXT-XML-022/EXT-XML-022-SIGNED"
+        ],
+        "evidence": [
+          "docs/en/evidence/signed-urls.md",
+          "docs/en/evidence/signed-urls-checks.txt",
+          "docs/en/evidence/signed-urls-sdk.txt",
+          "docs/en/evidence/signed-urls-containers.txt",
+          "docs/en/evidence/signed-urls-guide.txt"
+        ]
       }
     ],
     "next_deliverables": [
@@ -765,7 +803,10 @@
           "Pass valid GET plus tampered, wrong-host, wrong-method, expired and insufficient-signer-permission wire cases using the injected clock.",
           "Verify supported public-access-prevention interactions: public denial must not incorrectly deny an otherwise authorized signed request; do not claim general PAP completion."
         ],
-        "deferred_scope": "V4 HMAC, V2 URLs, Authorization-header signing and remote IAM Credentials."
+        "deferred_scope": "V4 HMAC, V2 URLs, Authorization-header signing and remote IAM Credentials. Virtual-host/proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; actual signed-browser execution is delivery order 18.",
+        "evidence": [
+          "docs/en/evidence/signed-urls.md"
+        ]
       },
       {
         "id": "v4-signed-upload",
@@ -788,7 +829,10 @@
           "Verify payload/header requirements, checksum failures, tampered and expired URLs, interrupted bodies and failed-overwrite preservation.",
           "Run pinned official SDK locally generated GET/PUT URLs against the exact final externally visible endpoint."
         ],
-        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth."
+        "deferred_scope": "POST form policies, signed resumable initiation, HMAC and general XML write breadth. Virtual-host/proxy routing, exact provider payload/error parity and unmodeled PAP retain PARTIAL feature rows; actual signed-browser execution is delivery order 18.",
+        "evidence": [
+          "docs/en/evidence/signed-urls.md"
+        ]
       },
       {
         "id": "browser-cors",
@@ -23558,25 +23602,26 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
-        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
-        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
-        "https://docs.cloud.google.com/storage/docs/request-endpoints",
-        "https://docs.cloud.google.com/storage/docs/access-control/iam",
         "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
         "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
-        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -23653,25 +23698,36 @@
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "id": "EXT-XML-012-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
-        "xml::xml_head_matches_get_headers_and_selected_metadata",
-        "TestXMLReadsStrict",
+        "TestV4RSASignedDownload",
+        "TestV4RSASignedDownload/SignedUpload",
         "TestXMLReadsPermissive",
-        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
-        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
-        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
-        "xml::xml_missing_resources_follow_effective_permission_disclosure",
-        "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
-        "xml::xml_unsupported_operations_fail_before_reading_a_body",
-        "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
-        "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
-        "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
+        "TestXMLReadsStrict",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
-        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "TestV4RSASignedDownload"
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+        "xml::xml_head_matches_get_headers_and_selected_metadata",
+        "xml::xml_missing_resources_follow_effective_permission_disclosure",
+        "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+        "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+        "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
+        "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+        "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+        "xml::xml_unsupported_operations_fail_before_reading_a_body"
       ],
       "verification": [
         {
@@ -23730,6 +23786,37 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access",
+            "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23763,16 +23850,45 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size.",
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark."
       ],
-      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -23899,25 +24015,26 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
-        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
-        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
-        "https://docs.cloud.google.com/storage/docs/request-endpoints",
-        "https://docs.cloud.google.com/storage/docs/access-control/iam",
         "https://docs.cloud.google.com/iam/docs/principals-overview",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
         "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
-        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
+        "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -24039,6 +24156,24 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "xml::xml_head_matches_get_headers_and_selected_metadata",
+            "xml::xml_ranges_generation_and_preconditions_use_one_live_generation",
+            "xml::xml_missing_resources_follow_effective_permission_disclosure",
+            "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
+            "xml::xml_unsupported_operations_fail_before_reading_a_body",
+            "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
+            "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -24074,12 +24209,12 @@
         }
       ],
       "known_deviations": [
-        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
+        "CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, other signing formats, virtual-host routing, noncurrent versions and resource restriction semantics remain unsupported; recognized inputs fail explicitly.",
         "SPEC-012/SPEC-015: exhaustive metadata/ETag/header parity is unverified; XML uses quoted hexadecimal MD5, explicit 501 for unrepresentable/case-colliding metadata and private, max-age=0 when no stored private directive exists.",
         "SPEC-017: local registry error wording/headers, authorization/existence disclosure and check ordering need opted-in real-service evidence; strict XML invalid credentials/signatures return 400 InvalidAuthentication and anonymous denial returns 401 AuthenticationRequired.",
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size."
       ],
-      "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -24206,20 +24341,24 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-methods",
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
-        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions",
-        "https://docs.cloud.google.com/storage/docs/request-preconditions",
-        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
         "https://github.com/googleapis/googleapis/blob/d73dfb3c3be52245625b951b9c0bcf65163c549f/google/storage/v2/storage.proto",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Go storage v1.70.0 writes JSON Objects.Insert, so Rust raw HTTP covers XML PUT without a new SDK write claim. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication.",
-      "dependencies": ["DESIGN-014", "DESIGN-052"],
+      "notes": "Contract: docs/en/slices/xml-put-object.md; source digests and final native evidence: docs/en/evidence/xml-put-object.md. Path-style bounded PUT supports Content-Length/chunked bodies, content/custom metadata, Content-MD5 and x-goog-hash MD5/CRC32C, atomic generation/metageneration matching, strict create/delete permissions, empty 200 with XML ETag/generation/hash/stored headers, bucket CORS, versioning/default event holds and restart recovery through the shared JSON upload engine. Unknown/recognized unsupported inputs fail explicitly before body reads. Full official method remains PARTIAL; 501 rejection is not implementation of its advanced inputs. Ordinary Go Writer uses JSON Objects.Insert; official SignedURL PUT now verifies XML writes through the pinned Go/Ruby signers. Complete post-EOF commits can outlive response timeout/disconnect/shutdown; only pre-EOF interruption guarantees no publication. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md. V4 RSA signed PUT and declared SHA256 are implemented; full advanced XML PUT remains PARTIAL.",
+      "dependencies": [
+        "DESIGN-014",
+        "DESIGN-052"
+      ],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
@@ -24227,173 +24366,277 @@
           "id": "EXT-XML-022-FRAMING",
           "description": "Require Content-Length including zero or chunked transfer; missing both returns 411 MissingContentLength; stream exact multiple-buffer bytes through existing bounded storage.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+          "test_ids": [
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTENT-TYPE",
           "description": "Accept a single valid Content-Type, preserve it through JSON/XML reads and restart, default to application/octet-stream and reject malformed/duplicate values before reading bodies.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTENT-MD5",
           "description": "Decode Content-MD5 directly as exactly one canonical base64 MD5; reject embedded hash lists, algorithm prefixes, noncanonical padding and conflicting declarations with 400 InvalidDigest; duplicate fields return 400 ExcessHeaderValues and mismatched bytes 400 BadDigest without publication.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-HASH",
           "description": "Validate x-goog-hash MD5 and big-endian CRC32C separately, comma-combined or in repeated fields; reject duplicate algorithms, malformed values and mismatches under the explicit local checksum-error mapping; unknown algorithms return 501.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-CACHE-CONTROL",
           "description": "Persist Cache-Control and return it through XML GET and JSON metadata GET; reject duplicate fields and reset omitted metadata on overwrite.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTENT-DISPOSITION",
           "description": "Persist a representable Content-Disposition through XML/JSON metadata and restart; reset omitted fields on replacement.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTENT-ENCODING",
           "description": "Persist Content-Encoding as metadata for unchanged stored bytes; XML GET with accepted gzip and JSON metadata agree; stored-content-encoding is gzip or identity after replacement.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTENT-LANGUAGE",
           "description": "Persist representable Content-Language through XML/JSON reads and restart; reset it when omitted on replacement.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip"
+          ]
         },
         {
           "id": "EXT-XML-022-CUSTOM-METADATA",
           "description": "Normalize custom HTTP metadata keys to lowercase, preserve empty/ASCII values, enforce the 8192-byte stored suffix/value limit and reject empty names, repeated case-folded keys and non-ASCII values under the local representability rule.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-GENERATION-MATCH",
           "description": "Enforce decimal signed-64-bit generation match including zero create-if-absent before body reads and atomically at publication; malformed/duplicate conditions fail without mutation.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"]
+          "test_ids": [
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object"
+          ]
         },
         {
           "id": "EXT-XML-022-METAGENERATION-MATCH",
           "description": "Accept one positive decimal metageneration condition alone or paired with generation match, reject malformed/duplicate values and preserve state for stale conditions.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+          "test_ids": [
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
+          ]
         },
         {
           "id": "EXT-XML-022-CONTINUE",
           "description": "Hyper sends 100-continue only after the adapter accepts headers, authorization, conditions and admission; unsupported/auth/size rejections send final XML errors without reading an advertised body.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes", "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state", "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-RESPONSE",
           "description": "Return empty 200, quoted lowercase hexadecimal MD5 ETag, generation, metageneration, whole-object hashes and stored length/encoding, consistent with subsequent XML GET.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-UNSUPPORTED",
           "description": "Before body reads, explicitly reject ACL/predefined ACL, CSEK/CMEK, class overrides, requester billing, retention/hold, resumable, copy, signing/payload, custom time, unknown query/x-goog and x-amz extensions, ranges, HTTP validators and announced trailers with 501 XML NotImplemented.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"]
+          "test_ids": [
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state"
+          ]
         },
         {
           "id": "EXT-XML-022-AUTHORIZATION",
           "description": "Strict local tokens require create and delete for live overwrite through project-plus-bucket grants; allUsers anonymous and allAuthenticatedUsers registered-only writes are distinct; invalid/unsupported credentials never fall back. Permissive writes retain storage semantics.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-ERRORS",
           "description": "Use XML errors with local 400 InvalidAuthentication/InvalidDigest/BadDigest/EntityTooLarge, 401 AuthenticationRequired, 403 AccessDenied, authorized 404 NoSuchBucket, 411 MissingContentLength, 412 PreconditionFailed, 501 NotImplemented and 503 ServiceUnavailable.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic", "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-PRESERVATION",
           "description": "Rejected headers, permissions, conditions, checksum failures and size excess preserve previous live bytes, metadata, object/history count and generation counter; abandoned blobs/staging are reclaimed.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state", "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object", "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication", "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-SIZE",
           "description": "Configured max bytes succeeds for Content-Length and multi-chunk bodies, while max+1 fails before reading a known-size body or during streaming without replacing prior state.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"]
+          "test_ids": [
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries"
+          ]
         },
         {
           "id": "EXT-XML-022-CONCURRENCY",
           "description": "Two uploads admitted before EOF with the same generation match have exactly one winner, including create-if-absent; failed publication consumes no generation and never overwrites the winner.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic"]
+          "test_ids": [
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic"
+          ]
         },
         {
           "id": "EXT-XML-022-INTERRUPTION",
           "description": "Incomplete disconnect, graceful shutdown, process termination, trailers, body inactivity and overall request deadline before EOF cannot publish; recovery preserves prior state and removes abandoned files.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts", "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish"]
+          "test_ids": [
+            "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+            "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish"
+          ]
         },
         {
           "id": "EXT-XML-022-VERSIONING",
           "description": "Versioning-enabled overwrite retains historical generations consistently with JSON uploads, including selected old bytes after restart.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+          "test_ids": [
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
+          ]
         },
         {
           "id": "EXT-XML-022-DEFAULT-HOLD",
           "description": "The bucket's current default event hold applies at publication, blocks subsequent overwrite without mutation and survives restart.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"]
+          "test_ids": [
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
+          ]
         },
         {
           "id": "EXT-XML-022-CORS",
           "description": "Reuse bucket-configured XML PUT preflight and actual-response rules on success and errors; denied origin/header rules emit no allow grant and successful preflight confers no write permission. JSON CORS remains unchanged.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials"]
+          "test_ids": [
+            "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials"
+          ]
         },
         {
           "id": "EXT-XML-022-RESTART",
           "description": "Committed XML uploads retain bytes, every supported metadata field, checksums, generation/history and hold state across restart using the existing commit/recovery protocol.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip", "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads", "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts"]
+          "test_ids": [
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads",
+            "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts"
+          ]
         },
         {
           "id": "EXT-XML-022-ADMISSION",
           "description": "Reuse the two-slot 64 KiB chunk bridge and eight-upload admission limit; the ninth incomplete upload is rejected before 100-continue and aborted requests release capacity without publishing.",
           "result": "PASS",
-          "test_ids": ["xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries", "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"]
+          "test_ids": [
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+            "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"
+          ]
         },
         {
           "id": "EXT-XML-022-PENDING",
-          "description": "Implement and verify the full official advanced contract: signed authentication/payload rules, ACLs, CSEK/CMEK, class overrides, requester billing, retention/explicit holds, custom time and other upload variants; establish exact metadata/CRC/error/header/framing/unknown-input parity under SPEC-XML-PUT-EDGES and existing SPEC-XML-INPUTS, SPEC-012/017, SPEC-XML-PREFIX/PATH-ERROR. Post-EOF commit outcome may be unknown after timeout/disconnect/shutdown; all fsync boundaries, power loss, dedicated resource measurements and integrated signed-browser/container/SDK verification remain unclaimed.",
+          "description": "Implement and verify the full official advanced contract: remaining signing formats and optional payload provider parity, ACLs, CSEK/CMEK, class overrides, requester billing, retention/explicit holds, custom time and other upload variants; establish exact metadata/CRC/error/header/framing/unknown-input parity under SPEC-XML-PUT-EDGES and existing SPEC-XML-INPUTS, SPEC-012/017, SPEC-XML-PREFIX/PATH-ERROR. Post-EOF commit outcome may be unknown after timeout/disconnect/shutdown; all fsync boundaries, power loss, dedicated resource measurements and actual signed-browser execution remain unclaimed.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "EXT-XML-022-SIGNED",
+          "description": "V4 RSA query PUT, streamed optional SHA256, signed metadata/conditions, signer grants, atomic failures and wire CORS.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure"
+          ]
+        },
+        {
+          "id": "EXT-XML-022-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
-        "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
-        "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
-        "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
-        "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
-        "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
-        "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
-        "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
-        "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
-        "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
-        "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
-        "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads",
+        "TestV4RSASignedDownload/SignedUpload",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+        "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+        "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
         "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
-        "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"
+        "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+        "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+        "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+        "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+        "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+        "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+        "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+        "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+        "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+        "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+        "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
+        "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
       ],
       "verification": [
         {
@@ -24416,17 +24659,94 @@
             "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
             "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials",
+            "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
+            "xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish",
+            "xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic",
+            "xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts",
+            "xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes",
+            "xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object",
+            "xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication",
+            "xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens",
+            "xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state",
+            "xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots",
+            "xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        }
+      ],
       "known_deviations": [
-        "Full official PUT remains PARTIAL: signing/payload verification, ACLs, encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
+        "Full official PUT remains PARTIAL: ACLs, encryption, requester billing, storage-class overrides, retention/explicit holds, custom time and other advanced variants are explicitly rejected, not implemented.",
         "SPEC-XML-PUT-EDGES: CRC32C malformed values use local 400 InvalidDigest rather than the separately documented InvalidCrc, and all checksum mismatches use BadDigest; duplicate/conflicting declarations, non-ASCII/custom metadata accounting, framing/trailers, exact headers and mixed-error precedence need provider evidence.",
         "Existing SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017 local addressing, unknown-input, ETag and authentication/permission precedence rules apply unchanged; retry tokens require generation match without response replay.",
-        "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and integrated signed-browser/container/SDK execution remain unverified.",
-        "Go storage v1.70.0 OpenWriter uses JSON Objects.Insert; XML PUT is covered by Rust raw HTTP tests without a new official SDK XML-write claim."
+        "Pre-EOF interruption prevents publication, while an already-running post-EOF commit may finish after timeout/disconnect/shutdown. Individual fsync crash windows, power loss, measured RSS/cgroup limits and actual signed-browser execution remain unverified.",
+        "Go storage v1.70.0 OpenWriter uses JSON Objects.Insert; ordinary Go Writer uses JSON; official SignedURL PUT adds XML write coverage."
       ],
-      "implemented_in": "9ee0eacead613908063c1c0d514053eed083ec18",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -30286,16 +30606,17 @@
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control",
-        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, remaining signed formats/writes, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, remaining signing formats and advanced XML operations, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -30349,7 +30670,7 @@
         },
         {
           "id": "DESIGN-002-PENDING",
-          "description": "Implement object IAM policies/conditions, ACLs/default ACLs, full UBLA/PAP, V2/HMAC and remaining V4 writes/transports, Google IAM signing, custom/basic roles and gRPC/broader XML enforcement; obtain real-service SPEC-017 wire evidence. Scoped unconditional bucket/public grants and XML reads are verified.",
+          "description": "Implement object IAM policies/conditions, ACLs/default ACLs, full UBLA/PAP, V2/HMAC and remaining V4 formats/transports, Google IAM signing, custom/basic roles and gRPC/broader XML enforcement; obtain real-service SPEC-017 wire evidence. Scoped unconditional bucket/public grants and XML reads are verified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -30382,30 +30703,41 @@
             "TestV4RSASignedDownload",
             "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
           ]
+        },
+        {
+          "id": "DESIGN-002-SIGNED-PUT",
+          "description": "V4 RSA signed PUT uses local signer create/delete grants, shared atomic conditions and pre-body failure handling.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure"
+          ]
         }
       ],
       "test_ids": [
-        "auth::tests::strict_caller_resolution",
-        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
-        "auth_http_project_roles_gate_each_route",
-        "auth_http_admin_full_crud_and_restart_with_same_registry",
-        "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
-        "auth_http_concurrent_creates_without_delete_have_one_winner",
-        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
-        "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation",
-        "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
-        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
-        "TestStrictAuthObjectViewer",
         "TestStrictAuthObjectCreator",
+        "TestStrictAuthObjectViewer",
+        "TestV4RSASignedDownload",
+        "auth::tests::strict_caller_resolution",
+        "auth_http_admin_full_crud_and_restart_with_same_registry",
+        "auth_http_concurrent_creates_without_delete_have_one_winner",
+        "auth_http_project_roles_gate_each_route",
+        "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+        "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+        "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
         "bucket_patch_strict_permissions_and_policy_preservation",
-        "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
         "bucket_put_strict_permissions_and_policy_preservation",
-        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "signing::partial_signing_fields_never_become_anonymous_under_public_grants",
+        "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
-        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "TestV4RSASignedDownload",
-        "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+        "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
+        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
+        "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+        "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+        "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation"
       ],
       "verification": [
         {
@@ -30485,6 +30817,44 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::tests::strict_caller_resolution",
+            "auth_http_admin_full_crud_and_restart_with_same_registry",
+            "auth_http_concurrent_creates_without_delete_have_one_winner",
+            "auth_http_project_roles_gate_each_route",
+            "auth_http_rejected_uploads_do_not_read_or_stage_the_body",
+            "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
+            "auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden",
+            "bucket_patch_strict_permissions_and_policy_preservation",
+            "bucket_put_strict_permissions_and_policy_preservation",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants",
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
+            "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
+            "storage::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create",
+            "storage::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project",
+            "storage::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -30521,11 +30891,11 @@
         }
       ],
       "known_deviations": [
-        "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, signed writes/remaining formats, HMAC, Google IAM signing and broader transport enforcement remain unimplemented.",
+        "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, remaining signature formats, HMAC, Google IAM signing and broader transport enforcement remain unimplemented.",
         "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
         "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
       ],
-      "implemented_in": "ce521fd213b389c63c48cd29d67395cdb21aac38",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32345,18 +32715,20 @@
       "interface": "XML signature authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "LOCAL_SIMULATION",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict signed GET/HEAD requires the signer's effective storage.objects.get permission through project and bucket IAM in the existing read transaction; invalid signatures never fall back to public access. Signed write permission cases remain pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Strict signed GET/HEAD requires get; PUT requires create plus delete on overwrite through the existing project-plus-bucket evaluator. Invalid signatures never fall back to public grants; unsupported operations fail explicitly. Contract: docs/en/slices/signed-upload.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-029-READ-GRANTS",
@@ -32375,13 +32747,31 @@
           ]
         },
         {
-          "id": "DESIGN-029-WRITE-PENDING",
-          "description": "Verify signer permissions for signed XML PUT and other write operations.",
-          "result": "PENDING",
-          "test_ids": []
+          "id": "DESIGN-029-WRITE",
+          "description": "All accepted signed operations use the shared evaluator: PUT requires create and delete for overwrite; project/bucket grants, revocation and denial apply before body reads and at atomic publication. Unsupported signed operations never return false success.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure"
+          ]
+        },
+        {
+          "id": "DESIGN-029-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
+        "TestV4RSASignedDownload/SignedUpload",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+        "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
         "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
       ],
@@ -32395,11 +32785,75 @@
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
-      "sdk_evidence": [],
-      "known_deviations": ["Signed XML write-operation permission checks remain pending; current enforcement covers GET/HEAD only."],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        }
+      ],
+      "known_deviations": [],
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32414,12 +32868,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants.",
+      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -32459,17 +32915,28 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "id": "DESIGN-030-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
-        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
-        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
-        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
-        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "TestV4RSASignedDownload",
-        "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+        "TestV4RSASignedDownload/SignedUpload",
+        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "signing::partial_signing_fields_never_become_anonymous_under_public_grants",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
       ],
       "verification": [
         {
@@ -32504,6 +32971,31 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -32521,10 +33013,39 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32570,11 +33091,13 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signed-urls",
         "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
-        "https://docs.cloud.google.com/storage/docs/authentication/signatures"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -32620,11 +33143,22 @@
             "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32639,11 +33173,12 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Virtual-host routing remains pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Virtual-host routing remains pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -32665,14 +33200,25 @@
           "description": "Implement virtual-host bucket routing and its canonical host/path cases.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-033-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
-        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
-        "signed_private_download_uses_the_https_listener_host_and_port",
         "TestV4RSASignedDownload",
-        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+        "TestV4RSASignedDownload/SignedUpload",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signed_private_download_uses_the_https_listener_host_and_port",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
       ],
       "verification": [
         {
@@ -32704,6 +33250,28 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+            "signed_private_download_uses_the_https_listener_host_and_port",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -32721,12 +33289,41 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [
         "Virtual-host routing remains unavailable; SPEC-GO-SIGNER-PORT records the pinned SDK defect without relaxing server Host checks."
       ],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32741,11 +33338,12 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Raw canonicalization preserves encoded path spelling, Unicode, slash and dot-like distinctions without filesystem normalization; encoded separators rewritten after signing fail verification. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Raw canonicalization preserves encoded path spelling, Unicode, slash and dot-like distinctions without filesystem normalization; encoded separators rewritten after signing fail verification. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -32808,6 +33406,16 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -32828,7 +33436,7 @@
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32843,11 +33451,12 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Sorted encoded query binds every parameter except X-Goog-Signature; add/remove/change and generation mutation fail. Duplicate decoded names reject locally. Valid signed response-* overrides return explicit 501; full overrides and duplicate-provider parity remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Full canonical strings pin decoded-name code-point order before encoding, including a, + and Unicode names; independent Go query signatures agree before explicit 501 for unsupported parameters.",
+      "notes": "Sorted encoded query binds every parameter except X-Goog-Signature; add/remove/change and generation mutation fail. Duplicate decoded names reject locally. Valid signed response-* overrides return explicit 501; full overrides and duplicate-provider parity remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Full canonical strings pin decoded-name code-point order before encoding, including a, + and Unicode names; independent Go query signatures agree before explicit 501 for unsupported parameters. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -32918,6 +33527,19 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -32940,7 +33562,7 @@
       "known_deviations": [
         "SPEC-SIGNING-EDGES: duplicate decoded query names reject locally; response overrides remain unsupported."
       ],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -32955,11 +33577,12 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Require sorted unique lowercase signed names including host; trim/collapse ASCII whitespace and join repeated values in wire order with commas. Missing/changed values and unsigned required extension headers reject. Optional content-sha256 payload ambiguity remains separate in SPEC-SIGNING-EDGES/DESIGN-037. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Require sorted unique lowercase signed names including host; trim/collapse ASCII whitespace and join repeated values in wire order with commas. Missing/changed values and unsigned required extension headers reject. Optional content-sha256 payload ambiguity remains separate in SPEC-SIGNED-PAYLOAD/DESIGN-037. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -32990,15 +33613,35 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "id": "DESIGN-036-PUT",
+          "description": "PUT binds Content-Type, Content-MD5, custom metadata and generation match; missing/changed signed headers reject, unsigned required extensions reject and standard unsigned extras retain XML semantics.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers"
+          ]
+        },
+        {
+          "id": "DESIGN-036-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
+        "TestV4RSASignedDownload",
+        "TestV4RSASignedDownload/SignedUpload",
         "auth::signature::tests::canonical_headers_match_the_official_published_example",
-        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
-        "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names",
-        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
         "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
-        "TestV4RSASignedDownload"
+        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+        "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
       ],
       "verification": [
         {
@@ -33031,6 +33674,40 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::canonical_headers_match_the_official_published_example",
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -33048,10 +33725,39 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -33062,25 +33768,137 @@
       "interface": "XML signature authentication",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Differentiate signed URL payload rules from signed Authorization-header rules.",
+      "notes": "Query canonical requests always use UNSIGNED-PAYLOAD. Optional signed/unsigned lowercase SHA256 declarations are validated incrementally before publication; mismatches preserve the old resource. Authorization-header V4 remains rejected. SPEC-SIGNED-PAYLOAD retains SDK substitution and provider error/optional-header semantics; docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Pinned Go storage.go:871-883 substitution is explicitly rejected as 403 SignatureDoesNotMatch with unchanged resource, including for a matching body; omit SDK SHA256 signing options or use the helper.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-037-QUERY",
+          "description": "Query canonical payload stays UNSIGNED-PAYLOAD with or without a supplied digest; signed values remain header-bound.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed"
+          ]
+        },
+        {
+          "id": "DESIGN-037-STREAM",
+          "description": "Bounded multi-frame PUT validates optional signed/unsigned SHA256; failure preserves bytes, metadata and generation; explicit UNSIGNED-PAYLOAD accepts arbitrary bodies and restart preserves publication.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        },
+        {
+          "id": "DESIGN-037-FORM",
+          "description": "Strict Authorization-header signatures and mixed credentials reject before body reads.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "id": "DESIGN-037-PROVIDER-PENDING",
+          "description": "Resolve SPEC-SIGNED-PAYLOAD: optional digest handling and exact malformed/mismatch errors versus official query canonical rules and pinned SDK substitution; Authorization-header positive behavior belongs to DESIGN-039.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-037-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        }
+      ],
+      "test_ids": [
+        "TestV4RSASignedDownload/SignedUpload",
+        "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+        "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SIGNED-PAYLOAD: query payload follows the official UNSIGNED-PAYLOAD rule; declared hashes receive local streamed integrity checking with 400 InvalidAuthentication/InvalidDigest/BadDigest. Provider edge/error parity and SDK hash substitution remain unresolved."
+      ],
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-038",
@@ -33094,11 +33912,12 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GET signatures cannot authorize HEAD/PUT/DELETE or changed bucket/object/generation. Verification precedes unsupported operation dispatch and object lookup; positive HEAD requires its own signature. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Signed GET/HEAD/PUT bind their exact method/resource; cross-method, changed bucket/object/generation and extra query fail before body reads without mutation. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -33121,13 +33940,33 @@
             "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "id": "DESIGN-038-PUT",
+          "description": "PUT cannot authorize GET/HEAD/DELETE or another bucket/object/query; GET cannot PUT and rejected mutations preserve the resource.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "id": "DESIGN-038-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "test_ids": [
+        "TestV4RSASignedDownload",
+        "TestV4RSASignedDownload/SignedUpload",
         "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
-        "TestV4RSASignedDownload"
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
       ],
       "verification": [
         {
@@ -33158,6 +33997,37 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -33175,10 +34045,39 @@
           "test_ids": [
             "TestV4RSASignedDownload"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
         }
       ],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -33337,12 +34236,14 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-status"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Signed failures use XML status/code pairs: malformed 400 InvalidAuthentication, unknown signer 403 InvalidAccessKeyId, mismatch 403 SignatureDoesNotMatch, expiry 400 ExpiredToken, early 403 RequestTimeTooSkewed, permission 403 AccessDenied. HEAD is bodyless; exact provider mapping/messages/precedence remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
+      "notes": "Signed failures use XML status/code pairs: malformed 400 InvalidAuthentication, unknown signer 403 InvalidAccessKeyId, mismatch 403 SignatureDoesNotMatch, expiry 400 ExpiredToken, early 403 RequestTimeTooSkewed, permission 403 AccessDenied. HEAD is bodyless; exact provider mapping/messages/precedence remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -33362,11 +34263,24 @@
           "description": "Establish query-specific error mappings, exact messages/headers and mixed-error precedence from provider evidence.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-044-PUT",
+          "description": "Signed PUT reports signature/expiry/permission/digest/condition failures as XML without publishing failed bodies.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure"
+          ]
         }
       ],
       "test_ids": [
-        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+        "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
         "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
         "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
       ],
       "verification": [
@@ -33380,13 +34294,38 @@
             "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
             "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "SPEC-SIGNING-EDGES: precise query-specific error mappings, messages/headers and mixed-error precedence remain local choices."
       ],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -33401,11 +34340,13 @@
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL. Integrated contract: docs/en/slices/signed-upload.md; final evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -33436,15 +34377,37 @@
             "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
           ]
+        },
+        {
+          "id": "DESIGN-045-SIGNED-SDK",
+          "description": "Pinned official Go and Ruby private signed GET/PUT, required Content-Type, tamper rejection and unchanged resources under recorded host/port/payload adaptations; HTTPS uses verified local CA trust.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "id": "DESIGN-045-GUIDE",
+          "description": "Native and network-disabled source-image helper sign private GET/PUT against the final host endpoint; strict Compose mounts public registry only, persists through restart and verifies an independently signed peer URL.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
         }
       ],
       "test_ids": [
+        "TestV4RSASignedDownload/SignedUpload",
+        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+        "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)",
+        "signed_journey (Docker/Compose)",
+        "signed_journey (native)",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
         "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
         "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
-        "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs",
-        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
-        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
-        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+        "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
       ],
       "verification": [
         {
@@ -33460,11 +34423,75 @@
             "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
             "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload",
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        },
+        {
+          "command": "Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload/SignedUpload"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS XML V4 RSA signed GET/PUT",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "artifact": "docs/en/evidence/signed-urls-sdk.txt",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -34216,11 +35243,13 @@
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener and fixed api_base_url are independent for bucket/object links; once-encoded selfLink addresses the current resource and mediaLink selects its generation. HTTPS now verifies API links, client-reachable resumable Location and explicit public helper bases across host/peer clients. Scope/evidence: docs/en/slices/local-tls.md and docs/en/evidence/local-tls.md. Separately stored public endpoint, proxy-derived origin and signing remain outside the TLS slice.",
+      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -34245,7 +35274,7 @@
         },
         {
           "id": "DESIGN-055-PENDING",
-          "description": "Implement separately configured public object endpoint, trusted proxy policy and signed externally visible URLs.",
+          "description": "Implement a separately configured public endpoint and trusted proxy-derived origin policy; explicit final-endpoint signing is delivered.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -34257,15 +35286,35 @@
             "tls_trust_versions_streaming_urls_and_restart",
             "tls_native_container_journeys"
           ]
+        },
+        {
+          "id": "DESIGN-055-SIGNED",
+          "description": "Signed requests bind actual host:port independent of advertised API/forwarded origins; tampered Host fails.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "id": "DESIGN-055-GUIDE",
+          "description": "Native and network-disabled source-image helper sign private GET/PUT against the final host endpoint; strict Compose mounts public registry only, persists through restart and verifies an independently signed peer URL.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
         }
       ],
       "test_ids": [
-        "bkt_http_crud_metadata_conditions_and_errors",
         "advertised_endpoint_precedence_and_validation",
-        "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+        "bkt_http_crud_metadata_conditions_and_errors",
         "obj_http_encoded_names_and_invalid_names",
-        "tls_trust_versions_streaming_urls_and_restart",
-        "tls_native_container_journeys"
+        "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+        "signed_journey (Docker/Compose)",
+        "signed_journey (native)",
+        "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+        "tls_native_container_journeys",
+        "tls_trust_versions_streaming_urls_and_restart"
       ],
       "verification": [
         {
@@ -34289,13 +35338,47 @@
             "tls_trust_versions_streaming_urls_and_restart",
             "tls_native_container_journeys"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body"
+          ]
+        },
+        {
+          "command": "Run the signed private transfer guide natively and with the source-built Docker image/strict Compose",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-checks.txt",
+          "test_ids": [
+            "advertised_endpoint_precedence_and_validation",
+            "bkt_http_crud_metadata_conditions_and_errors",
+            "obj_http_encoded_names_and_invalid_names",
+            "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+            "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
+            "tls_native_container_journeys",
+            "tls_trust_versions_streaming_urls_and_restart"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Fixed API links and an explicit public URL helper base are supported; a separately stored public endpoint, proxy-derived origin and signed URL semantics remain pending."
+        "Fixed API and explicit public/signing helper bases work; separately stored public endpoint and trusted proxy-derived origins remain pending."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
+      "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-23"
     },
     {
@@ -38561,23 +39644,55 @@
       "interface": "Emulator user journey",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project acceptance requirement. Throwaway local keys sign the actual final endpoint; valid requests succeed and changed host/method/object/expiry fail; PAP preserves valid signed access.",
+      "notes": "Generated-key/public-only registry, native/source-built Docker helper GET/PUT, method/object/host/expiry/header/condition failures, restart and separately signed host/peer URLs pass the runnable guide. Dynamic restart ports are re-read and re-signed, never rewritten. PAP is not modeled, so UX-006 stays PARTIAL. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "UX-006-GUIDE",
+          "description": "Execute the new native/source-image/strict-Compose signed private GET/PUT guide, failure demos, restart and host/peer URLs with public-only server key mounts.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
+        },
+        {
+          "id": "UX-006-PAP-PENDING",
+          "description": "Validate valid signed access while public access prevention is enforced; DESIGN-025 is not modeled and remains unchanged.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signed_journey (native)",
+        "signed_journey (Docker/Compose)"
+      ],
+      "verification": [
+        {
+          "command": "Execute the signed-private-transfer shell blocks in docs/en/getting-started.md natively and with the final source-built Docker image/strict Compose",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "PAP interaction remains unimplemented under DESIGN-025; actual signed browser transfers belong to delivery order 18."
+      ],
+      "implemented_in": "5f45d0935ad55b8199e278ca808aa126580e0999",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "UX-007",

@@ -3,10 +3,60 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
-      "id": "SPEC-SIGNING-EDGES",
-      "title": "V4 query error details, duplicate inputs and optional payload header need provider clarification",
+      "id": "SPEC-SIGNED-PAYLOAD",
+      "title": "Optional SHA256 query header versus SDK payload substitution and exact failure errors",
       "status": "OPEN",
-      "affected_features": ["DESIGN-002", "DESIGN-030", "DESIGN-035", "DESIGN-037", "DESIGN-044", "EXT-XML-012", "EXT-XML-017"],
+      "affected_features": [
+        "DESIGN-037",
+        "DESIGN-044",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go",
+        "https://github.com/googleapis/google-cloud-ruby/blob/google-cloud-storage/v1.62.1/google-cloud-storage/lib/google/cloud/storage/file/signer_v4.rb"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The canonical-request guide explicitly specifies UNSIGNED-PAYLOAD for signed URLs and separates Authorization-header payload hashing. The XML header page documents lowercase SHA256 or UNSIGNED-PAYLOAD and optional canonical inclusion. Pinned Go and Ruby signers substitute a supplied content-sha256 into the canonical payload. The integrated server/helper follow the query UNSIGNED-PAYLOAD rule; signed headers bind a declared digest and both signed/unsigned declared digests are checked incrementally before sending the upload End marker. Strict malformed declarations return 400 InvalidAuthentication; permissive query malformed declarations return 400 InvalidDigest; completed-body SHA256 mismatch returns 400 BadDigest. No mismatch publishes bytes, metadata or generation. Optional unsigned digest replacement is not an authorization restriction. Ordinary bearer PUT retains its explicit unsupported content-sha256 behavior. Authorization-header V4 remains rejected in strict mode. No real Google request was made. Go storage v1.70.0 storage.go:871-883 is the exact substitution site. The unmodified official SignedURL digest-bound PUT is tested with a portless authority: both matching and changed bodies return 403 SignatureDoesNotMatch and preserve the prior metadata/generation/bytes. Users must omit SDK x-goog-content-sha256/SHA256 signing options or use the local helper.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence for optional query hash acceptance/checking and exact malformed/mismatch status/header/precedence. Reconcile SDK substitution on deliberate updates without accepting a second canonical payload form or weakening digest validation. DESIGN-037 stays PARTIAL with a named provider pending case; DESIGN-039 remains unchanged. Contract and evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md."
+    },
+    {
+      "id": "SPEC-RUBY-SIGNER-ENDPOINT",
+      "title": "Pinned Ruby V4 signer custom endpoint and bucket-bound host/path adaptation",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-030",
+        "DESIGN-033",
+        "DESIGN-045",
+        "EXT-XML-012",
+        "EXT-XML-022",
+        "UX-006"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/google-cloud-ruby/blob/google-cloud-storage/v1.62.1/google-cloud-storage/lib/google/cloud/storage/file/signer_v4.rb",
+        "https://cloud.google.com/ruby/docs/reference/google-cloud-storage/latest/Google-Cloud-Storage-File"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Storage 1.62.1 signer_v4.rb emits the configured service root URL, retaining its non-default port, but default host_name returns storage.googleapis.com. The strict test asserts that a normal custom-endpoint File#signed_url fails with 403 SignatureDoesNotMatch. The public bucket_bound_hostname option binds the supplied final host:port and omits the bucket path prefix; a lookup-free File named bucket/name supplies that full path before signing. Unmodified generated GET/PUT URLs then target the actual path-style resource and pass, including signed Content-Type and tamper rejection. URL, Host and SDK source are never rewritten after signing. The test confines every request to the explicit loopback endpoint with no proxy/redirect and verified HTTPS trust. This adaptation does not implement virtual-host routing.",
+      "required_resolution": "Recheck official signer endpoint/port/path behavior when updating the pinned gem. Preserve the asserted default-endpoint limitation and explicit bucket-bound path adaptation; recommend gcs-mimic url sign for normal local path-style use. Never relax server canonical Host or rewrite signed URLs. Combined evidence: docs/en/evidence/signed-urls.md; SDK details: sdk-tests/ruby/README.md."
+    },
+    {
+      "id": "SPEC-SIGNING-EDGES",
+      "title": "V4 query error details and duplicate inputs need provider clarification",
+      "status": "OPEN",
+      "affected_features": [
+        "DESIGN-002",
+        "DESIGN-030",
+        "DESIGN-035",
+        "DESIGN-037",
+        "DESIGN-044",
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
@@ -16,25 +66,36 @@
       ],
       "observed_at": "2026-10-23",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. Valid signed response-* overrides explicitly return 501. The canonical-request guide describes query payload as UNSIGNED-PAYLOAD, while pinned Go storage.go:872-886 substitutes x-goog-content-sha256 when supplied. Local signing/verification follows that substitution, validates one lowercase SHA-256/UNSIGNED-PAYLOAD header and GET/HEAD accepts only the empty-body hash or UNSIGNED-PAYLOAD. No Google differential request was made. Contract/evidence: docs/en/slices/signed-download.md and docs/en/evidence/signed-download.md.",
-      "required_resolution": "Obtain authoritative clarification or explicitly authorized provider observations for query-specific errors, expiry boundary/error mapping, duplicate and ambiguous query encodings, and content-sha256 substitution. Preserve the declared local behavior, explicit override rejection and broader PARTIAL rows; do not weaken strict signature or permission checks. Payload streaming/hash enforcement for signed writes remains its own slice."
+      "observed_evidence": "Official active-datetime text establishes a 900-second early skew for query signatures and a maximum 604800-second lifetime. Local expiry is exclusive. The XML status catalog documents SignatureDoesNotMatch/InvalidAccessKeyId/RequestTimeTooSkewed at 403 and ExpiredToken at 400, but does not exhaustively assign query-signature errors, exact messages or mixed-failure precedence. Local malformed fields or mixed Authorization return 400 InvalidAuthentication, unknown signer/key 403 InvalidAccessKeyId, mismatch/missing signed header 403 SignatureDoesNotMatch, too early 403 RequestTimeTooSkewed, expiry 400 ExpiredToken and permission denial 403 AccessDenied; authentication precedes operation validation, signature math precedes time checks, and no failure falls back to public grants. The shared bounded parser rejects duplicate decoded query names and sorts decoded names by code point before encoding names/values; the full canonical string and pinned Go signing agree for a, + and Unicode names. Exact provider duplicate/ambiguous-encoding handling remains unverified. Any incomplete subset of the six V4 fields rejects before public access. Absolute-form target authority must exactly match canonical Host or fail with SignatureDoesNotMatch; this is a local conflict rule pending provider precedence evidence. Valid signed response-* overrides explicitly return 501. Optional content-sha256 canonicalization and streamed PUT checking are now tracked in SPEC-SIGNED-PAYLOAD. The integrated query canonical payload follows UNSIGNED-PAYLOAD. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider observations for query-specific errors, expiry boundary/error mapping and duplicate/ambiguous query encoding. Keep full response overrides unsupported and strict signature/permission failures fail-closed. Optional payload issues belong to SPEC-SIGNED-PAYLOAD."
     },
     {
       "id": "SPEC-GO-SIGNER-PORT",
       "title": "Pinned Go V4 signer removes non-default port from canonical Host",
       "status": "OPEN",
-      "affected_features": ["DESIGN-030", "DESIGN-033", "DESIGN-045", "EXT-XML-012", "EXT-XML-017"],
-      "source_urls": ["https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go#L854"],
+      "affected_features": [
+        "DESIGN-030",
+        "DESIGN-033",
+        "DESIGN-045",
+        "EXT-XML-012",
+        "EXT-XML-017",
+        "EXT-XML-022"
+      ],
+      "source_urls": [
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/storage.go#L854"
+      ],
       "observed_at": "2026-10-23",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "Pinned storage v1.70.0 storage.go:854 adds host using u.Hostname(), dropping a port configured through SignedURLOptions.Hostname. Tests assert that unmodified SDK URLs fail with 403 SignatureDoesNotMatch at actual host:port, while unmodified URLs succeed at a portless authority mapped by a guarded client dialer to the isolated ephemeral listener. An independent Go canonical request matches the SDK SignBytes message after omitting the port, then corrects only the host port and signs with standard-library RSA; corrected requests, ranges, HEAD, Unicode paths and tamper rejection pass over HTTP and trusted HTTPS. No SDK source, module pin or server Host rule is changed. Use gcs-mimic url sign for local explicit ports, or expose a default-port endpoint. These two types of SDK evidence remain distinct.",
+      "observed_evidence": "Pinned storage v1.70.0 storage.go:854 adds host using u.Hostname(), dropping a port configured through SignedURLOptions.Hostname. Tests assert that unmodified SDK URLs fail with 403 SignatureDoesNotMatch at actual host:port, while unmodified URLs succeed at a portless authority mapped by a guarded client dialer to the isolated ephemeral listener. An independent Go canonical request matches the SDK SignBytes message after omitting the port, then corrects only the host port and signs with standard-library RSA; corrected requests, ranges, HEAD, Unicode paths and tamper rejection pass over HTTP and trusted HTTPS. No SDK source, module pin or server Host rule is changed. Use gcs-mimic url sign for local explicit ports, or expose a default-port endpoint. These two types of SDK evidence remain distinct. Official SignedURL PUT with ContentType also passes unchanged at a default-port authority and fails at an explicit non-default port; see the SignedUpload subtest in TestV4RSASignedDownload.",
       "required_resolution": "Recheck upstream signer behavior on a deliberate SDK update. Retain the asserted limitation and default-port/unmodified versus explicit-port/independent evidence until a fixed official signer is verified. Never drop the actual Host port or rewrite a signed host in strict mode to accommodate this SDK behavior."
     },
     {
       "id": "SPEC-XML-PUT-EDGES",
       "title": "XML PUT parser, checksum errors and commit cancellation boundaries remain local",
       "status": "OPEN",
-      "affected_features": ["EXT-XML-022"],
+      "affected_features": [
+        "EXT-XML-022"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
         "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
@@ -44,14 +105,22 @@
       ],
       "observed_at": "2026-10-23",
       "kind": "LOCAL_DEVIATION",
-      "observed_evidence": "The PUT method requires Content-Length unless chunked, defines replacement, Content-MD5 InvalidDigest/BadDigest, and returns empty 200. The headers reference defines octet-stream serving fallback, 8 KiB custom metadata and big-endian CRC32C; IAM requires create plus delete for overwrite. Local PUT uses the existing JSON bounded bridge and transactional publication/recovery. Configured size excess returns XML 400 EntityTooLarge, missing framing 411 MissingContentLength, malformed/conflicting hash declarations 400 InvalidDigest including CRC32C, and any supplied checksum mismatch 400 BadDigest. The status catalog separately names InvalidCrc; precise CRC-specific errors remain a declared deviation. HTTP names normalize to lowercase; duplicate fixed/precondition/custom fields return 400 ExcessHeaderValues, empty custom suffixes and non-ASCII values return 400 InvalidArgument, and the metadata cap counts stored suffix/value bytes as shared storage does, rather than the HTTP prefix. Empty optional fixed values clear those fields; omitted content type is stored as application/octet-stream. Hyper owns transport-invalid framing and automatic 100-continue; trailers are explicitly unsupported, announced trailers fail before body reads and unannounced trailer frames abort without publication. Unknown query/x-goog inputs follow SPEC-XML-INPUTS 501; all x-amz extensions also fail 501. Retry tokens need generation match and have no response replay. Existing local XML path/ETag/auth/permission-precedence choices remain SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017. Complete bodies may finish publication after response timeout, disconnect or shutdown; only pre-EOF interruption guarantees no publication. Rust wire cases verify 13 scoped behaviors and recovery without claiming provider differential parity, every fsync crash boundary, power loss, measured RSS/cgroup bounds or actual-browser signed transfers.",
-      "required_resolution": "Keep EXT-XML-022 PARTIAL. Implement signing/payload verification, ACLs, encryption, requester billing, class overrides, retention/explicit holds, custom time, copy/resumable/multipart variants and other advanced inputs in their owning slices. Establish authoritative or explicitly authorized provider evidence for duplicate/non-ASCII/metadata-size accounting, hash conflict and CRC-specific errors, mixed-error ordering, framing/trailers and complete response headers. Preserve bounded streaming and atomic create/delete/condition checks, and never promise rollback of a commit already running after EOF. Run integrated signed-browser/container/SDK gates separately; Go storage v1.70.0 writes JSON Objects.Insert, so these XML PUT cases use Rust raw HTTP rather than claiming SDK write coverage. Source digests, exact scope and final commands are in docs/en/slices/xml-put-object.md and docs/en/evidence/xml-put-object.md."
+      "observed_evidence": "The PUT method requires Content-Length unless chunked, defines replacement, Content-MD5 InvalidDigest/BadDigest, and returns empty 200. The headers reference defines octet-stream serving fallback, 8 KiB custom metadata and big-endian CRC32C; IAM requires create plus delete for overwrite. Local PUT uses the existing JSON bounded bridge and transactional publication/recovery. Configured size excess returns XML 400 EntityTooLarge, missing framing 411 MissingContentLength, malformed/conflicting hash declarations 400 InvalidDigest including CRC32C, and any supplied checksum mismatch 400 BadDigest. The status catalog separately names InvalidCrc; precise CRC-specific errors remain a declared deviation. HTTP names normalize to lowercase; duplicate fixed/precondition/custom fields return 400 ExcessHeaderValues, empty custom suffixes and non-ASCII values return 400 InvalidArgument, and the metadata cap counts stored suffix/value bytes as shared storage does, rather than the HTTP prefix. Empty optional fixed values clear those fields; omitted content type is stored as application/octet-stream. Hyper owns transport-invalid framing and automatic 100-continue; trailers are explicitly unsupported, announced trailers fail before body reads and unannounced trailer frames abort without publication. Unknown query/x-goog inputs follow SPEC-XML-INPUTS 501; all x-amz extensions also fail 501. Retry tokens need generation match and have no response replay. Existing local XML path/ETag/auth/permission-precedence choices remain SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017. Complete bodies may finish publication after response timeout, disconnect or shutdown; only pre-EOF interruption guarantees no publication. Rust wire cases verify 13 scoped behaviors and recovery without claiming provider differential parity, every fsync crash boundary, power loss, measured RSS/cgroup bounds or actual-browser signed transfers. The integrated signed-upload adapter additionally checks optional signed or unsigned x-goog-content-sha256 incrementally and maps body mismatch to 400 BadDigest; malformed strict signing declarations are 400 InvalidAuthentication. These local choices and the SDK substitution conflict are SPEC-SIGNED-PAYLOAD.",
+      "required_resolution": "Keep EXT-XML-022 PARTIAL. Implement ACLs, encryption, requester billing, class overrides, retention/explicit holds, custom time, copy/resumable/multipart variants and other advanced inputs in their owning slices. Establish authoritative or explicitly authorized provider evidence for duplicate/non-ASCII/metadata-size accounting, hash conflict and CRC-specific errors, mixed-error ordering, framing/trailers and complete response headers. Preserve bounded streaming and atomic create/delete/condition checks, and never promise rollback of a commit already running after EOF. Run integrated signed-browser/container/SDK gates separately; Go storage v1.70.0 writes JSON Objects.Insert, so these XML PUT cases use Rust raw HTTP rather than claiming SDK write coverage. Source digests, exact scope and final commands are in docs/en/slices/xml-put-object.md and docs/en/evidence/xml-put-object.md. V4 RSA query PUT and streamed optional SHA256 now have separate signed-upload and official Go/Ruby SDK evidence in docs/en/evidence/signed-urls.md."
     },
     {
       "id": "SPEC-CORS-EDGES",
       "title": "CORS provider header lists, custom mobile origins and malformed-input details remain unverified",
       "status": "OPEN",
-      "affected_features": ["DESIGN-051", "DESIGN-052", "BEHAVIOR-BUCKET-009", "UX-007", "JSON-BUCKETS-002", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
+      "affected_features": [
+        "DESIGN-051",
+        "DESIGN-052",
+        "BEHAVIOR-BUCKET-009",
+        "UX-007",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-013"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/cross-origin",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
@@ -70,7 +139,12 @@
       "id": "SPEC-DERIVED-METADATA",
       "title": "Copy/rewrite empty metadata resources, null and class defaults need provider clarification",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023", "JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "affected_features": [
+        "JSON-OBJECTS-003",
+        "BEHAVIOR-OBJECT-023",
+        "JSON-OBJECTS-012",
+        "BEHAVIOR-OBJECT-024"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
@@ -86,7 +160,10 @@
       "id": "SPEC-COPY-PLACEMENT",
       "title": "Copy single-rewrite size limits, placement and exact error behavior are not simulated",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-003", "BEHAVIOR-OBJECT-023"],
+      "affected_features": [
+        "JSON-OBJECTS-003",
+        "BEHAVIOR-OBJECT-023"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/copy",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
@@ -102,7 +179,10 @@
       "id": "SPEC-REWRITE-EDGES",
       "title": "Rewrite token errors, replay retention and source-change timing require provider evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "affected_features": [
+        "JSON-OBJECTS-012",
+        "BEHAVIOR-OBJECT-024"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://docs.cloud.google.com/storage/docs/request-preconditions",

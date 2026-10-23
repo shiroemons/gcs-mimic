@@ -1,0 +1,35 @@
+Local path prefixes are redacted as <checkout>, <home> and <temp>.
+Executed the shell blocks extracted from docs/en/getting-started.md: Signed private downloads and uploads.
+Docker image: gcs-mimic:bucket-smoke-amd64-18765; linux/amd64 (emulated).
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition
+ Network gcs-mimic-signed-48905_default Creating 
+ Volume gcs-mimic-signed-48905_gcs-data Creating 
+ Network gcs-mimic-signed-48905_default Creating 
+ Volume gcs-mimic-signed-48905_gcs-data Creating 
+ Volume gcs-mimic-signed-48905_gcs-data Created 
+ Volume gcs-mimic-signed-48905_gcs-data Created 
+ Network gcs-mimic-signed-48905_default Created 
+ Network gcs-mimic-signed-48905_default Created 
+ Container gcs-mimic-signed-48905-gcs-1 Creating 
+ Container gcs-mimic-signed-48905-gcs-1 Created 
+ Container gcs-mimic-signed-48905-gcs-1 Starting 
+ Container gcs-mimic-signed-48905-gcs-1 Started 
+ Container gcs-mimic-signed-48905-gcs-1 Waiting 
+ Container gcs-mimic-signed-48905-gcs-1 Healthy 
+PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition
+ Container gcs-mimic-signed-48905-gcs-1 Stopping 
+ Container gcs-mimic-signed-48905-gcs-1 Stopped 
+ Container gcs-mimic-signed-48905-gcs-1 Starting 
+ Container gcs-mimic-signed-48905-gcs-1 Started 
+ Container gcs-mimic-signed-48905-gcs-1 Waiting 
+ Container gcs-mimic-signed-48905-gcs-1 Healthy 
+PASS: signed Docker restart and independently signed Compose peer URL
+ Container gcs-mimic-signed-48905-gcs-1 Stopping 
+ Container gcs-mimic-signed-48905-gcs-1 Stopped 
+ Container gcs-mimic-signed-48905-gcs-1 Removing 
+ Container gcs-mimic-signed-48905-gcs-1 Removed 
+ Network gcs-mimic-signed-48905_default Removing 
+ Volume gcs-mimic-signed-48905_gcs-data Removing 
+ Volume gcs-mimic-signed-48905_gcs-data Removed 
+ Network gcs-mimic-signed-48905_default Removed 
