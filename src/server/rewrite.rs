@@ -29,7 +29,7 @@ pub(super) async fn respond(
     state: &State,
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
-    deadline: tokio::time::Instant,
+    _deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let source_access =
         authorize_bucket(state, caller, auth::OBJECTS_GET, &operation.path[0]).await?;
@@ -61,8 +61,46 @@ pub(super) async fn respond(
         })?)
     };
     let body = body.filter(|value| !value.is_null());
+    activity.send_modify(|progress| progress.awaiting_catalog = true);
+    // Once mutation starts, await its durable result instead of timing out a detached commit.
+    let result = tokio::spawn(execute(
+        operation,
+        body,
+        source_access,
+        destination_access,
+        state.catalog.clone(),
+        config.max_object_bytes,
+        state.api_base_url.clone(),
+    ))
+    .await;
+    activity.send_modify(|progress| progress.awaiting_catalog = false);
+    let (value, mut owner) = result
+        .map_err(|failure| JsonError::from(ObjectError::Unavailable(failure.to_string())))??;
+    let response = boxed(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "application/json; charset=utf-8")
+            .body(Full::new(Bytes::from(value.to_string())))
+            .expect("valid rewrite response"),
+    );
+    if let Some(owner) = &mut owner {
+        owner.disarm();
+    }
+    Ok(response)
+}
+
+async fn execute(
+    operation: RewriteRequest,
+    body: Option<Value>,
+    source_access: BucketAccess,
+    destination_access: BucketAccess,
+    catalog: Catalog,
+    max_bytes: u64,
+    base: String,
+) -> Result<(Value, Option<crate::storage::DerivedRequestGuard>), JsonError> {
+    let mut owner = None;
     let token = if let Some(token) = &operation.token {
-        let session = state.catalog.rewrite_session(token).await.map_err(error)?;
+        let session = catalog.rewrite_session(token).await.map_err(error)?;
         if !session.binding.accepts(
             [
                 &operation.path[0],
@@ -77,8 +115,7 @@ pub(super) async fn respond(
         }
         token.clone()
     } else {
-        let source = state
-            .catalog
+        let source = catalog
             .resolve_derived_source(
                 &operation.path[0],
                 &operation.path[1],
@@ -88,8 +125,7 @@ pub(super) async fn respond(
             )
             .await?;
         let mut destination = destination(&source.object, &operation, &body)?;
-        state
-            .catalog
+        catalog
             .check_upload(
                 &operation.path[2],
                 &operation.path[3],
@@ -97,13 +133,11 @@ pub(super) async fn respond(
                 &destination_access,
             )
             .await?;
-        let source_bucket = state
-            .catalog
+        let source_bucket = catalog
             .get_bucket(&operation.path[0])
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
-        let destination_bucket = state
-            .catalog
+        let destination_bucket = catalog
             .get_bucket(&operation.path[2])
             .await?
             .ok_or(ObjectError::BucketNotFound)?;
@@ -156,34 +190,22 @@ pub(super) async fn respond(
             source_access: source_access.clone(),
             budget,
         };
-        state
-            .catalog
-            .begin_rewrite_session(vec![source.whole()], config.max_object_bytes, start)
+        let (token, guard) = catalog
+            .begin_rewrite_session(vec![source.whole()], max_bytes, start)
             .await
-            .map_err(error)?
+            .map_err(error)?;
+        owner = Some(guard);
+        token
     };
-    let base = state.api_base_url.clone();
-    let progress = await_upload_catalog(
-        state
-            .catalog
-            .continue_rewrite(&token, source_access, destination_access, move |record| {
-                json::object_resource(record, &base, json::Projection::NoAcl)
-                    .map_err(|e| ObjectError::Unavailable(e.to_string()))
-            }),
-        Duration::from_millis(config.object_request_timeout_ms),
-        deadline,
-        activity,
-    )
-    .await
-    .map_err(error)?;
+    let progress = catalog
+        .continue_rewrite(&token, source_access, destination_access, move |record| {
+            json::object_resource(record, &base, json::Projection::NoAcl)
+                .map_err(|e| ObjectError::Unavailable(e.to_string()))
+        })
+        .await
+        .map_err(error)?;
     let value = json::rewrite::response(progress)?;
-    Ok(boxed(
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json; charset=utf-8")
-            .body(Full::new(Bytes::from(value.to_string())))
-            .expect("valid rewrite response"),
-    ))
+    Ok((value, owner))
 }
 
 fn destination(

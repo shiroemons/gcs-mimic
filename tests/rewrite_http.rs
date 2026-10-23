@@ -137,11 +137,20 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
             b"",
         )
         .error(400, "invalidParameter");
-    let mut tampered = token.to_owned();
-    tampered.replace_range(0..1, if token.starts_with('0') { "1" } else { "0" });
-    server
-        .request("POST", &continue_path(&tampered), ADMIN, b"")
-        .error(410, "gone");
+    for index in 0..token.len() {
+        let mut tampered = token.to_owned();
+        tampered.replace_range(
+            index..index + 1,
+            if token.as_bytes()[index] == b'0' {
+                "1"
+            } else {
+                "0"
+            },
+        );
+        server
+            .request("POST", &continue_path(&tampered), ADMIN, b"")
+            .error(410, "gone");
+    }
     server
         .request("POST", &continue_path("not-a-token"), ADMIN, b"")
         .error(400, "invalidParameter");
@@ -154,7 +163,7 @@ fn rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget() {
 #[test]
 fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
     for mutation in ["overwrite", "delete", "metadata"] {
-        let (_dir, server, _payload, _source) = setup(false, 1048576 + 3);
+        let (dir, server, _payload, _source) = setup(false, 1048576 + 3);
         let first = multi(&server, "");
         match mutation {
             "overwrite" => {
@@ -188,6 +197,25 @@ fn rewrite_source_overwrite_delete_and_metadata_change_fail_closed() {
             )
             .error(412, "conditionNotMet");
         server.get("destination").error(404, "notFound");
+        server
+            .request(
+                "POST",
+                &continue_path(first["rewriteToken"].as_str().unwrap()),
+                ADMIN,
+                b"",
+            )
+            .error(410, "gone");
+        let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+        for table in ["rewrite_sessions", "derived_transfers", "derived_inputs"] {
+            assert_eq!(
+                connection
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     }
 }
 
@@ -696,4 +724,178 @@ fn rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget() {
         assert_eq!(complete["resource"][hash], source[hash]);
     }
     assert_eq!(server.get("destination?alt=media").body, payload);
+}
+
+#[test]
+fn rewrite_expired_completed_session_never_journals_the_live_blob_on_restart() {
+    let (dir, mut server, payload, _source) = setup(false, 29);
+    let complete = server.request("POST", BASE, ADMIN, b"").json();
+    server.stop();
+    rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+        .unwrap()
+        .execute("UPDATE rewrite_sessions SET deadline=0", [])
+        .unwrap();
+    let server = Server::start(&dir, false);
+    assert_eq!(server.get("destination").json(), complete["resource"]);
+    assert_eq!(server.get("destination?alt=media").body, payload);
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    for table in ["rewrite_sessions", "pending_blob_deletions"] {
+        assert_eq!(
+            connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn rewrite_completed_cache_evicts_without_rejecting_new_rewrites() {
+    let (dir, server, payload, _source) = setup(false, 1);
+    server.request("POST", BASE, ADMIN, b"").json();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let first: String = connection
+        .query_row("SELECT token FROM rewrite_sessions", [], |row| row.get(0))
+        .unwrap();
+    for _ in 0..129 {
+        assert_eq!(
+            server.request("POST", BASE, ADMIN, b"").json()["done"],
+            true
+        );
+    }
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        128
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    server
+        .request("POST", &continue_path(&first), ADMIN, b"")
+        .error(410, "gone");
+    assert_eq!(server.get("destination?alt=media").body, payload);
+}
+
+#[test]
+fn rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success() {
+    let (dir, mut server, payload, _source) = setup(false, 16 * 1048576 + 17);
+    server.stop();
+    let mut server = Server::start_with_timeouts(&dir, false, 30000, 1);
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let address = server.address.clone();
+    let worker = thread::spawn(move || request(&address, "POST", BASE, ADMIN, b""));
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 2 {
+        assert!(std::time::Instant::now() < limit);
+        thread::sleep(std::time::Duration::from_millis(1));
+    }
+    thread::sleep(std::time::Duration::from_millis(20));
+    connection.execute_batch("COMMIT;").unwrap();
+    let complete = worker.join().unwrap().json();
+    assert_eq!(complete["done"], true);
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM objects WHERE name='destination'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    server.stop();
+    let server = Server::start(&dir, false);
+    assert_eq!(server.get("destination?alt=media").body, payload);
+    assert_eq!(server.get("destination").json(), complete["resource"]);
+}
+
+#[test]
+fn rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state() {
+    let (dir, server, _payload, _source) = setup(true, 1048576 + 3);
+    server
+        .request(
+            "POST",
+            "/storage/v1/b?project=local",
+            ADMIN,
+            br#"{"name":"destination-bucket","location":"EU"}"#,
+        )
+        .json();
+    let old = server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/destination-bucket/o?uploadType=media&name=destination",
+            ADMIN,
+            b"previous",
+        )
+        .json();
+    let policy = |role: &str| {
+        server.request("PUT","/storage/v1/b/destination-bucket/iam",ADMIN,json!({"version":1,"bindings":[{"role":role,"members":["user:viewer@example.test"]}]}).to_string().as_bytes()).json()
+    };
+    policy("roles/storage.objectAdmin");
+    let base = "/storage/v1/b/test-bucket/o/source/rewriteTo/b/destination-bucket/o/destination";
+    let viewer = "Authorization: Bearer viewer\r\n";
+    let first = server
+        .request(
+            "POST",
+            &format!("{base}?maxBytesRewrittenPerCall=1048576"),
+            viewer,
+            b"",
+        )
+        .json();
+    assert_eq!(first["done"], false);
+    policy("roles/storage.objectCreator");
+    let path = format!(
+        "{base}?rewriteToken={}",
+        first["rewriteToken"].as_str().unwrap()
+    );
+    server
+        .request("POST", &path, viewer, b"")
+        .error(403, "forbidden");
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/destination-bucket/o/destination",
+                ADMIN,
+                b""
+            )
+            .json(),
+        old
+    );
+    server
+        .request("POST", &path, viewer, b"")
+        .error(410, "gone");
+    assert_eq!(
+        rusqlite::Connection::open(dir.0.join("catalog.sqlite3"))
+            .unwrap()
+            .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

@@ -11,7 +11,10 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
-use std::time::SystemTime;
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
+};
 
 pub(crate) use super::rewrite_token::RewriteBinding;
 
@@ -247,16 +250,16 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
 }
 
 pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
-    let count: i64 = connection
-        .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| {
+    let valid: bool = connection
+        .query_row("SELECT (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL)<=128 AND (SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)<=128", [], |row| {
             row.get(0)
         })
         .map_err(super::unavailable)?;
-    if count > 128 {
+    if !valid {
         return Err(super::unavailable("rewrite session limit exceeded"));
     }
     let mut statement = connection
-        .prepare("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 129")
+        .prepare("SELECT * FROM rewrite_sessions ORDER BY id LIMIT 257")
         .map_err(super::unavailable)?;
     let mut rows = statement.query([]).map_err(super::unavailable)?;
     while let Some(row) = rows.next().map_err(super::unavailable)? {
@@ -277,7 +280,7 @@ pub(super) fn recover_due(connection: &mut Connection, now: i64) -> Result<(), C
         return Ok(());
     }
     let transaction = connection.transaction().map_err(super::unavailable)?;
-    transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT id FROM rewrite_sessions WHERE deadline<=?1",[now]).map_err(super::unavailable)?;
+    transaction.execute("INSERT OR IGNORE INTO pending_blob_deletions SELECT transfer_id FROM rewrite_sessions WHERE deadline<=?1 AND transfer_id IS NOT NULL",[now]).map_err(super::unavailable)?;
     transaction.execute("DELETE FROM derived_inputs WHERE transfer_id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
     transaction.execute("DELETE FROM derived_transfers WHERE id IN (SELECT id FROM rewrite_sessions WHERE deadline<=?1)",[now]).map_err(super::unavailable)?;
     transaction
@@ -355,17 +358,24 @@ impl Catalog {
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
         start: RewriteStart,
-    ) -> Result<String, RewriteError> {
+    ) -> Result<(String, super::derived::DerivedRequestGuard), RewriteError> {
         let token = RewriteToken::generate()
             .map_err(unavailable)?
             .as_str()
             .to_owned();
         let result = token.clone();
+        let owner = Arc::new(Mutex::new(None));
+        let callback_owner = owner.clone();
+        let catalog = self.clone();
         self.begin_derived_with_binding(segments, max_bytes, false, move |connection, transfer| {
+            *callback_owner.lock().map_err(unavailable)? =
+                Some(catalog.guard_derived_request(&transfer.id));
             let count: i64 = connection
-                .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| {
-                    row.get(0)
-                })
+                .query_row(
+                    "SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NOT NULL",
+                    [],
+                    |row| row.get(0),
+                )
                 .map_err(unavailable)?;
             if count >= 128 {
                 return Err(unavailable("rewrite session limit reached"));
@@ -398,7 +408,12 @@ impl Catalog {
         })
         .await?;
         self.0.maintenance_wake.notify_one();
-        Ok(result)
+        let owner = owner
+            .lock()
+            .map_err(unavailable)?
+            .take()
+            .ok_or_else(|| unavailable("missing rewrite request owner"))?;
+        Ok((result, owner))
     }
 
     pub(crate) async fn rewrite_session(
@@ -468,17 +483,30 @@ impl Catalog {
         }
         let check_id = session.id.clone();
         let source_check = source_access.clone();
-        self.run_object(move |connection| {
-            let session = connection
-                .query_row(
-                    "SELECT * FROM rewrite_sessions WHERE id = ?1",
-                    [check_id],
-                    read,
-                )
-                .map_err(unavailable)?;
-            check_source(connection, &session, &source_check)
-        })
-        .await?;
+        let source_result = self
+            .run_object(move |connection| {
+                let session = connection
+                    .query_row(
+                        "SELECT * FROM rewrite_sessions WHERE id = ?1",
+                        [check_id],
+                        read,
+                    )
+                    .map_err(unavailable)?;
+                check_source(connection, &session, &source_check)
+            })
+            .await;
+        if let Err(error) = source_result {
+            if matches!(
+                error,
+                ObjectError::PreconditionFailed
+                    | ObjectError::BucketNotFound
+                    | ObjectError::ObjectNotFound
+            ) && let Err(cleanup) = self.cancel_derived(&session.id).await
+            {
+                eprintln!("terminal rewrite cleanup failed: {cleanup}");
+            }
+            return Err(error.into());
+        }
         let current = self.get_derived(&session.id).await?;
         let target = session
             .offset
@@ -493,23 +521,21 @@ impl Catalog {
             let id = session.id.clone();
             let clock = self.0.clock.clone();
             let validate_session = session.clone();
+            let completed_session = session.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
             self.publish_derived_with_validation(&id,destination,move |connection,_record| {
                 if validate_session.deadline<=unix_millis(clock.now()).map_err(unavailable)? {return Err(ObjectError::DerivedTransferExpired);}
                 check_source(connection,&validate_session,&source_access)
             },move |connection,record| {
                 let response=json!({"offset":record.size,"resource":render(record)?});
                 connection.execute("UPDATE rewrite_sessions SET previous_token = token, offset = total, response = ?2, transfer_id = NULL WHERE id = ?1",params![session.id,response.to_string()]).map_err(unavailable)?;
+                connection.execute("DELETE FROM rewrite_sessions WHERE id IN (SELECT id FROM rewrite_sessions WHERE transfer_id IS NULL AND id!=?1 ORDER BY deadline,id LIMIT max((SELECT count(*) FROM rewrite_sessions WHERE transfer_id IS NULL)-128,0))",[&session.id]).map_err(unavailable)?;
+                // The stored response remains authoritative if its network receiver disappears.
+                let _=sender.send(response);
                 Ok(())
             }).await?;
-            let completed = self.rewrite_session(token).await?;
-            return progress(
-                &completed,
-                completed
-                    .response
-                    .clone()
-                    .ok_or_else(|| unavailable("missing rewrite completion"))?,
-            )
-            .map_err(Into::into);
+            return progress(&completed_session, receiver.await.map_err(unavailable)?)
+                .map_err(Into::into);
         }
         let next = RewriteToken::generate()
             .map_err(unavailable)?
@@ -530,13 +556,29 @@ impl Catalog {
         &self,
         now: i64,
     ) -> Result<Option<SystemTime>, CatalogError> {
+        let mut after = String::new();
+        let mut busy = false;
         loop {
-            let ids=self.run(move |connection| connection.prepare("SELECT id FROM rewrite_sessions WHERE deadline<=?1 ORDER BY deadline,id LIMIT 16").map_err(super::unavailable)?.query_map([now],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
+            let cursor = after.clone();
+            let ids=self.run(move |connection| connection.prepare("SELECT id FROM rewrite_sessions WHERE deadline<=?1 AND id>?2 ORDER BY id LIMIT 16").map_err(super::unavailable)?.query_map(params![now,cursor],|row|row.get::<_,String>(0)).map_err(super::unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(super::unavailable)).await?;
             if ids.is_empty() {
                 break;
             }
             for id in ids {
-                let _guard = self.try_resumable_writer(&format!("rewrite:{id}"))?;
+                after = id.clone();
+                let key = format!("rewrite:{id}");
+                let _guard = {
+                    let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
+                    if writers.contains(&key) || writers.len() >= 128 {
+                        busy = true;
+                        continue;
+                    }
+                    writers.insert(key.clone());
+                    resumable::WriterGuard {
+                        catalog: self.clone(),
+                        id: key,
+                    }
+                };
                 match self.cancel_derived(&id).await {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
                     Err(error) => return Err(super::unavailable(error)),
@@ -553,18 +595,24 @@ impl Catalog {
                 .await?;
             }
         }
-        self.run(|connection| {
-            let deadline: Option<i64> = connection
-                .query_row("SELECT min(deadline) FROM rewrite_sessions", [], |row| {
-                    row.get(0)
-                })
-                .map_err(super::unavailable)?;
-            deadline
-                .map(system_time)
-                .transpose()
-                .map_err(super::unavailable)
+        let next = self
+            .run(|connection| {
+                let deadline: Option<i64> = connection
+                    .query_row("SELECT min(deadline) FROM rewrite_sessions", [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(super::unavailable)?;
+                deadline
+                    .map(system_time)
+                    .transpose()
+                    .map_err(super::unavailable)
+            })
+            .await?;
+        Ok(if busy {
+            Some(self.0.clock.now() + Duration::from_secs(1))
+        } else {
+            next
         })
-        .await
     }
 }
 
@@ -591,8 +639,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn rewrite_sessions_bound_completed_records_and_expire_with_injected_clock() {
+    async fn fixture() -> (Catalog, std::path::PathBuf, Arc<TestClock>) {
         let directory = std::env::temp_dir().join(format!(
             "gcs-mimic-rewrite-{}",
             RewriteToken::generate().unwrap().as_str()
@@ -632,42 +679,54 @@ mod tests {
             )
             .await
             .unwrap();
+        (catalog, directory, clock)
+    }
+
+    async fn new_session(
+        catalog: &Catalog,
+    ) -> Result<(String, super::super::derived::DerivedRequestGuard), RewriteError> {
+        let source = catalog
+            .resolve_derived_source(
+                "bucket",
+                "source",
+                None,
+                ObjectConditions::default(),
+                &BucketAccess::Unchecked,
+            )
+            .await
+            .unwrap();
+        let start = RewriteStart {
+            binding: RewriteBinding {
+                source_bucket: "bucket".into(),
+                source_object: "source".into(),
+                source_generation: source.object.generation,
+                destination_bucket: "bucket".into(),
+                destination_object: "destination".into(),
+                parameters: Default::default(),
+                metadata: None,
+            },
+            destination: DerivedDestination {
+                bucket: "bucket".into(),
+                name: "destination".into(),
+                content_type: "text/plain".into(),
+                ..Default::default()
+            },
+            source_conditions: ObjectConditions::default(),
+            source_metageneration: source.object.metageneration,
+            source_access: BucketAccess::Unchecked,
+            budget: 1048576,
+        };
+        catalog
+            .begin_rewrite_session(vec![source.whole()], 8, start)
+            .await
+    }
+
+    #[tokio::test]
+    async fn rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others() {
+        let (catalog, directory, clock) = fixture().await;
         let mut first = None;
         for index in 0..=128 {
-            let source = catalog
-                .resolve_derived_source(
-                    "bucket",
-                    "source",
-                    None,
-                    ObjectConditions::default(),
-                    &BucketAccess::Unchecked,
-                )
-                .await
-                .unwrap();
-            let start = RewriteStart {
-                binding: RewriteBinding {
-                    source_bucket: "bucket".into(),
-                    source_object: "source".into(),
-                    source_generation: source.object.generation,
-                    destination_bucket: "bucket".into(),
-                    destination_object: "destination".into(),
-                    parameters: Default::default(),
-                    metadata: None,
-                },
-                destination: DerivedDestination {
-                    bucket: "bucket".into(),
-                    name: "destination".into(),
-                    content_type: "text/plain".into(),
-                    ..Default::default()
-                },
-                source_conditions: ObjectConditions::default(),
-                source_metageneration: source.object.metageneration,
-                source_access: BucketAccess::Unchecked,
-                budget: 1048576,
-            };
-            let result = catalog
-                .begin_rewrite_session(vec![source.whole()], 8, start)
-                .await;
+            let result = new_session(&catalog).await;
             if index == 128 {
                 assert!(matches!(
                     result,
@@ -675,22 +734,15 @@ mod tests {
                 ));
                 break;
             }
-            let token = result.unwrap();
-            let completed = catalog
-                .continue_rewrite(
-                    &token,
-                    BucketAccess::Unchecked,
-                    BucketAccess::Unchecked,
-                    |record| Ok(json!({"generation":record.generation})),
-                )
-                .await
-                .unwrap();
-            assert!(completed.resource.is_some());
-            assert!(completed.token.is_none());
+            let (token, mut owner) = result.unwrap();
+            owner.disarm();
             first.get_or_insert(token);
         }
         let token = first.unwrap();
-        assert!(catalog.rewrite_session(&token).await.is_ok());
+        let session = catalog.rewrite_session(&token).await.unwrap();
+        let guard = catalog
+            .try_resumable_writer(&format!("rewrite:{}", session.id))
+            .unwrap();
         clock.0.store(604801000, Ordering::SeqCst);
         assert!(matches!(
             catalog.rewrite_session(&token).await,
@@ -701,13 +753,8 @@ mod tests {
                 .maintain_rewrite_sessions(604801000)
                 .await
                 .unwrap()
-                .is_none()
+                .is_some()
         );
-        let destination = catalog
-            .get_object("bucket", "destination", None, ObjectConditions::default())
-            .await
-            .unwrap();
-        assert_eq!(destination.size, 0);
         assert_eq!(
             catalog
                 .run(|connection| connection
@@ -716,6 +763,102 @@ mod tests {
                     .map_err(super::super::unavailable))
                 .await
                 .unwrap(),
+            1
+        );
+        drop(guard);
+        assert!(
+            catalog
+                .maintain_rewrite_sessions(604801000)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let source = catalog
+            .get_object("bucket", "source", None, ObjectConditions::default())
+            .await
+            .unwrap();
+        assert_eq!(source.size, 0);
+        assert_eq!(
+            catalog
+                .run(|connection| connection
+                    .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| row
+                        .get::<_, i64>(0))
+                    .map_err(super::super::unavailable))
+                .await
+                .unwrap(),
+            0
+        );
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rewrite_committed_completion_does_not_reread_an_expired_token() {
+        let (catalog, directory, clock) = fixture().await;
+        let (token, mut owner) = new_session(&catalog).await.unwrap();
+        owner.disarm();
+        let expiry_clock = clock.clone();
+        let result = catalog
+            .continue_rewrite(
+                &token,
+                BucketAccess::Unchecked,
+                BucketAccess::Unchecked,
+                move |record| {
+                    expiry_clock.0.store(604801000, Ordering::SeqCst);
+                    Ok(json!({"generation":record.generation}))
+                },
+            )
+            .await
+            .unwrap();
+        assert!(result.resource.is_some());
+        assert!(matches!(
+            catalog.rewrite_session(&token).await,
+            Err(RewriteError::Gone)
+        ));
+        catalog.close().await.unwrap();
+        drop(catalog);
+        let catalog = Catalog::open_with_clock(&directory, clock).await.unwrap();
+        assert_eq!(
+            catalog
+                .get_object("bucket", "destination", None, ObjectConditions::default())
+                .await
+                .unwrap()
+                .size,
+            0
+        );
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rewrite_initial_request_owner_reclaims_undelivered_state() {
+        let (catalog, directory, _clock) = fixture().await;
+        let (_token, owner) = new_session(&catalog).await.unwrap();
+        drop(owner);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let count = catalog
+                    .run(|connection| {
+                        connection
+                            .query_row("SELECT count(*) FROM rewrite_sessions", [], |row| {
+                                row.get::<_, i64>(0)
+                            })
+                            .map_err(super::super::unavailable)
+                    })
+                    .await
+                    .unwrap();
+                if count == 0 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_dir(directory.join("staging"))
+                .unwrap()
+                .count(),
             0
         );
         catalog.close().await.unwrap();
