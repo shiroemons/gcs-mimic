@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>gcs-mimic signed browser transfers</title>
+<body data-status="running"><pre id="results"></pre>
+<script>
+"use strict";
+(async () => {
+  const output = document.querySelector("#results");
+  const report = message => { output.textContent += `${message}\n`; };
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+    report(`PASS: ${message}`);
+  };
+  const {endpoint, bucket, phase, urls} = await (await fetch("/urls.json")).json();
+  check(new URL(endpoint).origin !== location.origin, "distinct trusted HTTPS browser and API origins");
+  report(`API origin: ${endpoint}; browser origin: ${location.origin}; profile: strict; phase: ${phase}`);
+  const resource = `${endpoint}/storage/v1/b/${bucket}`;
+  const bytes = "signed browser bytes\n";
+  const headers = {"Content-Type": "application/octet-stream", "x-goog-meta-browser": "original"};
+  const call = (url, options = {}) => fetch(url, {
+    cache: "no-store", redirect: "error", ...options, signal: AbortSignal.timeout(15000)
+  });
+  const admin = (url, options = {}) => call(url, {
+    ...options, headers: {Authorization: "Bearer local-admin-token", ...options.headers}
+  });
+  const json = async (url, method, value) => {
+    const response = await admin(url, {method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(value)});
+    check(response.ok, `${method} ${new URL(url).pathname} returns ${response.status}`);
+    return response.json();
+  };
+  const blocked = async (url, options, message) => {
+    try { await call(url, options); } catch (error) {
+      if (error instanceof TypeError) { report(`PASS: ${message}`); return; }
+      throw error;
+    }
+    throw new Error(message);
+  };
+  const denied = async (url, options, status, code, message) => {
+    const response = await call(url, options);
+    check(response.status === status && (await response.text()).includes(`<Code>${code}</Code>`),
+      `${message}: browser reads ${status} ${code}`);
+  };
+  const exposed = response => {
+    check(["ETag", "x-goog-generation", "x-goog-hash"].every(name => response.headers.get(name)),
+      "configured ETag, generation and hash are readable");
+    check(response.headers.get("x-goog-metageneration") === null, "non-exposed metageneration is hidden");
+  };
+  const rule = {origin: [location.origin], method: ["PUT", "GET", "HEAD"],
+    responseHeader: ["Content-Type", "Content-Disposition", "x-goog-meta-browser", "ETag", "x-goog-generation", "x-goog-hash"],
+    maxAgeSeconds: 0};
+  const grant = bindings => json(`${resource}/iam`, "PUT", {bindings});
+  const signer = {role: "roles/storage.objectAdmin", members: ["user:local-viewer@example.invalid"]};
+  const read = async () => {
+    const response = await call(urls.get);
+    check(response.ok && await response.text() === bytes, "signed GET returns exact uploaded bytes");
+    exposed(response);
+  };
+  if (phase === "restart") {
+    const persisted = await (await admin(resource)).json();
+    check(persisted.cors.length === 1 && Object.entries(rule).every(([key, value]) =>
+      JSON.stringify(persisted.cors[0][key]) === JSON.stringify(value)), "bucket CORS survives restart");
+    await read();
+    check((await admin(`${resource}/o/media`, {method: "DELETE"})).ok, "delete uploaded object after restart");
+    check((await admin(resource, {method: "DELETE"})).ok, "delete disposable bucket after restart");
+  } else {
+    await json(`${endpoint}/storage/v1/b?project=local-project`, "POST", {name: bucket, cors: [rule]});
+    await grant([signer]);
+    let response = await call(urls.put, {method: "PUT", headers, body: bytes});
+    check(response.ok, "signed PUT with non-simple Content-Type and signed metadata passes browser preflight");
+    exposed(response);
+    await read();
+    response = await call(urls.head, {method: "HEAD"});
+    check(response.ok && await response.text() === "" && response.headers.get("Content-Length") === String(bytes.length),
+      "independently signed HEAD returns uploaded length and no body");
+    exposed(response);
+    response = await call(urls.override);
+    check(response.ok && await response.text() === bytes && response.headers.get("Content-Type") === "text/custom"
+      && response.headers.get("Content-Disposition") === 'attachment; filename="browser.txt"', "signed response overrides are readable");
+    const before = await (await admin(`${resource}/o/media`)).text();
+    const unchanged = async message => {
+      const metadata = await admin(`${resource}/o/media`);
+      const media = await admin(`${resource}/o/media?alt=media`);
+      check(metadata.ok && await metadata.text() === before && media.ok && await media.text() === bytes, message);
+      check((await admin(`${resource}/o/unpublished`)).status === 404, "denied attempts publish no new object");
+    };
+    await json(resource, "PATCH", {cors: [{...rule, origin: ["https://denied.example.invalid"]}]});
+    await blocked(urls.get, {}, "disallowed origin blocks signed GET in browser");
+    await blocked(urls.put, {method: "PUT", headers, body: "denied overwrite"}, "disallowed origin blocks signed PUT in browser");
+    await unchanged("denied origin leaves object bytes and complete metadata unchanged via JSON reads");
+    await json(resource, "PATCH", {cors: [rule]});
+    await blocked(urls.unpublished, {method: "PUT", headers: {...headers, "X-Browser-Denied": "denied"}, body: bytes},
+      "disallowed request header blocks signed PUT preflight");
+    await blocked(urls.unpublished, {method: "POST", headers, body: bytes}, "disallowed method blocks preflight");
+    await unchanged("denied header and method preserve existing object");
+    await grant([]);
+    await denied(urls.put, {method: "PUT", headers, body: "denied overwrite"}, 403, "AccessDenied",
+      "allowed preflight does not grant viewer upload permission");
+    await denied(urls.unpublished, {method: "PUT", headers, body: bytes}, 403, "AccessDenied", "viewer cannot publish a new object");
+    await unchanged("permission denial preserves bytes and metadata");
+    await grant([signer]);
+    const tampered = urls.unpublished.replace(/X-Goog-Signature=./, match => `${match.slice(0, -1)}${match.endsWith("0") ? "1" : "0"}`);
+    await denied(tampered, {method: "PUT", headers, body: bytes}, 403, "SignatureDoesNotMatch", "tampered signed URL is denied");
+    await denied(urls.expired, {method: "PUT", headers, body: bytes}, 400, "ExpiredToken", "expired signed URL is denied");
+    await denied(urls.unpublished, {method: "PUT", headers: {...headers, "x-goog-meta-browser": "changed"}, body: bytes},
+      403, "SignatureDoesNotMatch", "changed signed header is denied after successful preflight");
+    await denied(`${endpoint}/${bucket}/media`, {}, 401, "AuthenticationRequired", "anonymous private XML GET is denied despite matching CORS");
+    await denied(`${endpoint}/${bucket}/media`, {method: "PUT", headers: {"Content-Type": "application/octet-stream"}, body: "anonymous"},
+      401, "AuthenticationRequired", "anonymous XML PUT is denied despite matching CORS");
+    await unchanged("invalid signatures and anonymous requests preserve bytes and metadata");
+    report("Restart the strict emulator on the same data directory, prepare fresh URLs and run restart.");
+  }
+  document.body.dataset.status = "pass";
+  report(`PASS: strict ${phase} signed browser verification completed`);
+})().catch(error => {
+  document.body.dataset.status = "fail";
+  document.querySelector("#results").textContent += `FAIL: ${error.stack || error}\n`;
+});
+</script>
