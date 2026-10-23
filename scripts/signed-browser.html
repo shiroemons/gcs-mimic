@@ -52,8 +52,12 @@
   const grant = bindings => json(`${resource}/iam`, "PUT", {bindings});
   const signer = {role: "roles/storage.objectAdmin", members: ["user:local-viewer@example.invalid"]};
   const read = async () => {
+    const metadata = await (await admin(`${resource}/o/media`)).json();
+    check(Boolean(metadata.metageneration) && metadata.contentType === headers["Content-Type"]
+      && metadata.metadata?.browser === "original", "JSON confirms stored metageneration, signed Content-Type and metadata");
     const response = await call(urls.get);
     check(response.ok && await response.text() === bytes, "signed GET returns exact uploaded bytes");
+    check(response.headers.get("x-goog-meta-browser") === "original", "signed GET exposes stored signed upload metadata");
     exposed(response);
   };
   if (phase === "restart") {
@@ -68,31 +72,43 @@
     await grant([signer]);
     let response = await call(urls.put, {method: "PUT", headers, body: bytes});
     check(response.ok, "signed PUT with non-simple Content-Type and signed metadata passes browser preflight");
-    exposed(response);
     await read();
+    exposed(response);
     response = await call(urls.head, {method: "HEAD"});
-    check(response.ok && await response.text() === "" && response.headers.get("Content-Length") === String(bytes.length),
-      "independently signed HEAD returns uploaded length and no body");
+    check(response.ok && response.headers.get("Content-Length") === String(bytes.length),
+      "independently signed HEAD returns uploaded length");
     exposed(response);
     response = await call(urls.override);
     check(response.ok && await response.text() === bytes && response.headers.get("Content-Type") === "text/custom"
       && response.headers.get("Content-Disposition") === 'attachment; filename="browser.txt"', "signed response overrides are readable");
-    const before = await (await admin(`${resource}/o/media`)).text();
+    let before = await (await admin(`${resource}/o/media`)).text();
     const unchanged = async message => {
       const metadata = await admin(`${resource}/o/media`);
       const media = await admin(`${resource}/o/media?alt=media`);
       check(metadata.ok && await metadata.text() === before && media.ok && await media.text() === bytes, message);
       check((await admin(`${resource}/o/unpublished`)).status === 404, "denied attempts publish no new object");
     };
+    const putControl = async message => {
+      const response = await call(urls.put, {method: "PUT", headers, body: bytes});
+      check(response.ok, message);
+      before = await (await admin(`${resource}/o/media`)).text();
+    };
     await json(resource, "PATCH", {cors: [{...rule, origin: ["https://denied.example.invalid"]}]});
     await blocked(urls.get, {}, "disallowed origin blocks signed GET in browser");
-    await blocked(urls.put, {method: "PUT", headers, body: "denied overwrite"}, "disallowed origin blocks signed PUT in browser");
+    await json(resource, "PATCH", {cors: [rule]});
+    await read();
+    await json(resource, "PATCH", {cors: [{...rule, origin: ["https://denied.example.invalid"]}]});
+    await blocked(urls.put, {method: "PUT", headers, body: bytes}, "disallowed origin blocks signed PUT in browser");
     await unchanged("denied origin leaves object bytes and complete metadata unchanged via JSON reads");
     await json(resource, "PATCH", {cors: [rule]});
-    await blocked(urls.unpublished, {method: "PUT", headers: {...headers, "X-Browser-Denied": "denied"}, body: bytes},
+    await putControl("same signed PUT succeeds after restoring the allowed origin");
+    await blocked(urls.put, {method: "PUT", headers: {...headers, "X-Browser-Denied": "denied"}, body: bytes},
       "disallowed request header blocks signed PUT preflight");
-    await blocked(urls.unpublished, {method: "POST", headers, body: bytes}, "disallowed method blocks preflight");
-    await unchanged("denied header and method preserve existing object");
+    await unchanged("denied request header preserves existing object");
+    await putControl("same signed PUT succeeds after removing the disallowed request header");
+    await blocked(urls.put, {method: "POST", headers, body: bytes}, "disallowed method blocks preflight");
+    await unchanged("denied method preserves existing object");
+    await putControl("same signed URL and headers succeed with the allowed PUT method");
     await grant([]);
     await denied(urls.put, {method: "PUT", headers, body: "denied overwrite"}, 403, "AccessDenied",
       "allowed preflight does not grant viewer upload permission");

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+caller_dir=$PWD
 cd "$(dirname "$0")/.."
 usage() {
   echo 'Usage: signed-browser.sh prepare https://LOCAL_HOST:PORT signed-browser-NAME initial|restart > urls.json' >&2
@@ -9,7 +10,9 @@ usage() {
 }
 if [ "${1:-}" = prepare ]; then
   [ "$#" = 4 ] || usage
-  node - "$2" "$3" "$4" "${GCS_MIMIC_BIN:-target/debug/gcs-mimic}" <<'NODE'
+  binary=${GCS_MIMIC_BIN:-target/debug/gcs-mimic}
+  if [ -n "${GCS_MIMIC_BIN:-}" ] && [[ "$binary" != /* ]]; then binary=$caller_dir/$binary; fi
+  node - "$2" "$3" "$4" "$binary" <<'NODE'
 const {execFileSync} = require('node:child_process');
 const [endpoint, bucket, phase, binary] = process.argv.slice(2);
 if (!/^https:\/\/(localhost|127\.0\.0\.1|gcs|host\.docker\.internal|\[::1\]):[0-9]+$/.test(endpoint)
@@ -35,8 +38,9 @@ NODE
 fi
 [ "${1:-}" = run ] && [ "$#" = 2 ] || usage
 manifest=$2
+if [[ "$manifest" != /* ]]; then manifest=$caller_dir/$manifest; fi
 port=${SIGNED_BROWSER_PORT:-54614}
-[[ "$port" =~ ^[0-9]+$ ]] && ((port > 1023 && port < 65536))
+if ! [[ "$port" =~ ^[1-9][0-9]{3,4}$ ]] || ! ((port > 1023 && port < 65536)); then usage; fi
 work=$(mktemp -d)
 origin_pid=
 cleanup() {
