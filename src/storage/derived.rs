@@ -20,6 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 const BUFFER_SIZE: usize = 64 * 1024;
 const MAX_TRANSFERS: usize = 128;
 const LIFETIME_MILLIS: i64 = 604_800_000;
+const EPHEMERAL_LIFETIME_MILLIS: i64 = 900_000;
 pub(super) const SCHEMA: &str = "ALTER TABLE objects ADD COLUMN component_count INTEGER CHECK(component_count IS NULL OR component_count > 0);
 CREATE TABLE derived_transfers (
     id TEXT PRIMARY KEY CHECK(length(id) = 32),
@@ -29,7 +30,7 @@ CREATE TABLE derived_transfers (
     crc32c INTEGER NOT NULL CHECK(crc32c BETWEEN 0 AND 4294967295),
     ephemeral INTEGER NOT NULL CHECK(ephemeral IN (0, 1)),
     created INTEGER NOT NULL,
-    deadline INTEGER NOT NULL CHECK(deadline = created + 604800000),
+    deadline INTEGER NOT NULL CHECK(deadline > created),
     publishing INTEGER NOT NULL DEFAULT 0 CHECK(publishing IN (0, 1))
 ) WITHOUT ROWID;
 CREATE TABLE derived_deletions (
@@ -160,7 +161,8 @@ impl Drop for DerivedRequestGuard {
 }
 
 /// Adapters supply inherited or replacement metadata explicitly; bytes and destination defaults
-/// are transport independent. An explicit class is used by rewrite, otherwise the bucket default.
+/// are transport independent. Adapters pass the inherited source class for an absent/null body;
+/// `None` selects the destination bucket default for an explicit resource without storageClass.
 #[derive(Clone, Debug, Default)]
 pub struct DerivedDestination {
     pub bucket: String,
@@ -390,14 +392,22 @@ impl Catalog {
                 .filter(|total| *total <= max_bytes && *total <= i64::MAX as u64)
                 .ok_or(ObjectError::TooLarge)
         })?;
-        let _permit = self.admit_object_upload()?;
+        let permit = self.admit_object_upload()?;
         let data_dir = self.0.data_dir.clone();
         let created = unix_millis(self.0.clock.now()).map_err(unavailable)?;
         let deadline = created
-            .checked_add(LIFETIME_MILLIS)
+            .checked_add(if ephemeral {
+                EPHEMERAL_LIFETIME_MILLIS
+            } else {
+                LIFETIME_MILLIS
+            })
             .ok_or_else(|| unavailable("derived deadline overflow"))?;
+        let id = random_id()?;
+        let writer = self.derived_guard(&id)?;
+        let mut owner = ephemeral.then(|| self.guard_derived_request(&id));
         let result = self
             .run_object(move |connection| {
+                let (_permit, _writer) = (permit, writer);
                 let count: i64 = connection
                     .query_row("SELECT count(*) FROM derived_transfers", [], |row| {
                         row.get(0)
@@ -406,7 +416,6 @@ impl Catalog {
                 if count >= MAX_TRANSFERS as i64 {
                     return Err(unavailable("derived transfer limit reached"));
                 }
-                let id = random_id()?;
                 let path = stage_path(&data_dir, &id)?;
                 fs::OpenOptions::new()
                     .create_new(true)
@@ -493,6 +502,11 @@ impl Catalog {
             })
             .await;
         self.0.maintenance_wake.notify_one();
+        if result.is_ok()
+            && let Some(owner) = &mut owner
+        {
+            owner.disarm();
+        }
         result
     }
 
@@ -685,24 +699,39 @@ impl Catalog {
         now: i64,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let data_dir = self.0.data_dir.clone();
-        self.run_object(move |connection| reclaim_derived_deletions(connection, &data_dir, None))
+        let mut failure = self
+            .run_object(move |connection| reclaim_derived_deletions(connection, &data_dir, None))
             .await
-            .map_err(super::unavailable)?;
+            .err();
         let due = self.run_object(move |connection| {
             connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(unavailable)?
                 .query_map([now], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)
         }).await.map_err(super::unavailable)?;
         for id in due {
-            let _guard = self.derived_guard(&id).map_err(super::unavailable)?;
-            self.cleanup_derived(&id)
-                .await
-                .map_err(super::unavailable)?;
+            let _guard = match self.derived_guard(&id) {
+                Ok(guard) => guard,
+                Err(ObjectError::DerivedTransferBusy) => continue,
+                Err(error) => {
+                    failure = Some(error);
+                    continue;
+                }
+            };
+            if let Err(error) = self.cleanup_derived(&id).await
+                && error != ObjectError::DerivedTransferNotFound
+            {
+                failure = Some(error);
+            }
+        }
+        if let Some(error) = failure {
+            return Err(super::unavailable(error));
         }
         self.run(move |connection| {
             let deadline: Option<i64> = connection
-                .query_row("SELECT min(deadline) FROM derived_transfers", [], |row| {
-                    row.get(0)
-                })
+                .query_row(
+                    "SELECT min(deadline) FROM derived_transfers WHERE deadline > ?1",
+                    [now],
+                    |row| row.get(0),
+                )
                 .map_err(super::unavailable)?;
             let pending: bool = connection
                 .query_row(
@@ -1536,11 +1565,22 @@ mod tests {
             catalog.maintain_derived_transfers().await.unwrap(),
             Some(UNIX_EPOCH + std::time::Duration::from_secs(604800))
         );
+        let session = catalog
+            .create_resumable_session("bucket", "upload", Default::default(), None)
+            .await
+            .unwrap();
+        let writer = catalog.derived_guard(&transfer.id).unwrap();
         clock.0.store(604800, Ordering::SeqCst);
         assert_eq!(
             catalog.get_derived(&transfer.id).await,
             Err(ObjectError::DerivedTransferExpired)
         );
+        assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
+        assert!(matches!(
+            catalog.resumable_session(&session.id, "bucket").await,
+            Err(crate::storage::ResumableError::NotFound)
+        ));
+        drop(writer);
         assert_eq!(catalog.maintain_derived_transfers().await.unwrap(), None);
         assert_eq!(
             catalog.get_derived(&transfer.id).await,
@@ -1711,6 +1751,134 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tagged, 0);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer() {
+        let (catalog, path) = setup().await;
+        put(&catalog, "source", b"bytes").await;
+        let source = source(&catalog, "source").await;
+        let worker = catalog.clone();
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let request = tokio::spawn(async move {
+            worker
+                .begin_derived_with_binding(vec![source.whole()], 5, true, move |_, transfer| {
+                    assert_eq!(
+                        transfer
+                            .deadline
+                            .duration_since(transfer.created)
+                            .unwrap()
+                            .as_millis(),
+                        EPHEMERAL_LIFETIME_MILLIS as u128
+                    );
+                    entered.send(transfer.id.clone()).unwrap();
+                    blocked.recv().unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        let id = started.await.unwrap();
+        request.abort();
+        assert!(request.await.unwrap_err().is_cancelled());
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if catalog.get_derived(&id).await == Err(ObjectError::DerivedTransferNotFound) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE objects(blob_id TEXT); CREATE TABLE pending_blob_deletions(blob_id TEXT PRIMARY KEY);").unwrap();
+        connection.execute_batch(SCHEMA).unwrap();
+        connection.execute_batch("CREATE TABLE bindings(transfer_id TEXT PRIMARY KEY REFERENCES derived_transfers(id) ON DELETE CASCADE, snapshot TEXT NOT NULL);").unwrap();
+        for mode in ["cancel", "expiry", "quarantine"] {
+            let id = random_id().unwrap();
+            connection
+                .execute(
+                    "INSERT INTO derived_transfers VALUES (?1,0,0,?2,0,0,0,1,0)",
+                    params![id, Md5::new().serialize().as_slice()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO bindings VALUES (?1, 'request snapshot')",
+                    [&id],
+                )
+                .unwrap();
+            match mode {
+                "cancel" => cleanup_record(&connection, &std::env::temp_dir(), &id).unwrap(),
+                "expiry" => recover(&connection, &std::env::temp_dir(), 1).unwrap(),
+                "quarantine" => recover(&connection, &std::env::temp_dir(), 0).unwrap(),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM bindings", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object() {
+        let (catalog, path) = setup().await;
+        let original = put(&catalog, "source", b"bytes").await;
+        catalog.close().await.unwrap();
+        drop(catalog);
+        let connection = Connection::open(path.join("catalog.sqlite3")).unwrap();
+        assert_eq!(connection.query_row("SELECT count(*) FROM sqlite_schema AS schema, pragma_foreign_key_list(schema.name) WHERE schema.type = 'table'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        connection.execute_batch("DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers; ALTER TABLE objects DROP COLUMN component_count; PRAGMA user_version = 9;").unwrap();
+        assert!(
+            !connection
+                .prepare("PRAGMA foreign_key_check")
+                .unwrap()
+                .exists([])
+                .unwrap()
+        );
+        drop(connection);
+        let catalog = Catalog::open(&path).await.unwrap();
+        assert_eq!(
+            catalog
+                .get_object("bucket", "source", None, Default::default())
+                .await
+                .unwrap(),
+            original
+        );
+        catalog
+            .run_object(|connection| {
+                assert_eq!(
+                    connection
+                        .pragma_query_value(None, "foreign_keys", |row| row.get::<_, i64>(0))
+                        .unwrap(),
+                    1
+                );
+                assert!(
+                    !connection
+                        .prepare("PRAGMA foreign_key_check")
+                        .unwrap()
+                        .exists([])
+                        .unwrap()
+                );
+                Ok(())
+            })
+            .await
+            .unwrap();
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
     }

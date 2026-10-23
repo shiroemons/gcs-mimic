@@ -121,6 +121,7 @@ impl Drop for WriterGuard {
             .remove(&self.id);
         if self.id.starts_with("derived:") {
             self.catalog.0.derived_wake.notify_waiters();
+            self.catalog.0.maintenance_wake.notify_one();
         }
     }
 }

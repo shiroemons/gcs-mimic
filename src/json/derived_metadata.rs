@@ -1,6 +1,22 @@
 use super::JsonError;
 use crate::object::{ExpectedHashes, ObjectMetadataUpdate, ObjectRecord};
 
+/// Rewrite preserves composite identity in the same location/class and collapses its component
+/// count to one when either changes; adapters retain the source snapshot for this decision.
+pub fn derived_component_count(
+    source: &ObjectRecord,
+    destination_class: &str,
+    same_location: bool,
+) -> Option<i64> {
+    source.component_count.map(|count| {
+        if same_location && destination_class == source.storage_class {
+            count
+        } else {
+            1
+        }
+    })
+}
+
 /// Empty bodies inherit editable source metadata except holds. A supplied resource replaces
 /// that metadata, including `{}`; path bucket/name always win over resource values.
 pub fn derived_metadata(
@@ -86,6 +102,16 @@ mod tests {
         assert_eq!(
             derived_metadata(b" \nnull\t", &source).unwrap(),
             derived_metadata(b"", &source).unwrap()
+        );
+        source.component_count = Some(3);
+        assert_eq!(
+            derived_component_count(&source, &source.storage_class, true),
+            Some(3)
+        );
+        assert_eq!(derived_component_count(&source, "NEARLINE", true), Some(1));
+        assert_eq!(
+            derived_component_count(&source, &source.storage_class, false),
+            Some(1)
         );
         assert_eq!(class, Some(source.storage_class.clone()));
         assert_eq!(inherit.event_based_hold, None);

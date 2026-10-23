@@ -296,7 +296,8 @@ impl Catalog {
                 .map_err(unavailable)?;
             connection
                 .execute_batch(
-                    "PRAGMA cache_size = -2048;
+                    "PRAGMA foreign_keys = ON;
+                 PRAGMA cache_size = -2048;
                  PRAGMA mmap_size = 0;
                  PRAGMA temp_store = FILE;",
                 )
@@ -1266,6 +1267,7 @@ mod tests {
             .run(|connection| {
                 for (pragma, expected) in [
                     ("synchronous", 2),
+                    ("foreign_keys", 1),
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
