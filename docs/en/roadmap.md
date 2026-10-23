@@ -105,7 +105,7 @@ success stub does not complete a workflow.
 | 14 | Bucket/XML CORS | Persistent configuration, validation/conditions/races, XML read/preflight rules, custom origins/default ports and browser restart pass the [CORS gate](evidence/cors.md) | Delivered: BEHAVIOR-BUCKET-009 and DESIGN-052 IMPLEMENTED; broad bucket methods remain PARTIAL |
 | 15 | Basic API, CORS and HTTPS verification | Six bucket/nine object HTTP methods, pinned Go/Ruby, trusted HTTPS browser, Rust regressions and native/container journeys pass the [integrated gate](evidence/cors.md) | Delivered: UX-007 IMPLEMENTED for JSON browser transfers and XML reads; broader SDK/Rails and method parity remain explicit |
 | 16 | V4 RSA signed download | Private GET/HEAD, final-host canonicalization, signer permission, expiry, tamper rejection and pinned Go/Ruby signers; integrated virtual-host and response override follow-ups; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-030/032/033/034/036/038/045/048 IMPLEMENTED; DESIGN-035/044 and broad XML/auth rows remain PARTIAL for provider-exactness and advanced cases |
-| 17 | V4 RSA signed upload | Bounded XML PUT, signed headers, streamed declared SHA256, atomic conditions/preservation, wire CORS and PAP; [combined evidence](evidence/signed-urls.md) records final checks and any environment blockers | Delivered: DESIGN-029, BEHAVIOR-BUCKET-014 and DESIGN-022/023/025 IMPLEMENTED; bucket/parent policy fidelity stays LOCAL_SIMULATION where declared; UX-006 awaits final Compose PAP guide execution; DESIGN-037/055 and EXT-XML-022 remain PARTIAL for provider/proxy/advanced cases |
+| 17 | V4 RSA signed upload | Bounded XML PUT, signed headers, streamed declared SHA256, atomic conditions/preservation, wire CORS, PAP and final Rust/SDK/container/native/Compose guide gate; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-029, BEHAVIOR-BUCKET-014, DESIGN-022/023/025 and UX-006 IMPLEMENTED; bucket/parent policy fidelity stays LOCAL_SIMULATION where declared; DESIGN-037/055 and EXT-XML-022 remain PARTIAL for provider/proxy/advanced cases |
 | 18 | Signed browser transfers | Reuse implemented CORS/TLS; real-browser signed upload/download, allowed/denied origins, preflight and exposed headers | Complete signed browser workflows over HTTPS |
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
@@ -139,9 +139,9 @@ is order 18 **Signed browser transfers**. Orders 16–17 are delivered in the
 Their integrated follow-ups add [response overrides](slices/xml-response-overrides.md),
 [opt-in virtual hosts](slices/xml-virtual-host.md) and
 [PAP](slices/public-access-prevention.md), including public-grant preservation and
-signed transfers. The updated native guide passes; final Compose execution is
-pending Docker daemon recovery in the combined evidence. DESIGN-035 stays PARTIAL
-for duplicate and ambiguous-query provider rules (SPEC-SIGNING-EDGES), with local
+signed transfers. The updated native and source-image/strict-Compose guides pass,
+including PAP and restart. DESIGN-035 stays PARTIAL for duplicate and
+ambiguous-query provider rules (SPEC-SIGNING-EDGES), with local
 override extensions in SPEC-XML-RESPONSE-OVERRIDES. DESIGN-037 remains PARTIAL under
 SPEC-SIGNED-PAYLOAD; DESIGN-044 retains exact errors/precedence under
 SPEC-SIGNING-EDGES. DESIGN-055 still needs proxy-derived/separately configured

@@ -21,24 +21,26 @@ canonical payload statements are superseded for the declared delivered scopes.
 | `GCS_MIMIC_SDK_SCHEME=https just check-sdk` with supplied wildcard-SAN certificate and CA | PASS, Go vet and all 46 top-level tests, Ruby origin guard and both auth profiles including signed GET/PUT and response overrides | [SDK output](signed-urls-sdk.txt) |
 | `cargo xtask dependencies check` | PASS, all 36 inputs CURRENT | [Freshness](signed-urls-dependencies.txt) |
 | `actionlint` | PASS | Existing Go CI remains Go-only; `just check-sdk` explicitly enables Ruby |
-| `just check-containers` | AMD64 image built; Docker daemon stopped responding during isolated health check; final completion pending | [Containers](signed-urls-containers.txt) |
-| Updated signed/PAP/virtual-host guide | Native PASS: generated key, private GET/PUT/failures, overrides, virtual hosts, PAP and public reactivation; source-image/strict Compose pending Docker recovery | [Guide transcript](signed-urls-guide.txt) |
+| `just check-containers`, then affected architecture checks after Docker recovery | PASS, complete linux/amd64 emulated and linux/arm64 native smoke/seed gates; AMD64 image reused | [Containers](signed-urls-containers.txt) |
+| Updated signed/PAP/virtual-host guide | PASS natively and from the start with source-image/strict Compose: private GET/PUT/failures, overrides, virtual hosts, PAP, public reactivation, enforced-PAP restart and separately signed peer access | [Guide transcript](signed-urls-guide.txt) |
 | Markdown lint and generated English/Japanese matrices | PASS, nine updated Markdown files, both matrices and 591-row ledger validate/check | [Documentation checks](signed-urls-docs.txt) |
 
-The current-source AMD64 image built as `gcs-mimic:bucket-smoke-amd64-90206`.
-The isolated `docker exec ... healthcheck` then stopped returning; independent
-`docker ps` also hung, and a direct daemon `/_ping` timed out after five seconds
-with zero bytes. Docker VM console output reported an EXT4 write failure before
-the run. Host free space later recovered to 45 GiB without restoring API
-responsiveness. No daemon restart, volume repair or global image/volume pruning
-was performed by this integration worker. ARM64 build/smoke and the updated
-source-image/strict-Compose guide are unexecuted, so no current container PASS
-or complete UX-006 claim is made. The historical path-style guide transcript
-remains labeled separately in the same log.
-
-After daemon recovery, reuse that source-built image for the AMD64 smoke and
-guide rather than rebuilding it. Build/smoke only the unexecuted ARM64 part.
-Dynamic published ports must be inspected after restart and URLs freshly signed;
+The final image IDs are
+`sha256:ba6b0f654ce95d6f35a4e559246ede750e434c0a2bc5f528f9e8d3a4d06203af`
+(linux/amd64) and
+`sha256:974cb88213cdd2f4162231acf1e942393544881a467781a11dd578bd0b5034ea`
+(linux/arm64). The initial full container gate was interrupted by an unresponsive
+Docker daemon. After the user restarted Docker Desktop, both architecture gates
+ran from the start and exited zero: AMD64 used
+`bash scripts/smoke-containers.sh --image gcs-mimic:bucket-smoke-amd64-90206 linux/amd64`
+without rebuilding, and ARM64 used `bash scripts/smoke-containers.sh linux/arm64`,
+resuming its interrupted build cache. The guide reused that same AMD64 image and
+its final strict-Compose run also started from the beginning and exited zero.
+The final source then passed `just check` again. No daemon restart, volume repair
+or global image/volume pruning was performed by this integration worker.
+Only its disposable projects, containers, volumes and key directories were removed.
+The historical path-style guide remains labeled separately in the same log.
+Dynamic published ports are inspected after restart and URLs freshly signed;
 an existing signature's host is never rewritten.
 Native startup removes Compose-only image/port environment variables.
 SDK verification uses Ruby 4.0.9, Bundler 4.0.23 and the existing pinned gem cache.
@@ -124,8 +126,8 @@ DESIGN-037 stays PARTIAL under SPEC-SIGNED-PAYLOAD; DESIGN-044 retains exact
 signature errors/precedence under SPEC-SIGNING-EDGES. DESIGN-055 retains
 separately configured/proxy-derived origins; DESIGN-002 and broad XML/IAM rows
 retain their named advanced and provider cases. DESIGN-024 remains PARTIAL for
-ACL/default-object-ACL exceptions and SPEC-PAP-EDGES. UX-006 awaits final Compose
-guide execution before promotion.
+ACL/default-object-ACL exceptions and SPEC-PAP-EDGES. UX-006 is IMPLEMENTED after
+the complete current native/source-image/strict-Compose guide passed, including PAP.
 HMAC, Authorization-header V4, V2, POST policy and signed resumable rows are unchanged.
 Next: delivery order 18, actual signed browser transfers using existing CORS/TLS.
 

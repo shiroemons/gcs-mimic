@@ -1,4 +1,52 @@
 Local path prefixes are redacted as <checkout>, <home> and <temp>.
+Current native signed/PAP/virtual-host guide:
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition
+content-type: text/csv
+content-disposition: attachment; filename="private.csv"
+PASS: signed response overrides and query tamper rejection
+PASS: enforced PAP denies anonymous access and permits valid signed GET/PUT
+content-type: text/csv
+PASS: virtual-host signed GET/PUT and response override under PAP
+PASS: stored public policy survives PAP and reactivates on both endpoint styles
+Current source-image/strict-Compose signed/PAP/virtual-host guide, executed from the start after Docker recovery:
+ Network gcs-mimic-signed-57523_default Creating 
+ Volume gcs-mimic-signed-57523_gcs-data Creating 
+ Volume gcs-mimic-signed-57523_gcs-data Creating 
+ Network gcs-mimic-signed-57523_default Creating 
+ Volume gcs-mimic-signed-57523_gcs-data Created 
+ Volume gcs-mimic-signed-57523_gcs-data Created 
+ Network gcs-mimic-signed-57523_default Created 
+ Network gcs-mimic-signed-57523_default Created 
+ Container gcs-mimic-signed-57523-gcs-1 Creating 
+ Container gcs-mimic-signed-57523-gcs-1 Created 
+ Container gcs-mimic-signed-57523-gcs-1 Starting 
+ Container gcs-mimic-signed-57523-gcs-1 Started 
+ Container gcs-mimic-signed-57523-gcs-1 Waiting 
+ Container gcs-mimic-signed-57523-gcs-1 Healthy 
+PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition
+content-type: text/csv
+content-disposition: attachment; filename="private.csv"
+PASS: signed response overrides and query tamper rejection
+PASS: enforced PAP denies anonymous access and permits valid signed GET/PUT
+content-type: text/csv
+PASS: virtual-host signed GET/PUT and response override under PAP
+PASS: stored public policy survives PAP and reactivates on both endpoint styles
+ Container gcs-mimic-signed-57523-gcs-1 Stopping 
+ Container gcs-mimic-signed-57523-gcs-1 Stopped 
+ Container gcs-mimic-signed-57523-gcs-1 Starting 
+ Container gcs-mimic-signed-57523-gcs-1 Started 
+ Container gcs-mimic-signed-57523-gcs-1 Waiting 
+ Container gcs-mimic-signed-57523-gcs-1 Healthy 
+PASS: signed Docker restart and independently signed Compose peer URL
+ Container gcs-mimic-signed-57523-gcs-1 Stopping 
+ Container gcs-mimic-signed-57523-gcs-1 Stopped 
+ Container gcs-mimic-signed-57523-gcs-1 Removing 
+ Container gcs-mimic-signed-57523-gcs-1 Removed 
+ Network gcs-mimic-signed-57523_default Removing 
+ Volume gcs-mimic-signed-57523_gcs-data Removing 
+ Volume gcs-mimic-signed-57523_gcs-data Removed 
+ Network gcs-mimic-signed-57523_default Removed 
 Historical path-style guide before follow-up integration (source e755296):
 Executed the shell blocks extracted from docs/en/getting-started.md: Signed private downloads and uploads.
 Docker image: gcs-mimic:bucket-smoke-amd64-18765; linux/amd64 (emulated).
@@ -34,13 +82,3 @@ PASS: signed Docker restart and independently signed Compose peer URL
  Volume gcs-mimic-signed-48905_gcs-data Removing 
  Volume gcs-mimic-signed-48905_gcs-data Removed 
  Network gcs-mimic-signed-48905_default Removed 
-Current integrated native guide (source 822f39c, guide aac355b):
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
-PASS: private signed GET/PUT, method/object/host/expiry/header failures and atomic condition
-content-type: text/csv
-content-disposition: attachment; filename="private.csv"
-PASS: signed response overrides and query tamper rejection
-PASS: enforced PAP denies anonymous access and permits valid signed GET/PUT
-content-type: text/csv
-PASS: virtual-host signed GET/PUT and response override under PAP
-PASS: stored public policy survives PAP and reactivates on both endpoint styles

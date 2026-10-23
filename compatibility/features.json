@@ -36719,6 +36719,16 @@
             "TestV4RSASignedDownload/SignedUpload",
             "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"
           ]
+        },
+        {
+          "command": "Execute updated Signed private downloads and uploads shell blocks natively and from the start with the source-built amd64 image/strict Compose after Docker recovery",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (Docker/Compose)",
+            "signed_journey (native)"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -37876,6 +37886,16 @@
             "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
             "tls_trust_versions_streaming_urls_and_restart",
             "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
+          ]
+        },
+        {
+          "command": "Execute updated Signed private downloads and uploads shell blocks natively and from the start with the source-built amd64 image/strict Compose after Docker recovery",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (Docker/Compose)",
+            "signed_journey (native)"
           ]
         }
       ],
@@ -42193,21 +42213,21 @@
       "interface": "Emulator user journey",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "The historical path-style native/source-image/strict-Compose guide passes at source e755296. The extended current native guide passes private GET/PUT and failures, literal response overrides, virtual-host signing, PAP enforcement with preserved policy/etag and public reactivation. Final source-image/strict-Compose execution is blocked by an unresponsive Docker daemon after the amd64 image built; UX-006 remains PARTIAL until that guide actually executes. Current Rust/Go/Ruby checks pass. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
+      "notes": "The extended native/source-image/strict-Compose guide passes generated-key/public-only registry setup, private signed GET/PUT and method/object/host/expiry/header/condition failures, both literal response overrides, opt-in virtual-host signing, PAP enforcement with preserved public policy/etag and valid signed transfers, disabling/reactivation, enforced-PAP restart and separately signed host/peer endpoints. Dynamic published ports are re-read and URLs freshly signed, never rewritten. The source-built image is reused without rebuilding. Actual signed-browser transfers remain delivery order 18. Contract: docs/en/getting-started.md; evidence: docs/en/evidence/signed-urls.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "DECOMPOSED",
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "UX-006-GUIDE",
-          "description": "Execute the updated source-image/strict-Compose guide, including original failure/restart/host-peer checks and new PAP/virtual-host/override steps; historical path-style execution is retained separately.",
-          "result": "PENDING",
+          "description": "Execute the updated native/source-image/strict-Compose signed guide, including failures, response overrides, virtual hosts, PAP, restart and separately signed peer access with public-only server keys.",
+          "result": "PASS",
           "test_ids": [
             "signed_journey (native)",
             "signed_journey (Docker/Compose)"
@@ -42215,13 +42235,16 @@
         },
         {
           "id": "UX-006-PAP-PENDING",
-          "description": "The exact PAP block is integrated and passes natively; execute the final source-image/strict-Compose PAP guide after Docker daemon recovery.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "The exact PAP signed GET/PUT block executes natively and with source-image/strict Compose; stored public bindings/etag survive, anonymous access is denied while valid signatures work, disabling reactivates public reads and re-enforcement persists across restart.",
+          "result": "PASS",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
         },
         {
           "id": "UX-006-PAP-API",
-          "description": "Rust/Go verifies enforced-PAP signed GET/HEAD/PUT and invalid signatures; final guide execution remains pending.",
+          "description": "Rust/Go verifies enforced-PAP signed GET/HEAD/PUT, signer grants and invalid signatures; final native/Compose guide execution also passes.",
           "result": "PASS",
           "test_ids": [
             "signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering",
@@ -42298,13 +42321,21 @@
           "test_ids": [
             "signed_journey (native)"
           ]
+        },
+        {
+          "command": "Execute updated Signed private downloads and uploads shell blocks natively and from the start with the source-built amd64 image/strict Compose after Docker recovery",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-urls-guide.txt",
+          "test_ids": [
+            "signed_journey (native)",
+            "signed_journey (Docker/Compose)"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "The final integrated Docker/strict-Compose guide is blocked by an unresponsive Docker daemon; /_ping times out, and the Docker VM logged an EXT4 write error. UX-006 stays PARTIAL until current-source execution; actual signed-browser transfers remain delivery order 18."
-      ],
-      "implemented_in": "5f45d0935ad55b8199e278ca808aa126580e0999",
+      "known_deviations": [],
+      "implemented_in": "aac355b1432084b3ec472169817e6a1619b174bc",
       "last_verified": "2026-10-23"
     },
     {
