@@ -26,6 +26,9 @@ fn fixture() -> (TestDir, TestDir, Server) {
 #[path = "signing/put.rs"]
 mod put;
 
+#[path = "signing/pap.rs"]
+mod pap;
+
 fn sign(
     server: &Server,
     method: &Method,

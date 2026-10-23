@@ -92,22 +92,55 @@ pub(super) fn check_access(
             return Err(CatalogError::Forbidden);
         }
         let policy = read_policy(connection, bucket)?;
+        let pap = public_access_prevention(connection, bucket)?;
         if !identity
             .as_ref()
             .is_some_and(|identity| identity.allows(permission, project))
-            && !policy.allows(identity.as_ref(), permission)
+            && !policy.allows(identity.as_ref(), permission, pap)
         {
             return Err(CatalogError::Forbidden);
         }
         return Ok(identity
             .as_ref()
             .is_some_and(|identity| identity.allows(OBJECTS_DELETE, project))
-            || policy.allows(identity.as_ref(), OBJECTS_DELETE));
+            || policy.allows(identity.as_ref(), OBJECTS_DELETE, pap));
     }
     Ok(true)
 }
 
 impl Catalog {
+    /// Install a startup-only local simulation of effective parent policy; never persisted as bucket metadata.
+    pub async fn configure_public_access_prevention(
+        &self,
+        projects: &[String],
+    ) -> Result<(), CatalogError> {
+        if projects.len() > 64 {
+            return Err(CatalogError::InvalidMetadata(
+                "Parent policy exceeds 64 projects".into(),
+            ));
+        }
+        let projects = projects.to_vec();
+        self.run(move |connection| {
+            let transaction = connection.transaction().map_err(unavailable)?;
+            transaction
+                .execute("DELETE FROM parent_public_access_prevention", [])
+                .map_err(unavailable)?;
+            for project in projects {
+                crate::json::validate_project(&project).map_err(|_| {
+                    CatalogError::InvalidMetadata("Invalid parent policy project".into())
+                })?;
+                transaction
+                    .execute(
+                        "INSERT INTO parent_public_access_prevention VALUES (?1)",
+                        [project],
+                    )
+                    .map_err(unavailable)?;
+            }
+            transaction.commit().map_err(unavailable)
+        })
+        .await
+    }
+
     pub(crate) async fn bucket_access<'a>(
         &self,
         bucket: &str,
@@ -179,6 +212,15 @@ impl Catalog {
             if policy.etag.is_some() && policy.etag != current.etag {
                 return Err(CatalogError::PreconditionFailed);
             }
+            if public_access_prevention(&transaction, &bucket)?
+                && policy.bindings.iter().any(|binding| {
+                    binding.members.iter().any(|member| {
+                        matches!(member.as_str(), "allUsers" | "allAuthenticatedUsers")
+                    })
+                })
+            {
+                return Err(CatalogError::PublicAccessPrevention);
+            }
             let revision = next_revision(&transaction)?;
             transaction
                 .execute(
@@ -192,6 +234,13 @@ impl Catalog {
         })
         .await
     }
+}
+
+pub(super) fn public_access_prevention(
+    connection: &Connection,
+    bucket: &str,
+) -> Result<bool, CatalogError> {
+    connection.query_row("SELECT public_access_prevention_enforced OR EXISTS(SELECT 1 FROM parent_public_access_prevention WHERE project = buckets.project) FROM buckets WHERE name = ?1", [bucket], |row| row.get(0)).map_err(unavailable)
 }
 
 fn authorize_policy(

@@ -208,6 +208,7 @@ pub struct Registry {
     identities: Vec<Identity>,
     tokens: HashMap<String, usize>,
     signing_keys: HashMap<String, Vec<signature::PublicKey>>,
+    public_access_prevention_projects: Vec<String>,
 }
 
 impl Registry {
@@ -230,8 +231,34 @@ impl Registry {
         let top = value
             .as_object()
             .ok_or_else(|| error("top level must be a JSON object".into()))?;
-        if let Some(key) = top.keys().find(|key| *key != "identities") {
+        if let Some(key) = top.keys().find(|key| {
+            !matches!(
+                key.as_str(),
+                "identities" | "public_access_prevention_projects"
+            )
+        }) {
             return Err(error(format!("unknown field: {key}")));
+        }
+        let mut public_access_prevention_projects = Vec::new();
+        if let Some(value) = top.get("public_access_prevention_projects") {
+            let projects = value.as_array().filter(|projects| projects.len() <= MAX_PROJECTS)
+                .ok_or_else(|| error("public_access_prevention_projects must be an array of at most 64 project identifiers".into()))?;
+            for project in projects {
+                let project = project.as_str().ok_or_else(|| {
+                    error("public_access_prevention_projects entries must be strings".into())
+                })?;
+                crate::json::validate_project(project)
+                    .map_err(|_| error("invalid public_access_prevention_projects entry".into()))?;
+                if public_access_prevention_projects
+                    .iter()
+                    .any(|existing| existing == project)
+                {
+                    return Err(error(
+                        "duplicate public_access_prevention_projects entry".into(),
+                    ));
+                }
+                public_access_prevention_projects.push(project.to_owned());
+            }
         }
         let entries = top
             .get("identities")
@@ -371,6 +398,7 @@ impl Registry {
             identities,
             tokens,
             signing_keys,
+            public_access_prevention_projects,
         })
     }
 
@@ -414,6 +442,13 @@ impl Auth {
 
     pub fn identity_count(&self) -> Option<usize> {
         self.registry.as_ref().map(Registry::len)
+    }
+
+    /// Local simulation of the effective parent organization policy, loaded before readiness.
+    pub fn public_access_prevention_projects(&self) -> &[String] {
+        self.registry
+            .as_ref()
+            .map_or(&[], |registry| &registry.public_access_prevention_projects)
     }
 
     /// Resolve the caller from request metadata only; never reads a body or the catalog.
@@ -498,6 +533,76 @@ fn lenient_decode(raw: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pap_parent_fixture_rejects_malformed_and_unbounded_projects() {
+        for projects in [
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!({}),
+            serde_json::json!([1]),
+            serde_json::json!([""]),
+            serde_json::json!(["has space"]),
+            serde_json::json!(["p", "p"]),
+            serde_json::json!((0..65).map(|n| format!("p{n}")).collect::<Vec<_>>()),
+        ] {
+            let value = serde_json::json!({"identities":[{"id":"local","tokens":["token"]}],"public_access_prevention_projects":projects});
+            assert!(
+                Registry::parse(value.to_string().as_bytes())
+                    .unwrap_err()
+                    .contains("public_access_prevention_projects")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pap_mutations_require_update_and_set_iam_permissions() {
+        use crate::{
+            bucket::{BucketAccess, BucketMetadataUpdate, CatalogError},
+            storage::Catalog,
+        };
+        let dir =
+            std::env::temp_dir().join(format!("gcs-mimic-pap-permissions-{}", std::process::id()));
+        let catalog = Catalog::open(&dir).await.unwrap();
+        let record = crate::json::parse_insert(
+            br#"{"name":"pap-permissions"}"#,
+            "project",
+            std::time::UNIX_EPOCH,
+        )
+        .unwrap();
+        catalog.insert_bucket(record.clone()).await.unwrap();
+        let identity = Identity {
+            id: "local".into(),
+            permissions: BTreeMap::from([("project".into(), BTreeSet::from([BUCKETS_UPDATE]))]),
+        };
+        let access = BucketAccess::Policy {
+            identity: Some(identity),
+            permission: BUCKETS_UPDATE.into(),
+            project: Some("project".into()),
+        };
+        for replace in [false, true] {
+            let update = BucketMetadataUpdate {
+                public_access_prevention_enforced: Some(true),
+                ..Default::default()
+            };
+            let result = if replace {
+                catalog
+                    .replace_bucket("pap-permissions", update, None, None, &access)
+                    .await
+            } else {
+                catalog
+                    .patch_bucket("pap-permissions", update, None, None, &access)
+                    .await
+            };
+            assert_eq!(result, Err(CatalogError::Forbidden));
+            assert_eq!(
+                catalog.get_bucket("pap-permissions").await.unwrap(),
+                Some(record.clone())
+            );
+        }
+        catalog.close().await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn role_snapshot_is_sorted_unique_storage_permission_data() {

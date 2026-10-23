@@ -864,10 +864,10 @@ fn xml_permissive_reads_ignore_credentials_without_granting_public_policy() {
 }
 
 #[test]
-fn public_access_prevention_and_uniform_access_settings_fail_closed() {
+fn uniform_access_settings_fail_closed() {
     let (_config, _data, server) = fixture();
     for setting in [
-        json!({"publicAccessPrevention":"enforced"}),
+        json!({"bucketPolicyOnly":{"enabled":true}}),
         json!({"uniformBucketLevelAccess":{"enabled":true}}),
     ] {
         server

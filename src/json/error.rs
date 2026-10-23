@@ -125,6 +125,11 @@ impl From<CatalogError> for JsonError {
                 "Precondition failed",
             ),
             CatalogError::Forbidden => Self::forbidden(),
+            CatalogError::PublicAccessPrevention => Self::new(
+                StatusCode::PRECONDITION_FAILED,
+                "conditionNotMet",
+                "Public access prevention is enforced",
+            ),
             CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
             CatalogError::Unavailable(_) => Self::new(
