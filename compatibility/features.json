@@ -857,7 +857,7 @@
           "Use an actual browser over trusted local HTTPS to verify allowed/denied origins, preflight, exposed headers and real signed upload/download with the final signed host/path unchanged.",
           "Prove preflight grants no object access and denied permissions stay denied even when CORS matches."
         ],
-        "deferred_scope": "Delivered scope: strict path-style Chromium over trusted local HTTPS passes unchanged signed PUT/GET/HEAD, real preflight, exposure, origin/method/header and permission/signature denials, state preservation and restart. Nine hermetic tests cover both endpoint styles, full-query OPTIONS, PAP and malformed paths. Existing CORS browsers, HTTPS Go/Ruby, both container architectures and affected native guide blocks pass. UX-007 remains PARTIAL for the standalone full cargo test ConnectionReset failure despite a passing just check and focused recheck. Remaining: website/CDN/public DNS/certificates, browser login, Rails, real Google/iOS/WebKit, virtual-host browsers, signed resumable and provider-exact malformed-input/error CORS; see final evidence.",
+        "deferred_scope": "Delivered scope: strict path-style Chromium over trusted local HTTPS passes unchanged signed PUT/GET/HEAD, real preflight, exposure, origin/method/header and permission/signature denials, state preservation and restart. Nine hermetic tests cover both endpoint styles, full-query OPTIONS, PAP and malformed paths. Existing CORS browsers, HTTPS Go/Ruby, both container architectures and affected native guide blocks pass. Remaining: website/CDN/public DNS/certificates, browser login, Rails, real Google/iOS/WebKit, virtual-host browsers, signed resumable and provider-exact malformed-input/error CORS; see final evidence.",
         "evidence": [
           "docs/en/slices/signed-browser.md",
           "docs/en/evidence/signed-browser.md",
@@ -42620,13 +42620,13 @@
       "interface": "Emulator user journey",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-23",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Delivered JSON direct media/multipart/resumable/CRUD and strict signed XML PUT/GET/HEAD from distinct trusted HTTPS Chromium origins, with unchanged signed endpoints, CORS exposure/denials, permission/signature failures and restart. Rails, real Google/iOS/WebKit and virtual-host browsers remain separate. Final evidence: docs/en/evidence/signed-browser.md; existing browser/mobile scope: docs/en/evidence/cors.md and docs/en/slices/cors-mobile-origins.md. Browser acceptance passes, but the expanded final regression gate remains incomplete: standalone cargo test had an existing resumable connection-reset failure despite a passing just check and focused recheck.",
+      "notes": "Delivered JSON direct media/multipart/resumable/CRUD and strict signed XML PUT/GET/HEAD from distinct trusted HTTPS Chromium origins, with unchanged signed endpoints, CORS exposure/denials, permission/signature failures and restart. All scoped browser acceptance passes. Rails, real Google/iOS/WebKit and virtual-host browsers remain separate. Final evidence: docs/en/evidence/signed-browser.md; existing browser/mobile scope: docs/en/evidence/cors.md and docs/en/slices/cors-mobile-origins.md. The unrelated initial resumable-test transport race and its assertion-preserving correction remain recorded in the final evidence.",
       "dependencies": [
         "DESIGN-051",
         "DESIGN-052",
@@ -42634,7 +42634,7 @@
         "DESIGN-065"
       ],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "BROWSER-TRANSFERS",
@@ -42734,14 +42734,6 @@
             "signed-browser-strict-initial",
             "signed-browser-strict-restart"
           ]
-        },
-        {
-          "id": "SIGNED-BROWSER-FINAL-REGRESSIONS",
-          "description": "Close the expanded integrated regression gate with a green standalone cargo test --locked; investigate the existing resumable ConnectionReset failure rather than replacing its result with a passing focused recheck.",
-          "result": "FAIL",
-          "test_ids": [
-            "object_caps_apply_to_known_unknown_and_streamed_lengths"
-          ]
         }
       ],
       "test_ids": [
@@ -42757,19 +42749,9 @@
         "signed-browser-strict-initial",
         "signed-browser-strict-restart",
         "signed-browser-guide-native",
-        "signed-browser-cors-guide-native",
-        "object_caps_apply_to_known_unknown_and_streamed_lengths"
+        "signed-browser-cors-guide-native"
       ],
       "verification": [
-        {
-          "command": "cargo test --locked",
-          "result": "FAIL",
-          "verified_at": "2026-10-23",
-          "artifact": "docs/en/evidence/signed-browser.txt",
-          "test_ids": [
-            "object_caps_apply_to_known_unknown_and_streamed_lengths"
-          ]
-        },
         {
           "command": "bash scripts/signed-browser.sh prepare/run strict initial/restart; bash scripts/cors-browser.sh strict/permissive initial/restart",
           "result": "PASS",
@@ -42845,9 +42827,7 @@
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "The standalone final cargo test --locked exited 101 after object_caps_apply_to_known_unknown_and_streamed_lengths received Connection reset by peer. The same case passed in the complete final just check and the focused recheck, but that does not establish the failure cause or close the standalone full-test gate."
-      ],
+      "known_deviations": [],
       "implemented_in": null,
       "last_verified": "2026-10-23"
     },

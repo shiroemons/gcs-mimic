@@ -2,8 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Final integrated verification executed **2026-10-23 UTC** against source
-`2218d001b3fe4e158f05d9d6c62a0eb68c986d84`. The reusable
+Final integrated verification executed **2026-10-23 UTC**. The browser/runtime
+source is `2218d001b3fe4e158f05d9d6c62a0eb68c986d84`; the complete final Rust
+test source is `99f865e84c7a5d35f5c4df5f34cc56b75ace700b`, whose only later
+runtime-adjacent change is the test-only correction described below. The reusable
 [`signed-browser.sh`](../../../scripts/signed-browser.sh) prepares URLs using the
 project's own offline `url sign` CLI, then serves
 [`signed-browser.html`](../../../scripts/signed-browser.html) from a distinct
@@ -183,6 +185,7 @@ Chromium evidence.
 ## Source and validation
 
 Native runtime source baseline: `2218d001b3fe4e158f05d9d6c62a0eb68c986d84`.
+Final full Rust test baseline: `99f865e84c7a5d35f5c4df5f34cc56b75ace700b`.
 Harness commit: `8fe61a7712340f5fc9289725a51ba6a48b9f74d9`. Runtime and protocol
 inputs were unchanged across both phases; the runtime is copied before launch
 to keep concurrent Cargo commands from replacing it.
@@ -199,13 +202,15 @@ c6a4c2ccf06ddee783f7cd327109f6188c0a54c3a17e9d9a7b5eddffae011e46  src/xml/put.rs
 57b6107385fe009574ac09a52fe8a818d839cae5ee37abc95fe0955a70c3c024  scripts/signed-browser.sh
 1f2d1e1a16dcceb7d3eaa25f85d43dcc16716bb21bee992f76cd7ec97441d1ca  scripts/signed-browser.html
 3b8100d00d9d1b534fce001b07e8329cd2d26aaba19bdfe4678dd79ae718116b  Cargo.lock
+42f7af1020043de5306e2fa2723ab62dac21ff1ab6efd4438c349760c9ab48b4  tests/resumable_http.rs
 ```
 
 ## Combined final verification
 
 All executions below used the same final runtime source on **2026-10-23 UTC**
 (the native guide and final SDK completion crossed midnight into 2026-10-24
-in Asia/Tokyo). Documentation/ledger updates do not change that runtime.
+in Asia/Tokyo). Documentation/ledger updates and the final test-only correction
+do not change that runtime.
 Environment: macOS 27.0.1, ARM64, Rust/Cargo 1.99.1, Node 24.22.1 and Docker
 client/server 29.9.2. Linux ARM64 is native; AMD64 uses Docker Desktop emulation.
 The [combined transcript](signed-browser.txt) contains real command output,
@@ -216,8 +221,10 @@ are included.
 | Executed command or journey | Exit | Final observation |
 | --- | ---: | --- |
 | `just check` | 0 | Pinned fetch/fmt/Clippy, shell checks, compatibility check and **665 workspace tests** pass, zero failed/ignored; signed wire **9**, auth/CORS **93**, TLS **9** |
-| `cargo test --locked` | 101 | Existing `resumable_http::object_caps_apply_to_known_unknown_and_streamed_lengths` fails with `Connection reset by peer`; that target has 32 passed, 1 failed |
+| Final `cargo test --locked` on `99f865e` | 0 | **629 tests passed**, zero failed/ignored, including all nine signed-browser wire tests and the corrected resumable cap test |
+| Initial `cargo test --locked`, retained failure | 101 | Existing `resumable_http::object_caps_apply_to_known_unknown_and_streamed_lengths` failed with `Connection reset by peer`; that target had 32 passed, 1 failed |
 | `cargo test --locked --test resumable_http object_caps_apply_to_known_unknown_and_streamed_lengths -- --exact` | 0 | The failed test passes alone; the same test also passed in `just check`, without source changes |
+| `cargo test --locked --test resumable_http` after the test-only correction | 0 | **33 tests passed**, zero failed/ignored; final fmt and workspace/all-target Clippy with warnings denied also pass |
 | `signed-browser.sh prepare` and `run`, strict initial/restart, as above | 0 each | **51 + 10 = 61** checks, normal SIGINT/zero exit between phases, fresh signatures and empty final catalog |
 | `cors-browser.sh https://gcs:54475 cors-browser-strict strict initial` and `restart` | 0 each | **38 + 7** checks |
 | `cors-browser.sh https://gcs:54476 cors-browser-permissive permissive initial` and `restart` | 0 each | **36 + 7** checks; existing CORS total remains **88**, so historical `cors-browser.txt/.md` results are unchanged |
@@ -231,16 +238,23 @@ are included.
 | `npx --yes markdownlint-cli2` on the five hand-edited Markdown files and both generated matrices | 0 each | No issues; matrices use the existing long-table convention and MD024 `siblings_only` |
 | `git diff --check` on changed source/docs and repository-wide local-path `git grep -nE` | 0 / 1 | No whitespace issues outside preserved raw output; no local-path matches |
 
-The standalone full `cargo test --locked` gate is **not green**. Its exact
-failure is retained rather than replaced with the passing recheck. No negative
-assertion, timeout, error handling or test was weakened. This existing
-resumable transport failure is outside the signed-browser acceptance; its cause
-is not established by a single passing recheck. All signed-browser and CORS
-acceptance tests passed in the complete final `just check` run. The behavior rows
-BEHAVIOR-BUCKET-009 and DESIGN-051/052/053 retain IMPLEMENTED for their passing
-scope; UX-007 remains PARTIAL with the failed expanded final regression case.
-No later source
-edits or additional full/container/browser runs were made to hide the failure.
+The initial full-test failure and successful focused recheck remain in the
+transcript, followed by the assertion-preserving test correction and final
+complete passing run. The cap test eagerly sent 262145 bytes although its
+Content-Length already required 413. The server sends FIN before bounded
+unread-body disposal, capped at 256 KiB/100 ms; racing that cap can leave request
+bytes unread and reset the test's `read_to_end` depending on timing. The final
+test sends that same oversized declared length with `Expect: 100-continue` and
+requires the final 413 before sending media. It still asserts no object exists;
+exact-limit upload and all other streamed-size checks remain intact. Socket
+errors are not suppressed and the runtime's close behavior is unchanged.
+
+The full resumable target, final fmt/Clippy and authorized complete Rust rerun
+all pass. Production, signing, CORS, SDK/container and browser inputs recheck
+unchanged, so no additional browser, SDK or container run is implied by this
+test-only follow-up. BEHAVIOR-BUCKET-009, DESIGN-051/052/053 and UX-007 are
+IMPLEMENTED for their declared passing cases. Provider/device questions remain
+separate from this local test-harness correction.
 
 The first two SDK attempts exited 1 after all Go tests passed: an inherited
 version-manager shim selected Ruby 3.4.1 for `bundle exec ruby`, contrary to

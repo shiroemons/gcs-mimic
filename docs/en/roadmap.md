@@ -66,7 +66,7 @@ remain in the named evidence files.
 | JSON multipart | Bounded metadata/media/checksum containers and Go single-request Writer | MIME edge parity, replay and advanced fields | [Multipart verification](evidence/multipart.md) |
 | Local strict authentication | Local bearer/V4 RSA identities, project-plus-bucket roles and offline URL helpers | Other signing formats, full IAM/ACL and provider identity | [Authentication](evidence/strict-auth.md), [signed access](evidence/signed-urls.md) |
 | Bucket IAM policies | Persistent unconditional predefined-role bindings, project-plus-bucket enforcement and atomic etags; native Go and strict Compose journey | Whole policy methods and inherited hierarchy remain PARTIAL; conditions, custom/basic roles, ACLs and wire parity remain | [Final IAM verification](evidence/bucket-iam.md) |
-| Public and signed object transfers | Path-style and opt-in virtual-host XML GET/HEAD/PUT, V4 RSA signer permissions, response overrides, PAP, final-host binding, expiry/tamper rejection, bounded integrity checks, atomic conditions and actual trusted-HTTPS path-style Chromium signed transfers | Advanced XML/listing, ACL/UBLA transitions, other signing formats, provider error/header parity, Rails and virtual-host browsers; final standalone regression failure remains explicit | [Public reads](evidence/public-object-reads.md), [combined signed access](evidence/signed-urls.md), [signed browser verification](evidence/signed-browser.md) |
+| Public and signed object transfers | Path-style and opt-in virtual-host XML GET/HEAD/PUT, V4 RSA signer permissions, response overrides, PAP, final-host binding, expiry/tamper rejection, bounded integrity checks, atomic conditions and actual trusted-HTTPS path-style Chromium signed transfers | Advanced XML/listing, ACL/UBLA transitions, other signing formats, provider error/header parity, Rails and virtual-host browsers | [Public reads](evidence/public-object-reads.md), [combined signed access](evidence/signed-urls.md), [signed browser verification](evidence/signed-browser.md) |
 | JSON resumable upload | Sessions, bounded chunks/status/retry, atomic finalization, cancellation, fixed seven-day expiry, selected process-kill/restart recovery, client-reachable configured Location and normal pinned Go Writer; measured native large/slow/concurrent buffering | XML/signed initiation, token response replay, provider edge parity, power-loss durability and Linux/cgroup memory guarantees | [Final resumable verification](evidence/resumable-upload.md) |
 | Single JSON range | Closed/open/suffix stored-byte reads, 206/416, pinned generation and bounded seeking | If-Range, transcoding and exact fallback/header parity | [Range verification](evidence/object-range.md) |
 | Initial seed import | Import before readiness without replay; Linux invalid-byte rejection and read-only Compose persistence/reset | Manifest metadata, legacy defaults and source mutation protection remain outside the native contract | [Seed verification](evidence/seed-platform.md) |
@@ -103,10 +103,10 @@ success stub does not complete a workflow.
 | 12 | Local HTTPS/TLS | Built-in HTTPS default/explicit HTTP, optional supplied PEM pair, bounded handshake and trusted native/container/Go/Ruby/browser checks passed on 2026-10-23 | Delivered: DESIGN-065 IMPLEMENTED/PROJECT; DESIGN-055 gains HTTPS evidence and remains PARTIAL for proxy/signing; [final verification](evidence/local-tls.md) |
 | 13 | JSON CORS defaults | Independent JSON defaults, actual-browser CRUD/uploads, exposed headers and strict denial pass the [CORS gate](evidence/cors.md) | Delivered: DESIGN-051 and DESIGN-053 IMPLEMENTED for the frozen scope |
 | 14 | Bucket/XML CORS | Persistent configuration, validation/conditions/races, XML read/preflight rules, custom origins/default ports and browser restart pass the [CORS gate](evidence/cors.md) | Delivered: BEHAVIOR-BUCKET-009 and DESIGN-052 IMPLEMENTED; broad bucket methods remain PARTIAL |
-| 15 | Basic API, CORS and HTTPS verification | Six bucket/nine object HTTP methods, pinned Go/Ruby, trusted HTTPS browser, Rust regressions and native/container journeys pass the [integrated gate](evidence/cors.md) | Basic JSON browser transfers and XML reads delivered; the expanded UX-007 gate is now PARTIAL as recorded in order 18; broader SDK/Rails and method parity remain explicit |
+| 15 | Basic API, CORS and HTTPS verification | Six bucket/nine object HTTP methods, pinned Go/Ruby, trusted HTTPS browser, Rust regressions and native/container journeys pass the [integrated gate](evidence/cors.md) | Delivered: UX-007 IMPLEMENTED for JSON browser transfers and XML reads; broader SDK/Rails and method parity remain explicit |
 | 16 | V4 RSA signed download | Private GET/HEAD, final-host canonicalization, signer permission, expiry, tamper rejection and pinned Go/Ruby signers; integrated virtual-host and response override follow-ups; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-030/032/033/034/036/038/045/048 IMPLEMENTED; DESIGN-035/044 and broad XML/auth rows remain PARTIAL for provider-exactness and advanced cases |
 | 17 | V4 RSA signed upload | Bounded XML PUT, signed headers, streamed declared SHA256, atomic conditions/preservation, wire CORS, PAP and final Rust/SDK/container/native/Compose guide gate; [combined evidence](evidence/signed-urls.md) | Delivered: DESIGN-029, BEHAVIOR-BUCKET-014, DESIGN-022/023/025 and UX-006 IMPLEMENTED; bucket/parent policy fidelity stays LOCAL_SIMULATION where declared; DESIGN-037/055 and EXT-XML-022 remain PARTIAL for provider/proxy/advanced cases |
-| 18 | Signed browser transfers | Delivered strict Chromium PUT/GET/HEAD over trusted HTTPS, unchanged signed endpoints, real preflight, exposed headers, CORS/permission/signature denials and restart; [final verification](evidence/signed-browser.md) | Browser scope delivered; BEHAVIOR-BUCKET-009 and DESIGN-051/052/053 IMPLEMENTED. UX-007 PARTIAL: standalone full Rust test hit a resumable connection reset despite a green `just check` and focused recheck |
+| 18 | Signed browser transfers | Delivered strict Chromium PUT/GET/HEAD over trusted HTTPS, unchanged signed endpoints, real preflight, exposed headers, CORS/permission/signature denials and restart; [final verification](evidence/signed-browser.md) | Delivered: BEHAVIOR-BUCKET-009, DESIGN-051/052/053 and UX-007 IMPLEMENTED for their scoped acceptance; provider/device boundaries remain explicit |
 | 19 | Ruby/Rails workflows | Extend the earlier basic Ruby SDK evidence to actual Active Storage public/private delivery plus direct uploads | Tested Rails/browser integration |
 | 20 | Release verification | Basic API/CORS/HTTPS gate, required CI/native targets, freshness, notices, checksums and explicitly authorized publication | Reproducible downloadable artifacts |
 
@@ -138,10 +138,9 @@ actual Active Storage public/private delivery and direct browser uploads.
 Order 18's signed-browser scope is delivered in the
 [final browser evidence](evidence/signed-browser.md): 61 signed-browser and 88
 existing CORS checks pass, with nine hermetic signed CORS tests, HTTPS Go/Ruby,
-both container architectures and affected native guide blocks. UX-007 remains
-PARTIAL until the separately recorded standalone full-test connection-reset
-failure is understood and its regression gate passes; the passing `just check`
-and focused recheck do not replace that failure.
+both container architectures and affected native guide blocks. UX-007 is
+IMPLEMENTED for the browser journey. The evidence also retains an unrelated
+initial resumable-test transport race and its assertion-preserving correction.
 Orders 16–17 are delivered in the
 [combined signed-access evidence](evidence/signed-urls.md), with
 [download](slices/signed-download.md) and [upload](slices/signed-upload.md) contracts.
@@ -439,7 +438,7 @@ strict local identity, effective scoped bucket IAM and public XML reads.
 The basic milestone above, including Go/Ruby evidence, CORS and trusted local
 HTTPS browser journeys, is a release verification prerequisite.
 Rails remains a later capability; signed-browser behavior now has its
-[executed gate and remaining full-regression limitation](evidence/signed-browser.md).
+[executed gate and explicit provider/device boundaries](evidence/signed-browser.md).
 The scoped JSON resumable workflow has
 separate evidence. State supported profiles and resource, recovery and protocol
 limits in the release; unverified clients remain explicit limitations.
