@@ -268,12 +268,13 @@ pub(super) fn recover(connection: &Connection, data_dir: &Path) -> Result<(), Ca
         #[cfg(unix)]
         sync_dir(data_dir).map_err(object_unavailable)?;
         super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
+        super::derived::recover(connection, data_dir)?;
         for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
             let entry = entry.map_err(object_unavailable)?;
             if os_metadata(&entry) {
                 continue;
             }
-            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE')", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
+            let retained: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM resumable_sessions WHERE blob_id = ?1 AND state = 'ACTIVE') OR EXISTS(SELECT 1 FROM derived_transfers WHERE id = ?1) OR EXISTS(SELECT 1 FROM derived_inputs WHERE blob_id = ?1)", [entry.file_name().to_string_lossy().as_ref()], |r| r.get(0)).map_err(object_unavailable)?;
             if retained {
                 continue;
             }
@@ -468,7 +469,7 @@ impl Catalog {
         .map_err(object_unavailable)?
     }
 
-    async fn run_object<T: Send + 'static>(
+    pub(super) async fn run_object<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, ObjectError> + Send + 'static,
     ) -> Result<T, ObjectError> {
@@ -1213,7 +1214,7 @@ pub(super) fn lookup(
         .map_err(object_unavailable)
 }
 
-fn selected(
+pub(super) fn selected(
     connection: &Connection,
     bucket: &str,
     name: &str,
