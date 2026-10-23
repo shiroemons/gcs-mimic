@@ -570,3 +570,163 @@ fn virtual_host_public_access_and_xml_cors_use_bucket_rules() {
         "SignatureDoesNotMatch",
     );
 }
+
+#[test]
+fn virtual_host_signed_response_overrides_bind_query_and_preserve_metadata() {
+    let (_config, _data, server) = fixture(true);
+    let host = host(&server);
+    let metadata = format!("/storage/v1/b/{BUCKET}/o/object");
+    let before = server.get(ADMIN, &metadata).ok().json();
+    let path = "/object?response-content-type=text%2Fcsv&response-content-disposition=attachment%3B%20filename%3Dreport.csv";
+    for method in [Method::GET, Method::HEAD] {
+        let url = signed(&method, &host, path, "viewer@example.invalid");
+        let reply = send(&server, method.as_str(), &url, "", b"");
+        reply.ok();
+        assert_eq!(reply.headers["content-type"], "text/csv");
+        assert_eq!(
+            reply.headers["content-disposition"],
+            "attachment; filename=report.csv"
+        );
+        assert_eq!(reply.headers["content-length"], "11");
+        assert_eq!(
+            reply.headers["x-goog-generation"],
+            before["generation"].as_str().unwrap()
+        );
+        assert_eq!(
+            reply.body,
+            if method == Method::HEAD {
+                b"".as_slice()
+            } else {
+                b"hello world".as_slice()
+            }
+        );
+        let tampered = send(
+            &server,
+            method.as_str(),
+            &url.replace("text%2Fcsv", "text%2Fhtml"),
+            "",
+            b"",
+        );
+        assert_eq!(tampered.status, 403);
+        assert_eq!(
+            tampered.headers["content-type"],
+            "application/xml; charset=UTF-8"
+        );
+        assert!(!tampered.headers.contains_key("content-disposition"));
+    }
+    assert_eq!(server.get(ADMIN, &metadata).ok().json(), before);
+}
+
+#[test]
+fn virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants() {
+    for member in ["allUsers", "allAuthenticatedUsers"] {
+        let (_config, _data, server) = fixture(true);
+        let host = host(&server);
+        let bucket = format!("/storage/v1/b/{BUCKET}");
+        let policy_path = format!("{bucket}/iam");
+        let policy = server
+            .request(
+                "PUT",
+                &policy_path,
+                ADMIN,
+                json!({"bindings":[{"role":"roles/storage.objectViewer","members":[member]}]})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .ok()
+            .json();
+        request(&server, "GET", &host, "/object", NO_ROLES, b"").ok();
+        let anonymous_status = if member == "allUsers" { 200 } else { 401 };
+        assert_eq!(
+            request(&server, "GET", &host, "/object", "", b"").status,
+            anonymous_status
+        );
+        server
+            .request(
+                "PATCH",
+                &bucket,
+                ADMIN,
+                br#"{"iamConfiguration":{"publicAccessPrevention":"enforced"}}"#,
+            )
+            .ok();
+        for method in ["GET", "HEAD"] {
+            assert_eq!(
+                request(&server, method, &host, "/object", "", b"").status,
+                401
+            );
+            assert_eq!(
+                request(&server, method, &host, "/object", NO_ROLES, b"").status,
+                403
+            );
+            let public_only = signed(
+                &method.parse().unwrap(),
+                &host,
+                "/object",
+                "no-roles@example.invalid",
+            );
+            assert_eq!(send(&server, method, &public_only, "", b"").status, 403);
+        }
+        let before = server.get(ADMIN, &format!("{bucket}/o/object")).ok().json();
+        let get = signed(
+            &Method::GET,
+            &host,
+            "/object?response-content-type=text%2Fcsv",
+            "viewer@example.invalid",
+        );
+        let reply = send(&server, "GET", &get, "", b"");
+        assert_eq!(reply.ok().body, b"hello world");
+        assert_eq!(reply.headers["content-type"], "text/csv");
+        error(
+            &send(
+                &server,
+                "GET",
+                &get.replace("text%2Fcsv", "text%2Fhtml"),
+                "",
+                b"",
+            ),
+            403,
+            "SignatureDoesNotMatch",
+        );
+        assert_eq!(
+            server.get(ADMIN, &format!("{bucket}/o/object")).ok().json(),
+            before
+        );
+        let put = signed(
+            &Method::PUT,
+            &host,
+            "/signed-under-pap",
+            "admin@example.invalid",
+        );
+        send(&server, "PUT", &put, "", b"signed under PAP").ok();
+        let uploaded = signed(
+            &Method::GET,
+            &host,
+            "/signed-under-pap",
+            "viewer@example.invalid",
+        );
+        assert_eq!(
+            send(&server, "GET", &uploaded, "", b"").ok().body,
+            b"signed under PAP"
+        );
+        assert_eq!(server.get(ADMIN, &policy_path).ok().json(), policy);
+        server
+            .request(
+                "PATCH",
+                &bucket,
+                ADMIN,
+                br#"{"iamConfiguration":{"publicAccessPrevention":"inherited"}}"#,
+            )
+            .ok();
+        assert_eq!(server.get(ADMIN, &policy_path).ok().json(), policy);
+        assert_eq!(
+            request(&server, "GET", &host, "/object", NO_ROLES, b"")
+                .ok()
+                .body,
+            b"hello world"
+        );
+        assert_eq!(
+            request(&server, "GET", &host, "/object", "", b"").status,
+            anonymous_status
+        );
+    }
+}
