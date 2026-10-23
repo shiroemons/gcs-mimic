@@ -1,5 +1,7 @@
 # Versioning and licensing policy
 
+[日本語](../ja/release-policy.md)
+
 ## Product version and compatibility
 
 gcs-mimic follows [Semantic Versioning 2.0.0](https://semver.org/), with the
@@ -18,8 +20,8 @@ During `0.x` development, use these rules:
 
 | Change | Version update | Example |
 | --- | --- | --- |
-| Backward-compatible bug or security fix | Patch | `0.1.0` to `0.1.1` |
-| New functionality or deprecation | Minor; reset patch to zero | `0.1.1` to `0.2.0` |
+| Compatible bug or security fix | Patch | `0.1.0` to `0.1.1` |
+| Feature or deprecation | Minor; reset patch to zero | `0.1.1` to `0.2.0` |
 | Breaking change | Minor; reset patch to zero | `0.2.1` to `0.3.0` |
 
 This is a project promise stricter than SemVer's general allowance for unstable
@@ -39,14 +41,60 @@ documented upgrade path need not be breaking. Never silently reset or discard an
 existing data directory to make an upgrade work. Document required migrations,
 backup steps and downgrade restrictions; downgrade compatibility is not assumed.
 
-Release `1.0.0` when the supported public contract is stable enough to maintain.
-After that, breaking changes increment the major version, compatible additions
-increment minor, and compatible fixes increment patch. Full Google API coverage
-is not a prerequisite for `1.0.0`.
+## Progress through 0.x
+
+Release useful increments while compatibility work continues. Do not keep adding
+released functionality under `0.1.0` until the whole roadmap is complete.
+For example, after the first `0.1.0` release, a bucket initializer can ship as
+`0.2.0`, a compatible correction as `0.2.1`, and directory synchronization as
+`0.3.0`. These are examples, not reserved feature versions or dates. Seed
+extensions and data import can each ship in another minor release; neither must
+wait for synchronization. Parallel work is assigned versions at integration.
+
+Choose the next version from the last published release and its actual changes.
+Use the highest required increment when combining changes. Documentation-only
+edits do not require a product release. Update the application manifest and
+lockfile, user examples, release notes and artifact references together when
+preparing the chosen release. A local preview image is not a published version.
+
+## The 1.0.0 gate
+
+`1.0.0` means a verified functional superset of the **pinned fake-gcs-server
+baseline**, with a stable public gcs-mimic contract. All of these must pass:
+
+1. Close the [full reference gate](fake-gcs-server-migration.md#delivery-and-full-superset-gate)
+   for its complete capability set: configuration behavior, JSON/XML, backend
+   modes, TLS, helper/event behavior, Go integration and Storage v1 gRPC.
+   Test both reference backends and representative existing applications.
+   Different setting names and explicit deployment/data-conversion steps are
+   allowed with tested mappings; unchanged CLI spelling is not required.
+2. Verify preservation of source-visible data and settings, including exposed
+   history and identities, safe cutover/recovery and rollback. Missing source
+   semantics cannot be waived by narrowing a comparison row.
+3. Verify the named additions: independent per-bucket settings, a create-missing
+   bucket initializer with API updates preserved, bidirectional directory
+   synchronization, strict local authorization and V4 RSA validation, and
+   persistent version history. Keep these scopes fixed in the release contract;
+   unrelated future ideas do not silently become new blockers.
+4. Pass the release's platform, SDK/browser, resource, persistence and public
+   distribution gates. Record every baseline capability and added scope with
+   executable evidence, publish migration guidance, and commit to the versioned
+   public contract.
+
+The current reference is fake-gcs-server **v1.56.1** at the pinned source revision
+in the [migration guide](fake-gcs-server-migration.md). Refresh the upstream
+inventory before release; explicitly record the compared version and any newer
+baseline adoption. A `1.0.0` release does not assert compatibility with untested
+upstream versions. Unsupported reference behavior remains a blocker, including
+behavior that needs a separate legacy profile rather than native strict rules.
+
+Full Google Cloud Storage API coverage is a separate goal, not this version's
+definition. After `1.0.0`, breaking public-contract changes increment major,
+compatible additions increment minor, and compatible fixes increment patch.
 
 ## Release identity and publication
 
-Choose a new product version when preparing a release, not for every commit or
+Choose the product version when preparing a release, not for every commit or
 push. Git release tags use `vX.Y.Z`; binary metadata and the exact container version
 tag use `X.Y.Z`. They must refer to the same product version and source commit.
 

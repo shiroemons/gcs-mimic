@@ -46,9 +46,9 @@
     "Storage Control REST": 1
   },
   "delivery_plan": {
-    "updated_at": "2026-10-23",
+    "updated_at": "2026-10-24",
     "semantics": "Planning metadata only. Feature statuses, fidelities, acceptance results and verification records below remain authoritative and unchanged. Existing scope references describe executed subsets, not new IMPLEMENTED claims.",
-    "phase_rule": "P0-P7 retain their existing coverage-group assignments. Complete the basic JSON bucket/object deliverables, local HTTPS/TLS, JSON CORS defaults, scoped bucket/XML CORS and their verification gate before signed URLs. Execute the ordered deliverables and their explicit prerequisites; do not require every row in a coverage group to be IMPLEMENTED before another group starts.",
+    "phase_rule": "P0-P7 remain coverage groups, not execution gates. Preserve the delivered basic JSON/CORS/HTTPS prerequisites for signing. Prioritize distribution and familiar configuration, then independent initializer, directory-sync and source-import tracks, then broader reference and Rails work. Order is a selection preference, not an implicit dependency: use depends_on for readiness. Existing SDK/browser checks and ready independent tracks may run early. Shared state changes have one integration owner; adapters do not bypass catalog/publication logic. Complete the pinned-reference superset and named extensions before 1.0.0; publish useful increments as 0.x releases.",
     "progress_rule": "Report completed, evidence-backed deliverables against a frozen selected delivery scope, separately from API/behavior/project counts. Do not assign PARTIAL a fractional weight, double-count overlapping feature references, or infer gate completion from this plan.",
     "common_completion_gate": [
       "Use pinned reference capabilities and representative existing-client workflows as the minimum functional baseline for each affected feature. Preserve source-supported inputs, response information and state effects; narrower native scopes and additional strict checks are not proof of feature parity. Add capabilities above that baseline without breaking the selected compatibility profile.",
@@ -58,7 +58,7 @@
       "Resolve every deviation within the declared scope; keep simulations and external-service boundaries explicit. Later scope extensions do not reopen a passed scope unless it regresses.",
       "Record commands, outcomes, test IDs, evidence and verification date in the existing feature records; regenerate compatibility views. The unchanged IMPLEMENTED policy still applies to whole feature rows.",
       "Gate closure requires evidence for every completion condition, not only the linked historical cases. These planning entries have no independent implementation status.",
-      "Review the pinned fake-gcs-server migration contract before each slice; add relevant legacy-profile cases without weakening the independent strict/Google-contract corpus. Rename FAKE_GCS_ keys to GCS_MIMIC_ rather than accepting legacy aliases."
+      "Review the pinned fake-gcs-server migration contract before each slice; add relevant legacy-profile cases without weakening the independent strict/Google-contract corpus. Document native GCS_MIMIC_ equivalents by role; identical flag spelling and environment suffixes are not required."
     ],
     "existing_scopes": [
       {
@@ -866,7 +866,7 @@
       },
       {
         "id": "ruby-rails-workflows",
-        "order": 19,
+        "order": 25,
         "title": "Verify Ruby and Rails user workflows",
         "depends_on": [
           "basic-json-verification",
@@ -891,7 +891,7 @@
       },
       {
         "id": "release-verification",
-        "order": 20,
+        "order": 19,
         "title": "Verify separately authorized native and image distribution",
         "depends_on": [
           "basic-json-verification",
@@ -912,11 +912,76 @@
           "Complete freshness/release checks, notices, archive checksums, resource evidence and the supported first-release guide scope.",
           "Publish only after separate authorization; verify registry/release access and immutable identity instead of treating configured workflows as executed."
         ],
-        "deferred_scope": "A release does not require gRPC, lifecycle, analytics or every row in P0/P1/P2; it does require the explicit release-policy and platform gates."
+        "deferred_scope": "The first 0.x release does not require Rails, initializer, synchronization, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the complete reference-superset gate and named extensions."
+      },
+      {
+        "id": "configuration-workflows",
+        "order": 20,
+        "title": "Preserve familiar startup and endpoint workflows",
+        "depends_on": ["runtime-foundation"],
+        "feature_ids": ["DESIGN-055", "DESIGN-064", "DESIGN-065", "UX-003"],
+        "completion_conditions": [
+          "Freeze roles, defaults and validation for all 19 pinned source environment variables and corresponding CLI settings; document native mappings instead of requiring identical spelling.",
+          "Implement and verify listener, advertised API origin, public URL construction and Host routing as separate roles, including host/peer/browser access, resumable Locations and final-host signing.",
+          "Deliver missing source configuration capabilities such as dual listeners, memory mode, notification settings, location and log selection as separate bounded slices with effective behavior; recognized but ignored settings cannot pass."
+        ],
+        "deferred_scope": "Literal CLI/environment aliases are not required. This track does not gate independent distribution, initializer or storage adapters; broader API/event semantics retain their own acceptance cases."
+      },
+      {
+        "id": "onboarding-state-contract",
+        "order": 21,
+        "title": "Freeze shared initialization and synchronization boundaries",
+        "depends_on": ["runtime-foundation", "bucket-metadata-update"],
+        "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-074", "UX-002"],
+        "completion_conditions": [
+          "Specify bucket/project identity, strict initialization authority, readiness ordering and the shared bounded mutation/publication interface before adapter implementation.",
+          "Assign catalog/schema/publication changes to one integration owner; initializer, watcher and importer adapters must preserve conditions, hashes, generations and recovery.",
+          "Freeze the create-missing-only policy without coupling initializer completion to synchronization or public-host configuration."
+        ],
+        "deferred_scope": "A design contract is not implementation evidence. File schema, synchronization conflicts/names and source-format preservation require their own scoped decisions."
+      },
+      {
+        "id": "bucket-initialization",
+        "order": 22,
+        "title": "Initialize independent bucket settings from a file",
+        "depends_on": ["onboarding-state-contract", "bucket-xml-cors"],
+        "feature_ids": ["JSON-BUCKETS-002", "JSON-BUCKETS-008", "BEHAVIOR-BUCKET-009", "DESIGN-062"],
+        "completion_conditions": [
+          "Freeze the versioned file schema and native CLI entry point, then validate every entry, duplicate name, permission and unsupported setting before mutation.",
+          "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
+          "Removing an entry does not delete a bucket; interruption/retry completes missing buckets without resetting existing state."
+        ],
+        "deferred_scope": "Continuous file reconciliation of existing bucket policies is not the initializer contract. Directory synchronization and source-state import are independent tracks."
+      },
+      {
+        "id": "directory-synchronization",
+        "order": 23,
+        "title": "Synchronize inspectable bucket/object files in both directions",
+        "depends_on": ["onboarding-state-contract", "json-object-media", "json-list-and-metadata"],
+        "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-074", "DESIGN-076"],
+        "completion_conditions": [
+          "Freeze API/file conflict policy, synchronization delay, metadata ownership, portable name mapping, file/directory collisions and symlink behavior before implementation.",
+          "Verify API/external create, overwrite, deletion and rename with multiple buckets while preserving checksums, immutable generations and bucket settings.",
+          "Handle partial writes, editor replacement, duplicate/self/missed events and bounded rescans; verify interruption, restart, disk-full and visible conflict handling without silent data loss."
+        ],
+        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites."
+      },
+      {
+        "id": "source-storage-contract",
+        "order": 24,
+        "title": "Freeze source formats for independent seed and import adapters",
+        "depends_on": ["runtime-foundation", "initial-seed-import"],
+        "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-073", "AUDIT-014"],
+        "completion_conditions": [
+          "Pin seed, durable filesystem and live-export formats separately, including MIME/default metadata, empty buckets, xattr/sidecar selection and identity/history preservation.",
+          "Specify read-only reader/manifests, bounded import, unsupported-state reports, retry and recovery before implementing each adapter.",
+          "Reuse shared publication boundaries and block unsupported ACL/history/identity loss; allow format research and readers alongside initializer/sync work."
+        ],
+        "deferred_scope": "The scoped format contract does not imply import implementation or complete source inventory. It removes unnecessary dependency on unrelated CLI/protocol inventory."
       }
     ],
     "migration": {
-      "goal": "Complete behavioral superset of fake-gcs-server after the documented environment-key rename and nondestructive data conversion. This is a product target, not an implemented or all-versions compatibility claim.",
+      "goal": "Preserve existing fake-gcs-server application workflows while adding independent capabilities. CLI spelling, configuration structure and storage layout need not be identical; the full-superset gate tracks broader functional coverage separately. This is a product target, not an implemented or all-versions compatibility claim.",
       "baseline": {
         "product": "fake-gcs-server",
         "version": "v1.56.1",
@@ -926,18 +991,52 @@
         "source_prefix": "FAKE_GCS_",
         "target_prefix": "GCS_MIMIC_",
         "legacy_keys": "Reject with a rename diagnostic; do not use as aliases, fallback values or compatibility-mode selection.",
-        "naming_rule": "Replace the prefix, retain each setting's suffix and value semantics, and inventory every source setting rather than only the documented examples.",
+        "naming_rule": "Use native GCS_MIMIC_ names and document source-to-native role mappings. Identical CLI names and environment suffixes are not required. Keep source inventory and accepted runtime settings distinct.",
         "precedence": "CLI overrides environment; contradictory renamed/native settings at the same precedence fail deterministically.",
         "storage_boundary": "DATA is seed input; DATA_DIR is destination persistence. FILESYSTEM_ROOT requires explicit source conversion, not in-place reinterpretation.",
         "port_boundary": "Existing Compose GCS_MIMIC_PORT means host publication, not the process listener; keep container/server mappings separate."
       },
       "storage_contract": "Prefer a transactional metadata catalog plus bounded opaque immutable files; keep foreign seed/filesystem/live-export readers separate from internal persistence. Preserve original data and identities, block lossy import, and validate coherent backup/recovery before cutover. SQLite is the current justified default, not a universal performance winner.",
+      "configuration_contract": {
+        "requirement": "Support familiar server configuration roles and independent per-bucket extensions without requiring identical fake-gcs-server option names. Keep listener, advertised API URL, public URL construction and host routing distinct.",
+        "current_boundary": "Native server options and per-bucket JSON APIs exist. A multi-bucket initialization file and a combined public-host option do not. This entry changes requirements only, not feature status.",
+        "initialization_policy": "Use a file to create missing buckets with individual settings, then allow API changes. Preserve existing settings and objects on every restart; file changes do not overwrite existing buckets, and removing an entry does not delete a bucket.",
+        "acceptance_targets": [
+          "Validate the complete initialization input and reject duplicate bucket names before any mutation; reuse shared bucket field, authorization and unsupported-setting checks.",
+          "Verify two buckets with different CORS and versioning settings, API updates, restart preservation and independent object effects.",
+          "Verify deterministic recovery/retry after partial initialization and document how missing buckets are completed without resetting existing state.",
+          "Document source-to-native startup examples for scheme, listen, data, external-url and public-host roles without claiming aliases or equivalent host filtering."
+        ],
+        "open_decisions": [
+          "Initialization file syntax, versioning and CLI entry point",
+          "Project ownership, strict-profile identity and credential handling for initialization"
+        ],
+        "reference": "docs/en/fake-gcs-server-migration.md#configuration-compatibility-and-extensions"
+      },
+      "filesystem_sync_contract": {
+        "requirement": "Provide a configured, inspectable bucket/object directory with bidirectional synchronization: external additions, edits and deletions reach the API, and API mutations appear in the same directory. A one-time seed import or migration converter does not satisfy this requirement.",
+        "current_boundary": "The current implementation has one-time read-only seeding and opaque immutable internal blobs, without directory watching or write-back. This planning entry adds no implementation or passing-evidence claim.",
+        "catalog_boundary": "SQLite may remain the metadata/index catalog. External changes must use shared bounded ingestion, checksum, generation and atomic-publication logic; do not mutate committed internal blobs in place or update only catalog size/path fields.",
+        "acceptance_targets": [
+          "Verify API/external create, overwrite, delete and rename in both directions, including multiple buckets and persistence of independent bucket settings.",
+          "Handle editor temporary files, partial writes, atomic replacement, self-generated events and duplicate or missed notifications without stale hashes or update loops.",
+          "Define API/external conflict behavior and visible synchronization failures before implementation; verify no silent data loss and preserve retained generations.",
+          "Define portable name mapping, file/directory collisions and symlink policy; reject unrepresentable state explicitly.",
+          "Verify bounded rescan and restart/recovery across the visible directory, immutable blobs and SQLite before claiming compatibility."
+        ],
+        "open_decisions": [
+          "Conflict policy and synchronization delay",
+          "Representation of unusual object names and metadata ownership"
+        ],
+        "reference": "docs/en/fake-gcs-server-storage.md"
+      },
       "full_superset_gate": [
         "Inventory all public source flags/settings, routes, helper/event behavior, backend modes, Go APIs and Storage v1 gRPC; do not silently drop surfaces missing from the current GCS inventory.",
         "Pass the pinned source corpus, representative unchanged clients and migration-preservation cases; legacy emulation and strict Google-contract behavior have separate expectations.",
         "Retain names, bytes, headers/metadata, source identities, ACL/bucket settings and archived versions where exposed; unsupported or inconsistent source state blocks a lossless migration claim.",
         "Verify source immutability, bounded dry-run/import, interruption/retry, resource budgets, endpoint cutover and rollback without losing post-cutover writes.",
-        "Report baseline version, profile, supported platforms and remaining gaps; partial releases cannot advertise full replacement. New versions explicitly extend the baseline."
+        "Report baseline version, profile, supported platforms and remaining gaps; partial releases cannot advertise full replacement. New versions explicitly extend the baseline.",
+        "Reserve product 1.0.0 for this complete gate plus the fixed additions: independent bucket settings, create-missing file initialization with preserved API updates, bidirectional directory sync, strict local authorization/V4 RSA validation and persistent version history. Full Google API coverage is a separate goal; follow docs/en/release-policy.md."
       ],
       "milestones": [
         {
@@ -955,7 +1054,7 @@
           ],
           "completion_conditions": [
             "Inventory all source routes, flags, FAKE_GCS_ settings, Go APIs, legacy v1 gRPC, source backends and helper/event behavior at the pinned revision.",
-            "Define GCS_MIMIC_ prefix-only replacements, value/default/error behavior, same-precedence conflicts and no legacy-key fallback; test direct-server and Compose port scopes separately.",
+            "Define documented GCS_MIMIC_ equivalents by role, value/default/error behavior, same-precedence conflicts and no legacy-key fallback; literal spelling parity is not required. Test direct-server and Compose port scopes separately.",
             "Define legacy-compatible versus strict profile expectations for signatures, metadata, errors and seed lifecycle; preserve every known gap and plan missing capabilities as bounded follow-up slices.",
             "Build the reproducible source/destination wire and representative-client corpus without claiming it has already run."
           ],
@@ -966,7 +1065,7 @@
           "order": 2,
           "title": "Import source seed semantics explicitly",
           "depends_on": [
-            "source-contract-baseline",
+            "source-storage-contract",
             "initial-seed-import"
           ],
           "feature_ids": [
@@ -986,7 +1085,7 @@
           "order": 3,
           "title": "Convert durable source data without loss",
           "depends_on": [
-            "source-contract-baseline",
+            "source-storage-contract",
             "json-object-media",
             "json-list-and-metadata"
           ],
@@ -1037,7 +1136,11 @@
             "seed-format-adapter",
             "go-adapter-live-export",
             "object-compose",
-            "ruby-rails-workflows"
+            "ruby-rails-workflows",
+            "configuration-workflows",
+            "bucket-initialization",
+            "directory-synchronization",
+            "release-verification"
           ],
           "feature_ids": [
             "DESIGN-065",

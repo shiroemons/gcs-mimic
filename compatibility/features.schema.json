@@ -210,6 +210,32 @@
           }
         },
         "storage_contract": { "type": "string", "minLength": 1 },
+        "configuration_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requirement", "current_boundary", "initialization_policy", "acceptance_targets", "open_decisions", "reference"],
+          "properties": {
+            "requirement": { "type": "string", "minLength": 1 },
+            "current_boundary": { "type": "string", "minLength": 1 },
+            "initialization_policy": { "type": "string", "minLength": 1 },
+            "acceptance_targets": { "$ref": "#/$defs/nonempty_strings" },
+            "open_decisions": { "$ref": "#/$defs/nonempty_strings" },
+            "reference": { "type": "string", "minLength": 1 }
+          }
+        },
+        "filesystem_sync_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requirement", "current_boundary", "catalog_boundary", "acceptance_targets", "open_decisions", "reference"],
+          "properties": {
+            "requirement": { "type": "string", "minLength": 1 },
+            "current_boundary": { "type": "string", "minLength": 1 },
+            "catalog_boundary": { "type": "string", "minLength": 1 },
+            "acceptance_targets": { "$ref": "#/$defs/nonempty_strings" },
+            "open_decisions": { "$ref": "#/$defs/nonempty_strings" },
+            "reference": { "type": "string", "minLength": 1 }
+          }
+        },
         "full_superset_gate": { "$ref": "#/$defs/nonempty_strings" },
         "milestones": {
           "type": "array",
