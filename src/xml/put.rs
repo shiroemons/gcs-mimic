@@ -148,7 +148,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64) -> Result<Headers, Error> {
     for value in headers.get_all("x-goog-hash") {
         selected.append("x-goog-hash", value.clone());
     }
-    // shortcut: CRC32C shares MD5 error codes, split them when provider error parity is verified.
+    // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
     let (_, mut expected) =
         json::parse_object_upload_headers(&selected, conditions).map_err(|error| {
             if error.status == StatusCode::NOT_IMPLEMENTED {

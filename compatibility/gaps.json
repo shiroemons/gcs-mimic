@@ -3,6 +3,23 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-XML-PUT-EDGES",
+      "title": "XML PUT parser, checksum errors and commit cancellation boundaries remain local",
+      "status": "OPEN",
+      "affected_features": ["EXT-XML-022"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The PUT method requires Content-Length unless chunked, defines replacement, Content-MD5 InvalidDigest/BadDigest, and returns empty 200. The headers reference defines octet-stream serving fallback, 8 KiB custom metadata and big-endian CRC32C; IAM requires create plus delete for overwrite. Local PUT uses the existing JSON bounded bridge and transactional publication/recovery. Configured size excess returns XML 400 EntityTooLarge, missing framing 411 MissingContentLength, malformed/conflicting hash declarations 400 InvalidDigest including CRC32C, and any supplied checksum mismatch 400 BadDigest. The status catalog separately names InvalidCrc; precise CRC-specific errors remain a declared deviation. HTTP names normalize to lowercase; duplicate fixed/precondition/custom fields return 400 ExcessHeaderValues, empty custom suffixes and non-ASCII values return 400 InvalidArgument, and the metadata cap counts stored suffix/value bytes as shared storage does, rather than the HTTP prefix. Empty optional fixed values clear those fields; omitted content type is stored as application/octet-stream. Hyper owns transport-invalid framing and automatic 100-continue; trailers are explicitly unsupported, announced trailers fail before body reads and unannounced trailer frames abort without publication. Unknown query/x-goog inputs follow SPEC-XML-INPUTS 501; all x-amz extensions also fail 501. Retry tokens need generation match and have no response replay. Existing local XML path/ETag/auth/permission-precedence choices remain SPEC-XML-PREFIX/PATH-ERROR/INPUTS, SPEC-012 and SPEC-017. Complete bodies may finish publication after response timeout, disconnect or shutdown; only pre-EOF interruption guarantees no publication. Rust wire cases verify 13 scoped behaviors and recovery without claiming provider differential parity, every fsync crash boundary, power loss, measured RSS/cgroup bounds or actual-browser signed transfers.",
+      "required_resolution": "Keep EXT-XML-022 PARTIAL. Implement signing/payload verification, ACLs, encryption, requester billing, class overrides, retention/explicit holds, custom time, copy/resumable/multipart variants and other advanced inputs in their owning slices. Establish authoritative or explicitly authorized provider evidence for duplicate/non-ASCII/metadata-size accounting, hash conflict and CRC-specific errors, mixed-error ordering, framing/trailers and complete response headers. Preserve bounded streaming and atomic create/delete/condition checks, and never promise rollback of a commit already running after EOF. Run integrated signed-browser/container/SDK gates separately; Go storage v1.70.0 writes JSON Objects.Insert, so these XML PUT cases use Rust raw HTTP rather than claiming SDK write coverage. Source digests, exact scope and final commands are in docs/en/slices/xml-put-object.md and docs/en/evidence/xml-put-object.md."
+    },
+    {
       "id": "SPEC-CORS-EDGES",
       "title": "CORS provider header lists, custom mobile origins and malformed-input details remain unverified",
       "status": "OPEN",

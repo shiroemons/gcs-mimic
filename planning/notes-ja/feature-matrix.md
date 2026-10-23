@@ -14,7 +14,7 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
+| api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 147 | 0 | 28 | 26 | 0 | 0 |
 | project_requirement | 92 | 40 | 0 | 27 | 25 | 0 | 0 |
 
@@ -35,7 +35,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
+| api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
 | behavior | 147 | 27 | 25 | 2 | 0 | 0 |
 | project_requirement | 40 | 0 | 0 | 0 | 0 | 52 |
 
@@ -413,7 +413,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | EXT-XML-019 | XMLマルチパート開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-020 | XMLマルチパート完了 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-021 | HTMLフォームアップロード | NOT_STARTED | P3 | EXACT | NONE | 0 |
-| EXT-XML-022 | オブジェクトアップロード | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| EXT-XML-022 | オブジェクトアップロード | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 | EXT-XML-023 | XMLマルチパートのパート送信 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-024 | オブジェクトコピー | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | EXT-XML-025 | オブジェクト合成 | NOT_STARTED | P3 | EXACT | NONE | 0 |
