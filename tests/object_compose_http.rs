@@ -496,10 +496,21 @@ fn compose_method_body_and_selector_boundaries() {
             .status,
         413
     );
+    for query in ["projection=full", "projection=noAcl", "undeclared=value"] {
+        server
+            .request(
+                "POST",
+                &format!("/storage/v1/b/test-bucket/o/destination/compose?{query}"),
+                AUTH,
+                sources(&["a"]).to_string().as_bytes(),
+            )
+            .error(400, "invalidParameter");
+        server.get("destination").error(404, "notFound");
+    }
     let selected = server
         .request(
             "POST",
-        "/storage/v1/b/test-bucket/o/destination/compose?projection=full&fields=name,componentCount,md5Hash",
+            "/storage/v1/b/test-bucket/o/destination/compose?fields=name,componentCount,md5Hash",
             AUTH,
             sources(&["a"]).to_string().as_bytes(),
         )
