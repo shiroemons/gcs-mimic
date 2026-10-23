@@ -624,7 +624,7 @@
           "DESIGN-055"
         ],
         "completion_conditions": [
-          "Freeze HTTP-only and HTTPS-only listener modes, supported TLS versions, certificate-chain/private-key input and CLI/environment/config precedence; keep listener and advertised API/public endpoints distinct.",
+          "Freeze HTTP-only and default HTTPS-only listener modes, built-in public development credentials, supported TLS versions, optional certificate-chain/private-key pair and CLI/environment/config precedence; keep listener and advertised API/public endpoints distinct.",
           "Load supplied development certificates before readiness and reject missing, unreadable, malformed or mismatched keys/chains without leaking private material. Bound TLS handshakes and connection admission, and preserve streaming, request deadlines, probes and graceful shutdown.",
           "Use generated throwaway development-CA fixtures with matching host/peer SANs and explicit client trust; verify native/container HTTPS bucket/object and resumable Location flows, official Go/Ruby clients and an actual browser without disabling certificate/hostname verification.",
           "Pass untrusted-CA, hostname-mismatch, expired-certificate and stalled-handshake failures. Record effective schemes/ports and prove that HTTP mode still works; do not claim HTTPS from an https advertised URL alone."
@@ -32664,9 +32664,9 @@
       "source_urls": [
         "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener and fixed api_base_url are independent for bucket/object links; once-encoded object selfLink addresses the current resource and mediaLink selects the returned generation. Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md.",
+      "notes": "Listener and fixed api_base_url are independent for bucket/object links; once-encoded selfLink addresses the current resource and mediaLink selects its generation. HTTPS now verifies API links, client-reachable resumable Location and explicit public helper bases across host/peer clients. Scope/evidence: docs/en/slices/local-tls.md and docs/en/evidence/local-tls.md. Separately stored public endpoint, proxy-derived origin and signing remain outside the TLS slice.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -32694,13 +32694,21 @@
           "description": "Implement separately configured public object endpoint, trusted proxy policy and signed externally visible URLs.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DESIGN-055-HTTPS",
+          "description": "Keep HTTPS listener/default scheme, explicit fixed API base and public URL helper base independent; ignore Host/Forwarded and follow host/peer resumable Locations with CA/SAN validation.",
+          "result": "PASS",
+          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_native_container_journeys"]
         }
       ],
       "test_ids": [
         "bkt_http_crud_metadata_conditions_and_errors",
         "advertised_endpoint_precedence_and_validation",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "obj_http_encoded_names_and_invalid_names"
+        "obj_http_encoded_names_and_invalid_names",
+        "tls_trust_versions_streaming_urls_and_restart",
+        "tls_native_container_journeys"
       ],
       "verification": [
         {
@@ -32714,14 +32722,21 @@
             "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
             "obj_http_encoded_names_and_invalid_names"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline; TLS native/Compose host/peer guide blocks",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls.md",
+          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_native_container_journeys"]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Only fixed JSON API links; no public URL helper, proxy-derived origin or signed URL semantics."
+        "Fixed API links and an explicit public URL helper base are supported; a separately stored public endpoint, proxy-derived origin and signed URL semantics remain pending."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-056",
@@ -33443,18 +33458,21 @@
       "interface": "Emulator configuration",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [
-        "https://github.com/fsouza/fake-gcs-server/blob/main/README.md"
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.rs/rustls/0.23.46/rustls/",
+        "https://docs.rs/tokio-rustls/0.26.6/tokio_rustls/",
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "HTTP/1 probes work; TLS settings are rejected instead of accepted without effect.",
+      "notes": "HTTPS-only by default with a built-in public development certificate/key, optional custom PEM pair and explicit HTTP-only. TLS 1.2/1.3 over HTTP/1.1, bounded handshake admission, tls ca export and verified client CA/SAN trust. Native, both container architectures, pinned Go/Ruby and actual Chromium pass. Scope: docs/en/slices/local-tls.md; evidence: docs/en/evidence/local-tls.md. Public issuance, system trust changes, mTLS, reload, dual listeners and HTTP/2/3 are separate work.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-065-A1",
@@ -33466,13 +33484,49 @@
         },
         {
           "id": "DESIGN-065-P1",
-          "description": "Implement optional test TLS and certificate trust guidance.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Implement HTTPS default and explicit HTTP, CLI/environment/JSON precedence, bounded supplied PEM chain/key, early startup rejection and verified trust guidance.",
+          "result": "PASS",
+          "test_ids": ["tls_configuration_precedence_and_validation", "tls_invalid_material_never_reaches_readiness_or_creates_data"]
+        },
+        {
+          "id": "DESIGN-065-DEFAULT",
+          "description": "Start HTTPS without certificate preparation using built-in public development credentials; export only the CA without side effects, reject one-sided overrides and isolate default/custom client trust.",
+          "result": "PASS",
+          "test_ids": ["tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate"]
+        },
+        {
+          "id": "DESIGN-065-TRUST",
+          "description": "Negotiate TLS 1.2/1.3 with matching SAN and explicit CA trust; reject untrusted CA, wrong hostname, expired leaf and plaintext. Verify HTTPS links/Location, exact streamed bytes and persistent HTTP/HTTPS restart.",
+          "result": "PASS",
+          "test_ids": ["tls_trust_versions_streaming_urls_and_restart", "tls_rejects_untrusted_wrong_host_expired_and_plaintext"]
+        },
+        {
+          "id": "DESIGN-065-BOUNDS",
+          "description": "Bound handshakes inside connection admission; release stalled slots and interrupt handshake shutdown. Preserve strict grants, streamed progress, upload inactivity/absolute deadlines, failed-overwrite bytes and probe deadlines.",
+          "result": "PASS",
+          "test_ids": ["tls_handshake_admission_timeout_shutdown_and_strict_permissions", "tls_streaming_progress_and_upload_deadlines_preserve_existing_object", "tls_healthcheck_deadline_includes_stalled_handshake"]
+        },
+        {
+          "id": "DESIGN-065-CLIENTS",
+          "description": "Exercise native/container HTTPS bucket/object/resumable and host/peer SANs, both container architectures, official Go/Ruby clients and actual browser trust without certificate/hostname bypass. Verify explicit HTTP still works.",
+          "result": "PASS",
+          "test_ids": ["tls_native_container_journeys", "tls_browser_trust", "go_https_sdk_suite", "ruby_https_sdk_journey"]
         }
       ],
       "test_ids": [
-        "wire_probes_clock_and_unimplemented_routes"
+        "wire_probes_clock_and_unimplemented_routes",
+        "tls_configuration_precedence_and_validation",
+        "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate",
+        "tls_invalid_material_never_reaches_readiness_or_creates_data",
+        "tls_trust_versions_streaming_urls_and_restart",
+        "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+        "tls_handshake_admission_timeout_shutdown_and_strict_permissions",
+        "tls_streaming_progress_and_upload_deadlines_preserve_existing_object",
+        "tls_healthcheck_deadline_includes_stalled_handshake",
+        "tls_native_container_journeys",
+        "tls_browser_trust",
+        "go_https_sdk_suite",
+        "ruby_https_sdk_journey"
       ],
       "verification": [
         {
@@ -33483,14 +33537,43 @@
           "test_ids": [
             "wire_probes_clock_and_unimplemented_routes"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline (official Rust 1.99.1 on PATH)",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls-pre-push.txt",
+          "test_ids": ["tls_configuration_precedence_and_validation", "tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate", "tls_invalid_material_never_reaches_readiness_or_creates_data", "tls_trust_versions_streaming_urls_and_restart", "tls_rejects_untrusted_wrong_host_expired_and_plaintext", "tls_handshake_admission_timeout_shutdown_and_strict_permissions", "tls_streaming_progress_and_upload_deadlines_preserve_existing_object", "tls_healthcheck_deadline_includes_stalled_handshake"]
+        },
+        {
+          "command": "TLS getting-started native/Compose blocks, scripts/tls-smoke.sh, isolated Chromium with explicit NSS CA trust; see local-tls.md for commands",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls.md",
+          "test_ids": ["tls_native_container_journeys", "tls_browser_trust"]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls-go-https.txt",
+          "test_ids": ["go_https_sdk_suite"]
+        },
+        {
+          "command": "cd sdk-tests/ruby; bundle exec ruby https.rb --self-check; GCS_MIMIC_ENDPOINT=https://localhost:54447 GCS_MIMIC_CA_CERT=$cert_dir/ca.pem bundle exec ruby https.rb",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/local-tls-ruby.txt",
+          "test_ids": ["ruby_https_sdk_journey"]
         }
       ],
-      "sdk_evidence": [],
-      "known_deviations": [
-        "TLS is not implemented."
+      "sdk_evidence": [
+        {"language":"Go", "toolchain":"1.27.3", "sdk":"cloud.google.com/go/storage", "version":"v1.70.0", "api_client_version":"v0.308.0", "transport":"HTTPS HTTP/1.1 JSON/XML with explicit development CA and hostname verification; permissive and strict; full 41-test harness", "result":"PASS", "verified_at":"2026-10-23", "artifact":"docs/en/evidence/local-tls-go-https.txt", "test_ids":["go_https_sdk_suite"]},
+        {"language":"Ruby", "toolchain":"4.0.9", "sdk":"google-cloud-storage", "version":"1.62.1", "transport":"HTTPS JSON with explicit development CA and hostname verification; generated bucket insert, high-level CRUD and three-chunk resumable disk-backed transfer; high-level Autoclass insert remains unsupported", "result":"PASS", "verified_at":"2026-10-23", "artifact":"docs/en/evidence/local-tls-ruby.txt", "test_ids":["ruby_https_sdk_journey"]}
       ],
-      "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "known_deviations": [],
+      "implemented_in": "6f0c405d109de25388795c0d4b24f7b68bc880b4",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-066",

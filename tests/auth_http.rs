@@ -50,7 +50,14 @@ struct Server {
 impl Server {
     fn start(dir: &TestDir, auth: &[&str]) -> (Self, Value) {
         let mut child = common::server_command()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .args(["--connection-timeout-ms", "2000"])
             .args(auth)
@@ -961,7 +968,14 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
     for (case, args, message) in cases {
         let dir = TestDir::new();
         let output = common::server_command()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .args(&args)
             .output()
@@ -979,7 +993,14 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
     // Environment variables select the same profile.
     let dir = TestDir::new();
     let mut child = common::server_command()
-        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
         .arg(&dir.0)
         .env("GCS_MIMIC_AUTH_MODE", "strict")
         .env("GCS_MIMIC_IDENTITY_FILE", &valid)

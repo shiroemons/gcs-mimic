@@ -8,21 +8,28 @@ fn go_sdk_scope_and_lockfile_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 1);
-    assert_eq!(scopes[0]["ecosystem"], "go");
-    assert_eq!(scopes[0]["manifest"], "sdk-tests/go/go.mod");
-    assert!(
-        std::fs::metadata(root.join("sdk-tests/go/go.sum"))
-            .unwrap()
-            .len()
-            > 0
-    );
-    assert!(
-        status["lockfiles"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("sdk-tests/go/go.sum"))
-    );
+    assert_eq!(scopes.len(), 2);
+    for (ecosystem, manifest, lockfile) in [
+        ("go", "sdk-tests/go/go.mod", "sdk-tests/go/go.sum"),
+        (
+            "ruby",
+            "sdk-tests/ruby/Gemfile",
+            "sdk-tests/ruby/Gemfile.lock",
+        ),
+    ] {
+        let scope = scopes
+            .iter()
+            .find(|scope| scope["ecosystem"] == ecosystem)
+            .unwrap();
+        assert_eq!(scope["manifest"], manifest);
+        assert!(std::fs::metadata(root.join(lockfile)).unwrap().len() > 0);
+        assert!(
+            status["lockfiles"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(lockfile))
+        );
+    }
 }
 
 #[cfg(unix)]

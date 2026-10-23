@@ -7,6 +7,9 @@ server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
 pid=
 strict_pid=
+scheme=${GCS_MIMIC_SDK_SCHEME:-http}
+tls_args=()
+health_args=()
 stop_server() {
   if kill -0 "$1" 2>/dev/null && ! kill -TERM "$1"; then
     echo 'Server exited while requesting shutdown; collecting its exit status' >&2
@@ -39,6 +42,24 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+case "$scheme" in
+  http) ;;
+  https)
+    if [[ -n ${GCS_MIMIC_TLS_CERT:-} || -n ${GCS_MIMIC_TLS_KEY:-} ]]; then
+      if [[ -z ${GCS_MIMIC_TLS_CERT:-} || -z ${GCS_MIMIC_TLS_KEY:-} || -z ${GCS_MIMIC_CA_CERT:-} ]]; then
+        echo 'Custom HTTPS SDK tests require GCS_MIMIC_TLS_CERT, GCS_MIMIC_TLS_KEY and GCS_MIMIC_CA_CERT' >&2
+        exit 2
+      fi
+      tls_args=(--tls-cert "$GCS_MIMIC_TLS_CERT" --tls-key "$GCS_MIMIC_TLS_KEY")
+    elif [[ -z ${GCS_MIMIC_CA_CERT:-} ]]; then
+      "$server" tls ca > "$work/ca.pem"
+      export GCS_MIMIC_CA_CERT="$work/ca.pem"
+    fi
+    health_args=(--ca-cert "$GCS_MIMIC_CA_CERT")
+    ;;
+  *) echo 'GCS_MIMIC_SDK_SCHEME must be http or https' >&2; exit 1 ;;
+esac
+
 # Starts one isolated server, storing its PID and origin in the named variables. The PID is stored
 # before the readiness wait so the cleanup trap always stops a server that fails to become ready.
 # A port is selected only after the previous server listens, so both cannot receive the same port.
@@ -51,10 +72,12 @@ start_server() {
   # Select the advertised origin before startup; bind failure remains fatal if the port is reused.
   address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
-  origin="http://$address"
+  origin="$scheme://$address"
   env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
     -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
-    "$server" serve --listen "$address" --api-base-url "$origin" "$@" >"$work/$name" 2>&1 &
+    -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
+    -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
+    "$server" serve --scheme "$scheme" --listen "$address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"
   printf -v "$endpoint_var" '%s' "$origin"
@@ -65,7 +88,7 @@ start_server() {
       'fromjson? | select(.event == "ready" and ($mode == "" or .auth_mode == $mode)) | .listen // empty' \
       "$work/$name")
     if [[ $actual == "$address" ]]; then
-      if "$server" healthcheck --url "$origin/_internal/ready" >/dev/null 2>&1; then ready=true; break; fi
+      if "$server" healthcheck --url "$origin/_internal/ready" ${health_args[@]+"${health_args[@]}"} >/dev/null 2>&1; then ready=true; break; fi
     fi
     sleep 0.1
   done

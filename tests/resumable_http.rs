@@ -105,6 +105,7 @@ impl Harness {
             auth,
         });
         let config = Config {
+            scheme: gcs_mimic::config::Scheme::Http,
             api_base_url: state.api_base_url.clone(),
             max_object_bytes: max,
             catalog_wait_timeout_ms,
@@ -1882,6 +1883,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
         auth: Auth::permissive(),
     });
     let config = Config {
+        scheme: gcs_mimic::config::Scheme::Http,
         api_base_url: h.base.clone(),
         max_object_bytes: 1024 * 1024,
         ..Default::default()

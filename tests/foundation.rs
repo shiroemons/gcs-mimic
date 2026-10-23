@@ -48,7 +48,14 @@ fn process_ready(child: &mut Child) -> (BufReader<ChildStdout>, serde_json::Valu
 
 fn conflicting_process(address: &str, dir: &TestDir) -> Output {
     let mut child = common::server_command()
-        .args(["serve", "--listen", address, "--data-dir"])
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            address,
+            "--data-dir",
+        ])
         .arg(&dir.0)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -70,7 +77,14 @@ fn conflicting_process(address: &str, dir: &TestDir) -> Output {
 fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir) {
     for signal in ["-TERM", "-INT"] {
         let mut child = common::server_command()
-            .args(["serve", "--listen", address, "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                address,
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -122,7 +136,14 @@ fn process_restarts_on_same_port_without_allowing_a_second_live_listener() {
     let mut address = "127.0.0.1:0".to_owned();
     for restart in 0..2 {
         let mut child = common::server_command()
-            .args(["serve", "--listen", &address, "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                &address,
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .stdout(Stdio::piped())
             .spawn()
@@ -160,7 +181,7 @@ fn live_wildcard_and_specific_listeners_are_exclusive() {
         let dir = TestDir::new();
         let other = TestDir::new();
         let mut child = common::server_command()
-            .args(["serve", "--listen", first, "--data-dir"])
+            .args(["serve", "--scheme", "http", "--listen", first, "--data-dir"])
             .arg(&dir.0)
             .stdout(Stdio::piped())
             .spawn()
@@ -180,7 +201,14 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
     let dir = TestDir::new();
     for _ in 0..2 {
         let mut child = common::server_command()
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0)
             .stdout(Stdio::piped())
             .spawn()
@@ -241,7 +269,7 @@ fn request(address: SocketAddr, request: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wire_probes_clock_and_unimplemented_routes() {
-    let (address, state, stop, task, _dir) = start(Config::default()).await;
+    let (address, state, stop, task, _dir) = start(common::http_config()).await;
     let get = |path: &str| {
         request(
             address,
@@ -291,7 +319,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
     witness.set_nonblocking(true).unwrap();
     let address = witness.local_addr().unwrap();
     let listener = tokio::net::TcpListener::from_std(witness.try_clone().unwrap()).unwrap();
-    let config = Config::default();
+    let config = common::http_config();
     let state = Arc::new(State {
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
@@ -335,14 +363,14 @@ async fn shutdown_stops_accepting_on_original_listener() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
-    let (_address, state, stop, task, dir) = start(Config::default()).await;
+    let (_address, state, stop, task, dir) = start(common::http_config()).await;
     stop.send(()).unwrap();
     task.await.unwrap().unwrap();
     assert!(!state.is_ready());
     assert!(state.catalog.get_bucket("missing").await.is_err());
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let config = Config::default();
+    let config = common::http_config();
     let restarted = Arc::new(State {
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
@@ -359,7 +387,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejects_bodies_and_oversized_or_malformed_headers() {
-    let (address, _, stop, task, _dir) = start(Config::default()).await;
+    let (address, _, stop, task, _dir) = start(common::http_config()).await;
     for header in ["Content-Length: 1073741824", "Transfer-Encoding: chunked"] {
         let response = request(
             address,
@@ -395,7 +423,7 @@ async fn connection_limit_deadline_and_shutdown_release_idle_clients() {
     let config = Config {
         max_connections: 1,
         connection_timeout_ms: 300,
-        ..Config::default()
+        ..common::http_config()
     };
     let (address, _, stop, task, _dir) = start(config).await;
     let mut first = stream(address);
@@ -452,11 +480,11 @@ fn config_precedence_validation_and_size_limit() {
         ("GCS_MIMIC_MAX_CONNECTIONS".into(), "5".into()),
         ("GCS_MIMIC_CONFIG".into(), "missing-file".into()),
     ]);
-    let config = Config::load(&args, &env).unwrap();
+    let config = common::load_http_config(&args, &env).unwrap();
     assert_eq!(config.max_connections, 6);
     assert_eq!(config.listen.port(), 1234);
     assert_eq!(
-        Config::load(
+        common::load_http_config(
             &args[..2],
             &BTreeMap::from([("GCS_MIMIC_MAX_CONNECTIONS".into(), "5".into())])
         )
@@ -465,13 +493,15 @@ fn config_precedence_validation_and_size_limit() {
         5
     );
     assert_eq!(
-        Config::load(&args[..2], &BTreeMap::new())
+        common::load_http_config(&args[..2], &BTreeMap::new())
             .unwrap()
             .max_connections,
         4
     );
     assert_eq!(
-        Config::load(&[], &BTreeMap::new()).unwrap().max_connections,
+        common::load_http_config(&[], &BTreeMap::new())
+            .unwrap()
+            .max_connections,
         32
     );
     for (key, value) in [
@@ -486,13 +516,14 @@ fn config_precedence_validation_and_size_limit() {
         ("seed-policy", "if_empty"),
     ] {
         assert!(
-            Config::load(&[format!("--{key}"), value.into()], &BTreeMap::new()).is_err(),
+            common::load_http_config(&[format!("--{key}"), value.into()], &BTreeMap::new())
+                .is_err(),
             "{key}"
         );
     }
-    assert!(Config::load(&["--listen".into()], &BTreeMap::new()).is_err());
+    assert!(common::load_http_config(&["--listen".into()], &BTreeMap::new()).is_err());
     assert!(
-        Config::load(
+        common::load_http_config(
             &[
                 "--max-connections".into(),
                 "1".into(),
@@ -511,7 +542,7 @@ fn config_precedence_validation_and_size_limit() {
         &" ".repeat(65_537),
     ] {
         fs::write(&file, body).unwrap();
-        assert!(Config::load(&args[..2], &BTreeMap::new()).is_err());
+        assert!(common::load_http_config(&args[..2], &BTreeMap::new()).is_err());
     }
     fs::remove_file(file).unwrap();
 }
@@ -534,11 +565,7 @@ fn cli_help_errors_and_bind_failure() {
         vec![],
         vec!["url", "sign"],
         vec!["serve", "--worker-threads", "0"],
-        vec![
-            "healthcheck",
-            "--url",
-            "https://127.0.0.1:4443/_internal/ready",
-        ],
+        vec!["tls", "ca", "unexpected"],
         vec!["healthcheck", "--url", "http://127.0.0.1:4443/anything"],
     ] {
         let output = Command::new(bin).env_clear().args(args).output().unwrap();
@@ -551,6 +578,8 @@ fn cli_help_errors_and_bind_failure() {
         .env_clear()
         .args([
             "serve",
+            "--scheme",
+            "http",
             "--listen",
             &listener.local_addr().unwrap().to_string(),
             "--data-dir",
@@ -618,7 +647,7 @@ fn healthcheck_rejects_truncated_malformed_and_oversized_responses() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn healthcheck_exit_status_tracks_readiness() {
-    let (address, state, stop, task, _dir) = start(Config::default()).await;
+    let (address, state, stop, task, _dir) = start(common::http_config()).await;
     let bin = env!("CARGO_BIN_EXE_gcs-mimic");
     let probe = || {
         Command::new(bin)

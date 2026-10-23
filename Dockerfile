@@ -26,6 +26,6 @@ COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
 USER 10001:10001
 EXPOSE 4443
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-mimic", "healthcheck", "--url", "http://127.0.0.1:4443/_internal/ready"]
+HEALTHCHECK --interval=2s --timeout=2s --start-period=2s --retries=15 CMD ["gcs-mimic", "healthcheck", "--url", "https://localhost:4443/_internal/ready"]
 ENTRYPOINT ["gcs-mimic"]
 CMD ["serve", "--listen", "0.0.0.0:4443", "--data-dir", "/var/lib/gcs-mimic"]

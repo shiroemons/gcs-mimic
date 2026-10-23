@@ -33,7 +33,14 @@ impl Server {
     fn start_with_profile(dir: &TestDir, strict: bool, legacy: bool) -> Self {
         let mut command = common::server_command();
         command
-            .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
             .arg(&dir.0);
         if legacy {
             command.args(["--compat-profile", "legacy-emulator"]);

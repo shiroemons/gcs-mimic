@@ -3,6 +3,8 @@ package gcsmimic_test
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -41,6 +43,30 @@ func emulatorEndpoint(raw, allowedHosts string) (*url.URL, error) {
 type emulatorTransport struct {
 	endpoint *url.URL
 	base     *http.Transport
+}
+
+func emulatorTLSConfig(caFile string) (*tls.Config, error) {
+	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, err
+		}
+		config.RootCAs = x509.NewCertPool()
+		if !config.RootCAs.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("GCS_MIMIC_CA_CERT contains no CA certificates")
+		}
+	}
+	return config, nil
+}
+
+func trustedEmulatorTLS(t *testing.T) *tls.Config {
+	t.Helper()
+	config, err := emulatorTLSConfig(os.Getenv("GCS_MIMIC_CA_CERT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
 }
 
 func (t emulatorTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -103,6 +129,7 @@ func newEmulatorClient(t *testing.T) (context.Context, *storage.Client, *http.Cl
 	}
 	t.Setenv("STORAGE_EMULATOR_HOST", u.String())
 	transport := &http.Transport{
+		TLSClientConfig:       trustedEmulatorTLS(t),
 		Proxy:                 nil,
 		MaxConnsPerHost:       2,
 		MaxIdleConns:          2,

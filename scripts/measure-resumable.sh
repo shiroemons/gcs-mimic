@@ -61,7 +61,7 @@ for specification in 'small 16 1 none' 'medium 256 1 none' 'large 1024 1 none' '
   mkdir "$work/$label"
   address=$(perl -MIO::Socket::INET -e 'my $s=IO::Socket::INET->new(LocalAddr=>"127.0.0.1",LocalPort=>0,Listen=>1) or die $!; print "127.0.0.1:", $s->sockport')
   origin="http://$address"
-  /usr/bin/time -l env -i PATH="$PATH" "$server" serve --listen "$address" \
+  /usr/bin/time -l env -i PATH="$PATH" "$server" serve --scheme http --listen "$address" \
     --api-base-url "$origin" --data-dir "$work/$label" \
     --max-object-bytes 2147483648 >"$work/server.log" 2>"$work/time.log" &
   timer=$!

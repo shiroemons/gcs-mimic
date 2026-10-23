@@ -1,0 +1,3 @@
+Chromium 155.0.8059.79 built on Debian GNU/Linux 12 (bookworm)
+PASS: built-in CA and gcs SAN produce the expected JSON with certificate verification enabled
+PASS: untrusted CA rejected with ERR_CERT_AUTHORITY_INVALID and no response DOM (browser process status 0)

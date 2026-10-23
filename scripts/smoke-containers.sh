@@ -19,6 +19,7 @@ for platform in "$@"; do
   esac
 done
 cd "$(dirname "$0")/.."
+export COMPOSE_FILE=compose.yaml:compose.http.yaml
 peer_image=curlimages/curl:8.23.0@sha256:11e64e28c5f58c8d93ee95fcf22ac055f48b0bc440e0ce7d8013bbb5ad6aa8ac
 
 container=
@@ -73,13 +74,13 @@ for platform in "$@"; do
 
   volume="${project}-isolated"
   docker volume create "$volume" >/dev/null
-  container=$(docker run --detach --network none --read-only --cap-drop ALL \
+  container=$(docker run --detach --network none --read-only --no-healthcheck --cap-drop ALL \
     --mount "type=volume,src=$volume,dst=/var/lib/gcs-mimic" \
     --security-opt no-new-privileges --memory 128m --cpus 1 --pids-limit 64 \
-    --ulimit nofile=1024:1024 "$GCS_MIMIC_IMAGE")
+    --ulimit nofile=1024:1024 "$GCS_MIMIC_IMAGE" serve --scheme http --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic)
   ready=false
   for ((attempt = 0; attempt < 40; attempt++)); do
-    if [[ $(docker inspect --format '{{.State.Health.Status}}' "$container") == healthy ]]; then ready=true; break; fi
+    if docker exec "$container" gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready; then ready=true; break; fi
     sleep 1
   done
   if [[ $ready != true ]]; then docker logs "$container"; exit 1; fi
@@ -154,7 +155,7 @@ for platform in "$@"; do
   echo "PASS: $platform build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM"
 
   project="gcs-mimic-seed-${arch}-$$"
-  seed_compose=(docker compose -p "$project" -f compose.yaml -f compose.seed.yaml)
+  seed_compose=(docker compose -p "$project" -f compose.yaml -f compose.http.yaml -f compose.seed.yaml)
   "${seed_compose[@]}" config --quiet
   "${seed_compose[@]}" up --detach --no-build --wait --wait-timeout 40
   service=$("${seed_compose[@]}" ps --quiet gcs)

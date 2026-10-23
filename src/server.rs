@@ -7,7 +7,7 @@ use crate::{
     json::{self, BucketRequest, JsonError, ObjectRequest},
     object::{ObjectConditions, ObjectError, UploadChunk},
     storage::Catalog,
-    xml,
+    tls, xml,
 };
 use http_body_util::{BodyExt, Channel, Full, combinators::UnsyncBoxBody};
 use hyper::{
@@ -28,7 +28,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
     sync::{mpsc, watch},
     task::JoinSet,
@@ -72,6 +72,17 @@ pub async fn serve(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    let acceptor = tls::load_server(&config)?;
+    serve_with_tls(listener, config, state, shutdown, acceptor).await
+}
+
+pub async fn serve_with_tls(
+    listener: TcpListener,
+    config: Config,
+    state: Arc<State>,
+    shutdown: impl Future<Output = io::Result<()>>,
+    acceptor: Option<tokio_rustls::TlsAcceptor>,
+) -> io::Result<()> {
     let (stop, _) = watch::channel(false);
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
@@ -90,49 +101,27 @@ pub async fn serve(
                 };
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
-                let timeout = Duration::from_millis(config.connection_timeout_ms);
                 let config = config.clone();
+                let acceptor = acceptor.clone();
                 connections.spawn(async move {
-                    let (activity, mut progress) = watch::channel(ObjectActivity::default());
-                    let mut builder = http1::Builder::new();
-                    builder.keep_alive(false).max_headers(64).max_buf_size(16 * 1024)
-                        .timer(TokioTimer::new()).header_read_timeout(timeout);
-                    let mut connection = builder.serve_connection(TokioIo::new(stream), service_fn(move |request| {
-                        let state = state.clone();
-                        let activity = activity.clone();
-                        let config = config.clone();
-                        Box::pin(async move { Ok::<_, Infallible>(respond(request, &state, &config, &activity).await) })
-                    }));
-                    let deadline = tokio::time::sleep(timeout);
-                    tokio::pin!(deadline);
-                    let mut current = ObjectActivity::default();
-                    let mut draining = false;
-                    loop { tokio::select! {
-                        biased;
-                        Ok(()) = progress.changed() => {
-                            current = *progress.borrow_and_update();
-                            deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
-                        },
-                        _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog => {
-                            eprintln!("object request deadline exceeded");
-                            break;
-                        },
-                        result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                            if let Err(error) = result { eprintln!("connection error: {error}"); }
-                            break;
-                        }
-                        _ = &mut deadline, if !current.awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
-                        _ = stopping.changed(), if !draining => {
-                            std::pin::Pin::new(&mut connection).graceful_shutdown();
-                            draining = true;
-                        }
-                    }}
-                    // Send FIN after the response, then bound unread-body disposal to avoid a reset
-                    // hiding an early rejection from a client still sending a large request.
-                    let mut stream = connection.into_parts().io.into_inner();
-                    let _ = stream.shutdown().await;
-                    let _ = tokio::time::timeout(Duration::from_millis(100),
-                        tokio::io::copy(&mut stream.take(256 * 1024), &mut tokio::io::sink())).await;
+                    if let Some(acceptor) = acceptor {
+                        let handshake = tokio::time::timeout(
+                            Duration::from_millis(config.tls_handshake_timeout_ms),
+                            acceptor.accept(stream),
+                        );
+                        let stream = tokio::select! {
+                            biased;
+                            _ = stopping.changed() => return,
+                            result = handshake => match result {
+                                Ok(Ok(stream)) => stream,
+                                Ok(Err(error)) => { eprintln!("TLS handshake error: {error}"); return; }
+                                Err(_) => { eprintln!("TLS handshake deadline exceeded"); return; }
+                            }
+                        };
+                        serve_connection(stream, state, config, stopping).await;
+                    } else {
+                        serve_connection(stream, state, config, stopping).await;
+                    }
                 });
             }
         }
@@ -164,6 +153,69 @@ pub async fn serve(
     }
     state.catalog.close().await.map_err(io::Error::other)?;
     signal_result.and(drain_result)
+}
+
+async fn serve_connection(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    state: Arc<State>,
+    config: Config,
+    mut stopping: watch::Receiver<bool>,
+) {
+    let timeout = Duration::from_millis(config.connection_timeout_ms);
+    let (activity, mut progress) = watch::channel(ObjectActivity::default());
+    let mut builder = http1::Builder::new();
+    builder
+        .keep_alive(false)
+        .max_headers(64)
+        .max_buf_size(16 * 1024)
+        .timer(TokioTimer::new())
+        .header_read_timeout(timeout);
+    let mut connection = builder.serve_connection(
+        TokioIo::new(stream),
+        service_fn(move |request| {
+            let state = state.clone();
+            let activity = activity.clone();
+            let config = config.clone();
+            Box::pin(async move {
+                Ok::<_, Infallible>(respond(request, &state, &config, &activity).await)
+            })
+        }),
+    );
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+    let mut current = ObjectActivity::default();
+    let mut draining = false;
+    loop {
+        tokio::select! {
+            biased;
+            Ok(()) = progress.changed() => {
+                current = *progress.borrow_and_update();
+                deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
+            },
+            _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog => {
+                eprintln!("object request deadline exceeded");
+                break;
+            },
+            result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
+                if let Err(error) = result { eprintln!("connection error: {error}"); }
+                break;
+            }
+            _ = &mut deadline, if !current.awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
+            _ = stopping.changed(), if !draining => {
+                std::pin::Pin::new(&mut connection).graceful_shutdown();
+                draining = true;
+            }
+        }
+    }
+    // Send FIN after the response, then bound unread-body disposal to avoid a reset
+    // hiding an early rejection from a client still sending a large request.
+    let mut stream = connection.into_parts().io.into_inner();
+    let _ = tokio::time::timeout(timeout, stream.shutdown()).await;
+    let _ = tokio::time::timeout(
+        Duration::from_millis(100),
+        tokio::io::copy(&mut stream.take(256 * 1024), &mut tokio::io::sink()),
+    )
+    .await;
 }
 
 type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;

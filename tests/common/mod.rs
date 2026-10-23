@@ -10,6 +10,25 @@ use std::{
 pub struct TestDir(pub PathBuf);
 
 #[allow(dead_code)]
+pub fn http_config() -> gcs_mimic::config::Config {
+    gcs_mimic::config::Config {
+        scheme: gcs_mimic::config::Scheme::Http,
+        api_base_url: "http://127.0.0.1:4443".into(),
+        ..Default::default()
+    }
+}
+
+#[allow(dead_code)]
+pub fn load_http_config(
+    args: &[String],
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<gcs_mimic::config::Config, String> {
+    let mut args = args.to_vec();
+    args.extend(["--scheme".into(), "http".into()]);
+    gcs_mimic::config::Config::load(&args, env)
+}
+
+#[allow(dead_code)]
 pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
     connection.execute_batch("DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
         ALTER TABLE objects RENAME TO objects_with_versions;

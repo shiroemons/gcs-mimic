@@ -362,6 +362,127 @@ fn check_go(root: &Path, scope: &Value) -> Result<bool> {
     Ok(drift)
 }
 
+fn ruby_manifest(source: &str) -> Result<BTreeMap<String, String>> {
+    let mut direct = BTreeMap::new();
+    let mut registry = false;
+    for line in source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if line.starts_with('#') || line == "ruby file: \".ruby-version\"" {
+            continue;
+        }
+        if line == "source \"https://rubygems.org\"" && !registry {
+            registry = true;
+            continue;
+        }
+        let (name, pin) = line
+            .strip_prefix("gem \"")
+            .and_then(|line| line.strip_suffix('"'))
+            .and_then(|line| line.split_once("\", \"= "))
+            .ok_or_else(|| format!("unsupported Ruby manifest directive: {line}"))?;
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+            || gem_version(pin).is_none()
+            || direct.insert(name.to_owned(), pin.to_owned()).is_some()
+        {
+            return Err(format!(
+                "invalid or duplicate direct Ruby requirement: {line}"
+            ));
+        }
+    }
+    if !registry || direct.is_empty() {
+        return Err("missing RubyGems registry or direct Ruby requirements".into());
+    }
+    Ok(direct)
+}
+
+fn latest_ruby(source: &str) -> Result<&str> {
+    let mut releases = source.lines().filter_map(|line| {
+        line.strip_prefix("The current stable version is ")?
+            .strip_suffix('.')
+    });
+    let latest = releases.next().ok_or("missing stable Ruby release")?;
+    if version(latest).is_none() || releases.next().is_some() {
+        return Err("invalid stable Ruby release".into());
+    }
+    Ok(latest)
+}
+
+fn latest_gem(source: &str) -> Result<String> {
+    let releases = json(source)?;
+    releases
+        .as_array()
+        .ok_or("invalid RubyGems versions")?
+        .iter()
+        .filter(|release| release["prerelease"] == false && release["yanked"] != true)
+        .filter_map(|release| {
+            let name = release["number"].as_str()?;
+            Some((gem_version(name)?, name))
+        })
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(_, name)| name.to_owned())
+        .ok_or("no non-yanked stable gem release".into())
+}
+
+fn gem_version(pin: &str) -> Option<Vec<u64>> {
+    pin.split('.')
+        .map(|piece| {
+            if piece.is_empty() || !piece.bytes().all(|byte| byte.is_ascii_digit()) {
+                return None;
+            }
+            piece.parse().ok()
+        })
+        .collect()
+}
+
+fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
+    if text(scope, "manifest")? != "sdk-tests/ruby/Gemfile" {
+        return Err("unsupported Ruby SDK manifest".into());
+    }
+    let directory = root.join("sdk-tests/ruby");
+    let direct = ruby_manifest(
+        &std::fs::read_to_string(directory.join("Gemfile")).map_err(|e| e.to_string())?,
+    )?;
+    let current =
+        std::fs::read_to_string(directory.join(".ruby-version")).map_err(|e| e.to_string())?;
+    if version(current.trim()).is_none() {
+        return Err("invalid pinned Ruby version".into());
+    }
+    let releases = fetch("https://www.ruby-lang.org/en/downloads.md", &[], false)?;
+    let mut drift = compare("Ruby toolchain", current.trim(), latest_ruby(&releases)?);
+    let lock =
+        std::fs::read_to_string(directory.join("Gemfile.lock")).map_err(|e| e.to_string())?;
+    let bundler = lock
+        .split_once("\nBUNDLED WITH\n")
+        .map(|(_, pin)| pin.trim())
+        .filter(|pin| gem_version(pin).is_some())
+        .ok_or("missing exact Bundler lockfile pin")?;
+    for (name, current) in direct
+        .iter()
+        .map(|(name, pin)| (name.as_str(), pin.as_str()))
+        .chain(std::iter::once(("bundler", bundler)))
+    {
+        if name != "bundler"
+            && !lock
+                .lines()
+                .any(|line| line == format!("    {name} ({current})"))
+        {
+            return Err(format!("Ruby lockfile pin mismatch: {name}"));
+        }
+        let latest = latest_gem(&fetch(
+            &format!("https://rubygems.org/api/v1/versions/{name}.json"),
+            &[],
+            false,
+        )?)?;
+        drift |= compare(name, current, &latest);
+    }
+    Ok(drift)
+}
+
 fn index_path(name: &str) -> String {
     match name.len() {
         1 => format!("1/{name}"),
@@ -461,6 +582,37 @@ fn registry_response(response: &str) -> Result<(String, Value)> {
     Ok((digest, json(response)?))
 }
 
+fn direct_crate_resolutions(metadata: &Value) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let packages = metadata["packages"]
+        .as_array()
+        .ok_or("metadata packages missing")?;
+    let members = metadata["workspace_members"]
+        .as_array()
+        .ok_or("metadata members missing")?;
+    let nodes = metadata["resolve"]["nodes"]
+        .as_array()
+        .ok_or("metadata resolve nodes missing")?;
+    let mut direct: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for node in nodes.iter().filter(|node| members.contains(&node["id"])) {
+        for dependency in node["deps"]
+            .as_array()
+            .ok_or("metadata resolved dependencies missing")?
+        {
+            let package = packages
+                .iter()
+                .find(|package| package["id"] == dependency["pkg"])
+                .ok_or("resolved dependency package missing")?;
+            if package["source"] == "registry+https://github.com/rust-lang/crates.io-index" {
+                direct
+                    .entry(text(package, "name")?.to_owned())
+                    .or_default()
+                    .insert(text(package, "version")?.to_owned());
+            }
+        }
+    }
+    Ok(direct)
+}
+
 pub fn check(root: &Path) -> Result<bool> {
     println!(
         "checked_at_unix_seconds={}",
@@ -507,43 +659,16 @@ pub fn check(root: &Path) -> Result<bool> {
         ));
     }
     let metadata: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
-    let packages = metadata["packages"]
-        .as_array()
-        .ok_or("metadata packages missing")?;
-    let members = metadata["workspace_members"]
-        .as_array()
-        .ok_or("metadata members missing")?;
-    let mut names = BTreeSet::new();
-    for package in packages.iter().filter(|p| members.contains(&p["id"])) {
-        for dependency in package["dependencies"]
-            .as_array()
-            .ok_or("metadata dependencies missing")?
-        {
-            if dependency["source"] == "registry+https://github.com/rust-lang/crates.io-index" {
-                names.insert(text(dependency, "name")?);
-            }
-        }
-    }
-    for name in names {
-        let versions: BTreeSet<_> = packages
-            .iter()
-            .filter(|p| {
-                p["name"] == name
-                    && p["source"]
-                        .as_str()
-                        .is_some_and(|s| s.starts_with("registry+"))
-            })
-            .map(|p| text(p, "version"))
-            .collect::<Result<_>>()?;
+    for (name, versions) in direct_crate_resolutions(&metadata)? {
         if versions.len() != 1 {
             return Err(format!("ambiguous direct resolution: {name}: {versions:?}"));
         }
         let latest = latest_crate(&fetch(
-            &format!("https://index.crates.io/{}", index_path(name)),
+            &format!("https://index.crates.io/{}", index_path(&name)),
             &[],
             false,
         )?)?;
-        drift |= compare(name, versions.first().unwrap(), &latest);
+        drift |= compare(&name, versions.first().unwrap(), &latest);
     }
     let status = crate::read_json(&root.join("compatibility/dependency-status.json"))?;
     for action in status["github_actions"]
@@ -656,16 +781,96 @@ pub fn check(root: &Path) -> Result<bool> {
     let scopes = status["sdk_ecosystems"]
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
-    if scopes.len() != 1 {
-        return Err("expected the declared Go SDK ecosystem".into());
+    let mut ecosystems = BTreeSet::new();
+    for scope in scopes {
+        let ecosystem = text(scope, "ecosystem")?;
+        if !ecosystems.insert(ecosystem) {
+            return Err(format!("duplicate SDK ecosystem: {ecosystem}"));
+        }
+        drift |= match ecosystem {
+            "go" => check_go(root, scope)?,
+            "ruby" => check_ruby(root, scope)?,
+            _ => return Err(format!("unsupported SDK ecosystem: {ecosystem}")),
+        };
     }
-    drift |= check_go(root, &scopes[0])?;
+    if !ecosystems.contains("go") || !ecosystems.contains("ruby") {
+        return Err("expected the declared Go and Ruby SDK ecosystems".into());
+    }
     Ok(drift)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_resolution_excludes_older_transitive_packages_with_the_same_name() {
+        let metadata = serde_json::json!({
+            "workspace_members": ["app"],
+            "packages": [
+                {"id":"app", "source":null},
+                {"id":"direct", "name":"getrandom", "version":"0.4.3", "source":"registry+https://github.com/rust-lang/crates.io-index"},
+                {"id":"transitive", "name":"getrandom", "version":"0.2.17", "source":"registry+https://github.com/rust-lang/crates.io-index"}
+            ],
+            "resolve": {"nodes":[
+                {"id":"app", "deps":[{"pkg":"direct"}]},
+                {"id":"direct", "deps":[{"pkg":"transitive"}]}
+            ]}
+        });
+        assert_eq!(
+            direct_crate_resolutions(&metadata).unwrap()["getrandom"],
+            BTreeSet::from(["0.4.3".to_owned()])
+        );
+        let mut invalid = metadata;
+        invalid["resolve"]["nodes"][0]["deps"][0]["pkg"] = "missing".into();
+        assert!(direct_crate_resolutions(&invalid).is_err());
+    }
+
+    #[test]
+    fn ruby_manifest_requires_exact_registry_pins() {
+        let source = "source \"https://rubygems.org\"\nruby file: \".ruby-version\"\ngem \"google-cloud-storage\", \"= 1.62.1\"\n";
+        let direct = ruby_manifest(source).unwrap();
+        assert_eq!(direct["google-cloud-storage"], "1.62.1");
+        for invalid in [
+            source.replace("= 1.62.1", "~> 1.62"),
+            source.replace("1.62.1", "2.0.0.rc1"),
+            source.replace("https://rubygems.org", "https://other.invalid"),
+            format!("{source}gem \"google-cloud-storage\", \"= 1.62.1\"\n"),
+            format!("{source}eval_gemfile \"other\"\n"),
+        ] {
+            assert!(ruby_manifest(&invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn ruby_and_gem_latest_versions_include_new_majors() {
+        assert_eq!(
+            latest_ruby("The current stable version is 4.0.9.\n").unwrap(),
+            "4.0.9"
+        );
+        for invalid in [
+            "",
+            "The current stable version is 4.1.0-preview1.",
+            "The current stable version is 4.0.9.\nThe current stable version is 4.1.0.",
+        ] {
+            assert!(latest_ruby(invalid).is_err());
+        }
+        let versions = r#"[
+            {"number":"1.62.1","prerelease":false},
+            {"number":"2.0.0.1","prerelease":false},
+            {"number":"3.0.0.pre1","prerelease":true},
+            {"number":"2.1.0","prerelease":false,"yanked":true}
+        ]"#;
+        assert_eq!(latest_gem(versions).unwrap(), "2.0.0.1");
+        for invalid in [
+            "{}",
+            "[]",
+            "bad",
+            r#"[{"number":"2.0.0","prerelease":true}]"#,
+        ] {
+            assert!(latest_gem(invalid).is_err());
+        }
+    }
 
     #[test]
     fn go_new_major_paths_are_checked_until_missing() {

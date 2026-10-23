@@ -198,7 +198,8 @@ func newStrictBucketService(t *testing.T, ctx context.Context, token string) *ra
 		t.Fatal(err)
 	}
 	transport := &http.Transport{
-		Proxy: nil, MaxConnsPerHost: 2, MaxIdleConns: 2,
+		TLSClientConfig: trustedEmulatorTLS(t),
+		Proxy:           nil, MaxConnsPerHost: 2, MaxIdleConns: 2,
 		IdleConnTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(address)

@@ -92,6 +92,15 @@ native/Docker blocks, restart equality and full pinned Go SDK verification.
 
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
+The delivered [local TLS journey](getting-started.md#local-https-with-an-explicit-development-ca)
+uses HTTPS by default with a built-in development certificate/key and exported
+client CA trust. A supplied PEM chain/key pair overrides the built-in identity.
+Native, non-root container, pinned Go/Ruby and isolated browser checks cover
+TLS 1.2/1.3, SAN/CA/expiry failures, bounded handshakes and HTTPS Locations.
+HTTP examples in the runnable guide select `--scheme http` explicitly.
+Automatic certificate issuance, dual listeners, system trust changes, HTTP/2,
+HTTP/3 and gRPC remain outside that scope.
+
 ## 1. Prerequisites and source build
 
 The [object rewrite journey](getting-started.md#rewrite-an-object-and-follow-continuation-tokens)
