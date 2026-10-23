@@ -260,6 +260,48 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
+    if let Some(Ok(operation)) = xml::route(&Method::GET, request.uri(), config.compat_profile) {
+        let has_origin = request.headers().contains_key("origin");
+        let preflight = request.method() == Method::OPTIONS && has_origin;
+        let cors = if has_origin {
+            match state.catalog.get_bucket(&operation.bucket).await {
+                Ok(Some(bucket)) => {
+                    xml::cors(request.headers(), request.method(), &bucket.cors, preflight)
+                }
+                Ok(None) => hyper::HeaderMap::new(),
+                Err(error) => {
+                    return boxed(
+                        xml::Error::from(JsonError::from(error))
+                            .response(request.method() == Method::HEAD),
+                    );
+                }
+            }
+        } else {
+            hyper::HeaderMap::new()
+        };
+        let mut response = if preflight {
+            boxed(Response::new(Full::new(Bytes::new())))
+        } else {
+            respond_routed(request, state, config, activity).await
+        };
+        response.headers_mut().extend(cors);
+        if !response.headers().contains_key("vary") {
+            response.headers_mut().insert(
+                "vary",
+                if preflight {
+                    "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+                } else {
+                    "Origin"
+                }
+                .parse()
+                .unwrap(),
+            );
+        }
+        response
+            .headers_mut()
+            .insert("connection", "close".parse().unwrap());
+        return response;
+    }
     respond_routed(request, state, config, activity).await
 }
 
@@ -269,8 +311,8 @@ async fn respond_routed(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
-    // Strict authentication covers Google JSON and XML API routes and runs before route
-    // validation, body reads and catalog access. Probes and unknown routes never authenticate.
+    // Preflight and CORS metadata do not authorize access; actual API dispatch authenticates
+    // before operation validation, body reads and authorized catalog operations.
     let authenticate = || {
         state
             .auth
@@ -1346,27 +1388,26 @@ async fn bucket_response(
         }
         BucketRequest::List(params) => {
             let limit = params.max_results as usize;
-            let mut records = state
+            let page = state
                 .catalog
-                .list_buckets(
+                .list_buckets_page(
                     &params.project,
                     Some(&params.prefix),
                     params.start_after.as_deref(),
-                    limit + 1,
+                    limit,
                 )
                 .await?;
-            let token = if records.len() > limit {
-                records.truncate(limit);
+            let token = if page.has_more {
                 Some(json::encode_page_token(
                     &params.project,
                     &params.prefix,
-                    &records[limit - 1].name,
+                    &page.items.last().expect("nonempty continuation page").name,
                 )?)
             } else {
                 None
             };
             json::bucket_list_with_profile(
-                &records,
+                &page.items,
                 token.as_deref(),
                 &state.api_base_url,
                 params.projection,

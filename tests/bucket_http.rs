@@ -975,7 +975,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "acl",
             "autoclass",
             "billing",
-            "cors",
             "customPlacementConfig",
             "defaultObjectAcl",
             "encryption",
@@ -1067,7 +1066,7 @@ fn bucket_put_conditions_and_query_contract() {
                 },
             );
         server
-            .request("PUT", &conditioned, r#"{"cors":[]}"#)
+            .request("PUT", &conditioned, r#"{"retentionPolicy":{}}"#)
             .error(501, "notImplemented");
         assert_eq!(server.request("GET", path, "").json(), before);
         let registry = dir.0.join("identities.json");
@@ -2146,7 +2145,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "acl",
             "autoclass",
             "billing",
-            "cors",
             "customPlacementConfig",
             "defaultObjectAcl",
             "encryption",
@@ -2473,9 +2471,162 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
     }
+}
+
+#[test]
+fn bucket_cors_metadata_round_trip_conditions_replacement_and_restart() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let mut server = profile_server(&dir, profile);
+        let path = "/storage/v1/b/cors-bucket";
+        let rules = json!([
+            {"origin":["https://app.example","https://*.example.com"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Example"],"maxAgeSeconds":0},
+            {"origin":["*"],"method":["*","OPTIONS"],"future":true}
+        ]);
+        let mut normalized = rules.clone();
+        normalized[1].as_object_mut().unwrap().remove("future");
+        let created = server.request(
+            "POST",
+            "/storage/v1/b?project=project",
+            &json!({"name":"cors-bucket","cors":rules}).to_string(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        assert_eq!(created.json()["cors"], normalized);
+        assert_eq!(server.request("GET", path, "").json(), created.json());
+        let labels_only = server
+            .request("PATCH", path, r#"{"labels":{"team":"storage"}}"#)
+            .json();
+        assert_eq!(labels_only["cors"], normalized);
+        let updated_rules = json!([{"origin":["https://new.example"],"method":["GET"]}]);
+        let updated = server.request(
+            "PATCH",
+            &format!("{path}?ifMetagenerationMatch=2"),
+            &json!({"cors":updated_rules}).to_string(),
+        );
+        assert_eq!(updated.status, 200, "{}", updated.body);
+        assert_eq!(updated.json()["cors"], updated_rules);
+        server
+            .request(
+                "PATCH",
+                &format!("{path}?ifMetagenerationMatch=2"),
+                r#"{"cors":[]}"#,
+            )
+            .error(412, "conditionNotMet");
+        assert_eq!(server.request("GET", path, "").json(), updated.json());
+        server.stop();
+        let server = profile_server(&dir, profile);
+        assert_eq!(server.request("GET", path, "").json(), updated.json());
+        let cleared = server.request("PATCH", path, r#"{"cors":null}"#).json();
+        assert!(cleared.get("cors").is_none());
+        assert_eq!(
+            server
+                .request("PATCH", path, &json!({"cors":rules}).to_string())
+                .status,
+            200
+        );
+        let replaced = server
+            .request("PUT", path, &json!({"cors":updated_rules}).to_string())
+            .json();
+        assert_eq!(replaced["cors"], updated_rules);
+        assert!(
+            server
+                .request("PUT", path, "{}")
+                .json()
+                .get("cors")
+                .is_none()
+        );
+        assert_eq!(
+            server
+                .request("PATCH", path, &json!({"cors":rules}).to_string())
+                .status,
+            200
+        );
+        assert!(
+            server
+                .request("PATCH", path, r#"{"cors":[]}"#)
+                .json()
+                .get("cors")
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn bucket_cors_malformed_input_preserves_entire_resource() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = profile_server(&dir, profile);
+        let before = server.insert("cors-invalid", "project").json();
+        for invalid in [
+            json!({}),
+            json!(false),
+            json!([null]),
+            json!([{"origin":"*"}]),
+            json!([{"origin":[""]}]),
+            json!([{"origin":["https://example.com\r\ninjected"]}]),
+            json!([{"method":["GET HEAD"]}]),
+            json!([{"responseHeader":["bad header"]}]),
+            json!([{"maxAgeSeconds":-1}]),
+            json!([{"maxAgeSeconds":2147483648u64}]),
+            json!([{"maxAgeSeconds":1.5}]),
+            json!([{"maxAgeSeconds":"3600"}]),
+        ] {
+            let body = json!({"cors":invalid,"labels":{"unchanged":"yes"}}).to_string();
+            for method in ["PATCH", "PUT"] {
+                let reply = server.request(method, "/storage/v1/b/cors-invalid", &body);
+                assert_eq!(
+                    reply.status, 400,
+                    "{profile} {method} {body}: {}",
+                    reply.body
+                );
+                assert_eq!(
+                    server
+                        .request("GET", "/storage/v1/b/cors-invalid", "")
+                        .json(),
+                    before
+                );
+            }
+            let reply = server.request(
+                "POST",
+                "/storage/v1/b?project=project",
+                &json!({"name":"invalid-create","cors":invalid}).to_string(),
+            );
+            assert_eq!(reply.status, 400, "{profile} {invalid}: {}", reply.body);
+            assert_eq!(
+                server
+                    .request("GET", "/storage/v1/b/invalid-create", "")
+                    .status,
+                404
+            );
+        }
+    }
+}
+
+#[test]
+fn bucket_cors_concurrent_conditioned_updates_have_one_winner() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir);
+    server.insert("cors-race", "project");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let statuses: Vec<_> = std::thread::scope(|scope| {
+        (0..8).map(|index| {
+            let address = server.address.clone();
+            let barrier = barrier.clone();
+            scope.spawn(move || {
+                let body = json!({"cors":[{"origin":[format!("https://app-{index}.example")],"method":["GET"]}]}).to_string();
+                barrier.wait();
+                raw(&address, &format!("PATCH /storage/v1/b/cors-race?ifMetagenerationMatch=1 HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",body.len())).status
+            })
+        }).collect::<Vec<_>>().into_iter().map(|thread| thread.join().unwrap()).collect()
+    });
+    assert_eq!(statuses.iter().filter(|&&status| status == 200).count(), 1);
+    assert_eq!(statuses.iter().filter(|&&status| status == 412).count(), 7);
+    let resource = server.request("GET", "/storage/v1/b/cors-race", "").json();
+    assert_eq!(resource["metageneration"], "2");
+    assert_eq!(resource["cors"].as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -3118,24 +3269,30 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
         "&maxResults=1001",
         "&maxResults=4294967295",
     ] {
-        let first = server
-            .request("GET", &format!("/storage/v1/b?project=limits{query}"), "")
-            .json();
-        assert_eq!(first["items"].as_array().unwrap().len(), 1000);
-        assert_eq!(first["items"][999]["name"], "limit-0999");
-        let next = server
-            .request(
-                "GET",
-                &format!(
-                    "/storage/v1/b?project=limits&pageToken={}",
-                    first["nextPageToken"].as_str().unwrap()
-                ),
-                "",
-            )
-            .json();
-        assert_eq!(next["items"].as_array().unwrap().len(), 1);
-        assert_eq!(next["items"][0]["name"], "limit-1000");
-        assert!(next.get("nextPageToken").is_none());
+        let mut path = format!("/storage/v1/b?project=limits{query}");
+        let mut names = Vec::new();
+        loop {
+            let page = server.request("GET", &path, "").json();
+            let items = page["items"].as_array().unwrap();
+            assert!(!items.is_empty());
+            assert!(items.len() <= 1000);
+            names.extend(
+                items
+                    .iter()
+                    .map(|item| item["name"].as_str().unwrap().to_owned()),
+            );
+            assert!(names.len() <= 1001);
+            let Some(token) = page["nextPageToken"].as_str() else {
+                break;
+            };
+            path = format!("/storage/v1/b?project=limits{query}&pageToken={token}");
+        }
+        assert_eq!(
+            names,
+            (0..1001)
+                .map(|n| format!("limit-{n:04}"))
+                .collect::<Vec<_>>()
+        );
     }
     let full = server
         .request(
@@ -3144,8 +3301,12 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
             "",
         )
         .json();
-    assert_eq!(full["items"].as_array().unwrap().len(), 200);
-    assert_eq!(full["items"][199]["name"], "limit-0199");
+    let count = full["items"].as_array().unwrap().len();
+    assert!((1..=200).contains(&count));
+    assert_eq!(
+        full["items"][count - 1]["name"],
+        format!("limit-{:04}", count - 1)
+    );
     assert!(full["nextPageToken"].is_string());
     let zero_full = server
         .request(
@@ -3155,4 +3316,61 @@ fn bkt_http_list_clamps_to_1000_with_lookahead() {
         )
         .json();
     assert_eq!(zero_full, full);
+}
+
+#[test]
+fn bucket_cors_large_metadata_lists_page_without_loss() {
+    let dir = TestDir::new();
+    let mut server = Server::start(&dir);
+    let rules = json!(vec![json!({}); 20_000]);
+    assert_eq!(rules.to_string().len(), 60_001);
+    let expected = (0..60)
+        .map(|n| format!("cors-large-{n:02}"))
+        .collect::<Vec<_>>();
+    for name in &expected {
+        let body = json!({"name": name, "cors": rules}).to_string();
+        assert!(body.len() < 64 * 1024);
+        let reply = server.request("POST", "/storage/v1/b?project=large", &body);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+    }
+    for profile in PROFILES {
+        if profile == "legacy-emulator" {
+            server.stop();
+            server = profile_server(&dir, profile);
+        }
+        let names_only =
+            server.request("GET", "/storage/v1/b?project=large&fields=items(name)", "");
+        assert_eq!(names_only.status, 200);
+        assert_eq!(names_only.json(), json!({"items":[{"name":expected[0]}]}));
+        for fields in ["&fields=items(name),nextPageToken", ""] {
+            let mut names = Vec::new();
+            let mut path = format!("/storage/v1/b?project=large&maxResults=1000{fields}");
+            loop {
+                let reply = server.request("GET", &path, "");
+                assert_eq!(reply.status, 200, "{}", reply.body);
+                let page = reply.json();
+                let items = page["items"].as_array().unwrap();
+                assert_eq!(
+                    items.len(),
+                    1,
+                    "large records must advance without expanding lookahead"
+                );
+                if fields.is_empty() {
+                    assert_eq!(items[0]["cors"], rules);
+                } else {
+                    assert_eq!(items[0].as_object().unwrap().len(), 1);
+                }
+                names.push(items[0]["name"].as_str().unwrap().to_owned());
+                assert!(names.len() <= expected.len());
+                let Some(token) = page["nextPageToken"].as_str() else {
+                    break;
+                };
+                let limit = if names.len() % 2 == 0 { 1 } else { 7 };
+                path = format!(
+                    "/storage/v1/b?project=large&maxResults={limit}{fields}&pageToken={token}"
+                );
+            }
+            assert_eq!(names, expected, "{profile} {fields}");
+        }
+    }
 }

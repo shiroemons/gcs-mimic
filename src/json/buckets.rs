@@ -1,5 +1,8 @@
 use super::{JsonError, Projection, query::validate_project};
-use crate::bucket::{BucketMetadataUpdate, BucketRecord, valid_label, validate_storage_class};
+use crate::bucket::{
+    BucketMetadataUpdate, BucketRecord, CorsRule, cors_from_value, cors_value, valid_label,
+    validate_storage_class,
+};
 use crate::config::CompatProfile;
 use hyper::StatusCode;
 use serde_json::{Value, json};
@@ -14,7 +17,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "acl",
     "autoclass",
     "billing",
-    "cors",
     "customPlacementConfig",
     "defaultObjectAcl",
     "encryption",
@@ -230,6 +232,7 @@ pub fn parse_insert_with_profile(
         location_type: "multi-region".to_owned(),
         storage_class,
         labels,
+        cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
         versioning_enabled,
         default_event_based_hold,
         metageneration: 1,
@@ -376,6 +379,7 @@ fn parse_bucket_update(
         location = None;
     }
     Ok(BucketMetadataUpdate {
+        cors: parse_cors(body.get("cors"))?,
         labels,
         storage_class,
         versioning_enabled,
@@ -385,6 +389,19 @@ fn parse_bucket_update(
         )?,
         location,
     })
+}
+
+fn parse_cors(value: Option<&Value>) -> Result<Option<Vec<CorsRule>>, JsonError> {
+    value
+        .map(|value| {
+            let rules = if value.is_null() {
+                Vec::new()
+            } else {
+                cors_from_value(value)?
+            };
+            Ok(rules)
+        })
+        .transpose()
 }
 
 /// Render supported metadata using a caller-validated advertised origin/base path.
@@ -419,6 +436,9 @@ pub fn bucket_resource_with_profile(
     });
     if !bucket.labels.is_empty() {
         value["labels"] = json!(bucket.labels);
+    }
+    if !bucket.cors.is_empty() {
+        value["cors"] = cors_value(&bucket.cors);
     }
     if bucket.versioning_enabled || profile == CompatProfile::LegacyEmulator {
         value["versioning"] = json!({"enabled": bucket.versioning_enabled});

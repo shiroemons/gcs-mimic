@@ -48,10 +48,110 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         labels: BTreeMap::from([("team".into(), "storage".into())]),
         versioning_enabled: false,
         default_event_based_hold: false,
+        cors: Vec::new(),
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_micros(42_123_456),
         updated: UNIX_EPOCH + Duration::from_micros(43_987_654),
     }
+}
+
+#[tokio::test]
+async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates() {
+    use gcs_mimic::bucket::CorsRule;
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog
+        .insert_bucket(bucket("cors-migration", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch("ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
+        .unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("cors-migration").await.unwrap(),
+        Some(original.clone())
+    );
+    let rule = CorsRule {
+        origin: vec!["https://app.example".into()],
+        method: vec!["GET".into()],
+        response_header: vec!["ETag".into()],
+        max_age_seconds: Some(0),
+    };
+    let stored = catalog
+        .patch_bucket(
+            "cors-migration",
+            BucketMetadataUpdate {
+                cors: Some(vec![rule.clone()]),
+                ..Default::default()
+            },
+            Some(original.metageneration),
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await
+        .unwrap();
+    let mut invalid = rule.clone();
+    invalid.response_header = vec!["invalid header".into()];
+    let result = catalog
+        .replace_bucket(
+            "cors-migration",
+            BucketMetadataUpdate {
+                cors: Some(vec![invalid.clone()]),
+                ..Default::default()
+            },
+            None,
+            None,
+            &BucketAccess::Unchecked,
+        )
+        .await;
+    assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
+    assert_eq!(
+        catalog.get_bucket("cors-migration").await.unwrap(),
+        Some(stored.clone())
+    );
+    let mut invalid_bucket = bucket("invalid-cors", "project");
+    invalid_bucket.cors = vec![invalid];
+    assert!(matches!(
+        catalog.insert_bucket(invalid_bucket).await,
+        Err(CatalogError::InvalidMetadata(_))
+    ));
+    assert!(catalog.get_bucket("invalid-cors").await.unwrap().is_none());
+    for rules in [
+        vec![CorsRule {
+            origin: vec!["a".repeat(65_536)],
+            ..Default::default()
+        }],
+        vec![CorsRule::default(); 32_768],
+        vec![CorsRule {
+            origin: vec!["\\".repeat(40_000)],
+            ..Default::default()
+        }],
+    ] {
+        let mut oversized = bucket("oversized-cors", "project");
+        oversized.cors = rules;
+        assert!(matches!(
+            catalog.insert_bucket(oversized).await,
+            Err(CatalogError::InvalidMetadata(_))
+        ));
+        assert!(
+            catalog
+                .get_bucket("oversized-cors")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    catalog.close().await.unwrap();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("cors-migration").await.unwrap(),
+        Some(stored)
+    );
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -456,6 +556,67 @@ async fn indexed_listing_orders_filters_pages_and_limits() {
 }
 
 #[tokio::test]
+async fn bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries() {
+    use gcs_mimic::bucket::CorsRule;
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    for name in ["page-a", "page-b", "page-c", "page-d"] {
+        let mut record = bucket(name, "project");
+        if name == "page-b" || name == "page-c" {
+            record.cors = vec![CorsRule::default(); 20_000];
+        }
+        catalog.insert_bucket(record).await.unwrap();
+    }
+    let first = catalog
+        .list_buckets_page("project", Some("page-"), None, 1000)
+        .await
+        .unwrap();
+    assert_eq!(
+        first
+            .items
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["page-a"]
+    );
+    assert!(first.has_more);
+    for (cursor, name, more) in [
+        ("page-a", "page-b", true),
+        ("page-b", "page-c", true),
+        ("page-c", "page-d", false),
+    ] {
+        let page = catalog
+            .list_buckets_page("project", Some("page-"), Some(cursor), 1000)
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].name, name);
+        assert_eq!(page.has_more, more);
+        if name != "page-d" {
+            assert_eq!(page.items[0].cors, vec![CorsRule::default(); 20_000]);
+        }
+    }
+    let last = catalog
+        .list_buckets_page("project", Some("page-"), Some("page-c"), 1)
+        .await
+        .unwrap();
+    assert_eq!(last.items[0].name, "page-d");
+    assert!(!last.has_more);
+    let empty = catalog
+        .list_buckets_page("project", Some("page-"), Some("page-d"), 1)
+        .await
+        .unwrap();
+    assert!(empty.items.is_empty());
+    assert!(!empty.has_more);
+    let zero = catalog
+        .list_buckets_page("project", None, None, 0)
+        .await
+        .unwrap();
+    assert!(zero.items.is_empty());
+    assert!(!zero.has_more);
+}
+
+#[tokio::test]
 async fn delete_preconditions_are_atomic_and_preserve_failed_records() {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -664,7 +825,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         assert_eq!(
             connection
@@ -728,7 +889,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 12)
+                .pragma_update(None, "user_version", 13)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -802,7 +963,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 12"));
+            assert!(error.to_string().contains("schema version 13"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -862,7 +1023,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -967,7 +1128,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     assert_eq!(
         connection
@@ -987,7 +1148,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 12)
+        .pragma_update(None, "user_version", 13)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -999,7 +1160,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 12")
+                .contains("schema version 13")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -1019,7 +1180,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 12;",
+            "future" => "PRAGMA user_version = 13;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };
