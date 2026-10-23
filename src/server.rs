@@ -460,6 +460,7 @@ async fn respond_routed(
     }
     if let Some(parsed) = xml::route(request.method(), request.uri(), config.compat_profile) {
         let head = request.method() == Method::HEAD;
+        let put = request.method() == Method::PUT;
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(config.object_request_timeout_ms);
         activity.send_replace(ObjectActivity {
@@ -468,7 +469,7 @@ async fn respond_routed(
         });
         let result = match authenticate() {
             Ok(caller) => match parsed {
-                Ok(operation) if request.method() == Method::PUT => {
+                Ok(operation) if put => {
                     xml::put::respond(
                         request, operation, caller, state, config, activity, deadline,
                     )
@@ -479,7 +480,7 @@ async fn respond_routed(
             },
             Err(error) => Err(error.into()),
         };
-        if head || result.is_err() {
+        if head || put || result.is_err() {
             activity.send_replace(ObjectActivity::default());
         }
         let mut response = result.unwrap_or_else(|error| boxed(error.response(head)));

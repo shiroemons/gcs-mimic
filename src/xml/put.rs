@@ -148,6 +148,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64) -> Result<Headers, Error> {
     for value in headers.get_all("x-goog-hash") {
         selected.append("x-goog-hash", value.clone());
     }
+    // shortcut: CRC32C shares MD5 error codes, split them when provider error parity is verified.
     let (_, mut expected) =
         json::parse_object_upload_headers(&selected, conditions).map_err(|error| {
             if error.status == StatusCode::NOT_IMPLEMENTED {
@@ -160,37 +161,21 @@ fn headers(headers: &HeaderMap, max_bytes: u64) -> Result<Headers, Error> {
             )
         })?;
     if let Some(md5) = single(headers, "content-md5")? {
-        selected.clear();
-        selected.insert(
-            "x-goog-hash",
-            format!("md5={md5}").parse().map_err(|_| {
-                Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidDigest",
-                    "Invalid Content-MD5.",
-                )
-            })?,
-        );
-        let (_, content_md5) =
-            json::parse_object_upload_headers(&selected, conditions).map_err(|_| {
-                Error::new(
-                    StatusCode::BAD_REQUEST,
-                    "InvalidDigest",
-                    "Invalid Content-MD5.",
-                )
-            })?;
-        if expected
-            .md5
-            .zip(content_md5.md5)
-            .is_some_and(|(a, b)| a != b)
-        {
+        let content_md5 = json::decode_hash::<16>(md5).map_err(|_| {
+            Error::new(
+                StatusCode::BAD_REQUEST,
+                "InvalidDigest",
+                "Invalid Content-MD5.",
+            )
+        })?;
+        if expected.md5.is_some_and(|value| value != content_md5) {
             return Err(Error::new(
                 StatusCode::BAD_REQUEST,
                 "InvalidDigest",
                 "Conflicting MD5 declarations.",
             ));
         }
-        expected.md5 = expected.md5.or(content_md5.md5);
+        expected.md5 = Some(content_md5);
     }
     let mut metadata = ObjectMetadataUpdate::default();
     for (name, field) in [

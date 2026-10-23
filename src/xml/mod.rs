@@ -134,13 +134,13 @@ pub(crate) fn route(
         let name = json::decode(name, false)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
+        if *method == Method::PUT && !query.is_empty() {
+            return Err(Error::unsupported());
+        }
         let generation = query
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
-        if *method == Method::PUT && generation.is_some() {
-            return Err(Error::unsupported());
-        }
         if !query.is_empty() {
             return Err(Error::unsupported());
         }

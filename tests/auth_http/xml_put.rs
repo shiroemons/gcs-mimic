@@ -294,6 +294,10 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         "predefinedAcl=private",
         "userProject=billing",
         "generation=1",
+        "generation=abc",
+        "generation=0",
+        "generation=",
+        "generation=9223372036854775808",
         "uploads",
         "unknown=value",
     ] {
@@ -368,6 +372,24 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
         411,
         "MissingContentLength",
     );
+    for md5 in [
+        format!("{MD5},crc32c=AAAAAA=="),
+        format!("{MD5},md5={MD5}"),
+        format!("md5={MD5}"),
+        "XrY7u+Ae7tCTyyK7j1rNwx==".into(),
+    ] {
+        xml_error(
+            &server.request(
+                "PUT",
+                OBJECT,
+                &format!("{ADMIN}Content-MD5: {md5}\r\n"),
+                b"hello world",
+            ),
+            400,
+            "InvalidDigest",
+        );
+        assert_eq!(snapshot(&server, &data), before);
+    }
     for header in [
         "Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==\r\n",
         "x-goog-hash: crc32c=AAAAAA==\r\n",
@@ -617,7 +639,20 @@ fn xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts() {
     stream.write_all(b"partial").unwrap();
     stream.shutdown(Shutdown::Write).unwrap();
     let mut discarded = Vec::new();
-    let _ = stream.read_to_end(&mut discarded);
+    match stream.read_to_end(&mut discarded) {
+        Ok(_) => {
+            if !discarded.is_empty() {
+                assert!(discarded.starts_with(b"HTTP/1.1 400 "));
+                assert!(
+                    String::from_utf8_lossy(&discarded).contains("<Code>IncompleteBody</Code>")
+                );
+            }
+        }
+        Err(error) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
+            assert!(discarded.is_empty());
+        }
+    }
     clean(&data);
     assert_eq!(snapshot(&server, &data), before);
     let mut stream = expect_continue(&server, OBJECT, ADMIN, 99999);
