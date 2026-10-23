@@ -118,6 +118,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "md-5",
+ "ring",
  "rusqlite",
  "serde_json",
  "tokio",

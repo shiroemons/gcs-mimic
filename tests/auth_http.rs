@@ -9,6 +9,9 @@ mod xml;
 #[path = "auth_http/cors.rs"]
 mod cors;
 
+#[path = "auth_http/signing.rs"]
+mod signing;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{

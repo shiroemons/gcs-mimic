@@ -16,6 +16,52 @@ use std::time::UNIX_EPOCH;
 mod cors;
 pub(crate) use cors::cors;
 
+pub(crate) fn authenticate<'a>(
+    auth: &'a crate::auth::Auth,
+    method: &Method,
+    uri: &Uri,
+    headers: &HeaderMap,
+    clock: &dyn crate::clock::Clock,
+) -> Result<Option<crate::auth::Caller<'a>>, Error> {
+    if crate::auth::signature::is_signed(uri.query()) {
+        auth.authenticate_signed(method, uri, headers, clock)
+            .map_err(|failure| {
+                use crate::auth::signature::Failure;
+                let (status, code, message) = match failure {
+                    Failure::Malformed => (
+                        StatusCode::BAD_REQUEST,
+                        "InvalidAuthentication",
+                        "Invalid V4 signing parameters.",
+                    ),
+                    Failure::UnknownSigner => (
+                        StatusCode::FORBIDDEN,
+                        "InvalidAccessKeyId",
+                        "The signing identity or public key is unknown.",
+                    ),
+                    Failure::Mismatch => (
+                        StatusCode::FORBIDDEN,
+                        "SignatureDoesNotMatch",
+                        "The request signature does not match.",
+                    ),
+                    Failure::Expired => (
+                        StatusCode::BAD_REQUEST,
+                        "ExpiredToken",
+                        "The signed URL has expired.",
+                    ),
+                    Failure::NotYetValid => (
+                        StatusCode::FORBIDDEN,
+                        "RequestTimeTooSkewed",
+                        "The signed URL is not yet usable.",
+                    ),
+                };
+                Error::new(status, code, message)
+            })
+    } else {
+        auth.authenticate(headers, uri.query())
+            .map_err(|e| Error::from(JsonError::from(e)))
+    }
+}
+
 pub(crate) struct ReadRequest {
     pub bucket: String,
     pub name: String,
@@ -137,7 +183,11 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
-        if !query.is_empty() {
+        // Authentication validates credential fields from the original URI before using this operation.
+        if query
+            .keys()
+            .any(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+        {
             return Err(Error::unsupported());
         }
         Ok(ReadRequest {
@@ -164,6 +214,24 @@ fn number(raw: &str, zero: bool) -> Result<i64, Error> {
 }
 
 pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<(), Error> {
+    if let Some(hash) = headers.get("x-goog-content-sha256") {
+        if headers.get_all("x-goog-content-sha256").iter().count() != 1 {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "ExcessHeaderValues",
+                "Expected a single content hash.",
+            ));
+        }
+        if hash != "UNSIGNED-PAYLOAD"
+            && hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        {
+            return Err(Error::new(
+                StatusCode::BAD_REQUEST,
+                "BadDigest",
+                "The content hash does not match the empty read body.",
+            ));
+        }
+    }
     let mut tokens = headers.get_all("x-goog-gcs-idempotency-token").iter();
     if let Some(token) = tokens.next() {
         if tokens.next().is_some() {
@@ -192,6 +260,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
                     | "x-goog-if-metageneration-match"
                     | "x-goog-api-client"
                     | "x-goog-gcs-idempotency-token"
+                    | "x-goog-content-sha256"
             ))
             || matches!(
                 key,

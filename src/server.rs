@@ -466,12 +466,18 @@ async fn respond_routed(
             awaiting_catalog: false,
             deadline: Some(deadline),
         });
-        let result = match authenticate() {
+        let result = match xml::authenticate(
+            &state.auth,
+            request.method(),
+            request.uri(),
+            request.headers(),
+            state.clock.as_ref(),
+        ) {
             Ok(caller) => match parsed {
                 Ok(operation) => xml_response(request, operation, caller, state, activity).await,
                 Err(error) => Err(error),
             },
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         };
         if head || result.is_err() {
             activity.send_replace(ObjectActivity::default());

@@ -1,6 +1,6 @@
 use gcs_mimic::{
     auth::{Auth, Registry},
-    clock::SystemClock,
+    clock::{Clock, SystemClock},
     config::Config,
     server::{self, State},
     storage::Catalog,
@@ -22,6 +22,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic healthcheck --url URL [--ca-cert PATH]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
@@ -64,6 +65,18 @@ required exactly once, in any order. The object name is percent-encoded except f
 unreserved characters and '/'; if any '/'-separated segment is '.' or '..', '/' is encoded as %2F.
 No config file, environment, data directory or network is read, and no permission is changed.";
 
+const URL_SIGN_HELP: &str =
+    "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
+       --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
+       [--timestamp YYYYMMDDTHHMMSSZ]
+
+Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
+Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
+Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
+Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
+Headers may repeat; Host is derived from the final URL and cannot be overridden.
+No Google IAM call, server configuration read or permission change occurs.";
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -100,6 +113,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         [command, kind, rest @ ..] if command == "url" && kind == "public" => {
             println!("{}", url_public(rest)?);
+            Ok(())
+        }
+        [command, kind, help] if command == "url" && kind == "sign" && help == "--help" => {
+            println!("{URL_SIGN_HELP}");
+            Ok(())
+        }
+        [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
+            println!("{}", url_sign(rest)?);
             Ok(())
         }
         [command, rest @ ..] if command == "serve" => {
@@ -270,6 +291,90 @@ fn url_public(args: &[String]) -> Result<String, String> {
         required("--base-url")?,
         required("--bucket")?,
         required("--object")?,
+    )
+}
+
+fn url_sign(args: &[String]) -> Result<String, String> {
+    use std::io::Read;
+    let mut options = BTreeMap::new();
+    let mut headers = hyper::HeaderMap::new();
+    for pair in args.chunks(2) {
+        let [name, value] = pair else {
+            return Err(format!(
+                "url sign options require --name VALUE pairs\n{URL_SIGN_HELP}"
+            ));
+        };
+        if name == "--header" {
+            let (key, value) = value.split_once(':').ok_or("header must be NAME:VALUE")?;
+            let key = hyper::header::HeaderName::from_bytes(key.as_bytes())
+                .map_err(|_| "invalid header name")?;
+            headers.append(key, value.parse().map_err(|_| "invalid header value")?);
+        } else {
+            if !matches!(
+                name.as_str(),
+                "--base-url"
+                    | "--bucket"
+                    | "--object"
+                    | "--method"
+                    | "--expires"
+                    | "--signer"
+                    | "--private-key"
+                    | "--timestamp"
+            ) {
+                return Err(format!("unknown url sign option: {name}"));
+            }
+            if options.insert(name.as_str(), value.as_str()).is_some() {
+                return Err(format!("duplicate option: {name}"));
+            }
+        }
+    }
+    let required = |name| {
+        options
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
+    };
+    let url = gcs_mimic::url::public_object_url(
+        required("--base-url")?,
+        required("--bucket")?,
+        required("--object")?,
+    )?;
+    let method = required("--method")?
+        .parse()
+        .map_err(|_| "invalid signing method")?;
+    let duration = required("--expires")?;
+    let (digits, multiplier) = match duration.as_bytes().last() {
+        Some(b's') => (&duration[..duration.len() - 1], 1),
+        Some(b'm') => (&duration[..duration.len() - 1], 60),
+        Some(b'h') => (&duration[..duration.len() - 1], 3600),
+        Some(b'd') => (&duration[..duration.len() - 1], 86400),
+        _ => (duration, 1),
+    };
+    let expires = digits
+        .parse::<u64>()
+        .ok()
+        .filter(|_| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.checked_mul(multiplier))
+        .ok_or("invalid signing duration")?;
+    let now = options
+        .get("--timestamp")
+        .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
+        .transpose()?
+        .unwrap_or_else(|| SystemClock.now());
+    let mut key = Vec::new();
+    std::fs::File::open(required("--private-key")?)
+        .map_err(|e| format!("private key: {e}"))?
+        .take(16385)
+        .read_to_end(&mut key)
+        .map_err(|e| format!("private key: {e}"))?;
+    gcs_mimic::auth::signature::sign_url(
+        &url,
+        &method,
+        required("--signer")?,
+        &key,
+        expires,
+        now,
+        headers,
     )
 }
 

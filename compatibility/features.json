@@ -23569,11 +23569,14 @@
         "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
         "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-22",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML invalid credentials/signatures return 400 InvalidAuthentication, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style GET subset: selected immutable bytes/headers, single ranges, generation/metageneration matching, XML errors, shared public/private authorization, stored-byte encoding and SDK telemetry. Unknown queries/unsupported x-goog inputs and unrepresentable/case-colliding custom metadata return 501. Private XML fallback is private, max-age=0; public fallback is public, max-age=3600; local XML ETag is quoted hexadecimal MD5. XML malformed/unsupported credentials return 400 InvalidAuthentication; V4 signature mismatch returns 403 SignatureDoesNotMatch, absent credentials denied 401 AuthenticationRequired, registered denial 403 AccessDenied; JSON errors retain their own adapter. Complete official GET remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -23636,9 +23639,20 @@
         },
         {
           "id": "EXT-XML-012-PENDING",
-          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, signed access, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
+          "description": "Implement and verify CSEK/encryption, requester user project, response-* overrides, HTTP If-* validators, remaining signing formats/edge parity, virtual-host routing, noncurrent versions, transcoding/resource restrictions, exhaustive header/error/ETag and unknown-input parity (SPEC-012, SPEC-015, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK).",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "EXT-XML-012-SIGNED-READ",
+          "description": "Private V4 RSA GET/HEAD/range, project/bucket signer grants, revocation, startup public-key validation and fail-closed tamper errors; HEAD remains bodyless. Pinned SDK succeeds unmodified at default-port authorities and independently cross-checks explicit ports over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "test_ids": [
@@ -23653,7 +23667,11 @@
         "xml::xml_unsupported_operations_fail_before_reading_a_body",
         "xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly",
         "xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads",
-        "xml::xml_read_idempotency_tokens_require_one_nonempty_value"
+        "xml::xml_read_idempotency_tokens_require_one_nonempty_value",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "TestV4RSASignedDownload"
       ],
       "verification": [
         {
@@ -23683,6 +23701,35 @@
             "TestXMLReadsStrict",
             "TestXMLReadsPermissive"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23701,6 +23748,21 @@
             "TestXMLReadsStrict",
             "TestXMLReadsPermissive"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; default-port unmodified SDK signing; independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "known_deviations": [
@@ -23711,7 +23773,7 @@
         "Decompressive transcoding and dedicated XML large/slow/cancellation resource measurements remain pending; inherited bounded streaming tests and the 8 MiB selected-reader case are not an XML resource benchmark."
       ],
       "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "EXT-XML-013",
@@ -23848,11 +23910,14 @@
         "https://docs.cloud.google.com/storage/docs/access-control/making-data-public",
         "https://docs.cloud.google.com/storage/docs/metadata#cache-control",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#cachecontrol",
-        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go"
+        "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-22",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL.",
+      "notes": "Contract: docs/en/slices/public-object-reads.md; evidence: docs/en/evidence/public-object-reads.md. Declared live-object path-style HEAD subset returns selected metadata and full Content-Length with no body on success/error. Satisfiable Range adds Content-Range at 200; unsatisfiable Range locally returns 200 and bytes */size. Invalid raw bucket segments retain JSON-style unknown-route 404. Provider HEAD unsatisfiable-range/header/error parity remains open; complete official HEAD remains PARTIAL. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits.",
       "dependencies": [
         "DESIGN-014"
       ],
@@ -23891,9 +23956,20 @@
         },
         {
           "id": "EXT-XML-017-PENDING",
-          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, signed access, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
+          "description": "Implement and verify CSEK/encryption, user project, HTTP If-* validators, response overrides, remaining signing formats/edge parity, virtual-host routing, noncurrent versions/resource restrictions and full metadata/ETag/error/unknown-query/unsatisfiable Range parity; preserve SPEC-012, SPEC-017, SPEC-XML-PREFIX/INPUTS/PATH-ERROR and SPEC-RANGE-FALLBACK.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "EXT-XML-017-SIGNED-READ",
+          "description": "Private V4 RSA GET/HEAD/range, project/bucket signer grants, revocation, startup public-key validation and fail-closed tamper errors; HEAD remains bodyless. Pinned SDK succeeds unmodified at default-port authorities and independently cross-checks explicit ports over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "test_ids": [
@@ -23904,7 +23980,11 @@
         "xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors",
         "xml::xml_unsupported_operations_fail_before_reading_a_body",
         "xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated",
-        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback"
+        "xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "TestV4RSASignedDownload"
       ],
       "verification": [
         {
@@ -23930,6 +24010,35 @@
           "test_ids": [
             "TestXMLReadsStrict"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -23947,6 +24056,21 @@
           "test_ids": [
             "TestXMLReadsStrict"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; default-port unmodified SDK signing; independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "known_deviations": [
@@ -23956,7 +24080,7 @@
         "SPEC-XML-PREFIX/PATH-ERROR/INPUTS and SPEC-RANGE-FALLBACK: declared namespace routing, invalid bucket JSON-style 404, unknown query/unsupported x-goog 501 and range fallback rules remain local choices; unsatisfiable HEAD is 200 with Content-Range bytes */size."
       ],
       "implemented_in": "0baf5f3a0f1e916c335fee99186ba787edeffcd7",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-23"
     },
     {
       "id": "EXT-XML-018",
@@ -29957,18 +30081,21 @@
         "https://docs.cloud.google.com/storage/docs/access-control",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://docs.cloud.google.com/storage/docs/access-control/iam-json",
-        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-roles",
+        "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-22",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, remaining signed formats/writes, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, and the API client update to v0.308.0 passes the full SDK suite with all dependency inputs CURRENT. V4 RSA signed path-style GET/HEAD is now verified with registered public keys, final Host/port, injected-clock expiry and project/bucket signer permissions; malformed/tampered signatures never become anonymous. Permissive mode explicitly ignores credentials. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. SPEC-SIGNING-EDGES and SPEC-GO-SIGNER-PORT retain their limits. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
           "id": "DESIGN-002-FAIL-CLOSED",
-          "description": "Unknown, empty, malformed, duplicate and non-UTF-8 bearer values, Basic/GOOG4/AWS4/bare-token schemes and access_token, oauth_token, X-Goog-Signature, X-Goog-Credential, X-Goog-Algorithm, Signature and GoogleAccessId query parameters (including percent-encoded keys) return 401 authError before body reads or catalog access.",
+          "description": "On JSON routes, unknown, empty, malformed, duplicate and non-UTF-8 bearer values, Basic/GOOG4/AWS4/bare-token schemes and access_token, oauth_token, X-Goog-Signature, X-Goog-Credential, X-Goog-Algorithm, Signature and GoogleAccessId query parameters (including percent-encoded keys) return 401 authError before body reads or catalog access.",
           "result": "PASS",
           "test_ids": [
             "auth::tests::strict_caller_resolution",
@@ -30015,7 +30142,7 @@
         },
         {
           "id": "DESIGN-002-PENDING",
-          "description": "Implement object IAM policies/conditions, ACLs/default ACLs, full UBLA/PAP, V2/V4 signatures, HMAC, service-account signing, custom/basic roles and gRPC/broader XML enforcement; obtain real-service SPEC-017 wire evidence. Scoped unconditional bucket/public grants and XML reads are verified.",
+          "description": "Implement object IAM policies/conditions, ACLs/default ACLs, full UBLA/PAP, V2/HMAC and remaining V4 writes/transports, Google IAM signing, custom/basic roles and gRPC/broader XML enforcement; obtain real-service SPEC-017 wire evidence. Scoped unconditional bucket/public grants and XML reads are verified.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -30036,6 +30163,18 @@
             "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
           ],
           "result": "PASS"
+        },
+        {
+          "id": "DESIGN-002-SIGNED-READ",
+          "description": "Private V4 RSA GET/HEAD/range, project/bucket signer grants, revocation, startup public-key validation and fail-closed tamper errors; HEAD remains bodyless. Pinned SDK succeeds unmodified at default-port authorities and independently cross-checks explicit ports over HTTP/HTTPS. Any partial V4 field set fails strict authentication, including Date/Expires/SignedHeaders alone.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "TestV4RSASignedDownload",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+          ]
         }
       ],
       "test_ids": [
@@ -30054,7 +30193,12 @@
         "bucket_patch_strict_permissions_and_policy_preservation",
         "storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation",
         "bucket_put_strict_permissions_and_policy_preservation",
-        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
+        "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "TestV4RSASignedDownload",
+        "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
       ],
       "verification": [
         {
@@ -30104,6 +30248,36 @@
             "bucket_put_strict_permissions_and_policy_preservation",
             "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -30122,10 +30296,25 @@
             "TestStrictAuthObjectViewer",
             "TestStrictAuthObjectCreator"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; default-port unmodified SDK signing; independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
         }
       ],
       "known_deviations": [
-        "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, signed URLs, HMAC, service-account signing and broader transport enforcement remain unimplemented.",
+        "Scoped local project/bucket predefined roles and public principal sets are enforced. Object IAM, IAM conditions, custom/basic roles, ACLs, full UBLA/PAP, signed writes/remaining formats, HMAC, Google IAM signing and broader transport enforcement remain unimplemented.",
         "Local bearer tokens stand in for Google identity; real OAuth tokens are not verified and are rejected unless registered. Tokens are compared by hash-map lookup, not in constant time.",
         "SPEC-017: authError message/location, the short 403 Forbidden message, the absent WWW-Authenticate header, the missing-bucket 404/403 rule, no extra permission for projection=full and evaluating overwrite preconditions (412) before the overwrite permission (403) are local choices pending real-service evidence."
       ],
@@ -31949,25 +32138,62 @@
       "interface": "XML signature authorization",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "A cryptographically valid signature is insufficient when the signing principal lacks the operation's permission.",
+      "notes": "Strict signed GET/HEAD requires the signer's effective storage.objects.get permission through project and bucket IAM in the existing read transaction; invalid signatures never fall back to public access. Signed write permission cases remain pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-029-READ-GRANTS",
+          "description": "Private GET/HEAD/range, project and bucket-only grants, cross-bucket denial and revocation.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions"
+          ]
+        },
+        {
+          "id": "DESIGN-029-FAIL-CLOSED",
+          "description": "Unknown signer and tampering cannot fall back to public grants.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        },
+        {
+          "id": "DESIGN-029-WRITE-PENDING",
+          "description": "Verify signer permissions for signed XML PUT and other write operations.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": ["Signed XML write-operation permission checks remain pending; current enforcement covers GET/HEAD only."],
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-030",
@@ -31977,26 +32203,122 @@
       "interface": "XML signed URL",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/signatures",
         "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Verify GOOG4-RSA-SHA256 with fixture keys; include valid and tampered cases.",
+      "notes": "GOOG4-RSA-SHA256 query verification uses bounded registered RSA SPKI public keys, startup validation, scope parsing and tamper rejection. This cryptographic gate is separate from operation permissions, canonical field families and full XML error parity. SPEC-GO-SIGNER-PORT records the pinned SDK limitation. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Every proper nonempty subset of the six signing fields fails under public grants.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-030-KEYS",
+          "description": "Accept bounded public RSA SPKI; reject private/malformed/oversized PEM and invalid registry keys before readiness.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
+          ]
+        },
+        {
+          "id": "DESIGN-030-RSA",
+          "description": "Verify private GET/HEAD; reject unknown signers and missing/malformed/duplicate signing fields.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions"
+          ]
+        },
+        {
+          "id": "DESIGN-030-TAMPER",
+          "description": "Method/resource/query/Host/port/header/hex tampering fails without fallback. Every proper nonempty subset of the six signing fields fails under public grants.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+          ]
+        },
+        {
+          "id": "DESIGN-030-SDK",
+          "description": "Unmodified pinned SDK works at default-port authorities; independent Go canonical signing corrects only its dropped port, cross-checks SignBytes and rejects tampering over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "TestV4RSASignedDownload",
+        "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::partial_signing_fields_never_become_anonymous_under_public_grants"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-031",
@@ -32035,26 +32357,68 @@
       "interface": "XML signed URL",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signed-urls",
-        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
+        "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually",
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate expiration and allowed duration/skew against current specification with a deterministic clock.",
+      "notes": "Injected Clock enforces decimal 1..604800 seconds, exact Gregorian UTC timestamp, credential-day equality, the officially documented 900-second early skew and exclusive expiry. Exact wire wording/precedence remains DESIGN-044. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-032-TIME",
+          "description": "Accept active minus 900 seconds and one second before expiry; reject active minus 901 and exactly at expiry using a deterministic clock.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew"
+          ]
+        },
+        {
+          "id": "DESIGN-032-INPUT",
+          "description": "Reject invalid duration/date/scope and credential-day mismatch; accept the seven-day maximum.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected"
+          ]
+        },
+        {
+          "id": "DESIGN-032-WIRE",
+          "description": "Expired and too-early signed requests fail despite public grants.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew",
+        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-033",
@@ -32064,25 +32428,99 @@
       "interface": "XML canonical request",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "A host changed after signing fails. Include non-default ports and virtual-host/path addressing.",
+      "notes": "Actual Host including port is required and signed without advertised/forwarded rewriting; path-style HTTP/HTTPS checks pass and changed host/port fails. SPEC-GO-SIGNER-PORT documents unmodified SDK portless success, explicit-port failure and independent correction. Virtual-host routing remains pending. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-033-HOST",
+          "description": "Path-style final Host/port, missing or changed headers and trusted HTTPS listener behavior. The helper omits default ports before signing; strict verification binds actual Host and rejects conflicting absolute-form authority.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signed_private_download_uses_the_https_listener_host_and_port",
+            "TestV4RSASignedDownload",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+          ]
+        },
+        {
+          "id": "DESIGN-033-VIRTUAL-PENDING",
+          "description": "Implement virtual-host bucket routing and its canonical host/path cases.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signed_private_download_uses_the_https_listener_host_and_port",
+        "TestV4RSASignedDownload",
+        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signed_private_download_uses_the_https_listener_host_and_port",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Virtual-host routing remains unavailable; SPEC-GO-SIGNER-PORT records the pinned SDK defect without relaxing server Host checks."
+      ],
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-034",
@@ -32092,25 +32530,99 @@
       "interface": "XML canonical request",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Preserve raw URI distinctions; cover percent-encoding, repeated slashes, UTF-8 and dot-like keys.",
+      "notes": "Raw canonicalization preserves encoded path spelling, Unicode, slash and dot-like distinctions without filesystem normalization; encoded separators rewritten after signing fail verification. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-034-ENCODING",
+          "description": "Unicode/reserved/percent/plus/space bytes and encoded separators bind raw paths; malformed escapes reject.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions"
+          ]
+        },
+        {
+          "id": "DESIGN-034-WIRE",
+          "description": "Signed reads round trip Unicode, repeated/trailing/leading slashes and dot-like keys; changed encoded separators fail.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
+        },
+        {
+          "id": "DESIGN-034-SDK",
+          "description": "Independent pinned Go signatures cover Unicode/reserved bytes, repeated slashes and dot-like names over HTTP/HTTPS.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+        "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names",
+        "TestV4RSASignedDownload"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-035",
@@ -32120,25 +32632,109 @@
       "interface": "XML canonical request",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Cover query canonicalization, duplicate parameters and mutation of signed response overrides.",
+      "notes": "Sorted encoded query binds every parameter except X-Goog-Signature; add/remove/change and generation mutation fail. Duplicate decoded names reject locally. Valid signed response-* overrides return explicit 501; full overrides and duplicate-provider parity remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Full canonical strings pin decoded-name code-point order before encoding, including a, + and Unicode names; independent Go query signatures agree before explicit 501 for unsupported parameters.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-035-QUERY",
+          "description": "Encode/sort names and values, including spaces/plus/Unicode/reserved bytes; reject duplicate/malformed names and missing signing fields. Full canonical strings pin decoded-name code-point order before encoding, including a, + and Unicode names; independent Go query signatures agree before explicit 501 for unsupported parameters.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
+          ]
+        },
+        {
+          "id": "DESIGN-035-MUTATION",
+          "description": "Query and generation tampering fail; valid unsupported response overrides return 501.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "id": "DESIGN-035-OVERRIDES-PENDING",
+          "description": "Implement response-* override semantics and establish exact duplicate/ambiguous query provider behavior.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+        "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "TestV4RSASignedDownload",
+        "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-SIGNING-EDGES: duplicate decoded query names reject locally; response overrides remain unsupported."
+      ],
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-036",
@@ -32148,25 +32744,108 @@
       "interface": "XML canonical request",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Validate missing/changed signed headers and documented whitespace, casing and repeated header rules.",
+      "notes": "Require sorted unique lowercase signed names including host; trim/collapse ASCII whitespace and join repeated values in wire order with commas. Missing/changed values and unsigned required extension headers reject. Optional content-sha256 payload ambiguity remains separate in SPEC-SIGNING-EDGES/DESIGN-037. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-036-NORMALIZE",
+          "description": "Match published canonical header example and whitespace/repeated header equivalence in units and HTTP.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::canonical_headers_match_the_official_published_example",
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names"
+          ]
+        },
+        {
+          "id": "DESIGN-036-REJECT",
+          "description": "Reject missing/changed values, reversed repeats, invalid signed-name lists and unsigned required extension headers.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed"
+          ]
+        },
+        {
+          "id": "DESIGN-036-SDK",
+          "description": "Pinned Go required-header signatures verify over HTTP/HTTPS; changed Host/method fails.",
+          "result": "PASS",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::canonical_headers_match_the_official_published_example",
+        "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+        "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names",
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed",
+        "TestV4RSASignedDownload"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::canonical_headers_match_the_official_published_example",
+            "auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions",
+            "signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names",
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-037",
@@ -32204,25 +32883,96 @@
       "interface": "XML signed URL",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "GET signatures cannot authorize PUT; altered bucket/object/generation must not reuse a signature.",
+      "notes": "GET signatures cannot authorize HEAD/PUT/DELETE or changed bucket/object/generation. Verification precedes unsupported operation dispatch and object lookup; positive HEAD requires its own signature. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-038-METHOD",
+          "description": "GET signatures reject HEAD/PUT/DELETE while independently signed GET/HEAD succeeds.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions"
+          ]
+        },
+        {
+          "id": "DESIGN-038-RESOURCE",
+          "description": "Changed bucket/object/generation or added/removed query values reject without mutation or public fallback.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "test_ids": [
+        "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "TestV4RSASignedDownload"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound",
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP and trusted HTTPS XML; unmodified SDK default-port signing and independent non-default-port correction (SPEC-GO-SIGNER-PORT)",
+          "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-sdk-go-https.txt",
+          "test_ids": [
+            "TestV4RSASignedDownload"
+          ]
+        }
+      ],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-039",
@@ -32376,25 +33126,61 @@
       "interface": "XML error contract",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/authentication/signatures"
+        "https://docs.cloud.google.com/storage/docs/authentication/signatures",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Match documented error statuses and structures; avoid successful responses on tampered requests.",
+      "notes": "Signed failures use XML status/code pairs: malformed 400 InvalidAuthentication, unknown signer 403 InvalidAccessKeyId, mismatch 403 SignatureDoesNotMatch, expiry 400 ExpiredToken, early 403 RequestTimeTooSkewed, permission 403 AccessDenied. HEAD is bodyless; exact provider mapping/messages/precedence remain SPEC-SIGNING-EDGES. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-044-ERRORS",
+          "description": "Exercise declared XML failures, no fallback through public grants, bodyless HEAD and 501 unsupported signed overrides.",
+          "result": "PASS",
+          "test_ids": [
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
+        },
+        {
+          "id": "DESIGN-044-EXACT-PENDING",
+          "description": "Establish query-specific error mappings, exact messages/headers and mixed-error precedence from provider evidence.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+        "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+        "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors",
+            "signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions",
+            "xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access"
+          ]
+        }
+      ],
       "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "known_deviations": [
+        "SPEC-SIGNING-EDGES: precise query-specific error mappings, messages/headers and mixed-error precedence remain local choices."
+      ],
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-045",
@@ -32404,25 +33190,75 @@
       "interface": "Emulator extension",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signing-urls-manually"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Generate URLs for the actual emulator endpoint without real IAM signBlob calls; not a GCS server method.",
+      "notes": "Local url sign signs exact final HTTP(S) endpoint, encoded object and required headers with bounded RSA PEM, GET/HEAD/PUT, duration suffixes and explicit/system timestamp; no IAM/network/config read or permission change. Fixtures are clearly test-only and the server rejects private keys. Contract: docs/en/slices/signed-download.md; evidence: docs/en/evidence/signed-download.md. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {
+          "id": "DESIGN-045-URL",
+          "description": "CLI output verifies for final HTTPS host:port, encoded object and repeated headers. Default HTTP/HTTPS ports are normalized away before signing so browser/curl Host matches the emitted final URL.",
+          "result": "PASS",
+          "test_ids": [
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+          ]
+        },
+        {
+          "id": "DESIGN-045-OPTIONS",
+          "description": "Validate required/duplicate/unknown/unpaired options, forbidden headers, durations, methods, timestamps and private-key inputs; English help.",
+          "result": "PASS",
+          "test_ids": [
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs"
+          ]
+        },
+        {
+          "id": "DESIGN-045-KEYS",
+          "description": "Offline fixture signatures work; invalid/private public registry inputs fail before readiness.",
+          "result": "PASS",
+          "test_ids": [
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit"
+          ]
+        }
+      ],
+      "test_ids": [
+        "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+        "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+        "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs",
+        "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+        "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+        "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/signed-download-tests.txt",
+          "test_ids": [
+            "signing_cli_outputs_a_verified_final_host_url_and_repeated_headers",
+            "signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options",
+            "signing_cli_validates_duration_methods_timestamps_and_private_key_inputs",
+            "auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material",
+            "signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit",
+            "auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "4729d5a3657394eaa9edd0da116f377424c3ac9a",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "DESIGN-046",

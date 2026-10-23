@@ -3,11 +3,12 @@
 //! `permissive` ignores credentials and performs no permission checks. `strict` resolves the
 //! caller from a local identity registry loaded once at startup and evaluates permissions from
 //! the pinned predefined-role snapshot in [`roles`] and scoped bucket policies.
-//! ACLs and signed URLs are not modeled.
+//! ACLs are not modeled. Strict XML query signatures use registered RSA public keys.
 //! Nothing here contacts Google or the metadata server.
 
 mod policy;
 pub(crate) mod roles;
+pub mod signature;
 pub use policy::{Binding, Policy};
 
 use hyper::{HeaderMap, header::AUTHORIZATION};
@@ -43,14 +44,17 @@ const MAX_PROJECTS: usize = 64;
 const MAX_ROLES: usize = 32;
 
 /// Query parameters that carry credentials in Google APIs (OAuth tokens and V2/V4 signatures).
-/// Strict mode rejects them instead of ignoring them, so they can never grant or fall back to
-/// anonymous access before signed URLs are implemented.
+/// Strict JSON/bearer authentication rejects them instead of falling back to anonymous access;
+/// the XML adapter dispatches supported V4 query credentials to the RSA verifier separately.
 const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "access_token",
     "oauth_token",
     "X-Goog-Signature",
     "X-Goog-Credential",
     "X-Goog-Algorithm",
+    "X-Goog-Date",
+    "X-Goog-Expires",
+    "X-Goog-SignedHeaders",
     "Signature",
     "GoogleAccessId",
 ];
@@ -203,6 +207,7 @@ impl<'a> Caller<'a> {
 pub struct Registry {
     identities: Vec<Identity>,
     tokens: HashMap<String, usize>,
+    signing_keys: HashMap<String, Vec<signature::PublicKey>>,
 }
 
 impl Registry {
@@ -241,15 +246,18 @@ impl Registry {
         let mut identities = Vec::with_capacity(entries.len());
         let mut ids = BTreeSet::new();
         let mut tokens = HashMap::new();
+        let mut signing_keys = HashMap::new();
         for (index, entry) in entries.iter().enumerate() {
             let error = |message: String| format!("identity_file: identities[{index}]: {message}");
             let entry = entry
                 .as_object()
                 .ok_or_else(|| error("must be a JSON object".into()))?;
-            if let Some(key) = entry
-                .keys()
-                .find(|key| !matches!(key.as_str(), "id" | "tokens" | "project_roles"))
-            {
+            if let Some(key) = entry.keys().find(|key| {
+                !matches!(
+                    key.as_str(),
+                    "id" | "tokens" | "project_roles" | "public_keys"
+                )
+            }) {
                 return Err(error(format!("unknown field: {key}")));
             }
             let id = entry
@@ -265,12 +273,35 @@ impl Registry {
             if !ids.insert(id.to_owned()) {
                 return Err(error(format!("duplicate id: {id}")));
             }
+            if let Some(keys) = entry.get("public_keys") {
+                let keys = keys
+                    .as_array()
+                    .filter(|keys| (1..=8).contains(&keys.len()))
+                    .ok_or_else(|| {
+                        error(
+                            "public_keys must be an array of 1..=8 inline public PEM strings"
+                                .into(),
+                        )
+                    })?;
+                let keys =
+                    keys.iter()
+                        .map(|key| {
+                            signature::PublicKey::parse(key.as_str().ok_or_else(|| {
+                                error("public_keys entries must be strings".into())
+                            })?)
+                            .map_err(error)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                signing_keys.insert(id.to_owned(), keys);
+            }
             let token_values = entry
                 .get("tokens")
                 .ok_or_else(|| error("missing required field: tokens".into()))?
                 .as_array()
                 .ok_or_else(|| error("tokens must be an array".into()))?;
-            if !(1..=MAX_TOKENS).contains(&token_values.len()) {
+            if token_values.len() > MAX_TOKENS
+                || (token_values.is_empty() && !signing_keys.contains_key(id))
+            {
                 return Err(error(format!(
                     "tokens must contain 1..={MAX_TOKENS} entries"
                 )));
@@ -336,7 +367,11 @@ impl Registry {
                 permissions,
             });
         }
-        Ok(Self { identities, tokens })
+        Ok(Self {
+            identities,
+            tokens,
+            signing_keys,
+        })
     }
 
     pub fn len(&self) -> usize {
