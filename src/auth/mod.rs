@@ -52,6 +52,9 @@ const CREDENTIAL_QUERY_PARAMETERS: &[&str] = &[
     "X-Goog-Signature",
     "X-Goog-Credential",
     "X-Goog-Algorithm",
+    "X-Goog-Date",
+    "X-Goog-Expires",
+    "X-Goog-SignedHeaders",
     "Signature",
     "GoogleAccessId",
 ];

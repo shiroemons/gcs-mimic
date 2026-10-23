@@ -183,10 +183,11 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
-        for parameter in crate::auth::signature::PARAMETERS {
-            query.remove(*parameter);
-        }
-        if !query.is_empty() {
+        // Authentication validates credential fields from the original URI before using this operation.
+        if query
+            .keys()
+            .any(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+        {
             return Err(Error::unsupported());
         }
         Ok(ReadRequest {

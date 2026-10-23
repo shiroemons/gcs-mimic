@@ -145,7 +145,7 @@ pub fn is_signed(query: Option<&str>) -> bool {
     query.is_some_and(|query| {
         query.split('&').any(|pair| {
             let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
-            ["X-Goog-Signature", "X-Goog-Algorithm"]
+            PARAMETERS
                 .iter()
                 .any(|name| key.eq_ignore_ascii_case(name.as_bytes()))
         })
@@ -279,6 +279,13 @@ fn canonical_request(
         if values.is_empty() || (name == "host" && (values.len() != 1 || values[0].is_empty())) {
             return Err(Failure::Mismatch);
         }
+        if name == "host"
+            && uri
+                .authority()
+                .is_some_and(|authority| authority.as_str() != values[0])
+        {
+            return Err(Failure::Mismatch);
+        }
         writeln!(canonical_headers, "{name}:{}", values.join(",")).unwrap();
     }
     let path = canonical_path(uri.path())?;
@@ -346,15 +353,10 @@ fn encode(raw: &str) -> String {
 }
 
 fn canonical_query(query: &BTreeMap<String, String>) -> String {
-    let mut pairs: Vec<_> = query
+    query
         .iter()
         .filter(|(k, _)| k.as_str() != "X-Goog-Signature")
-        .map(|(k, v)| (encode(k), encode(v)))
-        .collect();
-    pairs.sort();
-    pairs
-        .into_iter()
-        .map(|(k, v)| format!("{k}={v}"))
+        .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
         .collect::<Vec<_>>()
         .join("&")
 }
@@ -444,7 +446,7 @@ pub fn sign_url(
     now: SystemTime,
     mut headers: HeaderMap,
 ) -> Result<String, String> {
-    let uri: Uri = url.parse().map_err(|_| "invalid signing URL")?;
+    let mut uri: Uri = url.parse().map_err(|_| "invalid signing URL")?;
     if !matches!(uri.scheme_str(), Some("http" | "https"))
         || uri.authority().is_none_or(|a| a.as_str().contains('@'))
         || url.contains('#')
@@ -461,6 +463,26 @@ pub fn sign_url(
     }
     if headers.contains_key("host") || headers.contains_key("authorization") {
         return Err("host and authorization cannot be supplied as signing headers".into());
+    }
+    let default_port = if uri.scheme_str() == Some("http") {
+        80
+    } else {
+        443
+    };
+    if uri.authority().unwrap().port_u16() == Some(default_port) {
+        // Browsers omit default ports in Host; normalize before signing the final URL.
+        let authority = uri
+            .authority()
+            .unwrap()
+            .as_str()
+            .rsplit_once(':')
+            .unwrap()
+            .0
+            .parse()
+            .map_err(|_| "invalid host")?;
+        let mut parts = uri.into_parts();
+        parts.authority = Some(authority);
+        uri = Uri::from_parts(parts).map_err(|_| "invalid signing URL")?;
     }
     headers.insert(
         "host",

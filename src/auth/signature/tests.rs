@@ -324,6 +324,61 @@ fn canonical_headers_match_the_official_published_example() {
 }
 
 #[test]
+fn canonical_query_sorts_decoded_names_before_encoding() {
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "localhost:4443".parse().unwrap());
+    let query = BTreeMap::from([
+        ("a".into(), "a b".into()),
+        ("+".into(), "+".into()),
+        ("é".into(), "日".into()),
+    ]);
+    let canonical = canonical_request(
+        &Method::GET,
+        &"/bucket/o?a=a+b&%2B=%2B&%C3%A9=%E6%97%A5".parse().unwrap(),
+        &headers,
+        &query,
+        "host",
+    )
+    .unwrap();
+    assert_eq!(
+        canonical,
+        "GET\n/bucket/o\n%2B=%2B&a=a%20b&%C3%A9=%E6%97%A5\nhost:localhost:4443\n\nhost\nUNSIGNED-PAYLOAD"
+    );
+}
+
+#[test]
+fn signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority() {
+    let now = parse_timestamp(DATE).unwrap();
+    for (base, expected) in [
+        ("http://localhost:80", "http://localhost/"),
+        ("https://localhost:443", "https://localhost/"),
+        ("http://[::1]:80", "http://[::1]/"),
+    ] {
+        let url = signed(&format!("{base}/bucket/o"), &Method::GET, HeaderMap::new());
+        assert!(url.starts_with(expected), "{url}");
+        assert!(verify(&url, &Method::GET, HeaderMap::new(), now).is_ok());
+        let mut headers = HeaderMap::new();
+        headers.insert("host", base.split_once("://").unwrap().1.parse().unwrap());
+        assert_eq!(
+            verify(&url, &Method::GET, headers, now),
+            Err(Failure::Mismatch)
+        );
+    }
+    let url = signed("http://localhost/bucket/o", &Method::GET, HeaderMap::new());
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "localhost".parse().unwrap());
+    assert_eq!(
+        verify(
+            &url.replace("http://localhost/", "http://other.invalid/"),
+            &Method::GET,
+            headers,
+            now
+        ),
+        Err(Failure::Mismatch)
+    );
+}
+
+#[test]
 fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() {
     let now = parse_timestamp(DATE).unwrap();
     for payload in [
@@ -334,6 +389,11 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
         headers.insert("x-goog-content-sha256", payload.parse().unwrap());
         let url = signed("http://localhost/bucket/o", &Method::GET, headers.clone());
         assert!(verify(&url, &Method::GET, headers.clone(), now).is_ok());
+        headers.insert("x-goog-content-sha256", "0".repeat(64).parse().unwrap());
+        assert_eq!(
+            verify(&url, &Method::GET, headers.clone(), now),
+            Err(Failure::Mismatch)
+        );
         headers.insert("x-goog-content-sha256", "changed".parse().unwrap());
         assert_eq!(
             verify(&url, &Method::GET, headers, now),

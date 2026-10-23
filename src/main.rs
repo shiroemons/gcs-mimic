@@ -70,7 +70,8 @@ const URL_SIGN_HELP: &str =
        --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
        [--timestamp YYYYMMDDTHHMMSSZ]
 
-Prints a V4 RSA signed URL for the exact supplied final HTTP(S) endpoint, including its port.
+Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
+Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
 Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
 Headers may repeat; Host is derived from the final URL and cannot be overridden.

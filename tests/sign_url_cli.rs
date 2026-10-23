@@ -99,6 +99,16 @@ fn signing_cli_validates_duration_methods_timestamps_and_private_key_inputs() {
         args[index] = value;
         assert!(!run_options(&args, &[]).status.success());
     }
+    for (base, expected) in [
+        ("http://localhost:80", "http://localhost/example-bucket/"),
+        ("https://localhost:443", "https://localhost/example-bucket/"),
+    ] {
+        let mut args = options();
+        args[3] = base;
+        let output = run_options(&args, &[]);
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).starts_with(expected));
+    }
 }
 
 #[test]

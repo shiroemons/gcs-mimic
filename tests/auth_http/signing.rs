@@ -390,3 +390,50 @@ fn invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit() 
     );
     assert_eq!(send(&server, "GET", &(url + "00"), "").ok().body, b"hello");
 }
+
+#[test]
+fn partial_signing_fields_never_become_anonymous_under_public_grants() {
+    let (_config, _data, server) = fixture();
+    iam::set(
+        &server,
+        ADMIN,
+        &json!({"bindings":[iam::binding("roles/storage.objectViewer","allUsers")]}),
+    )
+    .ok();
+    let url = sign(
+        &server,
+        &Method::GET,
+        "/iam-bucket/object",
+        "viewer@example.invalid",
+        SystemTime::now(),
+        HeaderMap::new(),
+    );
+    let (base, query) = url.split_once('?').unwrap();
+    let fields = query.split('&').collect::<Vec<_>>();
+    assert_eq!(fields.len(), 6);
+    for mask in 1..63 {
+        let query = fields
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, value)| *value)
+            .collect::<Vec<_>>()
+            .join("&");
+        error(
+            &send(&server, "GET", &format!("{base}?{query}"), ""),
+            400,
+            "InvalidAuthentication",
+        );
+    }
+    for query in [
+        "%58-Goog-Date=20261023T120000Z",
+        "x-goog-expires=60",
+        "X-Goog-SignedHeaders=host",
+    ] {
+        error(
+            &send(&server, "GET", &format!("{base}?{query}"), ""),
+            400,
+            "InvalidAuthentication",
+        );
+    }
+}
