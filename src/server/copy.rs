@@ -8,7 +8,7 @@ use crate::{
 use std::time::Duration;
 use tokio::{sync::watch, time::Instant};
 
-const BYTE_BUDGET: u64 = 1024 * 1024;
+const BYTE_BUDGET: u64 = 16 * 1024 * 1024;
 
 #[cfg(test)]
 pub(super) struct Checkpoint {
@@ -68,12 +68,14 @@ pub(super) async fn execute(
     .await?;
     let source_record = source.object.clone();
     // shortcut: admission is phase-local; reserve one slot if later-stage rejection under load must be eliminated.
+    activity.send_modify(|activity| activity.awaiting_catalog = true);
     let transfer = tokio::time::timeout_at(
         deadline,
         catalog.begin_derived_ephemeral(vec![source.whole()], config.max_object_bytes),
     )
     .await
     .map_err(|_| ObjectError::Unavailable("copy request deadline exceeded".into()))??;
+    activity.send_modify(|activity| activity.awaiting_catalog = false);
     let mut owner = catalog.guard_derived_request(&transfer.id);
     // The request owns this future: cancellation can finish an in-flight bounded advance,
     // but cannot start publication after its handler and cleanup guard have been dropped.
@@ -82,6 +84,7 @@ pub(super) async fn execute(
         #[cfg(test)]
         checkpoint_at(&progress, &mut checkpoint).await?;
         while progress.offset < progress.total {
+            activity.send_modify(|activity| activity.awaiting_catalog = true);
             progress = catalog.advance_derived(&transfer.id, BYTE_BUDGET).await?;
             activity.send_modify(|activity| activity.awaiting_catalog = false);
             #[cfg(test)]
@@ -160,7 +163,7 @@ mod tests {
             })
             .await
             .unwrap();
-        put(&catalog, "source", vec![b'a'; BYTE_BUDGET as usize * 3 + 7]).await;
+        put(&catalog, "source", vec![b'a'; BYTE_BUDGET as usize + 7]).await;
         (catalog, path)
     }
 
@@ -297,6 +300,34 @@ mod tests {
             response
         );
         clean(&catalog, &path, &progress.id).await;
+        catalog.close().await.unwrap();
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn copy_advisory_failure_does_not_begin_a_transfer() {
+        let (catalog, path) = fixture().await;
+        let source = source(&catalog).await;
+        let existing = put(&catalog, "copy", b"preserved".to_vec()).await;
+        let mut target = destination(&source, "copy", b"");
+        target.conditions.if_generation_match = Some(0);
+        let (request, observed, _resume) = start(&catalog, source, target, 0, 5000);
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), request)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(ObjectError::PreconditionFailed)
+        ));
+        assert!(observed.await.is_err());
+        assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
+        assert_eq!(
+            catalog
+                .get_object("bucket", "copy", None, Default::default())
+                .await
+                .unwrap(),
+            existing
+        );
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
     }
@@ -443,12 +474,15 @@ mod tests {
         });
         blocked.await.unwrap();
         resume.send(()).unwrap();
-        assert!(matches!(
-            request.await.unwrap(),
-            Err(ObjectError::Unavailable(_))
-        ));
+        let response = tokio::time::timeout(Duration::from_secs(5), request).await;
         release.send(()).unwrap();
         blocker.await.unwrap().unwrap();
+        assert!(matches!(
+            response
+                .expect("publication admission did not time out")
+                .unwrap(),
+            Err(ObjectError::Unavailable(_))
+        ));
         clean(&catalog, &path, &progress.id).await;
         assert_eq!(
             catalog
