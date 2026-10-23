@@ -4,6 +4,7 @@ default:
 
 # Run the pinned Rust and shell checks shared with CI.
 check:
+    bash scripts/test-pre-push.sh
     bash scripts/test-check.sh
     env -u RUSTUP_TOOLCHAIN bash scripts/check.sh
 
@@ -15,11 +16,18 @@ check-dependencies:
 check-sdk:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh --with-ruby
 
-# Build and smoke-test both Linux container architectures.
-check-containers:
-    bash scripts/smoke-containers.sh
+# Build and smoke-test both Linux container architectures in parallel.
+[parallel]
+check-containers: (check-container "linux/amd64") (check-container "linux/arm64")
 
-# Stop on the first failure; run before pushing the final source.
+# Build and smoke-test one Linux container architecture.
+check-container platform:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/smoke-containers.sh {{ quote(platform) }} 2>&1 | \
+        awk -v platform={{ quote(platform) }} '{ print "[" platform "] " $0; fflush() }'
+
+# Run each check stage in order; the container stage waits for both architectures.
 pre-push: check check-sdk check-containers
 
 # Stage a built native binary with licenses and build information.

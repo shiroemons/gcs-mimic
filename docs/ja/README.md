@@ -80,6 +80,7 @@ Google API全体やfake-gcs-serverとの完全互換を示すものではあり�
 - [ファイル保存の仕組み](storage-backends.md)
 - [ロードマップ](roadmap.md)と[並列開発の計画](delivery-plan.md)
 - [バージョンと公開の方針](release-policy.md)
+- [開発とpush前の確認](development.md)
 
 HTTPS、SDK、認証の詳しい手順は
 [英語の利用ガイド](../en/getting-started.md)を参照してください。

@@ -2,16 +2,20 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+[日本語](../ja/development.md)
+
 Requires rustup and curl for the explicit online freshness check. Python is not required. Rust 1.99.1 is the verified latest stable compiler; edition 2024 is explicit. No Google credentials or project are needed.
 
 ## Development commands and push checks
 
-Install [just](https://github.com/casey/just#installation) to use the checked-in
+Install [just](https://github.com/casey/just#installation) 1.56.0 or newer to use the checked-in
 `Justfile`; `just` lists the available recipes. The recipes are intended for
 macOS and Linux with Bash. The full pre-push check also requires Go, jq, curl,
 the pinned Ruby/Bundler/gems from [the Ruby harness](../../sdk-tests/ruby/README.md),
 Docker Engine/Desktop, Compose and Buildx. Docker must be running and able to
 execute both Linux amd64 and arm64 containers, using emulation where needed.
+The Justfile uses the standard [parallel attribute](https://just.systems/man/en/attributes.html)
+and `--jobs` to control container concurrency.
 
 ```sh
 just check
@@ -20,12 +24,27 @@ just check-containers
 just pre-push
 ```
 
-Run `just pre-push` on the final source before every push. It runs the Rust/shell
-checks, the complete Go/Ruby SDK suites, and both container architectures in order,
-stopping at the first failure. Run `just check` while editing and reserve the
-SDK/container checks for the final source. The existing harnesses use isolated
-temporary data and Compose volumes. Dependency downloads and container pulls
-can require network access; this is not an entirely offline command.
+Run `just pre-push` on the final source before every push. It runs three stages:
+
+1. Rust and shell checks.
+2. The complete Go/Ruby SDK suites.
+3. AMD64 and ARM64 container checks **in parallel**. Each builds its own image,
+   then immediately runs its smoke tests without waiting for the other build.
+
+A failed stage prevents the next stage from starting. The container stage waits
+for both workers and their cleanup, then fails if either worker failed. Output
+lines carry `[linux/amd64]` or `[linux/arm64]`, including build errors. The existing
+harness isolates image tags, Compose projects, volumes and dynamically assigned
+host ports for each worker.
+
+Run `just check` while editing and reserve the SDK/container checks for the final
+source. Parallel builds use more CPU and memory; on a constrained Docker host,
+use `just --jobs 1 pre-push` or `just --jobs 1 check-containers` to run them in
+sequence. To investigate one architecture, use `just check-container linux/amd64`
+or `just check-container linux/arm64`. The direct
+`bash scripts/smoke-containers.sh` command still runs its requested platforms in
+sequence. Dependency downloads and container pulls can require network access;
+this is not an entirely offline command.
 
 The local Rust check ignores an inherited `RUSTUP_TOOLCHAIN` and uses the
 repository pin. The SDK recipe clears `GCS_MIMIC_GO_TEST_RUN` so an inherited
@@ -33,6 +52,12 @@ filter cannot silently omit tests. CI calls the same `scripts/check.sh` directly
 preserving its selected pinned/current-stable toolchain; CI does not require
 just. `scripts/test-check.sh` verifies command order and failure propagation
 without compiling or starting containers.
+`just check` also runs `scripts/test-pre-push.sh`, which checks the actual
+Justfile with stub harnesses: overlapping workers, prefixed output, completion
+of both workers after failure, stage ordering and the serial fallback. Run it
+directly with `bash scripts/test-pre-push.sh` after changing recipes. This local
+Justfile test requires just; CI continues to use the direct shell harnesses and
+separate native container jobs.
 
 `bash scripts/sdk-go.sh` remains Go-only for the existing CI job; the SDK recipe
 explicitly passes `--with-ruby`. It requires installed pinned Ruby gems and fails
