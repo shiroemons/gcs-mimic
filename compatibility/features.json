@@ -11867,26 +11867,99 @@
       "interface": "storage.objects.rewrite",
       "phase": "P3",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: destinationBucket, destinationObject, sourceBucket, sourceObject. Query parameters: destinationKmsKeyName, destinationPredefinedAcl, dropContextGroups, ifGenerationMatch, ifGenerationNotMatch, ifMetagenerationMatch, ifMetagenerationNotMatch, ifSourceGenerationMatch, ifSourceGenerationNotMatch, ifSourceMetagenerationMatch, ifSourceMetagenerationNotMatch, maxBytesRewrittenPerCall, projection, rewriteToken, sourceGeneration, userProject.",
+      "notes": "The exact request/response, metadata, permission, condition, continuation and unsupported-input decomposition is docs/en/slices/object-rewrite.md. The frozen basic JSON profile is extended without changing existing read/upload semantics. Official Discovery revision 20261013 and pinned Storage v2 proto digests match the basic-contract pins. Full API and provider edge parity remain separate from the selected local workflow.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "REWRITE-RESOURCE",
+          "description": "Encoded source/destination paths, one-call/empty/same-name completion, metadata inheritance/replacement, string byte counts, conditional resource/token presence and response fields.",
+          "result": "PASS",
+          "test_ids": ["rewrite_one_call_empty_metadata_fields_and_same_name", "rewrite_metadata_checksums_validate_and_identity_is_path_selected", "rewrite_composite_source_preserves_or_resets_component_count_without_md5"]
+        },
+        {
+          "id": "REWRITE-CONDITIONS",
+          "description": "All eight source/destination conditions, explicit retained source generation, source changes and atomic create-if-absent races preserve failed destinations.",
+          "result": "PASS",
+          "test_ids": ["rewrite_all_conditions_preserve_failed_destination_and_retained_source", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_create_if_absent_race_has_one_atomic_winner", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite"]
+        },
+        {
+          "id": "REWRITE-STRICT",
+          "description": "Strict source read/destination create/overwrite delete, cross-bucket grants and revocation, holds and explicit rejection of unsupported encryption/ACL/billing/context semantics.",
+          "result": "PASS",
+          "test_ids": ["rewrite_strict_permissions_holds_versioning_and_unsupported_inputs", "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds", "rewrite_continuation_rechecks_strict_grants_and_destination_conditions", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state"]
+        },
+        {
+          "id": "REWRITE-SDK",
+          "description": "Pinned official Go Copier uses one-call and cross-location continuation, ProgressFunc, a one-MiB test maximum, exact boundaries, empty objects, metadata/hashes and destination conditions.",
+          "result": "PASS",
+          "test_ids": ["TestObjectRewriteCopier"]
+        },
+        {
+          "id": "REWRITE-STREAM-BUDGET",
+          "description": "A 16 MiB+17 rewrite completes despite a tiny catalog wait budget, and an owned initial mutation awaits its durable result across a blocked transaction and request deadline.",
+          "result": "PASS",
+          "test_ids": ["rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+        },
+        {
+          "id": "REWRITE-FULL-PROJECTION-PENDING",
+          "description": "Accepted projection=full exposes the frozen supported fields but does not model ACL/owner fields or their additional permission semantics; the broad method remains PARTIAL.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "The coordinator records the single integrated full SDK, container and native/Docker guide gate after copy/rewrite/compose merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "rewrite_one_call_empty_metadata_fields_and_same_name",
+        "rewrite_metadata_checksums_validate_and_identity_is_path_selected",
+        "rewrite_composite_source_preserves_or_resets_component_count_without_md5",
+        "rewrite_all_conditions_preserve_failed_destination_and_retained_source",
+        "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+        "rewrite_create_if_absent_race_has_one_atomic_winner",
+        "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+        "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs",
+        "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds",
+        "rewrite_continuation_rechecks_strict_grants_and_destination_conditions",
+        "rewrite_completion_replay_rejects_recreated_buckets",
+        "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state",
+        "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+        "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
+        "TestObjectRewriteCopier"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS", "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-rewrite-checks.txt",
+          "test_ids": ["rewrite_one_call_empty_metadata_fields_and_same_name", "rewrite_metadata_checksums_validate_and_identity_is_path_selected", "rewrite_composite_source_preserves_or_resets_component_count_without_md5", "rewrite_all_conditions_preserve_failed_destination_and_retained_source", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_create_if_absent_race_has_one_atomic_winner", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_strict_permissions_holds_versioning_and_unsupported_inputs", "rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds", "rewrite_continuation_rechecks_strict_grants_and_destination_conditions", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state", "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh",
+          "result": "PASS", "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-rewrite-sdk-go.txt",
+          "test_ids": ["TestObjectRewriteCopier"]
+        }
+      ],
+      "sdk_evidence": [{"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.308.0","transport":"HTTP JSON Copier; real rewrite/continuation and ProgressFunc with one-MiB testing query injected by the recorder; isolated local endpoint","result":"PASS","verified_at":"2026-10-23","command":"GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh","artifact":"docs/en/evidence/object-rewrite-sdk-go.txt","test_ids":["TestObjectRewriteCopier"]}],
+      "known_deviations": ["projection=full is accepted for the frozen basic profile and official Copier, but ACL/owner fields and their additional permissions are not modeled. Recognized KMS/CSEK, requester billing, contexts/retention and advanced metadata are explicitly rejected, not silently accepted. Provider questions remain outside the frozen local acceptance scope in SPEC-REWRITE-EDGES and existing basic-profile gaps."],
+      "implemented_in": "59cd42866dddd44817148068c1c65421f323a257",
+      "last_verified": "2026-10-23",
       "http_method": "POST",
       "path": "b/{sourceBucket}/o/{sourceObject}/rewriteTo/b/{destinationBucket}/o/{destinationObject}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -19849,26 +19922,103 @@
       "interface": "cross-cutting behavior",
       "phase": "P3",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "rewriteToken, done, byte counts, token constraints/expiry and restart handling.",
+      "notes": "The frozen local session scope in docs/en/slices/object-rewrite.md passes request-bound continuation, bounded progress, immediate-previous-token replay, atomic destination/completion, strict grants, process-kill/restart/corruption rejection and fixed seven-day expiry. Only FINAL-INTEGRATION remains pending before promotion to IMPLEMENTED/EXACT. Provider questions and infrastructure/power-loss claims are outside this declared acceptance scope and remain SPEC-REWRITE-EDGES.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "REWRITE-TOKENS",
+          "description": "Opaque random tokens bind the selected source, destination, all supplied conditions/parameters/body, permit omitted continuation fields and reject tampered or mismatched reuse.",
+          "result": "PASS",
+          "test_ids": ["tokens_are_opaque_and_tampering_never_selects_the_original_token", "continuation_binds_every_supplied_parameter_body_and_path", "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget"]
+        },
+        {
+          "id": "REWRITE-PROGRESS-REPLAY",
+          "description": "One-MiB granularity, monotonic byte counts, immediate token retry and concurrent retry never double advance; completion replay never creates another destination generation.",
+          "result": "PASS",
+          "test_ids": ["rewrite_route_decodes_once_and_bounds_byte_budgets", "rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_concurrent_token_retry_has_one_progress_checkpoint", "rewrite_committed_completion_does_not_reread_an_expired_token", "TestObjectRewriteCopier"]
+        },
+        {
+          "id": "REWRITE-RECOVERY",
+          "description": "Restart/process kill preserve acknowledged bytes and request binding; unacknowledged suffixes are discarded, invalid prefixes cleanly reject and remove active session state, and completion publishes exactly one durable object.",
+          "result": "PASS",
+          "test_ids": ["rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail", "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart", "rewrite_initial_request_owner_reclaims_undelivered_state"]
+        },
+        {
+          "id": "REWRITE-LIFETIME",
+          "description": "Injected-clock expiry at seven-day equality, separate active/completed bounds, cache eviction, busy-session maintenance and restart cleanup protect live destinations.",
+          "result": "PASS",
+          "test_ids": ["rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others", "rewrite_expired_token_and_restart_cleanup_preserve_live_destination", "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart", "rewrite_completed_cache_evicts_without_rejecting_new_rewrites"]
+        },
+        {
+          "id": "REWRITE-SOURCE-STATE",
+          "description": "Unqualified changed/deleted sources fail closed, explicit retained source generations may continue, and recreated buckets cannot reuse completed state.",
+          "result": "PASS",
+          "test_ids": ["rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_completion_replay_rejects_recreated_buckets"]
+        },
+        {
+          "id": "REWRITE-STREAM-BUDGET",
+          "description": "Large-source streaming and a blocked initial transaction await their durable outcome across tiny catalog wait/request deadlines.",
+          "result": "PASS",
+          "test_ids": ["rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+        },
+        {
+          "id": "FINAL-INTEGRATION",
+          "description": "The coordinator records the single integrated full SDK, container and native/Docker guide gate after copy/rewrite/compose merge.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "tokens_are_opaque_and_tampering_never_selects_the_original_token",
+        "continuation_binds_every_supplied_parameter_body_and_path",
+        "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget",
+        "rewrite_route_decodes_once_and_bounds_byte_budgets",
+        "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+        "rewrite_concurrent_token_retry_has_one_progress_checkpoint",
+        "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+        "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart",
+        "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others",
+        "rewrite_committed_completion_does_not_reread_an_expired_token",
+        "rewrite_initial_request_owner_reclaims_undelivered_state",
+        "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart",
+        "rewrite_completed_cache_evicts_without_rejecting_new_rewrites",
+        "rewrite_expired_token_and_restart_cleanup_preserve_live_destination",
+        "rewrite_source_overwrite_delete_and_metadata_change_fail_closed",
+        "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite",
+        "rewrite_completion_replay_rejects_recreated_buckets",
+        "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget",
+        "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success",
+        "TestObjectRewriteCopier"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --workspace --locked --offline",
+          "result": "PASS", "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-rewrite-checks.txt",
+          "test_ids": ["tokens_are_opaque_and_tampering_never_selects_the_original_token", "continuation_binds_every_supplied_parameter_body_and_path", "rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget", "rewrite_route_decodes_once_and_bounds_byte_budgets", "rewrite_progress_retry_restart_and_completion_replay_publish_once", "rewrite_concurrent_token_retry_has_one_progress_checkpoint", "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail", "rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart", "rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others", "rewrite_committed_completion_does_not_reread_an_expired_token", "rewrite_initial_request_owner_reclaims_undelivered_state", "rewrite_expired_completed_session_never_journals_the_live_blob_on_restart", "rewrite_completed_cache_evicts_without_rejecting_new_rewrites", "rewrite_expired_token_and_restart_cleanup_preserve_live_destination", "rewrite_source_overwrite_delete_and_metadata_change_fail_closed", "rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite", "rewrite_completion_replay_rejects_recreated_buckets", "rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget", "rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success"]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh",
+          "result": "PASS", "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/object-rewrite-sdk-go.txt",
+          "test_ids": ["TestObjectRewriteCopier"]
+        }
+      ],
+      "sdk_evidence": [{"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.308.0","transport":"HTTP JSON Copier; real rewrite continuation and ProgressFunc with a one-MiB testing query; isolated local endpoint","result":"PASS","verified_at":"2026-10-23","command":"GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh","artifact":"docs/en/evidence/object-rewrite-sdk-go.txt","test_ids":["TestObjectRewriteCopier"]}],
+      "known_deviations": ["Only FINAL-INTEGRATION remains pending: record the coordinator-owned integrated full SDK, container and native/Docker guide evidence after copy/rewrite/compose merge, then remove this temporary gate note and promote the frozen local behavior scope to IMPLEMENTED/EXACT."],
+      "implemented_in": "59cd42866dddd44817148068c1c65421f323a257",
+      "last_verified": "2026-10-23"
     },
     {
       "id": "BEHAVIOR-OBJECT-025",

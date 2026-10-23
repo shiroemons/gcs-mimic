@@ -1,0 +1,21 @@
+Local checkout path prefixes have been replaced with <checkout>.
+Checked: 2026-10-23
+Runtime implementation: 59cd42866dddd44817148068c1c65421f323a257
+
+$ GCS_MIMIC_GO_TEST_RUN='^TestObjectRewriteCopier$' bash scripts/sdk-go.sh
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.05s
+=== RUN   TestObjectRewriteCopier
+    objects_rewrite_test.go:61: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:63681
+=== RUN   TestObjectRewriteCopier/one_call_same_location
+=== RUN   TestObjectRewriteCopier/multiple_calls_across_locations
+=== RUN   TestObjectRewriteCopier/exact_byte_boundary
+=== RUN   TestObjectRewriteCopier/empty_object
+--- PASS: TestObjectRewriteCopier (0.47s)
+    --- PASS: TestObjectRewriteCopier/one_call_same_location (0.14s)
+    --- PASS: TestObjectRewriteCopier/multiple_calls_across_locations (0.14s)
+    --- PASS: TestObjectRewriteCopier/exact_byte_boundary (0.13s)
+    --- PASS: TestObjectRewriteCopier/empty_object (0.06s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	0.908s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

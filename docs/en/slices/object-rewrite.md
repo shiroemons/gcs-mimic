@@ -3,7 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract checked on **2026-10-23** for `JSON-OBJECTS-012` and
-`BEHAVIOR-OBJECT-024`. This document defines acceptance, not completed evidence.
+`BEHAVIOR-OBJECT-024`. This document defines the frozen local acceptance scope;
+[verification](../evidence/object-rewrite.md) records passing local checks and
+the remaining integrated gate.
 The [feature ledger](../../../compatibility/features.json) alone owns status.
 The [frozen basic JSON profile](basic-json-contract.md) remains the baseline.
 Storage v2 RPC, batch rewrite and enrichment rewrite are outside this slice;
@@ -36,10 +38,12 @@ operation is authorized or required by this slice.
 
 ## Exact selected subset
 
-The target is flat-namespace ordinary immutable objects, native and existing
+The target is flat-namespace immutable objects, native and existing
 legacy profiles, persisted catalog/blob storage, existing supported storage
 classes, versioning/event holds and strict local grants. Supported metadata
-and publication rules come from the derived-object copy foundation.
+and publication rules come from the derived-object copy foundation. Composite
+fixtures verify component propagation and CRC32C without a resource MD5; they
+do not claim implementation of the separate compose API.
 There is no emulated network transfer, regional durability, replication, KMS,
 ACL enforcement, retention, soft deletion, appendable object or enrichment.
 Recognized inputs needing those unavailable semantics fail 501; malformed
@@ -74,20 +78,24 @@ validators extend the frozen profile. Other methods return 405 with `Allow: POST
 
 An absent body copies supported editable metadata from the source, excluding
 source ACLs, holds and retention. Destination bucket defaults still apply.
+A JSON `null` body has the same inheritance behavior, as an explicit local
+interpretation for official generated clients' nil optional resources.
 A supplied Object body constructs destination metadata using the copy
 foundation's declared omission/null rules. Cover both absent body and `{}`;
 they must not be conflated. Fixed content fields, custom metadata, supported
 storageClass and eventBasedHold have real effects. Destination generation,
 metageneration and timestamps are fresh, while size/MD5/CRC32C describe the
-streamed source bytes. Client-provided checksums, if supported by the shared
-foundation, must be validated before publication, never echoed unverified.
+streamed source bytes. Body MD5/CRC32C values are parsed and checked against the
+selected source; the shared publisher also checks streamed full-byte hashes
+before publication. Mismatch is 400 without destination mutation.
 Path identity overrides body identity. Unknown/output-only body handling follows
 the copy contract and the basic-profile source question; no blanket new policy.
 
 ACL/owner, contexts, retention, temporaryHold, customTime and encryption semantics
-remain explicit unsupported cases. Composite object component-count changes
-are owned by the compose slice; this slice must not invent a component count
-for an ordinary object or claim composite rewriting before shared support exists.
+remain explicit unsupported cases. Composite sources retain component count in
+the same location/class or reset it to one when either changes, using the shared
+helper. Ordinary objects never gain component count. Composite resources omit
+MD5 and retain CRC32C.
 An active source event hold permits reading; a protected destination cannot
 be replaced. Destination versioning archives its old live generation exactly
 once. Rewriting onto the same name must retain the original pinned bytes and
@@ -129,7 +137,12 @@ source bucket/object/generation/blob ID and bucket incarnation, destination path
 and incarnation, normalized initial request parameters and raw metadata body,
 effective destination metadata, staged opaque blob ID, acknowledged byte
 offset, object size, partial checksum state/checkpoint, creation/deadline,
-state and completion resource. Store no secret material in the token.
+state and completion resource. The derived transfer owns the actual staged blob,
+offset and incremental hashes; the protocol row stores the saved request and
+replay response/key. Its `transfer_id` references the derived transfer with
+`ON DELETE CASCADE`. Completion detaches that reference in the destination
+transaction, preserving completed replay while cancellation/expiry/quarantine
+removes active state. Store no secret material in the token.
 
 `rewrite_token.rs` uses a 256-bit random hex token as a database lookup key.
 Only an exact persisted token authenticates a checkpoint; syntactic decoding
@@ -139,21 +152,27 @@ original session; no home-grown MAC or weak hash substitutes for randomness.
 Optional continuation inputs are compared as a subset of the saved inputs,
 without overwriting saved conditions. The stored request remains authoritative.
 
-State transitions are `ACTIVE -> ACTIVE` after a durable prefix checkpoint,
-`ACTIVE -> COMPLETE` atomically with destination publication, and
-`ACTIVE -> FAILED` for a terminal source/condition failure. Sessions expire
+Logical state is active after creation/checkpoints and complete atomically with
+destination publication. Quarantined or destructively cancelled transfers
+remove their active protocol row. A terminal source identity/precondition failure
+removes its staged blob, input pins and protocol row; retry then fails 410.
+Revoked source read/create grants can be restored without discarding progress.
+Sessions expire
 after a fixed 604800 seconds from creation, including at deadline equality;
-calls do not renew the deadline. Limit all retained sessions to 128 and use the
+calls do not renew the deadline. Limit active sessions to 128 and separately
+cache at most 128 completed responses, evicting the oldest completion when full.
+Eviction makes that completed token unavailable without changing its destination.
+Use the
 existing eight-stream admission budget and exclusive per-session writer guard.
 Admission and cleanup errors stay visible and never drop existing data.
 
 Each call opens the pinned source revision and copies at most the permitted
 progress using a 64 KiB buffer. No object-size allocation or catalog transaction
 spans file I/O. Flush/sync the staged prefix before committing offset/checksums
-and the next token. Persist enough checksum state to continue, or rebuild it
-from the acknowledged prefix with bounded reads after restart; never serialize
-an undocumented Rust hasher memory layout. Check prefix hashes against saved
-values before using a recovered stage. A crash after writing but before SQL
+and the next token. Hash checkpoints use md-5 0.11.0's SerializableState API and
+CRC32C, pinned with the catalog format; a format change requires migration.
+Recovery rebuilds hashes from the acknowledged prefix with bounded reads and
+checks them against saved values before use. A crash after writing but before SQL
 checkpoint truncates back to the acknowledged offset. Missing, truncated or
 corrupt acknowledged prefixes cleanly invalidate the session without publishing
 a destination. A source revision changed or removed between calls must never
@@ -165,6 +184,12 @@ conditions/holds and strict grants, publishes one reference and commits the
 completion record. An ambiguous commit requires a reference/completion lookup
 before cleanup. A rename-before-commit crash restores the ACTIVE stage; a
 committed completion must never be reclaimed with the session.
+The owned request task retains its session writer through the mutation and
+awaits the durable result even after the configured request deadline; returning
+a timeout while a detached operation could publish would misreport its outcome.
+Before an initial progress response is handed off, a cancellation owner reclaims
+unreturned active state. Completion returns the transaction's captured resource
+without a second expiry-sensitive token lookup.
 
 Keep the previous input token and its saved output alongside the current token:
 retrying that token returns the same progress/completion without another copy
@@ -177,7 +202,9 @@ unless separately implemented and tested; no unbounded token history.
 
 Extend the existing injected-clock/next-deadline maintenance scheduler. Query
 bounded pages, wake on session creation/checkpoint/expiry, and sleep only until
-the next deadline; no periodic scan when idle. Journal failed physical cleanup
+the next deadline; no periodic scan when idle. Skip a busy expired session,
+continue reclaiming other expired sessions and retry the busy one after one second.
+Journal failed physical cleanup
 with pending blob deletions and retry on a bounded deadline. Recovery runs
 before generic orphan scans, so active stages survive restart. Completed
 destination blobs remain protected by catalog references.
@@ -192,7 +219,9 @@ allow/deny/revocation, holds/versioning and racing create-if-absent publication.
 Restart after a partial checkpoint must complete with identical bytes/hashes;
 source overwrite/delete must terminate or consistently select a retained
 requested generation. Test staged suffix truncation, missing/corrupt prefixes,
-expiry, bounded admission, duplicate/concurrent token retry and post-completion
+expiry, separate active/completed bounds, completed-expiry restart, busy-session
+maintenance, undelivered initial state cleanup, deadline crossings,
+duplicate/concurrent token retry and post-completion
 retry without a new generation. Resource evidence must demonstrate bounded
 buffering; source inspection alone proves no RSS/cgroup claim.
 
@@ -203,7 +232,8 @@ full Rust tests during implementation. Run final containers/full SDK/guide only
 after the coordinator declares source final. Record only executed results in
 one final evidence set, and leave broader rows PARTIAL where cases remain.
 
-Open questions to reconcile in the ledger before promotion: exact minimum/zero
+Provider questions outside the frozen local acceptance scope remain in
+SPEC-REWRITE-EDGES: exact minimum/zero
 maxBytes behavior, token error reasons, historical-token replay/lifetime after
 completion, source mutation/deletion with omitted versus explicit generation,
 source permission/precondition recheck timing, body omission/null details and

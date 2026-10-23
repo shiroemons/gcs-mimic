@@ -3,6 +3,22 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-REWRITE-EDGES",
+      "title": "Rewrite token errors, replay retention and source-change timing require provider evidence",
+      "status": "OPEN",
+      "affected_features": ["JSON-OBJECTS-012", "BEHAVIOR-OBJECT-024"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/rewrite",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "The official JSON rewrite method and Discovery revision 20261013 establish one-week expiry/410, one-MiB granularity only across locations/classes, fixed maximum across calls and omitted optional continuation fields with matching repeated values. They do not establish zero/minimum rejection, malformed versus unknown token errors, lifetime after completion, historical-token replay retention or exact source mutation/deletion and precondition/permission recheck timing. The selected local contract uses a positive one-MiB minimum, random persisted keys, 400 for malformed/mismatched requests, 410 for unavailable/tampered/expired keys, immediate-previous-token response replay, per-call strict authorization and fail-closed changed source generation/metageneration; explicit retained generations may continue. Both full/noAcl projections use the frozen supported fields, with owner/ACL and additional full-projection permission parity pending. See docs/en/slices/object-rewrite.md; no real-service differential operation was run.",
+      "required_resolution": "Retain explicit local boundaries until authoritative clarification or explicitly authorized provider observations establish token/error/status/header details, old-token replay, source changes, unknown/output-only body input and mixed-error ordering. These provider questions are outside the frozen local behavior scope; the broad method remains PARTIAL for accepted full projection without ACL/owner semantics. Keep SPEC-008/012/013/017 unchanged. Implement KMS/CSEK, ACL/owner, requester billing and contexts/retention in their owning slices; never infer those effects from accepted metadata or an HTTP route. Local crash evidence must remain distinct from power-loss, all-platform durability and measured resource claims."
+    },
+    {
       "id": "SPEC-BUCKET-PUT",
       "title": "Bucket PUT defaults, ACL omission, immutable inputs and revision/error semantics need provider evidence",
       "status": "OPEN",

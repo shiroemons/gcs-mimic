@@ -163,7 +163,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | Object content/custom metadata PUT (replacement/omission reset; `objects.update`) | ✅ All scoped fields; omitted fields reset | 🚧 No `contentEncoding` input; omitted fixed fields retained | ❌ |
 | Remove a live object from active reads/listing (`objects.delete`) | ✅ Live generation; atomic conditions | ✅ Current or selected generation | ✅ Local soft delete by default |
 | Object copy (`objects.copy`) | ❌ | ✅ | ✅ |
-| Object rewrite (`objects.rewrite`) | ❌ | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
+| Object rewrite (`objects.rewrite`) | ✅ Scoped one-call/continuation, request-bound tokens, atomic publication, strict grants and restart/retry | 🚧 Immediate copy; no continuation | 🚧 Immediate completion; no continuation |
 | Object compose (`objects.compose`) | ❌ | ✅ | ✅ |
 | Retained object version history | ✅ Persistent generations, selected reads/deletes and version paging | 🚧 Memory backend only | ❌ Versioning metadata is not history |
 | Soft delete / restore | ❌ | ❌ | 🚧 Local deleted-object listing and restore |
@@ -226,9 +226,14 @@ The scoped checkmarks above use recorded execution evidence:
 [range](docs/en/evidence/object-range.md) and
 [final integrated regressions](docs/en/evidence/resumable-upload.md).
 Advanced fields, IAM/ACL, response replay, soft delete, transcoding and provider
-wire-edge gaps remain recorded in the ledger. Copy, rewrite
-and compose remain unavailable until implemented and verified; the new roadmap
-does not turn them into completed features.
+wire-edge gaps remain recorded in the ledger. Rewrite supports the declared
+[local contract](docs/en/slices/object-rewrite.md), including bounded continuation,
+request-bound tokens, immediate retry, strict permissions and restart recovery.
+Its method row remains PARTIAL for full ACL projection; the local session row
+awaits the shared integrated verification gate. Copy and compose retain their
+separate implementation gates.
+Once rewrite mutation starts, it awaits its durable result across the configured
+request deadline so a timeout cannot hide a later publication.
 
 The pinned comparison source review covers
 [fake-gcs-server bucket handlers](https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/fakestorage/bucket.go),
