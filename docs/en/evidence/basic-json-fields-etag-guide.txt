@@ -1,0 +1,789 @@
+Local checkout, home and temporary path prefixes are replaced with <checkout>, <user-home> and <temp>; other output is unchanged.
+Commands: unchanged first create/object/fields guide blocks extracted from docs/en/getting-started.md; native restart and Compose stop/start conditional read and byte assertions.
+Native guide:
++ cargo +1.99.1 build --release --locked --offline --bin gcs-mimic
+    Finished `release` profile [optimized] target(s) in 0.03s
+++ mktemp -d
++ guide_dir=<temp>/tmp.YPKxd8QRCq
++ guide_pid=
++ trap cleanup EXIT
++ start_native
++ guide_pid=41511
++ ready=false
++ (( attempt=0 ))
++ (( attempt<100 ))
++ kill -0 41511
++ jq -e 'select(.event=="ready")' <temp>/tmp.YPKxd8QRCq/server.log
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.YPKxd8QRCq/data
++ sleep 0.1
++ (( attempt++ ))
++ (( attempt<100 ))
++ kill -0 41511
++ jq -e 'select(.event=="ready")' <temp>/tmp.YPKxd8QRCq/server.log
++ sleep 0.1
++ (( attempt++ ))
++ (( attempt<100 ))
++ kill -0 41511
++ jq -e 'select(.event=="ready")' <temp>/tmp.YPKxd8QRCq/server.log
++ ready=true
++ break
++ [[ true == true ]]
+++ jq -r 'select(.event=="ready")|.listen' <temp>/tmp.YPKxd8QRCq/server.log
++ endpoint=http://127.0.0.1:64458
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:64458/_internal/ready
++ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Create, inspect, list and delete buckets'
+++ awk -v 'heading=## Create, inspect, list and delete buckets' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
++ test -n 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
++ eval 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:64458/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   451  100   387  100    64   239k  40506 --:--:-- --:--:-- --:--:--  440k
+{"etag":"\"b-1792722316835-1792722316835-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:25:16.835Z","updated":"2026-10-23T02:25:16.835Z"}++ curl --disable --noproxy '*' --fail http://127.0.0.1:64458/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   387  100   387    0     0   366k      0 --:--:-- --:--:-- --:--:--  377k
+{"etag":"\"b-1792722316835-1792722316835-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:25:16.835Z","updated":"2026-10-23T02:25:16.835Z"}++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:64458/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   424  100   424    0     0   425k      0 --:--:-- --:--:-- --:--:--  414k
+{"items":[{"etag":"\"b-1792722316835-1792722316835-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:4443/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:25:16.835Z","updated":"2026-10-23T02:25:16.835Z"}],"kind":"storage#buckets"}+ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Upload, inspect, download and conditionally create an object'
+++ awk -v 'heading=## Upload, inspect, download and conditionally create an object' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++ test -n 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++ eval 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++++ mktemp -d
+++ work_dir=<temp>/tmp.tKc204SeUW
+++ printf 'Hello from gcs-mimic.\n'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temp>/tmp.tKc204SeUW/upload.txt 'http://127.0.0.1:64458/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   763  100   741  100    22  45042   1337 --:--:-- --:--:-- --:--:-- 47687
+++ jq . <temp>/tmp.tKc204SeUW/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1\"",
+  "generation": "1792722316884863",
+  "id": "demo-bucket/notes/hello.txt/1792722316884863",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792722316884863&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T02:25:16.884Z",
+  "timeFinalized": "2026-10-23T02:25:16.884Z",
+  "timeStorageClassUpdated": "2026-10-23T02:25:16.884Z",
+  "updated": "2026-10-23T02:25:16.884Z"
+}
++++ jq -r .generation <temp>/tmp.tKc204SeUW/object.json
+++ generation=1792722316884863
+++ curl --disable --noproxy '*' --fail http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   741  100   741    0     0   815k      0 --:--:-- --:--:-- --:--:--  723k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1\"",
+  "generation": "1792722316884863",
+  "id": "demo-bucket/notes/hello.txt/1792722316884863",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:4443/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792722316884863&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:4443/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T02:25:16.884Z",
+  "timeFinalized": "2026-10-23T02:25:16.884Z",
+  "timeStorageClassUpdated": "2026-10-23T02:25:16.884Z",
+  "updated": "2026-10-23T02:25:16.884Z"
+}
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792722316884863' --output <temp>/tmp.tKc204SeUW/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  21739      0 --:--:-- --:--:-- --:--:-- 22000
+++ cmp <temp>/tmp.tKc204SeUW/upload.txt <temp>/tmp.tKc204SeUW/download.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.tKc204SeUW/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temp>/tmp.tKc204SeUW/upload.txt 'http://127.0.0.1:64458/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ jq . <temp>/tmp.tKc204SeUW/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.tKc204SeUW/not-modified --write-out '%{http_code}' 'http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792722316884863'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.tKc204SeUW/not-modified
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.tKc204SeUW/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:64458/storage/v1/b/demo-bucket
+++ status=409
+++ test 409 = 409
+++ jq . <temp>/tmp.tKc204SeUW/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
++ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Select response fields and validate cached reads'
+++ awk -v 'heading=## Select response fields and validate cached reads' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
++ test -n 'curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
++ eval 'curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
+++ curl --disable --noproxy '*' --fail --get --data-urlencode fields=name,size --dump-header <temp>/tmp.tKc204SeUW/etag-headers http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  34482      0 --:--:-- --:--:-- --:--:-- 38000
+++ jq -e '. == {name:"notes/hello.txt",size:"22"}' <temp>/tmp.tKc204SeUW/selected.json
+true
+++ curl --disable --noproxy '*' --fail --get --data-urlencode 'fields=items(name),nextPageToken' --data-urlencode maxResults=1 http://127.0.0.1:64458/storage/v1/b/demo-bucket/o
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  49350      0 --:--:-- --:--:-- --:--:-- 38000
+++ jq -e '.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)' <temp>/tmp.tKc204SeUW/selected-list.json
+true
++++ awk 'tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}' <temp>/tmp.tKc204SeUW/etag-headers
+++ read_etag='"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1"'
+++ test -n '"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1"'
++++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.tKc204SeUW/cached-body --write-out '%{http_code}' -H 'If-None-Match: "o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1"' 'http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.tKc204SeUW/cached-body
++++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.tKc204SeUW/stale-etag.json --write-out '%{http_code}' -H 'If-Match: "stale"' 'http://127.0.0.1:64458/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
+++ status=412
+++ test 412 = 412
+++ jq -e '.error.code == 412 and .error.errors[0].reason == "conditionNotMet"' <temp>/tmp.tKc204SeUW/stale-etag.json
+true
++ previous_etag='"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1"'
++ kill -TERM 41511
++ wait 41511
++ guide_pid=
++ start_native
++ guide_pid=41597
++ ready=false
++ (( attempt=0 ))
++ (( attempt<100 ))
++ kill -0 41597
++ jq -e 'select(.event=="ready")' <temp>/tmp.YPKxd8QRCq/server.log
++ ./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir <temp>/tmp.YPKxd8QRCq/data
++ sleep 0.1
++ (( attempt++ ))
++ (( attempt<100 ))
++ kill -0 41597
++ jq -e 'select(.event=="ready")' <temp>/tmp.YPKxd8QRCq/server.log
++ ready=true
++ break
++ [[ true == true ]]
+++ jq -r 'select(.event=="ready")|.listen' <temp>/tmp.YPKxd8QRCq/server.log
++ endpoint=http://127.0.0.1:64476
++ ./target/release/gcs-mimic healthcheck --url http://127.0.0.1:64476/_internal/ready
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.tKc204SeUW/restart-body --write-out '%{http_code}' -H 'If-None-Match: "o-b9CmrqnrVfHIcCH+TLg1NA==-1792722316884863-1"' 'http://127.0.0.1:64476/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
++ status=304
++ test 304 = 304
++ test '!' -s <temp>/tmp.tKc204SeUW/restart-body
++ curl --disable --noproxy '*' --fail --silent --show-error 'http://127.0.0.1:64476/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media'
++ cmp <temp>/tmp.tKc204SeUW/upload.txt <temp>/tmp.tKc204SeUW/restart-media
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.tKc204SeUW/restart-stale.json --write-out '%{http_code}' -H 'If-Match: "stale"' http://127.0.0.1:64476/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ status=412
++ test 412 = 412
++ curl --disable --noproxy '*' --fail --silent --show-error -X DELETE http://127.0.0.1:64476/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail --silent --show-error -X DELETE http://127.0.0.1:64476/storage/v1/b/demo-bucket
++ rm -rf <temp>/tmp.tKc204SeUW
++ printf '%s\n' 'PASS: unchanged native guide blocks select fields, return 304/412 and retain the validator and bytes after restart'
+PASS: unchanged native guide blocks select fields, return 304/412 and retain the validator and bytes after restart
+Exit: 0
+Compose guide (reuses the final ARM64 smoke image without rebuilding):
++ export COMPOSE_PROJECT_NAME=gcs-mimic-fields-etag-guide-47937
++ COMPOSE_PROJECT_NAME=gcs-mimic-fields-etag-guide-47937
++ export GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-17347
++ GCS_MIMIC_IMAGE=gcs-mimic:bucket-smoke-arm64-17347
++ export GCS_MIMIC_PORT=0
++ GCS_MIMIC_PORT=0
++ guide_work=
++ trap cleanup EXIT
++ docker image inspect --format '{{.Id}} {{.Os}}/{{.Architecture}}' gcs-mimic:bucket-smoke-arm64-17347
+sha256:cc0a2de75987d3008e4b17c42bc8f22a0000f7d007cfdb67e05a7cd72eb122b1 linux/arm64
++ docker compose config --quiet
++ docker compose up -d --no-build --wait
+ Volume gcs-mimic-fields-etag-guide-47937_gcs-data Creating 
+ Network gcs-mimic-fields-etag-guide-47937_default Creating 
+ Volume gcs-mimic-fields-etag-guide-47937_gcs-data Creating 
+ Network gcs-mimic-fields-etag-guide-47937_default Creating 
+ Volume gcs-mimic-fields-etag-guide-47937_gcs-data Created 
+ Volume gcs-mimic-fields-etag-guide-47937_gcs-data Created 
+ Network gcs-mimic-fields-etag-guide-47937_default Created 
+ Network gcs-mimic-fields-etag-guide-47937_default Created 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Creating 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Created 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Starting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Started 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Waiting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Healthy 
+++ docker compose port gcs 4443
++ address=127.0.0.1:55364
++ endpoint=http://127.0.0.1:55364
++ export GCS_MIMIC_PORT=55364
++ GCS_MIMIC_PORT=55364
++ export GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55364
++ GCS_MIMIC_API_BASE_URL=http://127.0.0.1:55364
++ docker compose up -d --no-build --wait
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Recreate 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Recreated 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Starting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Started 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Waiting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Healthy 
++ docker compose exec -T --interactive=false gcs gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
++ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Create, inspect, list and delete buckets'
+++ awk -v 'heading=## Create, inspect, list and delete buckets' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
++ test -n 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
++ eval 'curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: application/json'\'' \
+  --data '\''{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}'\'' \
+  "$endpoint/storage/v1/b?project=local-project"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b/demo-bucket"
+curl --disable --noproxy '\''*'\'' --fail "$endpoint/storage/v1/b?project=local-project&prefix=demo-&maxResults=1"'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"demo-bucket","location":"EU","labels":{"team":"local"}}' 'http://127.0.0.1:55364/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   452  100   388  100    64  99922  16482 --:--:-- --:--:-- --:--:--  147k
+{"etag":"\"b-1792722394720-1792722394720-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55364/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:26:34.720Z","updated":"2026-10-23T02:26:34.720Z"}++ curl --disable --noproxy '*' --fail http://127.0.0.1:55364/storage/v1/b/demo-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   388  100   388    0     0   204k      0 --:--:-- --:--:-- --:--:--  378k
+{"etag":"\"b-1792722394720-1792722394720-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55364/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:26:34.720Z","updated":"2026-10-23T02:26:34.720Z"}++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55364/storage/v1/b?project=local-project&prefix=demo-&maxResults=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   425  100   425    0     0   247k      0 --:--:-- --:--:-- --:--:--  415k
+{"items":[{"etag":"\"b-1792722394720-1792722394720-1\"","id":"demo-bucket","kind":"storage#bucket","labels":{"team":"local"},"location":"EU","locationType":"multi-region","metageneration":"1","name":"demo-bucket","projectNumber":"0","selfLink":"http://127.0.0.1:55364/storage/v1/b/demo-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T02:26:34.720Z","updated":"2026-10-23T02:26:34.720Z"}],"kind":"storage#buckets"}+ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Upload, inspect, download and conditionally create an object'
+++ awk -v 'heading=## Upload, inspect, download and conditionally create an object' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++ test -n 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++ eval 'work_dir=$(mktemp -d)
+printf '\''Hello from gcs-mimic.\n'\'' > "$work_dir/upload.txt"
+curl --disable --noproxy '\''*'\'' --fail -H '\''Content-Type: text/plain'\'' \
+  -H '\''x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA=='\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0" \
+  > "$work_dir/object.json"
+jq . "$work_dir/object.json"
+generation=$(jq -r .generation "$work_dir/object.json")
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" | jq .
+curl --disable --noproxy '\''*'\'' --fail \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=$generation" \
+  --output "$work_dir/download.txt"
+cmp "$work_dir/upload.txt" "$work_dir/download.txt"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/condition.json" \
+  --write-out '\''%{http_code}'\'' -H '\''Content-Type: text/plain'\'' \
+  --data-binary @"$work_dir/upload.txt" \
+  "$endpoint/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0")
+test "$status" = 412
+jq . "$work_dir/condition.json"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/not-modified" \
+  --write-out '\''%{http_code}'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=$generation")
+test "$status" = 304
+test ! -s "$work_dir/not-modified"
+status=$(curl --disable --noproxy '\''*'\'' --silent --output "$work_dir/nonempty.json" \
+  --write-out '\''%{http_code}'\'' -X DELETE "$endpoint/storage/v1/b/demo-bucket")
+test "$status" = 409
+jq . "$work_dir/nonempty.json"'
++++ mktemp -d
+++ work_dir=<temp>/tmp.hE2Bew3Izg
+++ printf 'Hello from gcs-mimic.\n'
+++ curl --disable --noproxy '*' --fail -H 'Content-Type: text/plain' -H 'x-goog-hash: md5=b9CmrqnrVfHIcCH+TLg1NA==' --data-binary @<temp>/tmp.hE2Bew3Izg/upload.txt 'http://127.0.0.1:55364/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   765  100   743  100    22   172k   5236 --:--:-- --:--:-- --:--:--  186k
+++ jq . <temp>/tmp.hE2Bew3Izg/object.json
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1\"",
+  "generation": "1792722394765231",
+  "id": "demo-bucket/notes/hello.txt/1792722394765231",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55364/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792722394765231&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T02:26:34.765Z",
+  "timeFinalized": "2026-10-23T02:26:34.765Z",
+  "timeStorageClassUpdated": "2026-10-23T02:26:34.765Z",
+  "updated": "2026-10-23T02:26:34.765Z"
+}
++++ jq -r .generation <temp>/tmp.hE2Bew3Izg/object.json
+++ generation=1792722394765231
+++ curl --disable --noproxy '*' --fail http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+++ jq .
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   743  100   743    0     0   442k      0 --:--:-- --:--:-- --:--:--  725k
+{
+  "bucket": "demo-bucket",
+  "contentType": "text/plain",
+  "crc32c": "tV02Vw==",
+  "etag": "\"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1\"",
+  "generation": "1792722394765231",
+  "id": "demo-bucket/notes/hello.txt/1792722394765231",
+  "kind": "storage#object",
+  "md5Hash": "b9CmrqnrVfHIcCH+TLg1NA==",
+  "mediaLink": "http://127.0.0.1:55364/download/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?generation=1792722394765231&alt=media",
+  "metageneration": "1",
+  "name": "notes/hello.txt",
+  "selfLink": "http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt",
+  "size": "22",
+  "storageClass": "STANDARD",
+  "timeCreated": "2026-10-23T02:26:34.765Z",
+  "timeFinalized": "2026-10-23T02:26:34.765Z",
+  "timeStorageClassUpdated": "2026-10-23T02:26:34.765Z",
+  "updated": "2026-10-23T02:26:34.765Z"
+}
+++ curl --disable --noproxy '*' --fail 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media&generation=1792722394765231' --output <temp>/tmp.hE2Bew3Izg/download.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    22  100    22    0     0  13959      0 --:--:-- --:--:-- --:--:-- 22000
+++ cmp <temp>/tmp.hE2Bew3Izg/upload.txt <temp>/tmp.hE2Bew3Izg/download.txt
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.hE2Bew3Izg/condition.json --write-out '%{http_code}' -H 'Content-Type: text/plain' --data-binary @<temp>/tmp.hE2Bew3Izg/upload.txt 'http://127.0.0.1:55364/upload/storage/v1/b/demo-bucket/o?uploadType=media&name=notes%2Fhello.txt&ifGenerationMatch=0'
+++ status=412
+++ test 412 = 412
+++ jq . <temp>/tmp.hE2Bew3Izg/condition.json
+{
+  "error": {
+    "code": 412,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Precondition failed",
+        "reason": "conditionNotMet"
+      }
+    ],
+    "message": "Precondition failed"
+  }
+}
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.hE2Bew3Izg/not-modified --write-out '%{http_code}' 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?ifGenerationNotMatch=1792722394765231'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.hE2Bew3Izg/not-modified
++++ curl --disable --noproxy '*' --silent --output <temp>/tmp.hE2Bew3Izg/nonempty.json --write-out '%{http_code}' -X DELETE http://127.0.0.1:55364/storage/v1/b/demo-bucket
+++ status=409
+++ test 409 = 409
+++ jq . <temp>/tmp.hE2Bew3Izg/nonempty.json
+{
+  "error": {
+    "code": 409,
+    "errors": [
+      {
+        "domain": "global",
+        "message": "Bucket is not empty",
+        "reason": "conflict"
+      }
+    ],
+    "message": "Bucket is not empty"
+  }
+}
++ for heading in ''\''## Create, inspect, list and delete buckets'\''' ''\''## Upload, inspect, download and conditionally create an object'\''' ''\''## Select response fields and validate cached reads'\'''
+++ guide_block '## Select response fields and validate cached reads'
+++ awk -v 'heading=## Select response fields and validate cached reads' '$0 == heading {section=1; next} section && /^```sh$/ {code=1; next} code && /^```$/ {exit} code {print}' docs/en/getting-started.md
++ guide_commands='curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
++ test -n 'curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
++ eval 'curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=name,size'\'' \
+  --dump-header "$work_dir/etag-headers" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt" \
+  > "$work_dir/selected.json"
+jq -e '\''. == {name:"notes/hello.txt",size:"22"}'\'' "$work_dir/selected.json"
+curl --disable --noproxy '\''*'\'' --fail --get \
+  --data-urlencode '\''fields=items(name),nextPageToken'\'' --data-urlencode '\''maxResults=1'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o" > "$work_dir/selected-list.json"
+jq -e '\''.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)'\'' \
+  "$work_dir/selected-list.json"
+read_etag=$(awk '\''tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}'\'' "$work_dir/etag-headers")
+test -n "$read_etag"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/cached-body" --write-out '\''%{http_code}'\'' \
+  -H "If-None-Match: $read_etag" \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 304
+test ! -s "$work_dir/cached-body"
+status=$(curl --disable --noproxy '\''*'\'' --silent --show-error \
+  --output "$work_dir/stale-etag.json" --write-out '\''%{http_code}'\'' \
+  -H '\''If-Match: "stale"'\'' \
+  "$endpoint/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name")
+test "$status" = 412
+jq -e '\''.error.code == 412 and .error.errors[0].reason == "conditionNotMet"'\'' \
+  "$work_dir/stale-etag.json"'
+++ curl --disable --noproxy '*' --fail --get --data-urlencode fields=name,size --dump-header <temp>/tmp.hE2Bew3Izg/etag-headers http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  19760      0 --:--:-- --:--:-- --:--:-- 38000
+++ jq -e '. == {name:"notes/hello.txt",size:"22"}' <temp>/tmp.hE2Bew3Izg/selected.json
+true
+++ curl --disable --noproxy '*' --fail --get --data-urlencode 'fields=items(name),nextPageToken' --data-urlencode maxResults=1 http://127.0.0.1:55364/storage/v1/b/demo-bucket/o
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    38  100    38    0     0  26912      0 --:--:-- --:--:-- --:--:-- 38000
+++ jq -e '.items[0] == {name:"notes/hello.txt"} and (keys - ["items","nextPageToken"] | length == 0)' <temp>/tmp.hE2Bew3Izg/selected-list.json
+true
++++ awk 'tolower($1) == "etag:" {sub(/\r$/, "", $2); print $2}' <temp>/tmp.hE2Bew3Izg/etag-headers
+++ read_etag='"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1"'
+++ test -n '"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1"'
++++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.hE2Bew3Izg/cached-body --write-out '%{http_code}' -H 'If-None-Match: "o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1"' 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
+++ status=304
+++ test 304 = 304
+++ test '!' -s <temp>/tmp.hE2Bew3Izg/cached-body
++++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.hE2Bew3Izg/stale-etag.json --write-out '%{http_code}' -H 'If-Match: "stale"' 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
+++ status=412
+++ test 412 = 412
+++ jq -e '.error.code == 412 and .error.errors[0].reason == "conditionNotMet"' <temp>/tmp.hE2Bew3Izg/stale-etag.json
+true
++ guide_work=<temp>/tmp.hE2Bew3Izg
++ previous_etag='"o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1"'
++ docker compose stop
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Stopping 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Stopped 
++ docker compose start --wait
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Starting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Started 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Waiting 
+ Container gcs-mimic-fields-etag-guide-47937-gcs-1 Healthy 
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.hE2Bew3Izg/restart-body --write-out '%{http_code}' -H 'If-None-Match: "o-b9CmrqnrVfHIcCH+TLg1NA==-1792722394765231-1"' 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?fields=name'
++ status=304
++ test 304 = 304
++ test '!' -s <temp>/tmp.hE2Bew3Izg/restart-body
++ curl --disable --noproxy '*' --fail --silent --show-error 'http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt?alt=media'
++ cmp <temp>/tmp.hE2Bew3Izg/upload.txt <temp>/tmp.hE2Bew3Izg/restart-media
+++ curl --disable --noproxy '*' --silent --show-error --output <temp>/tmp.hE2Bew3Izg/restart-stale.json --write-out '%{http_code}' -H 'If-Match: "stale"' http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ status=412
++ test 412 = 412
++ curl --disable --noproxy '*' --fail --silent --show-error -X DELETE http://127.0.0.1:55364/storage/v1/b/demo-bucket/o/notes%2Fhello.txt
++ curl --disable --noproxy '*' --fail --silent --show-error -X DELETE http://127.0.0.1:55364/storage/v1/b/demo-bucket
++ printf '%s\n' 'PASS: unchanged Compose guide blocks select fields, return 304/412 and retain the validator and bytes after stop/start'
+PASS: unchanged Compose guide blocks select fields, return 304/412 and retain the validator and bytes after stop/start
+Exit: 0

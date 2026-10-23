@@ -6,8 +6,25 @@
       "id": "SPEC-BUCKET-PUT",
       "title": "Bucket PUT defaults, ACL omission, immutable inputs and revision/error semantics need provider evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-BUCKETS-013", "BEHAVIOR-BUCKET-002", "BEHAVIOR-BUCKET-004", "BEHAVIOR-BUCKET-012", "BEHAVIOR-OBJECT-029", "BEHAVIOR-COMMON-006", "BEHAVIOR-COMMON-011", "DESIGN-002", "DESIGN-082"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update", "https://docs.cloud.google.com/storage/docs/json_api#patch", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/tags-and-labels", "https://storage.googleapis.com/$discovery/rest?version=v1", "https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto"],
+      "affected_features": [
+        "JSON-BUCKETS-013",
+        "BEHAVIOR-BUCKET-002",
+        "BEHAVIOR-BUCKET-004",
+        "BEHAVIOR-BUCKET-012",
+        "BEHAVIOR-OBJECT-029",
+        "BEHAVIOR-COMMON-006",
+        "BEHAVIOR-COMMON-011",
+        "DESIGN-002",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/update",
+        "https://docs.cloud.google.com/storage/docs/json_api#patch",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/tags-and-labels",
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://github.com/googleapis/googleapis/blob/14a161a98ef045be80c12ab69d924504a756f109/google/storage/v2/storage.proto"
+      ],
       "observed_at": "2026-10-23",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The update reference warns that omitted metadata may change; the overview contrasts PATCH with full replacement rather than directly describing PUT. The pinned v2 UpdateBucketRequest mask * equates it with JSON update; proto SHA-256 a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf. Discovery revision 20261013 SHA-256 1f74b7a93b3d2872cc332fc20dafae1657fc255930ce336618bea3d0b4d95ae0 does not establish omitted JSON defaults or null scalars. Both the method page and Discovery annotations.required [storage.buckets.update] mark acl[] required; the method says an empty list is ignored. Accepting omitted acl for SDK full-resource round trips without changing permissions is a local choice. Local replacement clears omitted/null labels, reuses the creation-only STANDARD default for omitted class and resets omitted settings to false; null label values/class are invalid, native null booleans invalid, legacy null booleans false, following insert/PATCH local choices. Insert-only/immutable/reserved fields absent from update's writable list inherit PATCH's fail-closed 501 or unchanged-location/name-ignore local rules. IAM policy etag preservation is also local. Every success advances revision once, including no-effect replacement; HTTP invalid bodies, including 65 labels, precede missing lookup and stale conditions (400), while unsupported fields return 501 before conditions. Transactional authorization precedes conditions, which precede catalog validation (direct invalid-label calls with stale conditions return 412). Contract and executable acceptance cases: docs/en/slices/bucket-metadata-put.md.",
@@ -43,8 +60,15 @@
       "id": "SPEC-VERSION-DELETE-CONDITIONS",
       "title": "Generation-specific deletion condition selection needs authoritative clarification",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-004", "BEHAVIOR-OBJECT-029", "BEHAVIOR-COMMON-011"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete", "https://docs.cloud.google.com/storage/docs/request-preconditions"],
+      "affected_features": [
+        "JSON-OBJECTS-004",
+        "BEHAVIOR-OBJECT-029",
+        "BEHAVIOR-COMMON-011"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/delete",
+        "https://docs.cloud.google.com/storage/docs/request-preconditions"
+      ],
       "observed_at": "2026-10-22",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The delete reference selects a revision with generation but describes conditions using current/live generation wording; the preconditions guide describes the targeted resource and explicitly selected noncurrent versions. Local deletion evaluates all four conditions against the selected revision and its metageneration, including not-match when no live version remains. versioned_delete_and_permanent_generation_delete verifies this local choice; docs/en/slices/bucket-versioning-holds.md records the source distinction. No provider differential request was made.",
@@ -54,8 +78,19 @@
       "id": "SPEC-EVENT-HOLD-WIRE",
       "title": "Event hold omission, null, propagation and error wire details remain unverified",
       "status": "OPEN",
-      "affected_features": ["BEHAVIOR-BUCKET-012", "BEHAVIOR-OBJECT-035", "JSON-OBJECTS-007", "JSON-OBJECTS-010", "JSON-OBJECTS-015"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/object-holds", "https://docs.cloud.google.com/storage/docs/holding-objects", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update"],
+      "affected_features": [
+        "BEHAVIOR-BUCKET-012",
+        "BEHAVIOR-OBJECT-035",
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-010",
+        "JSON-OBJECTS-015"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/object-holds",
+        "https://docs.cloud.google.com/storage/docs/holding-objects",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update"
+      ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "HTTP tests verify inherited holds on media/multipart/resumable publication, explicit false overrides, rejected protected mutations and selected-generation release. Local PUT omission preserves a hold, null is invalid, false is omitted from object resources, configuration effects are immediate and exact provider error messages/combined failure precedence are unverified. The pinned Go high-level bucket Create serializer omits DefaultEventBasedHold; SDK coverage creates that setting using official JSON Buckets.Insert then uses high-level Writer/Attrs/Update/Delete.",
@@ -65,8 +100,16 @@
       "id": "SPEC-RSM-DISCOVERY-PATH",
       "title": "Discovery resumable protocol path differs from the documented and Go SDK initiation path",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "DESIGN-082"],
-      "source_urls": ["https://storage.googleapis.com/$discovery/rest?version=v1", "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-010",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/storage/v1/storage-gen.go"
+      ],
       "observed_at": "2026-10-22",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "Discovery revision 20261013 declares /resumable/upload/storage/v1/b/{bucket}/o as the resumable protocol path. The performing guide and API v0.307.0 generated ObjectsInsertCall instead initiate POST /upload/storage/v1/b/{bucket}/o?uploadType=resumable. The slice requires the latter verified source path and does not infer whether the former is an accepted alias. The pinned gensupport transport then uses POST to the returned session URI, unlike the guide's PUT, and requires HTTP 200 plus X-HTTP-Status-Code-Override: 308 when X-GUploader-No-308: yes is sent; both request forms are explicitly included in the contract.",
@@ -76,8 +119,22 @@
       "id": "SPEC-RSM-EDGES",
       "title": "Resumable error, total, checksum and terminal-session edge parity needs independent evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "BEHAVIOR-OBJECT-011", "BEHAVIOR-OBJECT-012", "BEHAVIOR-OBJECT-013", "BEHAVIOR-OBJECT-014", "DESIGN-082"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/resumable-uploads", "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters", "https://docs.cloud.google.com/storage/docs/data-validation#json-resumable-upload", "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/resumable.go"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-010",
+        "BEHAVIOR-OBJECT-011",
+        "BEHAVIOR-OBJECT-012",
+        "BEHAVIOR-OBJECT-013",
+        "BEHAVIOR-OBJECT-014",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/data-validation#json-resumable-upload",
+        "https://github.com/googleapis/google-api-go-client/blob/v0.307.0/internal/gensupport/resumable.go"
+      ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Sources establish seven-day lifetime, persisted-prefix immutability, 308/Range with no Range for zero persisted bytes, unknown totals, final 200/201 and JSON cancellation 499. The concept page gives 410 for an invalid URI before one week and 404 after one week; the performing guide promises only a future 4xx after cancellation. They do not establish exact deadline equality, cancellation-repeat/completed-DELETE body shape, failed-session retention, zero-body bytes */N finalization distinction, total/header conflict errors, offset-gap or concurrent-writer errors, chunk alignment enforcement, final custom-metadata key conflicts, or MIME precedence when metadata conflicts with X-Upload-Content-Type. Local choices are 604800 seconds with expiry at equality, cancelled-session 410 before deadline and 404 at/after, completed-session DELETE 410 before expiry, and committed cancellation 499 even if physical cleanup fails, with visible journaled cleanup retried by maintenance. Other local choices are bounded completed-resource retention, 400 malformed/gap/total errors, 503 concurrent-writer/admission rejection, complete-request offset checkpoints, and metadata contentType before X-Upload-Content-Type. Pinned Go sends an empty final POST with bytes */offset for an exact chunk multiple and whole-object CRC32C in final X-Goog-Hash. The general concept page recommends Content-MD5, whereas JSON-specific validation documents final X-Goog-Hash; Content-MD5 stays explicitly unsupported in the existing local JSON profile. Checked official JSON sources do not define fake-gcs-server's alternate x-goog-upload-* command protocol. No real-service differential test was run.",
@@ -87,8 +144,18 @@
       "id": "SPEC-RSM-AUTH-CONDITIONS",
       "title": "Resumable bearer capability and changed-permission/precondition evaluation timing need reconciliation",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-010", "BEHAVIOR-OBJECT-014", "DESIGN-082"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/resumable-uploads", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert", "https://docs.cloud.google.com/storage/docs/access-control/iam-json"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-010",
+        "BEHAVIOR-OBJECT-014",
+        "DESIGN-082"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-json"
+      ],
       "observed_at": "2026-10-22",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The performing/concept guides say anyone holding the session URI may upload without further authentication. The performing guide also warns that changed bucket permissions can cause a nonretryable 4xx. Objects.insert requires create plus delete for overwrite and says initiation query parameters are ignored in subsequent PUT requests, without specifying all advisory-versus-final checks or the principal used after delegation. The slice preserves the initiating authorization context, permits delegated chunk/status/cancel without reauthentication, and re-evaluates that context and all four stored generation/metageneration conditions atomically at final publication. Bucket incarnation prevents deletion/recreation from reusing stale authority. The existing 412-before-overwrite-403 local order remains SPEC-017; no provider timing/order is inferred.",
@@ -98,8 +165,13 @@
       "id": "SPEC-RSM-LOCATION",
       "title": "Fixed advertised resumable Location does not implement automatic allowed-origin selection",
       "status": "OPEN",
-      "affected_features": ["DESIGN-057"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/performing-resumable-uploads", "https://docs.cloud.google.com/storage/docs/request-endpoints"],
+      "affected_features": [
+        "DESIGN-057"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/performing-resumable-uploads",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints"
+      ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "src/config.rs exposes only fixed api_base_url; src/url.rs normalizes absolute HTTP(S) bases and optional proxy prefixes. The design/onboarding proposal describes validated_request_origin with allowed authorities, but that mode, allowlist and trusted-proxy configuration do not exist. The slice chooses the actual fixed advertised endpoint and never trusts Host/Forwarded/X-Forwarded-*; host, peer and browser-address cases use explicitly reachable configurations. One fixed origin does not automatically address disjoint host and Compose DNS spaces. Browser CORS enforcement is outside this slice.",
@@ -109,8 +181,15 @@
       "id": "SPEC-XML-PREFIX",
       "title": "Shared-listener XML names colliding with JSON namespaces need routing evidence",
       "status": "OPEN",
-      "affected_features": ["DESIGN-047", "EXT-XML-012", "EXT-XML-017"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/request-endpoints", "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download"],
+      "affected_features": [
+        "DESIGN-047",
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download"
+      ],
       "observed_at": "2026-10-22",
       "kind": "SOURCE_QUESTION",
       "observed_evidence": "The endpoint reference defines JSON and XML /bucket/object paths on storage.googleapis.com without resolving every collision. Local reserved paths are exactly /storage/v1, /upload/storage/v1, /download/storage/v1, /batch/storage/v1 and /_internal, including slash-delimited descendants. Other objects in buckets storage, upload, download and batch remain reachable. Unknown reserved paths do not fall through to XML; url public rejects colliding final bucket/object paths. This is a shared-listener restriction, not evidence that Google reserves these names. DESIGN-047 establishes exact decoding within this declared routing profile, not provider collision parity.",
@@ -120,8 +199,14 @@
       "id": "SPEC-XML-PATH-ERROR",
       "title": "Invalid bucket segments retain JSON unknown-route errors",
       "status": "OPEN",
-      "affected_features": ["EXT-XML-012", "EXT-XML-017"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/request-endpoints", "https://docs.cloud.google.com/storage/docs/xml-api/reference-status"],
+      "affected_features": [
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-status"
+      ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The XML adapter selects only a valid raw bucket segment. Invalid or percent-encoded bucket segments retain the JSON-style 404 unknown-route response; valid bucket/object paths use XML errors. tests/auth_http/xml.rs asserts this boundary, including HEAD body suppression. The checked references do not establish this shared-listener error-format choice.",
@@ -131,8 +216,15 @@
       "id": "SPEC-XML-INPUTS",
       "title": "XML unknown input and metadata representation rejection remain local choices",
       "status": "OPEN",
-      "affected_features": ["EXT-XML-012", "EXT-XML-017"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/xml-api/get-object-download", "https://docs.cloud.google.com/storage/docs/xml-api/head-object", "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers"],
+      "affected_features": [
+        "EXT-XML-012",
+        "EXT-XML-017"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/xml-api/get-object-download",
+        "https://docs.cloud.google.com/storage/docs/xml-api/head-object",
+        "https://docs.cloud.google.com/storage/docs/xml-api/reference-headers"
+      ],
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Unknown XML query keys and unsupported x-goog inputs return 501 NotImplemented; malformed query encoding, duplicate selectors and malformed numeric conditions return 400. x-goog-api-client and a single nonempty x-goog-gcs-idempotency-token are accepted as read telemetry without response replay; empty/repeated tokens return 400. JSON custom metadata that cannot be represented in HTTP or collides after case folding makes XML reads return 501 without changing stored metadata. Local XML ETags are quoted hexadecimal MD5; private default Cache-Control is private, max-age=0. Public defaults are public, max-age=3600, while nonpublic JSON remains no-cache. These local checks do not establish exhaustive Google error/header parity.",
@@ -164,18 +256,28 @@
       "id": "SPEC-RANGE-VALIDATORS",
       "title": "JSON If-Range validator support needs an established Google contract",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-005"],
-      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#range", "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5"],
+      "affected_features": [
+        "JSON-OBJECTS-005"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#range",
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5"
+      ],
       "observed_at": "2026-10-22",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "The checked Google JSON references do not establish the If-Range ETag/date subset; RFC definitions alone do not prove provider support. Both forms return explicit local 501.",
+      "observed_evidence": "The checked Google JSON references do not establish the If-Range ETag/date subset; RFC definitions alone do not prove provider support. Both forms return explicit local 501. JSON GET also rejects If-Range without Range with 501; read ETag support does not establish If-Range semantics.",
       "required_resolution": "Establish Google's JSON If-Range contract before implementing validators; retain explicit rejection and method PARTIAL status."
     },
     {
       "id": "SPEC-LIST-PAGING",
       "title": "Object listing zero-size and cursor edge semantics require direct evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-008", "BEHAVIOR-OBJECT-018", "BEHAVIOR-COMMON-009", "BEHAVIOR-COMMON-013"],
+      "affected_features": [
+        "JSON-OBJECTS-008",
+        "BEHAVIOR-OBJECT-018",
+        "BEHAVIOR-COMMON-009",
+        "BEHAVIOR-COMMON-013"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -190,7 +292,10 @@
       "id": "SPEC-LIST-RESOURCE-SHAPE",
       "title": "Empty object-list fields and slash-specific delimiter wording need reconciliation",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-008", "BEHAVIOR-OBJECT-018"],
+      "affected_features": [
+        "JSON-OBJECTS-008",
+        "BEHAVIOR-OBJECT-018"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -318,7 +423,13 @@
       "id": "SPEC-008",
       "title": "Object not-match status and combined-condition error precedence need reconciliation",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-007", "BEHAVIOR-OBJECT-008"],
+      "affected_features": [
+        "JSON-OBJECTS-004",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-007",
+        "BEHAVIOR-OBJECT-008"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/request-preconditions",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
@@ -329,13 +440,16 @@
       "observed_at": "2026-10-21",
       "required_resolution": "Keep a false GET not-match distinguishable from match failure so reads can return an empty 304. Determine mutation not-match status and precedence for missing objects, exact generation selection and multiple failing conditions from authoritative clarification or explicitly authorized differential tests. Until then document any local mutation/precedence rule as a deviation; never mutate on a failed condition.",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "The preconditions guide assigns 304 to ifGenerationNotMatch and ifMetagenerationNotMatch without a method restriction; the JSON error catalog describes failed preconditions under 412 conditionNotMet and conditional false requests under 304 notModified. Method pages describe comparisons but do not establish combined-condition/missing-resource error precedence. Discovery revision 20261013 supplies int64 parameters, not evaluation order. See docs/en/slices/json-object-media.md."
+      "observed_evidence": "The preconditions guide assigns 304 to ifGenerationNotMatch and ifMetagenerationNotMatch without a method restriction; the JSON error catalog describes failed preconditions under 412 conditionNotMet and conditional false requests under 304 notModified. Method pages describe comparisons but do not establish combined-condition/missing-resource error precedence. Discovery revision 20261013 supplies int64 parameters, not evaluation order. See docs/en/slices/json-object-media.md. Mixed query/HTTP read conditions now use one selected snapshot: Match query or If-Match failure is 412, then NotMatch query or If-None-Match match is 304. Standalone no-ETag query responses remain unchanged. The tiered extension ordering remains a local choice under SPEC-JSON-ETAG-WIRE."
     },
     {
       "id": "SPEC-009",
       "title": "Ordinary JSON media GET redirect is not described consistently across references",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-005", "BEHAVIOR-OBJECT-015"],
+      "affected_features": [
+        "JSON-OBJECTS-005",
+        "BEHAVIOR-OBJECT-015"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
@@ -351,7 +465,10 @@
       "id": "SPEC-010",
       "title": "JSON media checksum edge cases and Content-MD5 acceptance are unspecified",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-005"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-005"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/data-validation",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
@@ -367,7 +484,10 @@
       "id": "SPEC-011",
       "title": "Missing Content-Type acceptance for JSON media upload is not established",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "JSON-OBJECTS-005"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-005"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
@@ -383,11 +503,14 @@
       "title": "Object response headers and opaque resource encodings need direct evidence",
       "status": "OPEN",
       "affected_features": [
-        "JSON-OBJECTS-005",
-        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-006",
         "BEHAVIOR-OBJECT-015",
         "EXT-XML-012",
-        "EXT-XML-017"
+        "EXT-XML-017",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-003",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007"
       ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
@@ -398,16 +521,23 @@
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/http_client.go",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/reader.go"
       ],
-      "observed_at": "2026-10-22",
-      "required_resolution": "Verify the JSON download generation/metageneration/hash headers with pinned official SDK assertions or authorized differential evidence. Include partial responses: Accept-Ranges, representation metadata, full-object hashes and stored-content headers are locally asserted, but exhaustive Google 206 header presence is unverified. Track all emitted/omitted headers, including ETag and stored-content-encoding, and the rendered timeFinalized resource field. Treat exact id, ETag and generated URL encoding/spelling as opaque local choices unless exact upstream bytes are independently established. The public/private cache matrix and selected-record XML GET/HEAD metadata are locally verified in docs/en/evidence/public-object-reads.md; obtain independent service evidence before claiming complete wire parity. Establish exact XML ETag bytes, private XML default, custom-header encoding/collisions and exhaustive full/partial/HEAD header sets before claiming complete response parity. See docs/en/slices/public-object-reads.md; an SDK byte read does not prove every optional header is present.",
+      "observed_at": "2026-10-23",
+      "required_resolution": "Verify the JSON download generation/metageneration/hash headers with pinned official SDK assertions or authorized differential evidence. Include partial responses: Accept-Ranges, representation metadata, full-object hashes and stored-content headers are locally asserted, but exhaustive Google 206 header presence is unverified. Track all emitted/omitted headers, including ETag and stored-content-encoding, and the rendered timeFinalized resource field. Treat exact id, ETag and generated URL encoding/spelling as opaque local choices unless exact upstream bytes are independently established. The public/private cache matrix and selected-record XML GET/HEAD metadata are locally verified in docs/en/evidence/public-object-reads.md; obtain independent service evidence before claiming complete wire parity. Establish exact XML ETag bytes, private XML default, custom-header encoding/collisions and exhaustive full/partial/HEAD header sets before claiming complete response parity. See docs/en/slices/public-object-reads.md; an SDK byte read does not prove every optional header is present. Retain scoped read-validator evidence without treating local record-derived tags or passing SDK calls as exact provider wire parity.",
       "kind": "SCOPE_VERIFICATION",
-      "observed_evidence": "The JSON header reference documents ETag, X-Goog-Stored-Content-Encoding (identity when absent) and X-Goog-Stored-Content-Length; the XML reference additionally specifies x-goog-generation/metageneration/hash. The checked JSON sources do not enumerate an exhaustive media response set. The Object resource describes id contents, ETag meaning, links and timeFinalized but does not fix an exact id concatenation or ETag encoding. Rechecked on 2026-10-22: the public-read contract now specifies allUsers-based public classification, stored public Cache-Control or public, max-age=3600, private JSON no-cache regardless of stored metadata, and XML honoring stored directives. The private XML fallback private, max-age=0 is local, consistent with the HEAD example rather than an exhaustive default rule. The metadata guide qualifies XML ETags as MD5 for ordinary non-composite/non-XML-multipart objects using Google-managed encryption; arbitrary JSON ETag reuse must not be called exact XML parity. Exact hexadecimal/base64 representation and advanced-object ETags remain wire questions. The pinned Go XML reader parses generation, metageneration, Content-Range, Last-Modified, Cache-Control, content type/encoding, custom metadata and CRC32C; it uses stored encoding for decompression but does not parse stored-content-length. HTTP-unrepresentable JSON custom metadata and case collisions explicitly return XML 501 without changing JSON metadata. Local XML ETags are quoted lowercase hexadecimal MD5. Complete wire encoding and exhaustive header parity remain unverified under SPEC-XML-INPUTS."
+      "observed_evidence": "The JSON header reference documents ETag, X-Goog-Stored-Content-Encoding (identity when absent) and X-Goog-Stored-Content-Length; the XML reference additionally specifies x-goog-generation/metageneration/hash. The checked JSON sources do not enumerate an exhaustive media response set. The Object resource describes id contents, ETag meaning, links and timeFinalized but does not fix an exact id concatenation or ETag encoding. Rechecked on 2026-10-22: the public-read contract now specifies allUsers-based public classification, stored public Cache-Control or public, max-age=3600, private JSON no-cache regardless of stored metadata, and XML honoring stored directives. The private XML fallback private, max-age=0 is local, consistent with the HEAD example rather than an exhaustive default rule. The metadata guide qualifies XML ETags as MD5 for ordinary non-composite/non-XML-multipart objects using Google-managed encryption; arbitrary JSON ETag reuse must not be called exact XML parity. Exact hexadecimal/base64 representation and advanced-object ETags remain wire questions. The pinned Go XML reader parses generation, metageneration, Content-Range, Last-Modified, Cache-Control, content type/encoding, custom metadata and CRC32C; it uses stored encoding for decompression but does not parse stored-content-length. HTTP-unrepresentable JSON custom metadata and case collisions explicitly return XML 501 without changing JSON metadata. Local XML ETags are quoted lowercase hexadecimal MD5. Complete wire encoding and exhaustive header parity remain unverified under SPEC-XML-INPUTS. Scoped JSON object metadata/media/range and bucket GET If-Match/If-None-Match now pass local tests, including bodyless 304 and fields interaction; blanket ETag-header rejection no longer applies. Provider wire encoding and full headers remain open under SPEC-JSON-ETAG-WIRE."
     },
     {
       "id": "SPEC-013",
       "title": "Accepted invocation tokens do not replay responses; media and multipart uploads require generation-match",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-004", "JSON-OBJECTS-005", "JSON-OBJECTS-007", "BEHAVIOR-OBJECT-008", "BEHAVIOR-OBJECT-009", "DESIGN-082"],
+      "affected_features": [
+        "JSON-OBJECTS-004",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-008",
+        "BEHAVIOR-OBJECT-009",
+        "DESIGN-082"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters#xgoog-gcs-idempotency-token",
         "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/invoke.go",
@@ -451,7 +581,14 @@
       "id": "SPEC-016",
       "title": "Multipart MIME limits, content-type precedence and checksum-container errors need direct service evidence",
       "status": "OPEN",
-      "affected_features": ["JSON-OBJECTS-007", "BEHAVIOR-OBJECT-009", "BEHAVIOR-OBJECT-001", "BEHAVIOR-OBJECT-005", "BEHAVIOR-COMMON-011", "DESIGN-082"],
+      "affected_features": [
+        "JSON-OBJECTS-007",
+        "BEHAVIOR-OBJECT-009",
+        "BEHAVIOR-OBJECT-001",
+        "BEHAVIOR-OBJECT-005",
+        "BEHAVIOR-COMMON-011",
+        "DESIGN-082"
+      ],
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/uploading-objects",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/insert",
@@ -520,6 +657,80 @@
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "The status-code reference (last updated 2026-10-21) documents the 401 required example with locationType header and location Authorization, the authError reason and the 403 forbidden example. It does not document the authError message or location fields, the longer principal/permission 403 message often returned by the service, or whether WWW-Authenticate is sent. Locally, invalid or unsupported credentials return 401 authError with message Invalid Credentials, locationType header and location Authorization; permission failures return the short documented Forbidden example; no WWW-Authenticate header is sent. The missing-bucket rule is local: an authenticated caller receives 404 only when it holds the required permission in at least one project, otherwise 403; the public-read contract now evaluates anonymous callers through allUsers bindings before denying them with JSON 401 required. allUsers matches anonymous and registered callers; allAuthenticatedUsers matches only registered local identities. Invalid/unregistered bearers still fail authentication and never become anonymous, even when a public grant exists. projection=full requires no extra permission because ACL/owner fields are not rendered. Authentication precedes route syntax validation, so an invalid token wins over a 400 while an anonymous malformed request still returns 400. For an objects.insert that would overwrite a live object, generation/metageneration preconditions are evaluated before the storage.objects.delete overwrite check, so a caller lacking that permission can distinguish a matching from a mismatching generation through 403 versus 412; the real-service order is unverified. Strict operations recheck the authorized bucket project inside their catalog transaction (a bucket recreated in another project returns 403 without mutation). Bucket IAM now grants permissions through the union of the selected owning project's roles and matching unconditional bucket bindings inside the operation transaction. A bucket-only caller can access a granted existing bucket but still receives 403 for a missing bucket when it lacks the permission in every project. IAM get/set use storage.buckets.getIamPolicy/setIamPolicy and retain the same anonymous, missing-bucket and local check-order rules; transaction-time authorization precedes etag comparison. Final Rust, Go and source-built strict Compose evidence is in docs/en/evidence/bucket-iam.md; it is not real-service differential evidence. The 2026-10-22 XML status reference lists 400 InvalidAuthentication for invalid or unsupported authorization headers, 401 AuthenticationRequired for missing credentials, and 403 AccessDenied, the latter independent of object existence; it does not establish the exact status/message for this local identity registry. The public-read contract locally selects anonymous 401 AuthenticationRequired, invalid-credential and strict signature-attempt 400 InvalidAuthentication and registered permission-denial 403 AccessDenied with XML Error/Code/Message. Authorized missing buckets/objects use 404 NoSuchBucket/NoSuchKey; unauthorized resources keep the denial. HEAD error bodies are explicitly absent in the official method reference. JSON credentials retain 401 required/authError. Anonymous JSON mutations and bucket/policy methods now evaluate their exact granted permissions; public object-viewer grants never imply write or policy permissions. No XML real-service request was made.",
       "required_resolution": "Keep DESIGN-002, DESIGN-004 and affected JSON/XML API rows PARTIAL while exact wire questions remain. Obtain explicitly authorized real-service differential evidence for authError message/location fields, 403 message text, WWW-Authenticate presence, missing-bucket status for callers with and without permissions, anonymous access to missing buckets, projection=full permission requirements, the relative order of credential and syntax errors, and the order of overwrite preconditions (412) versus the overwrite permission check (403). Preserve the documented required/forbidden examples and fail-closed credential handling. See docs/en/slices/strict-auth.md and docs/en/evidence/strict-auth.md. Include get/set IAM in opted-in missing-bucket and error-order observations, comparing callers with only a bucket grant, with a project grant, and without either. Conditional/custom/basic policy semantics remain separately pending on the policy API rows; public principal matching is specified by the public-read contract rather than deferred. Obtain authorized XML observations for anonymous private/missing objects, invalid credentials on public objects, error messages/headers and missing-bucket authorization; do not infer the exact 401/403 selection solely from the catalog. See docs/en/slices/public-object-reads.md. The local grant-enforcement and atomic-etag rows do not claim those missing wire details."
+    },
+    {
+      "id": "SPEC-FIELDS-EDGES",
+      "title": "Partial response selector edges and provider wire details remain unestablished",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-BUCKETS-001",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-003",
+        "JSON-BUCKETS-005",
+        "JSON-BUCKETS-006",
+        "JSON-BUCKETS-008",
+        "JSON-BUCKETS-011",
+        "JSON-BUCKETS-013",
+        "JSON-OBJECTS-004",
+        "JSON-OBJECTS-005",
+        "JSON-OBJECTS-007",
+        "JSON-OBJECTS-008",
+        "JSON-OBJECTS-010",
+        "JSON-OBJECTS-015"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api#partial-response",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://developers.google.com/workspace/drive/api/guides/fields-parameter",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Discovery revision 20261013 and Storage documentation establish supported-resource selectors and invalid-selection HTTP 400. Local unit/HTTP/Go evidence covers nested paths, arrays, terminal wildcards, missing fields, errors, mutation preservation and resumable restart/replay. Terminal wildcards are Drive-corroborated; empty parents/elements, exact errors and local caps lack independent Storage evidence. Empty/whitespace selectors, wildcard children and fields with alt=media return 501. Session capability URLs reject a fields override with 400. See docs/en/slices/json-response-fields.md and docs/en/evidence/basic-json-fields-etag.md.",
+      "required_resolution": "Obtain authoritative clarification or an explicitly authorized provider fixture for empty/whitespace selectors, wildcard children, media combination, terminal wildcards, empty parents/elements, session overrides, exact error messages/locations/order and service limits. Preserve explicit rejection and method PARTIAL statuses; the documented Storage behavior scope is separately complete."
+    },
+    {
+      "id": "SPEC-JSON-ETAG-WIRE",
+      "title": "Scoped JSON read validators lack full provider wire and broader conditional contract evidence",
+      "status": "OPEN",
+      "affected_features": [
+        "BEHAVIOR-OBJECT-006",
+        "JSON-BUCKETS-002",
+        "JSON-BUCKETS-003",
+        "JSON-OBJECTS-005"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/request-preconditions",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/metadata#etags",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/get",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/get",
+        "https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "Local parser/HTTP/pinned-Go cases verify strong If-Match, weak If-None-Match, 412/304, fields and Range ordering, selected generations, permissions, pinned open-reader snapshots and metadata invalidation. IAM GET quotes the selected policy revision etag and enforces permissions before comparison. HTTP validators derive from records in both profiles; the legacy bucket JSON etag can differ from the header. Equal-revision bucket incarnations created in the same millisecond can share a tag. Query generation/metageneration conditions combine with either header on the same record: Match query-condition or If-Match failures return 412 before NotMatch query-condition or matching If-None-Match 304. That tiered ordering is a local interpretation of documented per-condition statuses/RFC 9110 section 13.2.2; provider ordering, opaque tags, malformed-input errors and complete headers remain unverified. Writes/lists return 501; standalone JSON date validators and If-Range, including without Range, return 501 on supported GETs. See docs/en/slices/json-read-etag-validators.md and docs/en/evidence/basic-json-fields-etag.md. IAM GET HTTP ETag header spelling and quoting are a local choice: Policy documents an HTTP entity tag, but the checked provider sources do not establish the header representation. Go tests verify conditional 304/412 behavior rather than asserting provider header spelling. IAM standalone dates/If-Range now explicitly return 501, with the same RFC date precedence as object/bucket GET. On gzip-stored media with an ETag request header, Accept-Encoding validation precedes a NotMatch-query 304, so an encoding error can take precedence. NotMatch-query-only 304 without an ETag request header preserves the previous response without an ETag header.",
+      "required_resolution": "Independently establish provider tag/error/header semantics and mixed-extension condition ordering. Resolve bucket incarnation collision with a durable identity if stronger invalidation is required. Keep ETag semantics and affected method rows PARTIAL; documented JSON GET If-Match/If-None-Match behavior is separately complete. Collection validators remain SPEC-JSON-ETAG-COLLECTIONS, If-Range remains SPEC-RANGE-VALIDATORS; XML/gRPC/HEAD and JSON date validators are outside the delivered behavior scope."
+    },
+    {
+      "id": "SPEC-JSON-ETAG-COLLECTIONS",
+      "title": "Collection responses have no documented entity tag or validator contract",
+      "status": "OPEN",
+      "affected_features": [
+        "JSON-BUCKETS-006",
+        "JSON-OBJECTS-008"
+      ],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/parameters",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/list",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
+        "https://storage.googleapis.com/$discovery/rest?version=v1"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Objects/Buckets Discovery collection schemas have no etag. Generated SDK list IfNoneMatch helpers alone do not establish provider validation. Both lists explicitly reject ETag headers with 501; local tests verify rejection. See docs/en/slices/json-read-etag-validators.md.",
+      "required_resolution": "Establish the collection validator contract before defining a local collection tag or enabling headers. Preserve list-method pending scope and explicit 501; the documented GET behavior scope covers supported etag-bearing resources only."
     }
   ],
   "resolved_research_items": [

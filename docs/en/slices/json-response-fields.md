@@ -4,8 +4,8 @@
 
 Checked and verified on **2026-10-23**.
 This slice supplies the supported-resource subset of `BEHAVIOR-COMMON-004`.
-The broader behavior should be recorded as `PARTIAL` during reconciliation
-while the named edge contracts below remain unresolved. Method statuses and
+The documented Storage selector scope is complete; undocumented selector edges
+remain on method rows and the named gap below. Method statuses and
 generated matrices are owned by the
 [feature ledger](../../../compatibility/features.json).
 
@@ -160,8 +160,12 @@ verification. Combined fields/read-validator HTTP cases are verified above.
 
 ## Ledger reconciliation
 
-Add the acceptance cases above to `BEHAVIOR-COMMON-004`; set it from `NOT_STARTED`
-to `PARTIAL`, record the exact supported subset and retain FIELDS-017 pending.
+Record `BEHAVIOR-COMMON-004` as IMPLEMENTED for Storage-documented comma lists,
+slash paths, parenthesized sub-selection and invalid-selection HTTP 400 across
+supported JSON metadata responses. Preserve its EXACT target and achieved
+fidelity for that declared scope. Keep terminal-wildcard/provider empty-parent
+semantics, local caps, exact errors and excluded edges on affected method rows,
+including FIELDS-017 pending; they do not claim documented behavior parity.
 Add SPEC-FIELDS-EDGES to the gap ledger with the sources, local rejections and
 resolution requirement above. Preserve each method's existing status, cases,
 evidence, fidelity and unrelated gaps. Replace old notes that reject every
@@ -205,3 +209,5 @@ Commands executed from the repository root on 2026-10-23:
 The online dependency check was read-only and did not change pins or ledgers.
 All default Rust and focused SDK tests used isolated local emulators; no Google
 Cloud or metadata-server endpoint was contacted by those tests.
+Final ledger, complete SDK, container and native/Compose guide results are in
+[the integration evidence](../evidence/basic-json-fields-etag.md).

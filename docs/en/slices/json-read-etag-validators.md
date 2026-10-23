@@ -11,14 +11,16 @@ MD013 is disabled so tables preserve complete test names and source digests.
 
 Implement `If-Match` and `If-None-Match` on JSON API v1 `objects.get` metadata,
 whole media and single-range media reads, including the `/download/storage/v1`
-alias, and `buckets.get`. Both native and legacy-emulator profiles use HTTP
+alias, `buckets.get` and `buckets.getIamPolicy`. Both native and legacy-emulator profiles use HTTP
 entity-tag syntax. Strict local authentication and existing permissions remain
 enforced. No dependency, schema, storage transaction or XML route changed.
 
 The shared parser/comparison lives in `src/http_conditions.rs`; JSON maps its
 outcomes to responses. It can be reused by a later XML slice without importing
-JSON errors. `objects.list`, `buckets.list`, bucket IAM reads and mutations reject
+JSON errors. `objects.list`, `buckets.list` and mutations reject
 these headers with 501 rather than accepting ignored conditions.
+Collection responses have no etag; ACL GET routes do not exist. JSON date
+validators, XML conditions and HEAD are outside this documented GET subset.
 
 ## Official sources
 
@@ -76,7 +78,7 @@ For supported requests, the effective order is:
 2. Catalog authorization recheck and selection of the live or requested record;
    missing resources return 404 before evaluating even a malformed ETag value.
 3. Existing media encoding capability checks; unsupported transcoding remains 501.
-4. If-Match, then If-None-Match, then media Range handling.
+4. Query conditions and If-Match, then If-None-Match, then media Range handling.
 
 Thus a stale If-Match beats a matching If-None-Match with 412. A matching
 If-None-Match beats satisfiable, unsatisfiable and ignored Range values with
@@ -91,14 +93,17 @@ both object and bucket metadata; exact provider error precedence remains
 unverified. Valid fields changes only the final 200 JSON body, after comparison,
 and never filters a 412 error envelope or adds content to a 304.
 
-The four object generation/metageneration query preconditions, or either bucket
-metageneration query precondition, combined with either HTTP ETag header return
-501. Google permits multiple conditions but the checked sources do not order
-HTTP validators relative to these query extensions when they imply different
-responses. This slice does not invent that order. The unsupported combination
-is rejected before catalog selection, as are other explicitly unsupported
-headers. A `generation=` selector is not a precondition and works with both
-ETag headers. Query conditions without ETag headers retain their existing rules.
+The four object generation/metageneration query preconditions and either bucket
+metageneration query precondition can combine with either HTTP ETag header.
+All conditions use the same selected record, including the opened media reader.
+Match query-condition or If-Match failures return 412, even when a NotMatch
+query condition or If-None-Match would return 304. After that tier passes,
+equal-generation/metageneration NotMatch conditions or matching If-None-Match
+return 304; otherwise GET returns 200 or the requested 206 range. This tiered
+ordering is a local interpretation of the documented per-condition statuses and RFC 9110
+section 13.2.2; exact provider extension ordering remains SPEC-JSON-ETAG-WIRE.
+A `generation=` selector is not a precondition and works with both headers.
+Query conditions without ETag headers retain their existing 304/412 rules.
 
 ### Representation identity, response headers and races
 
@@ -117,6 +122,16 @@ response header. A deleted and recreated bucket invalidates the original
 validator: old If-None-Match returns 200 and old If-Match returns 412, including
 when `fields=name` hides the JSON etag. Later legacy bucket revisions and native
 buckets already render their record-derived tag in the JSON field.
+
+As a local wire choice, IAM GET quotes the base64 etag of the selected persistent policy revision for
+its HTTP validator. The JSON policy field retains its existing unquoted bytes
+encoding. Fields selection does not change that validator; a policy update
+invalidates it. Authorization and missing-policy errors precede comparison.
+Google's policy resource documents an HTTP entity tag but does not establish
+this response-header spelling; provider confirmation remains SPEC-JSON-ETAG-WIRE.
+IAM GET now follows other supported GETs for stray date/If-Range headers: alone
+they return 501; If-Modified-Since is ignored with If-None-Match and
+If-Unmodified-Since is ignored with If-Match. Non-GET/list behavior is unchanged.
 
 304 carries ETag, Cache-Control and Hyper's Date, with no content or trailers,
 Content-Type, Content-Length, Content-Encoding or Content-Range. Metadata uses
@@ -160,11 +175,12 @@ questions or excluded implementation, not skipped tests counted as success.
 | ETAG-READ-EMPTY-PUBLIC | Empty media, empty unsatisfiable range overridden by 304, and stored public Cache-Control on 304 | `etag::json_etag_read_selected_generation_zero_byte_and_public_cache` | PASS |
 | ETAG-READ-PERMISSIONS | Anonymous and creator-only strict requests fail before successful, failed or malformed ETag evaluation | `etag::json_etag_read_authorization_precedes_validators` | PASS |
 | ETAG-READ-SNAPSHOT | Conditional open response retains original ETag, generation, metageneration and bytes through metadata update and overwrite | `etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader` | PASS |
-| ETAG-READ-REJECTIONS | ETag headers on query-conditioned reads, lists, IAM GET and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data | `etag::json_etag_read_unsupported_combinations_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
+| ETAG-READ-REJECTIONS | ETag headers on lists and writes return 501; standalone dates/If-Range fail on supported GETs; rejected writes preserve data | `etag::json_etag_read_unsupported_lists_dates_and_writes`; `obj_http_bad_hashes_and_unsupported_requests_never_publish`; `json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected` | PASS |
 | ETAG-READ-FIELDS | Bucket/object fields=name retains the complete-resource HTTP ETag; matching cache validator returns bodyless 304 and failed If-Match returns an unfiltered 412 error | `fields_http::fields_read_etag_validators_use_the_complete_resource` | PASS |
 | ETAG-READ-FIELDS-ORDER | Malformed fields returns 400 before failing If-Match or matching If-None-Match; parameter validation precedes condition evaluation | `fields_http::fields_invalid_selection_precedes_read_etag_evaluation` | PASS |
 | ETAG-READ-DATE-PRECEDENCE | If-None-Match overrides If-Modified-Since and If-Match overrides If-Unmodified-Since on supported reads; stray date/If-Range headers retain existing ignored behavior on writes and lists | `etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior`; `etag::json_etag_read_if_match_overrides_if_unmodified_since` | PASS |
-| ETAG-READ-QUERY-ORDER | Establish HTTP versus generation/metageneration condition precedence before enabling mixed requests | None; explicit rejection is tested above | PENDING |
+| ETAG-READ-QUERY-ORDER | Every object/bucket generation/metageneration query condition combines with both headers on one record; Match failures return 412 before NotMatch/If-None-Match 304; all-pass 200/206 | `etag::json_etag_read_combined_query_conditions_use_one_selected_record`; `TestReadETagValidators` | PASS |
+| ETAG-READ-IAM | Local IAM GET validator preserves fields and strict permissions, returns 304/412/400, keeps missing 404, invalidates after policy update and follows supported-GET date/If-Range rules | `etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions`; `TestReadETagValidators` | PASS |
 | ETAG-READ-COLLECTION-CONTRACT | Establish collection ETags and list validator behavior rather than deriving a tag from page items | None; explicit rejection is tested above | PENDING |
 | ETAG-READ-PROVIDER-WIRE | Independently establish opaque Google tag bytes, malformed-input errors and exhaustive response headers | None; local wire behavior above is tested | PENDING |
 
@@ -175,7 +191,7 @@ questions or excluded implementation, not skipped tests counted as success.
 - Collection validators remain 501 pending a collection contract. Discovery
   lacks collection etag fields; generated SDK list-call IfNoneMatch helpers
   alone do not establish actual Google behavior.
-- Bucket IAM/ACL resource validators, XML, gRPC and HEAD are outside this slice.
+- ACL resource validators, XML, gRPC and HEAD are outside this slice.
   Existing JSON HEAD routing still rejects the method. XML validators retain
   their existing rejection and no XML route calls the new shared evaluator.
 - If-Range remains excluded under SPEC-RANGE-VALIDATORS and returns 501 on
@@ -185,6 +201,10 @@ questions or excluded implementation, not skipped tests counted as success.
   Non-GET and list routes preserve their existing ignored date/If-Range behavior.
 - Two bucket incarnations created in the same millisecond with equal revisions
   can share the record-derived HTTP tag; this slice does not add an incarnation allocator.
+- For gzip-stored media with an ETag request header, Accept-Encoding validation
+  precedes a NotMatch-query 304, so an encoding error can take precedence.
+- A NotMatch-query-only 304 without an ETag request header retains the previous
+  response with no ETag header. Combined requests use the selected-record validator.
 - Decompressive transcoding remains unsupported before ETag evaluation. No new
   compressed/expanded representation equivalence is claimed.
 - Field selection applies only after read ETag evaluation to the final 200
@@ -199,14 +219,15 @@ Preserve broader PENDING cases and existing evidence.
 
 | Feature row | Acceptance to add or revise | Status boundary |
 | --- | --- | --- |
-| BEHAVIOR-COMMON-012 | Add ETAG-READ-RESOURCES through ETAG-READ-DATE-PRECEDENCE and their exact tests; retain the three PENDING cases above plus XML/date/IAM/HEAD breadth | Advance NOT_STARTED to PARTIAL; do not claim all HTTP conditions implemented |
-| BEHAVIOR-OBJECT-006 | Add resource identity, strong/weak comparison, invalidation, selected-generation, permission and snapshot cases; revise the earlier MEDIA wording that only rejected headers | Keep PARTIAL for opaque production/composite/cross-API semantics and mixed/list cases |
+| BEHAVIOR-COMMON-012 | JSON GET validators for supported etag-bearing resources, including policy GET and combined query conditions; every documented-scope case passes | IMPLEMENTED with EXACT target/achieved fidelity for the documented scope; provider-wire and collection questions remain on method rows and named gaps, XML/date/HEAD outside scope |
+| BEHAVIOR-OBJECT-006 | Add resource identity, strong/weak comparison, invalidation, selected-generation, permission and snapshot cases; revise the earlier MEDIA wording that only rejected headers | Keep PARTIAL for opaque production/composite/cross-API semantics, provider mixed-condition ordering and collection contracts |
 | JSON-OBJECTS-005 | Add ETAG-READ-RESOURCES, COMPARISON, SYNTAX, MATCH-FAILURE, CACHE-RESPONSE, ORDER, MISSING, GENERATIONS, EMPTY-PUBLIC, PERMISSIONS, SNAPSHOT, REJECTIONS, FIELDS, FIELDS-ORDER and DATE-PRECEDENCE | Keep PARTIAL; replace blanket ETag-unsupported text with this scoped support and named exclusions |
 | JSON-BUCKETS-002 | Add ETAG-READ-BUCKETS, COMPARISON, SYNTAX, CACHE-RESPONSE, MISSING, PERMISSIONS, REJECTIONS, FIELDS, FIELDS-ORDER and DATE-PRECEDENCE | Keep PARTIAL; distinguish the legacy metadata field from its record-derived HTTP validator |
+| JSON-BUCKETS-003 | Add ETAG-READ-IAM and its syntax/permission/missing/fields interactions | Keep PARTIAL for broader policy and wire cases |
 | EXT-XML-* | No acceptance or fidelity upgrade from this JSON implementation; existing XML regressions pass in the workspace run | Untouched |
 
 The complete new Rust test set is the two `http_conditions::tests::*` IDs and
-eight `etag::json_etag_read_*` IDs and two `fields_http::*` IDs spelled out in the acceptance table. Existing
+eleven `etag::json_etag_read_*` IDs and two `fields_http::*` IDs spelled out in the acceptance table. Existing
 `obj_http_bad_hashes_and_unsupported_requests_never_publish` now asserts GET 400
 for an unquoted tag and GET 304 for wildcard If-None-Match while preserving its
 upload/delete/encryption/custom-header negative cases. The JSON header unit
@@ -214,11 +235,13 @@ test preserves upload 501 assertions. The Go SDK evidence is exclusively
 `TestReadETagValidators`: official generated Objects.Get IfNoneMatch and
 googleapi.IsNotModified, header-set If-Match with a selected-generation ranged
 Download, stale match rejection, metadata invalidation and Buckets.Get
-IfNoneMatch. SDK pins: Go 1.27.3, Storage v1.70.0, API client v0.308.0.
+IfNoneMatch, combined query conditions and conditional IAM GET with fields.
+SDK pins: Go 1.27.3, Storage v1.70.0, API client v0.308.0.
 
 ### Commands and results
 
-All results below are from the final implementation and tests on 2026-10-23.
+The initial slice results below precede the date-precedence, IAM GET and mixed-condition extension.
+The current final integration results are in [Fields and ETag evidence](../evidence/basic-json-fields-etag.md).
 No test was skipped or ignored. HTTP tests used local loopback servers.
 
 | Command | Result |
@@ -236,14 +259,14 @@ No test was skipped or ignored. HTTP tests used local loopback servers.
 
 | Gap | Exact update needed |
 | --- | --- |
-| SPEC-012 | Retain opaque ETag and exhaustive header parity questions; add this document as local evidence for same-selected-record JSON field/header comparison, 304 ETag/cache headers and Go coverage. Remove blanket If-Match/If-None-Match 501 statements from affected feature deviations, replacing them with the supported GET subset and mixed/list/IAM/write/date exclusions. Add BEHAVIOR-OBJECT-006 and BEHAVIOR-COMMON-012 to affected rows where appropriate. |
-| SPEC-008 | Add HTTP ETag plus generation/metageneration query precedence as a named unresolved subcase, rejected 501 before catalog selection. Keep existing standalone query-condition behavior and gaps unchanged. Add the bucket counterpart where appropriate. |
-| SPEC-JSON-ETAG-COLLECTIONS (new, SOURCE_QUESTION) | Common JSON headers say GET resources support validators, but Objects/Buckets collection schemas have no ETag and the checked sources do not define collection validation. Both lists reject either header with 501, including wildcard. Establish the supported collection contract before enabling it. Affect JSON-OBJECTS-008, JSON-BUCKETS-006 and BEHAVIOR-COMMON-012. |
-| SPEC-JSON-ETAG-WIRE (new, LOCAL_DEVIATION) | RFC syntax/comparison is locally verified; exact Google malformed/unquoted/repeated-header error envelopes, empty-list handling, exhaustive 304 headers, fields-error precedence and legacy JSON-versus-HTTP validator divergence lack service observations. Record local 400 invalidParameter, bodyless 304, record-derived HTTP validators and authorization/existence/input order without claiming production wire equality. Affect BEHAVIOR-COMMON-012, BEHAVIOR-OBJECT-006, JSON-OBJECTS-005 and JSON-BUCKETS-002. |
+| SPEC-012 | Retain opaque ETag and exhaustive header parity questions; preserve same-selected-record comparison, 304/cache and Go evidence. Replace blanket header rejection with supported object/bucket/policy GET and combined query conditions; write/list/date/If-Range exclusions remain. |
+| SPEC-008 | Preserve standalone query-condition behavior and gaps. Combined query/HTTP conditions now execute against one snapshot; exact provider extension ordering is a local choice tracked by SPEC-JSON-ETAG-WIRE. |
+| SPEC-JSON-ETAG-COLLECTIONS (new, SOURCE_QUESTION) | Objects/Buckets collection schemas have no ETag and the checked sources do not define collection validation. Both lists reject either header with 501, including wildcard. Establish the collection contract before enabling it. Affect JSON-OBJECTS-008 and JSON-BUCKETS-006; collections are outside the documented etag-bearing-resource behavior scope. |
+| SPEC-JSON-ETAG-WIRE (new, SCOPE_VERIFICATION) | RFC comparison is locally verified; exact provider errors, empty-list handling, full 304 headers, fields-error precedence, mixed-extension ordering and policy/header representation lack service observations. Keep those questions on BEHAVIOR-OBJECT-006, JSON-OBJECTS-005 and JSON-BUCKETS-002/003, outside the completed documented GET behavior scope. |
 | SPEC-RANGE-VALIDATORS | Keep OPEN and If-Range 501; this implementation does not resolve its Google contract question. |
 | SPEC-017 | Preserve existing authentication/error visibility boundaries; attach the local validator-before-disclosure permission regression without claiming independently verified service messages. |
 
 No upstream version or source question is resolved merely by the local passing
 SDK test. Fields selection and read validators are combined and locally verified.
-Ledger/gap reconciliation and final container, complete SDK and guide checks
-remain separate verification gates.
+Final ledger reconciliation, container, complete SDK and native/Compose guide
+results are recorded in [the integration evidence](../evidence/basic-json-fields-etag.md).

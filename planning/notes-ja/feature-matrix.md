@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 282 | 0 | 16 | 0 | 0 | 0 |
-| behavior | 201 | 158 | 0 | 31 | 12 | 0 | 0 |
+| behavior | 201 | 156 | 0 | 31 | 14 | 0 | 0 |
 | project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 282 | 2 | 14 | 0 | 0 | 0 |
-| behavior | 158 | 13 | 28 | 2 | 0 | 0 |
+| behavior | 156 | 15 | 28 | 2 | 0 | 0 |
 | project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
 
 ## api_operation
@@ -93,11 +93,11 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | JSON-BUCKETS-001 | buckets.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
+| JSON-BUCKETS-002 | buckets.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-BUCKETS-003 | buckets.getIamPolicy | PARTIAL | P2 | EXACT | EXACT | 3 |
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
@@ -169,10 +169,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-002 | objects.compose | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-003 | objects.copy | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-004 | objects.delete | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-OBJECTS-005 | objects.get | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
-| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
+| JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -546,7 +546,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-001 | バケット名・オブジェクト名の検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-002 | オブジェクト名とURIエンコード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-003 | JSON整数の文字列表現 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
-| BEHAVIOR-COMMON-004 | fieldsによる部分レスポンス | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-004 | fieldsによる部分レスポンス | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-005 | projectionのfull/noAcl | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-006 | PUT置換とPATCH部分更新 | PARTIAL | P1 | LOCAL_SIMULATION | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-007 | HTTPステータスとJSONエラー | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
@@ -554,7 +554,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-COMMON-009 | データと一覧の強整合性 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-COMMON-010 | 認可変更の反映モデル | NOT_STARTED | P2 | LOCAL_SIMULATION | NONE | 0 |
 | BEHAVIOR-COMMON-011 | 世代・メタ世代の前提条件 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
-| BEHAVIOR-COMMON-012 | HTTP条件付き要求 | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-COMMON-012 | HTTP条件付き要求 | IMPLEMENTED | P1 | EXACT | EXACT | 1 |
 | BEHAVIOR-COMMON-013 | ページングとトークン検証 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-COMMON-014 | プロジェクト・課金コンテキスト | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 0 |
 
@@ -687,7 +687,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-003 | オブジェクト時刻とライフサイクル時刻 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-004 | customTimeの更新制約 | NOT_STARTED | P1 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-005 | チェックサム | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 3 |
-| BEHAVIOR-OBJECT-006 | ETagの意味 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
+| BEHAVIOR-OBJECT-006 | ETagの意味 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
 | BEHAVIOR-OBJECT-007 | mediaLink・selfLinkの生成 | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-008 | 単純メディアアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
 | BEHAVIOR-OBJECT-009 | JSON multipartアップロード | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
