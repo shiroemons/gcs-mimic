@@ -1,0 +1,28 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders.
+PASS: missing cert rejected before startup (exit 2)
+PASS: missing key rejected before startup (exit 2)
+PASS: missing ca rejected before startup (exit 2)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+=== RUN   TestBucketLifecycle
+    buckets_test.go:216: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=https://127.0.0.1:53602
+--- PASS: TestBucketLifecycle (0.08s)
+=== RUN   TestStrictAuthBucketMetadataUpdate
+--- PASS: TestStrictAuthBucketMetadataUpdate (0.06s)
+=== RUN   TestObjectResumableWriter
+    objects_resumable_test.go:80: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=https://127.0.0.1:53602
+=== RUN   TestObjectResumableWriter/default_chunk_size_resumable
+=== RUN   TestObjectResumableWriter/default_chunk_size_small_multipart
+=== RUN   TestObjectResumableWriter/multiple_256_KiB_chunks
+=== RUN   TestObjectResumableWriter/empty_final_chunk
+=== RUN   TestObjectResumableWriter/empty_object
+=== RUN   TestObjectResumableWriter/unknown_length_stream
+--- PASS: TestObjectResumableWriter (0.67s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_resumable (0.36s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_small_multipart (0.05s)
+    --- PASS: TestObjectResumableWriter/multiple_256_KiB_chunks (0.08s)
+    --- PASS: TestObjectResumableWriter/empty_final_chunk (0.07s)
+    --- PASS: TestObjectResumableWriter/empty_object (0.04s)
+    --- PASS: TestObjectResumableWriter/unknown_length_stream (0.07s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	1.093s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]

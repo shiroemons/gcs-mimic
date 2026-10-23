@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
 | behavior | 201 | 151 | 0 | 28 | 22 | 0 | 0 |
-| project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
+| project_requirement | 92 | 42 | 0 | 26 | 24 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -847,7 +847,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-062 | 読み取り専用フィクスチャ投入 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-063 | 永続データボリューム | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI・環境変数の優先順位 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-065 | HTTP・任意のテストTLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-065 | HTTP・任意のテストTLS | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
 | DESIGN-066 | 非root・最小ランタイムイメージ | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-067 | ヘルス・準備完了確認・正常停止 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-068 | 分離された初期化・再投入管理操作 | NOT_STARTED | P0 | PROJECT | NONE | 0 |

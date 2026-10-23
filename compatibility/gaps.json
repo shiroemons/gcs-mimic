@@ -849,6 +849,10 @@
     {
       "title": "Strict identity registry format",
       "resolution": "The future onboarding specification sketched a TOML identity file. The implemented registry is a bounded JSON file (config/identities.json, at most 64 KiB) because the runtime configuration is already flat JSON; no TOML parser was added. This is an emulator-local format with no Google contract. See docs/en/slices/strict-auth.md."
+    },
+    {
+      "title": "Local TLS configuration and Google transport boundary",
+      "resolution": "Checked 2026-10-23: Google request endpoints support HTTP/1.1, HTTP/2 and HTTP/3; JSON requires HTTPS while XML also supports HTTP. Local TLS settings are emulator configuration, not Discovery/protobuf fields. DESIGN-065 implements HTTPS by default with bundled development certificate/key when both custom paths are absent, optional supplied PEM chain/key, explicit HTTP, TLS 1.2/1.3 and verified client CA/SAN trust for HTTP/1.1. The bundled leaf key is deliberately public local-test material; its public CA is exported by gcs-mimic tls ca and used by HTTPS healthcheck unless --ca-cert selects another root set. The CA private key is not shipped. Unlike the pinned reference's one-sided-path fallback, specifying only one custom path fails startup; invalid supplied pairs never fall back. No open provider TLS contradiction affects this scope; HTTP/2/3, gRPC, public issuance, system trust-store changes, mTLS, reload, proxy origin, signing and dual-listener migration remain separate work. See docs/en/slices/local-tls.md and docs/en/evidence/local-tls.md."
     }
   ]
 }

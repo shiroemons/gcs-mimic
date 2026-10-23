@@ -86,7 +86,21 @@ and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB t
 the container limit. Resumable expiry uses one next-deadline scheduler, with no
 timer when idle; failed cleanup has a bounded retry delay.
 
-Startup validates config and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
+Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.
+
+The default HTTPS-only listener uses a built-in development certificate/key;
+an optional supplied PEM pair replaces it. A single supplied path fails. Explicit
+`scheme=http` retains local HTTP-only operation. The `tls` module loads bounded
+PEM inputs before CLI recovery/bind, while Tokio Rustls wraps the same HTTP/1.1
+handler with TLS 1.2/1.3. Handshakes occupy the existing connection slots and have
+an independent finite deadline and shutdown notification. Probe clients require
+the built-in CA by default or an explicit replacement CA and verify DNS/IP SANs.
+`tls ca` exports only the public development CA, without configuration or network
+access. The embedded server key is deliberately public; CA signing keys are not
+distributed. Advertised API URLs and public URL helper
+bases remain independent of the listener; forwarded headers never set them.
+HTTP/2, HTTP/3 and gRPC transport are separate work. See the
+[TLS contract](slices/local-tls.md) for trust boundaries and reference behavior.
 
 ## Implemented bucket catalog and recovery
 

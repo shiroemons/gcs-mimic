@@ -11,7 +11,9 @@ Initial seed directory import runs before readiness. Path-style XML GET/HEAD and
 bucket `allUsers` / `allAuthenticatedUsers` grants support public and private reads.
 If-Range, transcoding, object IAM, testIamPermissions,
 conditional policies, ACLs, virtual-host routing, XML writes/listing, signed URLs,
-UBLA/PAP settings, CORS and TLS remain unavailable.
+UBLA/PAP settings and CORS remain unavailable. HTTPS is the default listener mode;
+HTTP examples explicitly select HTTP. TLS 1.2/1.3 uses built-in or supplied PEM files and
+explicit client CA trust, as shown in the standalone HTTPS journey below.
 The default permissive profile enforces no authentication; use an isolated local
 development environment. An optional strict profile checks local bearer tokens
 against project and bucket grants of predefined storage roles.
@@ -29,6 +31,106 @@ evidence or a released-image claim. Implementation status remains in the
 [feature ledger](../../compatibility/features.json).
 Run the shell blocks in order in one Bash session from the repository root.
 
+## Local HTTPS with an explicit development CA
+
+HTTPS starts without certificate preparation. The binary embeds a development
+certificate for `localhost`, `gcs`, `127.0.0.1` and `::1`; `tls ca` prints its
+public CA without reading configuration or opening the data directory/network.
+The shared development server key is deliberately public. Keep this emulator
+isolated; custom certificate/key pairs remain available below. This standalone
+journey uses Bash, curl and jq and changes no system trust store.
+
+```sh
+tls_work=$(mktemp -d)
+cert_dir="$tls_work/certs"
+mkdir "$cert_dir"
+cargo build --locked
+./target/debug/gcs-mimic tls ca > "$cert_dir/ca.pem"
+./target/debug/gcs-mimic serve --listen 127.0.0.1:54443 \
+  --api-base-url https://localhost:54443 --data-dir "$tls_work/data" \
+  > "$tls_work/native.log" 2>&1 &
+tls_pid=$!
+for attempt in $(seq 1 50); do
+  if ./target/debug/gcs-mimic healthcheck --url https://localhost:54443/_internal/ready; then break; fi
+  sleep 0.1
+done
+bash scripts/tls-smoke.sh https://localhost:54443 "$cert_dir/ca.pem"
+kill -TERM "$tls_pid"
+wait "$tls_pid"
+```
+
+`--scheme https` is the default; omitting both TLS paths uses the built-in pair.
+To use HTTP, explicitly select `--scheme http` and omit the TLS paths. Custom
+TLS needs both `--tls-cert` and `--tls-key`; a single path fails. The supplied
+PEM chain (leaf first) and private key are loaded and checked before recovery,
+seeding, binding or readiness. Each is capped at 1 MiB. TLS 1.2/1.3 and HTTP/1.1
+are supported; handshakes share `max_connections` and have a separate
+`--tls-handshake-timeout-ms` deadline (default 5000, range 1–60000).
+Configuration precedence is CLI > `GCS_MIMIC_` environment > JSON > defaults.
+For example, use JSON `scheme`, `tls_cert`, `tls_key`, `tls_handshake_timeout_ms`
+or environment `GCS_MIMIC_SCHEME`, `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY`.
+An omitted API base uses `https://127.0.0.1:4443`; set `--api-base-url` for a
+different reachable host/port. Explicit HTTP(S) API bases remain independent for
+reverse proxies. Neither `Host` nor forwarding headers change generated links.
+
+Build and run the same journey with the non-root, read-only source image:
+
+```sh
+export COMPOSE_PROJECT_NAME=gcs-mimic-tls-demo-$$
+export GCS_MIMIC_IMAGE=gcs-mimic:tls-dev
+export GCS_MIMIC_PORT=54444
+export GCS_MIMIC_API_BASE_URL=https://localhost:54444
+docker build -t "$GCS_MIMIC_IMAGE" .
+docker compose config --quiet
+docker compose up -d --no-build --wait
+bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$cert_dir/ca.pem"
+docker compose stop
+docker compose start --wait
+docker compose exec -T --interactive=false gcs \
+  gcs-mimic healthcheck --url https://localhost:4443/_internal/ready
+```
+
+For peers that follow generated links, set `GCS_MIMIC_API_BASE_URL=https://gcs:4443`
+and recreate the service before starting their upload. Host clients and browsers
+use `https://localhost:54444`. Both names are in the certificate; a container's
+`localhost` names that container. Mount only `ca.pem` in client containers and
+pass it to their TLS client. The public URL helper accepts an independent base
+and grants no access. Same-origin browser navigation works after explicitly
+trusting the development CA in an isolated browser profile; cross-origin fetch
+still requires the separately planned CORS behavior. Never disable certificate
+or hostname verification. The [TLS evidence](evidence/local-tls.md) records the
+isolated Chromium trust procedure and failure checks.
+
+The Docker image and `compose.yaml` default to built-in HTTPS without TLS mounts.
+The built-in leaf expires on 2036-10-19 and its CA on 2036-10-20; renew the
+embedded assets before then. To use a custom development CA instead, generate
+throwaway two-day fixtures with OpenSSL and select the read-only TLS override:
+
+```sh
+custom_cert_dir="$tls_work/custom-certs"
+bash scripts/tls-fixtures.sh "$custom_cert_dir"
+export GCS_MIMIC_TLS_DIR="$custom_cert_dir"
+docker compose -f compose.yaml -f compose.tls.yaml up -d --no-build --wait
+bash scripts/tls-smoke.sh "$GCS_MIMIC_API_BASE_URL" "$custom_cert_dir/ca.pem"
+```
+
+Custom probes use `--ca-cert /tls/ca.pem`; the default probe trusts only the
+built-in CA. Explicit `--ca-cert` replaces that trust rather than adding it.
+`compose.http.yaml` explicitly selects HTTP for the detailed HTTP journey below.
+Add `compose.strict.yaml` to require the existing local test identities.
+Stopping/recreating preserves the named data volume. `docker compose ... down`
+stops/removes this demo's containers without resetting its data. To reset only
+this disposable project's local catalog, first stop it and explicitly remove
+its named volume; never reset another project's data.
+
+For official clients, run the [Go HTTPS suite](../../sdk-tests/go/README.md#https-with-an-explicit-development-ca)
+and [Ruby HTTPS journey](../../sdk-tests/ruby/README.md) using the same CA and
+advertised origin. Their endpoint guards prevent fallback to Google or metadata
+servers. The Rust [wire tests](../../tests/tls.rs) cover untrusted CA, wrong
+hostname, expiry, invalid files, stalled admission, strict grants and restart.
+After all clients and containers stop, delete only `$tls_work`; it contains
+this journey's disposable certificates and native data.
+
 ## Build and start with Compose
 
 Install Git, Docker Engine/Desktop with Buildx and Compose v2 (`up --wait` and
@@ -38,6 +140,7 @@ project and a dynamically allocated loopback port to avoid other local emulators
 
 ```sh
 export COMPOSE_PROJECT_NAME=gcs-mimic-object-demo-$$
+export COMPOSE_FILE=compose.yaml:compose.http.yaml
 export GCS_MIMIC_IMAGE="gcs-mimic:object-demo-$$"
 docker build -t "$GCS_MIMIC_IMAGE" .
 export GCS_MIMIC_PORT=0
@@ -951,8 +1054,8 @@ advertised endpoint and named volume selected above. The ready event reports
 the mode and the number of registered identities:
 
 ```sh
-docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
-docker compose -f compose.yaml -f compose.strict.yaml logs --no-log-prefix gcs \
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml up -d --wait
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml logs --no-log-prefix gcs \
   | jq -ceR 'fromjson? | select(.event == "ready" and .auth_mode == "strict" and .identities == 4) | {auth_mode, identities}'
 ```
 
@@ -1180,14 +1283,14 @@ The private object uploaded above has no stored Cache-Control. Construct host
 and peer URLs, then prove that anonymous reads are still denied before any grant:
 
 ```sh
-public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+public_url=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/private file.txt')
-peer_public_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+peer_public_url=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
   gcs-mimic url public --base-url http://gcs:4443 --bucket strict-bucket --object 'notes/private file.txt')
 printf '%s\n' "$public_url"
 test "$public_url" = "$endpoint/strict-bucket/notes/private%20file.txt"
 test "$peer_public_url" = 'http://gcs:4443/strict-bucket/notes/private%20file.txt'
-dot_url=$(docker compose -f compose.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
+dot_url=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml exec -T --interactive=false gcs \
   gcs-mimic url public --base-url "$endpoint" --bucket strict-bucket --object 'notes/../private file.txt')
 test "$dot_url" = "$endpoint/strict-bucket/notes%2F..%2Fprivate%20file.txt"
 ```
@@ -1256,8 +1359,8 @@ tr -d '\r' < "$work_dir/public-peer-head.headers" | grep -qi "^x-goog-generation
 Stop/start preserves the grant as well as the object; verify it before revoking:
 
 ```sh
-docker compose -f compose.yaml -f compose.strict.yaml stop
-docker compose -f compose.yaml -f compose.strict.yaml start --wait
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml stop
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml start --wait
 ```
 
 ```sh
@@ -1350,8 +1453,8 @@ then recreate the service from `compose.yaml` alone to return to the default
 permissive profile:
 
 ```sh
-docker compose -f compose.yaml -f compose.strict.yaml stop
-docker compose -f compose.yaml -f compose.strict.yaml start --wait
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml stop
+docker compose -f compose.yaml -f compose.http.yaml -f compose.strict.yaml start --wait
 curl --disable --noproxy '*' --fail -H 'Authorization: Bearer local-admin-token' \
   "$endpoint/storage/v1/b/strict-bucket/iam" > "$work_dir/policy-restarted.json"
 jq -e --arg saved "$(jq -r .etag "$work_dir/policy-revoked.json")" \
@@ -1405,7 +1508,7 @@ Build with Rust 1.99.1 and the committed lockfile:
 ```sh
 cargo +1.99.1 build --release --locked --bin gcs-mimic
 native_dir=$(mktemp -d)
-./target/release/gcs-mimic serve --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
+./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 --data-dir "$native_dir/data" \
   --api-base-url http://127.0.0.1:4443 > "$native_dir/server.log" 2>&1 &
 native_pid=$!
 trap 'kill -TERM "$native_pid" 2>/dev/null || true' EXIT
@@ -1469,10 +1572,14 @@ readiness. The current configuration is JSON; future TOML settings are unavailab
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
+| `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `https` or explicit `http`; one listener |
+| `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
+| `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
+| `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | Stable read-only bucket-directory input; only before initial catalog completion |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
-| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `http://127.0.0.1:4443` | Absolute HTTP(S), optional base path; no credentials/query/fragment |
+| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `https://127.0.0.1:4443` | Default scheme follows listener mode; explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
@@ -1539,7 +1646,7 @@ unset GCS_MIMIC_IMAGE GCS_MIMIC_PORT GCS_MIMIC_API_BASE_URL
 seed_demo=$(mktemp -d)
 mkdir -p "$seed_demo/fixtures/example-bucket"
 printf 'hello world' > "$seed_demo/fixtures/example-bucket/hello.txt"
-./target/release/gcs-mimic serve --listen 127.0.0.1:0 \
+./target/release/gcs-mimic serve --scheme http --listen 127.0.0.1:0 \
   --data-dir "$seed_demo/data" --seed-dir "$seed_demo/fixtures" \
   --seed-project local-project > "$seed_demo/server.log" 2>&1 &
 seed_pid=$!
@@ -1599,20 +1706,20 @@ export COMPOSE_PROJECT_NAME=gcs-mimic-seed-demo-$$
 export GCS_MIMIC_IMAGE="gcs-mimic:seed-demo-$$"
 docker build -t "$GCS_MIMIC_IMAGE" .
 export GCS_MIMIC_PORT=0
-docker compose -f compose.yaml -f compose.seed.yaml up -d --wait
-seed_address=$(docker compose -f compose.yaml -f compose.seed.yaml port gcs 4443)
+docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml up -d --wait
+seed_address=$(docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml port gcs 4443)
 curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b?project=local-project"
 curl --disable --noproxy '*' --fail "http://$seed_address/storage/v1/b/local-bucket/o"
 curl --disable --noproxy '*' --fail \
   "http://$seed_address/storage/v1/b/local-bucket/o/hello.txt?alt=media"
-docker compose -f compose.yaml -f compose.seed.yaml stop
+docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml stop
 ```
 
 The last response is `Hello from the emulator.` followed by a newline. The override
 mounts fixtures read-only. Keep both `-f` arguments on restart/recreate commands;
 add `-f compose.strict.yaml` and the local admin bearer token for strict mode.
 Ordinary `stop` or `down` preserves data. To delete only this disposable demo's
-emulator data, explicitly run `docker compose -f compose.yaml -f compose.seed.yaml
+emulator data, explicitly run `docker compose -f compose.yaml -f compose.http.yaml -f compose.seed.yaml
 down --volumes`; the next `up -d --wait` imports into the fresh volume.
 This complete guide, including bucket versioning/default holds, resumable upload,
 seeded Compose and strict bucket IAM/public/private journeys, passed on 2026-10-22;

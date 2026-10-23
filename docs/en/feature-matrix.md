@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
 | behavior | 201 | 151 | 0 | 28 | 22 | 0 | 0 |
-| project_requirement | 92 | 42 | 0 | 27 | 23 | 0 | 0 |
+| project_requirement | 92 | 42 | 0 | 26 | 24 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -847,7 +847,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-062 | Read-only fixture seeding | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-063 | Persistent data volume | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-064 | CLI and environment precedence | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-065 | HTTP and optional test TLS | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-065 | HTTP and optional test TLS | IMPLEMENTED | P0 | PROJECT | PROJECT | 2 |
 | DESIGN-066 | Non-root minimal runtime image | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-067 | Health, readiness and graceful shutdown | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-068 | Isolated reset/reseed admin operations | NOT_STARTED | P0 | PROJECT | NONE | 0 |

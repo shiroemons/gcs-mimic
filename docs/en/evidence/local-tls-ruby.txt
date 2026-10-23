@@ -1,0 +1,2 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders.
+Ruby 4.0.9; google-cloud-storage 1.62.1; HTTPS bucket CRUD, streamed upload/download and 3 resumable chunks passed

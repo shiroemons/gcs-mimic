@@ -15,7 +15,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Docker and Compose | 🚧 Partial | Non-root runtime; native amd64/arm64 Foundation CI passed. GHCR publication is configured but has not run. |
 | CLI, environment and JSON configuration | ✅ Available | Command-line options override environment variables, configuration files and defaults. `gcs-mimic url public` builds encoded public object URLs without reading configuration. |
 | Health, readiness and graceful shutdown | 🚧 Partial | Catalog locking/recovery and configured initial seeding complete before readiness; SIGINT/SIGTERM drain works. Seeded Compose startup is verified on ARM64 and emulated AMD64. |
-| HTTP and TLS | 🚧 Partial | HTTP/1 is available; TLS is not implemented. |
+| HTTP and TLS | ✅ Available | HTTPS-only by default using a built-in development certificate; no certificate setup required. Optional supplied PEM pair, explicit HTTP-only, TLS 1.2/1.3, bounded handshakes and verified client trust. See the [TLS guide](docs/en/getting-started.md#local-https-with-an-explicit-development-ca). |
 | JSON bucket APIs | 🚧 Partial | Create/get/list/delete with create-time versioning/default holds, scoped keyset paging and conditions; PATCH merges/removes labels and changes the supported default storage class, versioning and default holds with atomic metageneration conditions. PUT replaces that same subset and resets omitted modeled fields to declared local defaults. Response `fields` selection covers supported metadata/list/IAM resources; bucket GET supports `If-Match` / `If-None-Match`. Persistent IAM policy get/set with etags and scoped enforcement. ACLs, testIamPermissions and advanced settings remain unavailable. |
 | JSON object APIs | 🚧 Partial | Media/multipart/resumable upload, metadata, MD5/CRC32C, range reads, keyset listing, patch/update and atomic conditions. Response `fields` selection and metadata/media GET `If-Match` / `If-None-Match` work, including selected generations and ranges. Persistent version history, selected generation reads/deletes, version paging and event holds work. Resumable cancel/expiry/recovery work; XML/signed resumable, replay, If-Range, transcoding, glob, ACL, temporary holds, retention and soft delete remain unavailable. |
 | XML and gRPC APIs | 🚧 Partial | Path-style XML object GET/HEAD: selected live generation, single ranges, generation/metageneration match headers and XML errors. Virtual-host routing, XML writes/listing and gRPC are unavailable; recognized unsupported XML inputs return 501. |
@@ -23,7 +23,7 @@ The current implementation provides persistent JSON bucket create/get/list/delet
 | Authentication, IAM and ACLs | 🚧 Partial | Explicit permissive (default) and strict profiles. Strict mode resolves registered local bearer tokens and combines project grants with unconditional bucket policy bindings from a pinned `roles/storage.*` snapshot on JSON routes and XML reads. `allUsers` includes anonymous callers; `allAuthenticatedUsers` requires a registered identity. Object IAM, testIamPermissions, conditions, custom/basic roles, ACLs and UBLA/PAP settings are unavailable. |
 | Public and signed URLs | 🚧 Partial | `gcs-mimic url public` builds encoded path-style URLs served by XML GET/HEAD without changing permissions. Strict reads enforce public/private grants and revocation; signed URLs and virtual-host routing are unavailable. |
 | Browser CORS | ❌ Unavailable | JSON and XML CORS behavior is not implemented. |
-| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.308.0 cover bucket CRUD/paging, BucketHandle.Update (PATCH) with SetLabel/DeleteLabel, generated API Buckets.Update (PUT) replacement/defaults, class/settings and metageneration conditions, IAM Policy/SetPolicy, multipart and normal resumable Writer (default 16 MiB or 256 KiB chunks; `ChunkSize=0` is no longer required), Attrs/NewReader/NewRangeReader/Delete, iterators and conditional Update, including strict grants. Generated response fields, iterator attribute selection and conditional object/bucket/policy GETs with combined query conditions are verified. Scoped default/XML and JSON reads remain supported. Media/multipart retry tokens require generation-match; resumable initiation accepts them without it. No token response replay; Ruby and other SDKs remain pending. |
+| Official SDK workflows | 🚧 Partial | Go 1.27.3, storage v1.70.0 and API v0.308.0 cover bucket CRUD/paging, metadata PATCH/PUT, IAM, streaming uploads/reads, copy/rewrite/compose and conditional requests, including strict grants. HTTP and HTTPS suites use explicit local endpoints and CA trust. Ruby 4.0.9 with storage 1.62.1 covers a narrow trusted HTTPS bucket/object/resumable journey; bucket creation uses the official generated API because the high-level method sends unsupported Autoclass. Full Ruby/Rails and other SDKs remain pending. |
 
 See the [detailed compatibility matrix](docs/en/feature-matrix.md) for supported scope and verification status.
 
@@ -84,8 +84,8 @@ and explicit remaining-gap mapping. **Object copy** is available in its
 [Compose](docs/en/slices/object-compose.md) passes scoped native and targeted Go
 checks. Copy, bounded continuation rewrite and compose pass the
 [final integrated Rust/Go/container/native-Docker gate](docs/en/evidence/derived-objects.md).
-The next slice is order 12, local HTTPS/TLS, followed by JSON CORS defaults
-and bucket-configured XML-read CORS, with actual-browser verification, before
+The next slice is order 13, JSON CORS defaults, followed by
+bucket-configured XML-read CORS, with actual-browser verification, before
 starting signed URLs.
 
 Signed GET is delivery order 16 and explicitly depends on the basic API, CORS
@@ -93,7 +93,7 @@ and local HTTPS verification gate. Signed PUT, signed-browser integration and
 full Rails journeys follow; initial CORS/TLS implementation comes before signing.
 The [basic API milestone](docs/en/roadmap.md#basic-json-api-milestone-before-signed-urls)
 defines the six bucket and nine object methods, CORS/TLS acceptance conditions
-and exclusions. HTTPS uses supplied development certificates and verified local
+and exclusions. HTTPS uses built-in or supplied development certificates and verified local
 client trust; JSON CORS defaults and XML bucket-configured CORS have independent
 rules. Public certificate issuance and DNS provisioning remain separate work.
 Additional history interactions, retention/lifecycle and advanced IAM/ACL beyond the selected
@@ -259,7 +259,7 @@ Their implementations were inspected; their test suites were not executed.
 | --- | --- | --- | --- |
 | XML-style object endpoints | 🚧 Path-style object GET/HEAD only; generation, single ranges and match conditions | 🚧 Public-host path-style and virtual-host GET/HEAD; selected listing/upload routes | 🚧 Path-style GET/PUT only; no HEAD or virtual-host routing |
 | gRPC API | ❌ | 🚧 Storage **v1** subset; not Storage v2 | ❌ |
-| TLS listener | ❌ HTTP only | ✅ HTTPS, HTTP or both | ❌ HTTP only |
+| TLS listener | ✅ HTTPS-only (default) with built-in development certificate or supplied pair; explicit HTTP-only, TLS 1.2/1.3 and bounded handshake; [verified scope](docs/en/evidence/local-tls.md) | ✅ HTTPS (default), HTTP or both; supplied pair or Go test certificate; [pinned implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go#L27-L76), source review | ❌ HTTP only; source review |
 | Browser CORS | ❌ | 🚧 Wildcard CORS middleware | ❌ Stored CORS metadata only |
 | ACL operations | ❌ | 🚧 Metadata operations; no enforcement | 🚧 Metadata/list operations; no enforcement |
 | Bucket IAM policy get/set and enforcement | 🚧 Persistent unconditional predefined-role bindings, strict project-plus-bucket grants and atomic etags; policy methods remain PARTIAL for unsupported semantics and wire parity | ❌ No bucket IAM get/set routes or enforcement | 🚧 Stored policies; supplied etags kept without checking; no enforcement |
@@ -333,21 +333,25 @@ profile remain planned. Existing comparison marks describe current behavior.
 
 ## Run with Docker
 
-Requires Git, Docker Engine/Desktop with Buildx, and curl. Linux amd64 and arm64 are supported. Build from source; no container image is published.
+Requires Git, Docker Engine/Desktop with Buildx and curl. Linux amd64 and arm64 are supported. Build from source; no container image is published.
 
 ```sh
 git clone https://github.com/shiroemons/gcs-mimic.git
 cd gcs-mimic
 docker build -t gcs-mimic:dev .
-COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo GCS_MIMIC_PORT=0 docker compose up -d --wait
-COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose exec -T --interactive=false gcs \
-  gcs-mimic healthcheck --url http://127.0.0.1:4443/_internal/ready
+tls_work=$(mktemp -d)
+export COMPOSE_PROJECT_NAME=gcs-mimic-tls-demo
+docker compose up -d --wait
+docker compose exec -T --interactive=false gcs \
+  gcs-mimic healthcheck --url https://localhost:4443/_internal/ready
+docker compose exec -T --interactive=false gcs gcs-mimic tls ca > "$tls_work/ca.pem"
+curl --disable --noproxy '*' --fail --cacert "$tls_work/ca.pem" https://localhost:4443/_internal/ready
 ```
 
-The service is exposed only on host loopback. Follow the [runnable guide](docs/en/getting-started.md) to discover the allocated port, set the advertised endpoint and exercise buckets and object media from host and peer containers.
+The service is exposed only on host loopback. No certificate files or TLS tools are needed for startup. `tls ca` exports the built-in CA so clients can verify TLS. The embedded server key is deliberately public development material; use an isolated emulator, and supply your own certificate/key for other trust requirements. Follow the [runnable guide](docs/en/getting-started.md) for host/peer endpoints and optional custom certificates.
 
 ```sh
-COMPOSE_PROJECT_NAME=gcs-mimic-bucket-demo docker compose stop
+docker compose stop
 ```
 
 To require authentication, add `compose.strict.yaml`. It selects
@@ -374,7 +378,7 @@ to grant `allUsers`, verify restart persistence, restrict access to
 `allAuthenticatedUsers` and revoke it. The base URL must be reachable by the
 consumer: host browsers use the published host port, while Compose peers use
 `http://gcs:4443`. Browser cross-origin fetch still needs the planned CORS work,
-which is scheduled with local HTTPS/TLS before signed URLs.
+which is scheduled before signed URLs. [Local HTTPS](docs/en/getting-started.md#local-https-with-an-explicit-development-ca) is available with explicit CA trust.
 
 The container runs as a non-root user on a read-only root, with a writable named data volume. Compose sets limits of 128 MiB memory, one CPU and 64 processes. These are configured limits, not measured resource requirements. Ordinary stop/down preserves the catalog; deliberate volume removal resets it.
 
@@ -422,7 +426,7 @@ Object APIs support the documented [media](docs/en/slices/json-object-media.md),
 
 [Regression evidence](docs/en/evidence/object-media.md) covers upload admission, advisory checks, explicit upload EOF, committed outcomes and recovery. Transfers have a configurable 15-minute absolute ceiling in addition to body inactivity; catalog waits default to 30 seconds and return 503 on expiry. Resumable finalization rereads the whole object for hashing under the absolute request budget; resolution SQL after a prepublication failure can also wait for that budget rather than the catalog timeout. After a publication timeout the mutation outcome is unknown: query session status or re-read state, because the commit may still complete. Filesystem work and shutdown catalog close have no separate execution bound. Unreleased schema-v2 catalogs are rejected; object-free v1 catalogs and supported v3–v6 catalogs migrate to v7, preserving object metadata, seed initialization and bucket IAM while adding indexed resumable sessions. Migrated catalogs do not import fixtures.
 
-Initial [seed directory import](docs/en/slices/seed.md) runs before readiness and does not replay fixtures over existing data. Bucket IAM supports unconditional predefined-role bindings, `allUsers` / `allAuthenticatedUsers` and etag concurrency; object IAM, testIamPermissions, ACLs, conditions, custom/basic roles, UBLA/PAP settings, signed URLs, CORS and TLS are unavailable. Strict mode combines project and bucket grants, and an invalid token never falls back to anonymous access. Revocation protects new reads but cannot recall cached bytes or abort an already-open read. See the [strict authentication contract](docs/en/slices/strict-auth.md) and SPEC-017 for local error and missing-bucket rules. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. XML virtual-host routing, writes and listing remain unavailable. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. Host power-loss durability and Ruby/Rails remain unverified.
+Initial [seed directory import](docs/en/slices/seed.md) runs before readiness and does not replay fixtures over existing data. Bucket IAM supports unconditional predefined-role bindings, `allUsers` / `allAuthenticatedUsers` and etag concurrency; object IAM, testIamPermissions, ACLs, conditions, custom/basic roles, UBLA/PAP settings, signed URLs and CORS are unavailable. Strict mode combines project and bucket grants, and an invalid token never falls back to anonymous access. Revocation protects new reads but cannot recall cached bytes or abort an already-open read. See the [strict authentication contract](docs/en/slices/strict-auth.md) and SPEC-017 for local error and missing-bucket rules. Bucket APIs support only the [documented subset](docs/en/slices/json-bucket-crud.md); `full` projection omits ACL/owner, project IDs are locally simulated, and recognized unsupported settings return 501. XML virtual-host routing, writes and listing remain unavailable. Native data defaults to cwd-relative `data`; `--data-dir`, `--api-base-url` and `--max-object-bytes` are explicit overrides. [Local HTTPS](docs/en/slices/local-tls.md) is the default, with explicit HTTP available. Actual GCS supports HTTP/1.1, HTTP/2 and HTTP/3; this emulator supports HTTP/1.1 only. The pinned Ruby SDK has narrow HTTPS bucket/object/resumable evidence; full Ruby/Rails workflows and host power-loss durability remain unverified.
 
 For contributors, install [just](https://github.com/casey/just#installation) and
 run `just check` while editing, then `just pre-push` before pushing to run the

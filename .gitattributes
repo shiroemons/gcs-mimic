@@ -1,0 +1,2 @@
+# Compose progress lines retain their original trailing spaces in this raw transcript.
+docs/en/evidence/local-tls-pre-push.txt whitespace=-blank-at-eol
