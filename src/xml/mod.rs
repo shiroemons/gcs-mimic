@@ -68,6 +68,7 @@ pub(crate) struct ReadRequest {
     pub name: String,
     pub generation: Option<i64>,
     pub conditions: ObjectConditions,
+    pub response_overrides: HeaderMap,
 }
 
 pub(crate) struct Error {
@@ -191,6 +192,22 @@ pub(crate) fn route(
             .remove("generation")
             .map(|value| number(&value, false))
             .transpose()?;
+        let mut response_overrides = HeaderMap::new();
+        for (parameter, header) in [
+            ("response-content-type", "content-type"),
+            ("response-content-disposition", "content-disposition"),
+        ] {
+            if let Some(value) = query.remove(parameter) {
+                let value = HeaderValue::from_str(&value).map_err(|_| {
+                    Error::new(
+                        StatusCode::BAD_REQUEST,
+                        "InvalidArgument",
+                        "Invalid response header override.",
+                    )
+                })?;
+                response_overrides.insert(header, value);
+            }
+        }
         // Authentication validates credential fields from the original URI before using this operation.
         if query
             .keys()
@@ -203,6 +220,7 @@ pub(crate) fn route(
             name,
             generation,
             conditions: ObjectConditions::default(),
+            response_overrides,
         })
     })())
 }

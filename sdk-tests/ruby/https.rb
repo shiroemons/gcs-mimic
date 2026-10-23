@@ -135,10 +135,10 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       authority = origin.authority
       # The SDK's bucket-bound mode preserves host:port but omits its bucket path prefix.
       signing_file = bucket.file("#{bucket.name}/signed.txt", skip_lookup: true)
-      signed_url = lambda do |method|
+      signed_url = lambda do |method, query = {}|
         signing_file.signed_url(version: :v4, method: method, issuer: issuer, signing_key: key,
           expires: 300, scheme: origin.scheme, bucket_bound_hostname: authority,
-          headers: { "Content-Type" => "text/plain" })
+          headers: { "Content-Type" => "text/plain" }, query: query)
       end
       call = lambda do |method, url, content_type, expected_status, changed_host = nil|
         uri = URI(url)
@@ -163,6 +163,10 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
         http.start do |client|
           client.request(request) do |response|
             status = response.code.to_i
+            if expected_status == 200 && uri.query.include?("response-content-disposition=")
+              raise "Ruby disposition override differs" unless response["Content-Disposition"] == 'attachment; filename="Ruby + file.csv"'
+              raise "Ruby type override differs" unless response["Content-Type"] == "text/csv"
+            end
             response.read_body do |chunk|
               bytes << chunk
               raise "signed response exceeded test limit" if bytes.bytesize > 64 * 1024
@@ -208,6 +212,14 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       call.call("GET", put_url, "text/plain", 403)
       call.call("PUT", get_url, "text/plain", 403)
       raise "signed bytes differ" unless call.call("GET", get_url, "text/plain", 200) == "Ruby signed private bytes"
+      overrides = { "response-content-disposition" => 'attachment; filename="Ruby + file.csv"', "response-content-type" => "text/csv" }
+      override_url = signed_url.call("GET", overrides)
+      raise "Ruby override bytes differ" unless call.call("GET", override_url, "text/plain", 200) == "Ruby signed private bytes"
+      changed_override = override_url.sub("text%2Fcsv", "text%2Fhtml")
+      raise "Ruby override tamper did not change URL" if changed_override == override_url
+      call.call("GET", changed_override, "text/plain", 403)
+      raise "Ruby override mutated metadata" unless bucket.file("signed.txt").content_type == "text/plain"
+      puts "Ruby V4 response overrides passed: official query option, exact headers and bytes, value tamper rejection and unchanged metadata"
       private_url = "#{origin.to_s.delete_suffix('/')}/#{bucket.name}/signed.txt"
       call.call("GET", private_url, nil, 401)
       puts "Ruby V4 GET/PUT passed: default endpoint signer binds storage.googleapis.com and fails locally; bucket-bound host:port with an explicit bucket/name path succeeds without rewriting signed URLs"

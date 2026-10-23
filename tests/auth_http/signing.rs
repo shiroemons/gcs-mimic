@@ -26,6 +26,9 @@ fn fixture() -> (TestDir, TestDir, Server) {
 #[path = "signing/put.rs"]
 mod put;
 
+#[path = "signing/overrides.rs"]
+mod overrides;
+
 fn sign(
     server: &Server,
     method: &Method,
@@ -258,7 +261,7 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
     let override_url = sign(
         &server,
         &Method::GET,
-        "/iam-bucket/object?response-content-type=text%2Fplain",
+        "/iam-bucket/object?response-cache-control=no-cache",
         "viewer@example.invalid",
         now,
         HeaderMap::new(),

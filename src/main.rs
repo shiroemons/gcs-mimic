@@ -68,13 +68,14 @@ No config file, environment, data directory or network is read, and no permissio
 const URL_SIGN_HELP: &str =
     "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
        --expires DURATION --signer ID --private-key PATH [--header NAME:VALUE]...
-       [--timestamp YYYYMMDDTHHMMSSZ]
+       [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ]
 
 Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
 Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
 Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
 Headers may repeat; Host is derived from the final URL and cannot be overridden.
+Query names and values are literal, encoded before signing; duplicate names are rejected.
 No Google IAM call, server configuration read or permission change occurs.";
 
 fn main() -> ExitCode {
@@ -298,6 +299,7 @@ fn url_sign(args: &[String]) -> Result<String, String> {
     use std::io::Read;
     let mut options = BTreeMap::new();
     let mut headers = hyper::HeaderMap::new();
+    let mut query = Vec::new();
     for pair in args.chunks(2) {
         let [name, value] = pair else {
             return Err(format!(
@@ -309,6 +311,16 @@ fn url_sign(args: &[String]) -> Result<String, String> {
             let key = hyper::header::HeaderName::from_bytes(key.as_bytes())
                 .map_err(|_| "invalid header name")?;
             headers.append(key, value.parse().map_err(|_| "invalid header value")?);
+        } else if name == "--query" {
+            let (key, value) = value.split_once('=').ok_or("query must be NAME=VALUE")?;
+            if key.is_empty() {
+                return Err("query name must not be empty".into());
+            }
+            query.push(format!(
+                "{}={}",
+                gcs_mimic::url::encode_object_name(key),
+                gcs_mimic::url::encode_object_name(value)
+            ));
         } else {
             if !matches!(
                 name.as_str(),
@@ -334,11 +346,15 @@ fn url_sign(args: &[String]) -> Result<String, String> {
             .copied()
             .ok_or_else(|| format!("missing required option: {name}\n{URL_SIGN_HELP}"))
     };
-    let url = gcs_mimic::url::public_object_url(
+    let mut url = gcs_mimic::url::public_object_url(
         required("--base-url")?,
         required("--bucket")?,
         required("--object")?,
     )?;
+    if !query.is_empty() {
+        url.push('?');
+        url.push_str(&query.join("&"));
+    }
     let method = required("--method")?
         .parse()
         .map_err(|_| "invalid signing method")?;
