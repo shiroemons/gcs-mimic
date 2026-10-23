@@ -131,6 +131,66 @@ fn success(output: Output) -> Vec<u8> {
     output.stdout
 }
 
+#[test]
+fn signed_private_download_uses_the_https_listener_host_and_port() {
+    let data = TestDir::new();
+    let config = TestDir::new();
+    let ca = config.0.join("ca.pem");
+    fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+    let mut command = common::server_command();
+    command
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(&data.0)
+        .args([
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            "config/identities.json",
+        ]);
+    let server = Server::launch(command, "https");
+    success(curl(
+        &server,
+        &ca,
+        &[
+            "-H",
+            "Authorization: Bearer local-admin-token",
+            "-H",
+            "Content-Type: application/json",
+            "--data",
+            r#"{"name":"signed-bucket"}"#,
+        ],
+        "/storage/v1/b?project=local-project",
+    ));
+    success(curl(
+        &server,
+        &ca,
+        &[
+            "-H",
+            "Authorization: Bearer local-admin-token",
+            "--data-binary",
+            "signed bytes",
+        ],
+        "/upload/storage/v1/b/signed-bucket/o?uploadType=media&name=object",
+    ));
+    let url = gcs_mimic::auth::signature::sign_url(
+        &format!("{}/signed-bucket/object", server.origin),
+        &hyper::Method::GET,
+        "local-viewer@example.invalid",
+        include_bytes!("../fixtures/signing/test-only-private.pem"),
+        60,
+        std::time::SystemTime::now(),
+        hyper::HeaderMap::new(),
+    )
+    .unwrap();
+    let uri: hyper::Uri = url.parse().unwrap();
+    let path = uri.path_and_query().unwrap().as_str();
+    assert_eq!(success(curl(&server, &ca, &[], path)), b"signed bytes");
+    let denied = curl(&server, &ca, &["-H", "Host: changed.invalid:4443"], path);
+    assert_eq!(denied.status.code(), Some(22));
+    assert!(String::from_utf8_lossy(&denied.stderr).contains("403"));
+    server.stop();
+}
+
 fn tls_stream(
     server: &Server,
     ca: &Path,

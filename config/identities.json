@@ -8,6 +8,7 @@
     {
       "id": "local-viewer@example.invalid",
       "tokens": ["local-viewer-token"],
+      "public_keys": ["-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0YKIIe5A3dNT8WvG2FQR\n1ZeWcHl+5J3WtPDC83BnQn3LTOOQEJo7J/vapm9h9gOiA6KzEYdE/lS30N8f6ifs\nz750+xtn6RaRpsq4fS5ImvtgBipe5mrQqU7+NWn30ra/3WtVqfdYqnJNm5tEgbJv\nemrsV38xsTK/VnE7ithpTxSs0ZAd8Jjpi62lu3gUTaRHiAXBShZTrq6eV5+NFC46\n95jdEBZzITBDIOERdgCiW88DaNK0tAnHqy/nO+zAyyvaC7HZMl+1w7NJnzuPVKa1\n34VtcskkOiyaxw78xOQLPgN723b+uUaJKDkU9KRYNbEnd1ZucwWZUI179AT2R1mJ\nEwIDAQAB\n-----END PUBLIC KEY-----\n"],
       "project_roles": { "local-project": ["roles/storage.objectViewer"] }
     },
     {
