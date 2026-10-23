@@ -367,7 +367,7 @@
       {
         "id": "bucket-core-parity",
         "title": "Bucket create, get and delete with versioning and default holds",
-        "scope": "Delivered order 5 on 2026-10-22: all seven original completion conditions are mapped to executed results in docs/en/evidence/bucket-core-parity.md. Native and explicit compatibility profiles preserve strict authorization; API-created settings drive retained versions and actual holds. Both pinned reference backends and local profiles execute the same wire corpus. Intentional/strict/unsupported differences remain explicit rather than whole-method source/Google parity. Broad bucket, versioning and hold rows remain PARTIAL; metadata PATCH is delivered by the separate order-6 scope; PUT is next. Full replacement/import/embedding/gRPC and provider wire questions remain visibly open outside this bounded gate.",
+        "scope": "Delivered order 5 on 2026-10-22: all seven original completion conditions are mapped to executed results in docs/en/evidence/bucket-core-parity.md. Native and explicit compatibility profiles preserve strict authorization; API-created settings drive retained versions and actual holds. Both pinned reference backends and local profiles execute the same wire corpus. Intentional/strict/unsupported differences remain explicit rather than whole-method source/Google parity. Broad bucket, versioning and hold rows remain PARTIAL; metadata PATCH is delivered by the separate order-6 scope; PUT is delivered by the separate replacement scope. Full replacement/import/embedding/gRPC and provider wire questions remain visibly open outside this bounded gate.",
         "feature_ids": [
           "JSON-BUCKETS-001",
           "JSON-BUCKETS-002",
@@ -397,7 +397,7 @@
       {
         "id": "bucket-metadata-patch",
         "title": "Bucket metadata PATCH with effective settings and atomic conditions",
-        "scope": "Delivered order 6 on 2026-10-23: all three original completion conditions map to executed results in docs/en/evidence/bucket-metadata-patch.md. Labels merge/key removal/map clearing, supported default class, versioning/default-hold PATCH and future object effects, atomic metageneration conditions, injected-clock revision, strict update permission/revocation and durable GET/list consistency pass HTTP/catalog, pinned Go, both-architecture smoke and affected native/Docker guide checks. Both pinned reference backends and both local profiles execute the same corpus; omitted-setting preservation, revision rendering and fail-closed settings are explicit intentional differences. Broad API/behavior rows remain PARTIAL for advanced fields and provider questions; DESIGN-014 retains its existing local scope. Bucket metadata PUT is next; physical placement, full ACL/billing/projection, service timing and power-loss claims remain outside this bounded gate.",
+        "scope": "Delivered order 6 on 2026-10-23: all three original completion conditions map to executed results in docs/en/evidence/bucket-metadata-patch.md. Labels merge/key removal/map clearing, supported default class, versioning/default-hold PATCH and future object effects, atomic metageneration conditions, injected-clock revision, strict update permission/revocation and durable GET/list consistency pass HTTP/catalog, pinned Go, both-architecture smoke and affected native/Docker guide checks. Both pinned reference backends and both local profiles execute the same corpus; omitted-setting preservation, revision rendering and fail-closed settings are explicit intentional differences. Broad API/behavior rows remain PARTIAL for advanced fields and provider questions; DESIGN-014 retains its existing local scope. Bucket metadata PUT is delivered separately; physical placement, full ACL/billing/projection, service timing and power-loss claims remain outside this bounded gate.",
         "feature_ids": [
           "JSON-BUCKETS-008",
           "BEHAVIOR-BUCKET-002",
@@ -439,7 +439,7 @@
       {
         "id": "bucket-metadata-update",
         "title": "Bucket metadata PUT replacement with explicit local defaults",
-        "scope": "Order 7 integration pending: committed Rust cases verify replacement/defaults, atomic conditions, strict permission/revocation and persistence in both profiles. Final SDK/reference/container/guide evidence is required before delivery closure. Whole JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider defaults/error parity. Basic JSON contract is the next implementation slice.",
+        "scope": "Delivered order 7 on 2026-10-23: all three original completion conditions map to executed results in docs/en/evidence/bucket-metadata-put.md. Declared labels/default-class/versioning/default-hold replacement, omission defaults, strict permission/revocation, atomic conditions and resource preservation pass final Rust/Go/reference/both-architecture container/native/Docker checks, including Docker restart equality. JSON-BUCKETS-013 remains PARTIAL for advanced fields, ACL/billing/projection and provider defaults/error/permission parity. API dependency drift v0.307.0 to v0.308.0 is recorded without changing the tested graph. Basic JSON contract is the next implementation slice.",
         "feature_ids": [
           "JSON-BUCKETS-013",
           "BEHAVIOR-COMMON-006",
@@ -468,7 +468,14 @@
           "JSON-BUCKETS-013/PUT-GUIDE"
         ],
         "evidence": [
-          "docs/en/slices/bucket-metadata-put.md"
+          "docs/en/evidence/bucket-metadata-put.md",
+          "docs/en/evidence/bucket-metadata-put-comparison.md",
+          "docs/en/evidence/bucket-metadata-put-checks.txt",
+          "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "docs/en/evidence/bucket-metadata-put-comparison.txt",
+          "docs/en/evidence/bucket-metadata-put-containers.txt",
+          "docs/en/evidence/bucket-metadata-put-guide.txt",
+          "docs/en/evidence/bucket-metadata-put-dependencies.txt"
         ]
       }
     ],
@@ -488,7 +495,17 @@
           "Reuse shared bucket mutation and authorization logic while preserving stored objects, bucket identity, IAM and excluded configuration; invalid requests and stale metageneration conditions leave state unchanged.",
           "Pass wire replacement-versus-merge, clear/default, strict denial, concurrent update, GET/list and restart cases; execute applicable pinned SDK calls or document why wire coverage is required."
         ],
-        "deferred_scope": "The same advanced bucket settings as PATCH; this gate does not complete all buckets.update resource fields."
+        "deferred_scope": "The same advanced bucket settings as PATCH; this gate does not complete all buckets.update resource fields.",
+        "evidence": [
+          "docs/en/evidence/bucket-metadata-put.md",
+          "docs/en/evidence/bucket-metadata-put-comparison.md",
+          "docs/en/evidence/bucket-metadata-put-checks.txt",
+          "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "docs/en/evidence/bucket-metadata-put-comparison.txt",
+          "docs/en/evidence/bucket-metadata-put-containers.txt",
+          "docs/en/evidence/bucket-metadata-put-guide.txt",
+          "docs/en/evidence/bucket-metadata-put-dependencies.txt"
+        ]
       },
       {
         "id": "basic-json-contract",
@@ -3733,7 +3750,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "SPEC_BASED",
-      "notes": "Implemented replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract and committed Rust verification: docs/en/slices/bucket-metadata-put.md. Final SDK/reference/container/guide checks remain pending integration. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error parity; scoped delivery does not promote the whole row.",
+      "notes": "Delivered replacement subset: labels, supported default class, versioning/default holds, atomic metageneration conditions, strict storage.buckets.update and persistence in both profiles. Contract: docs/en/slices/bucket-metadata-put.md. Final Rust/Go/reference/container/native/Docker evidence: docs/en/evidence/bucket-metadata-put.md. All three delivery conditions close the scoped replacement capability; API dependency v0.308.0 is detected while verification retains v0.307.0. Whole method remains PARTIAL for advanced fields, ACL/billing/full projection and provider defaults/error/permission parity.",
       "dependencies": [
         "JSON-BUCKETS-008"
       ],
@@ -3839,7 +3856,7 @@
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
           ],
-          "result": "PENDING"
+          "result": "PASS"
         },
         {
           "id": "PUT-REFERENCE",
@@ -3847,7 +3864,7 @@
           "test_ids": [
             "bucket-put-reference-comparison"
           ],
-          "result": "PENDING"
+          "result": "PASS"
         },
         {
           "id": "PUT-GUIDE",
@@ -3856,7 +3873,7 @@
             "guide-bucket-put-native",
             "guide-bucket-put-container"
           ],
-          "result": "PENDING"
+          "result": "PASS"
         },
         {
           "id": "PUT-ADVANCED-FIELDS",
@@ -3902,10 +3919,10 @@
       ],
       "verification": [
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs",
@@ -3924,16 +3941,62 @@
             "bucket_put_full_resource_round_trip_preserves_unchanged_fields",
             "bucket_put_location_comparison_is_case_insensitive"
           ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataReplace",
+            "TestStrictAuthBucketMetadataReplace"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_REFERENCE_REPO=https://github.com/fsouza/fake-gcs-server bash scripts/compare-reference-emulator.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-put-comparison.txt",
+          "test_ids": [
+            "bucket-put-reference-comparison"
+          ]
+        },
+        {
+          "command": "Getting-started shared create/PATCH/PUT blocks against the native release binary and final ARM64 image; Docker stop/start resource equality",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-put-guide.txt",
+          "test_ids": [
+            "guide-bucket-put-native",
+            "guide-bucket-put-container"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; generated API Buckets.Update sends PUT; high-level Attrs checks; isolated permissive/strict local endpoints and fixture tokens",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataReplace",
+            "TestStrictAuthBucketMetadataReplace"
+          ]
+        }
+      ],
       "known_deviations": [
         "Recognized unsupported fields and predefined ACL/billing queries return 501; full projection omits ACL/owner.",
         "SPEC-BUCKET-PUT: omitted labels/class/settings reset to explicit local defaults; null labels clear, per-key null/class null fail, native null booleans fail and legacy nulls reset. Defaults, acl omission/empty wording, revisions, errors and propagation are not provider-observed parity.",
         "Native-to-legacy metageneration-1 resources can hide labels/class; same-profile full-resource round trips preserve modeled fields. Actual mutable metadata/revisions are exposed after PUT.",
         "Class is default metadata only; no existing object rewrite, placement, billing, full Google identity, power-loss or new performance/resource claim."
       ],
-      "implemented_in": "ab7f410",
+      "implemented_in": "c8d327a47446c0340796c87f06c6635059bc1db0",
       "last_verified": "2026-10-23",
       "http_method": "PUT",
       "path": "b/{bucket}",
@@ -10131,7 +10194,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Object PATCH distinguishes absent, null, empty string and empty map; PUT replaces the supported writable metadata set and clears omitted fields without changing content. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10246,10 +10309,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs",
@@ -10654,7 +10717,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Both metadata verbs check all four generation/metageneration conditions with the update in one SQLite transaction; matching/not-matching cases and a one-winner conditioned race are verified. Scope: docs/en/slices/json-object-metadata.md; verification and remaining limits: docs/en/evidence/object-metadata.md. Multipart/token integration and remaining limits: docs/en/slices/json-object-multipart.md and docs/en/evidence/multipart.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -10892,10 +10955,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_conditions_and_query_contract",
             "bucket_put_conditioned_race_has_one_winner"
@@ -11292,7 +11355,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Bucket labels are validated, persisted and rendered as metadata; at most 64 keys with the documented Unicode/length subset. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11385,10 +11448,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_replaces_omitted_fields_and_preserves_resources",
             "bucket_put_empty_null_and_invalid_inputs",
@@ -11482,7 +11545,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "SPEC_BASED",
-      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "The slice's supported storageClass defaults and metadata survive catalog operations; unsupported regional/Rapid classes fail. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -11551,10 +11614,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_label_boundaries_and_classes",
             "bucket_put_replaces_omitted_fields_and_preserves_resources"
@@ -11788,7 +11851,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Create-time default hold has actual publication/protected-mutation effects; explicit false overrides and selected release pass. Changed defaults are tested at the catalog boundary; bucket PATCH/PUT change defaults; provider parity remains pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Create-time default hold has actual publication/protected-mutation effects; explicit false overrides and selected release pass. Changed defaults are tested at the catalog boundary; bucket PATCH/PUT change defaults; provider parity remains pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [
         "JSON-BUCKETS-005",
         "JSON-OBJECTS-007",
@@ -11909,10 +11972,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -15143,7 +15206,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "SPEC_BASED",
-      "notes": "Durable live/noncurrent transitions, selected reads/deletes, increasing-generation listing, bounded paging, strict races/recovery/migration pass. Disabled configuration is tested at the catalog boundary; bucket PATCH/PUT toggle settings; provider parity remains pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Durable live/noncurrent transitions, selected reads/deletes, increasing-generation listing, bounded paging, strict races/recovery/migration pass. Disabled configuration is tested at the catalog boundary; bucket PATCH/PUT toggle settings; provider parity remains pending. Scope: docs/en/slices/bucket-versioning-holds.md; final evidence: docs/en/evidence/bucket-core-parity.md. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [
         "JSON-BUCKETS-005",
         "JSON-OBJECTS-004",
@@ -15316,10 +15379,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_settings_control_future_object_effects",
             "bucket_put_null_settings_follow_profile_defaults"
@@ -23241,7 +23304,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Strict local bearer identities enforce additive project/bucket predefined roles on JSON routes and path-style XML reads, including allUsers and registered-only allAuthenticatedUsers. Invalid/unsupported credentials never become anonymous; JSON uses 401 authError and XML uses 400 InvalidAuthentication. Local identities simulate Google identity. Object IAM, ACLs, conditions, custom/basic roles, full UBLA/PAP, signed access, HMAC and gRPC remain unimplemented. Contracts: docs/en/slices/strict-auth.md and docs/en/slices/public-object-reads.md; current evidence: docs/en/evidence/public-object-reads.md. SPEC-017 remains open. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -23376,10 +23439,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_strict_permissions_and_policy_preservation",
             "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
@@ -24311,7 +24374,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Bucket PATCH requires storage.buckets.update and rechecks revocation/incarnation atomically without changing IAM policy; full-check evidence: docs/en/evidence/bucket-metadata-patch.md. All existing scoped grant-enforcement cases plus PATCH pass, so the declared local scope remains IMPLEMENTED; broad provider wire/ACL/hierarchy exclusions stay on their existing rows. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Contract: docs/en/slices/bucket-iam.md; final evidence: docs/en/evidence/bucket-iam.md. Delivered subset: JSON HTTP strict/permissive local profiles and unconditional bucket-grantable predefined storage roles; user/serviceAccount registry IDs match exactly and convenience sets have no basic-role members. Group/domain/federated/deleted principals, conditions, custom/basic grants, ACL/UBLA/PAP, testIamPermissions, XML write/list breadth and signatures remain excluded from this capability, not removed from broader rows. IMPLEMENTED covers the initial unconditional grant-enforcement contract across existing JSON routes, including transaction-time revocation and owner/overwrite races. Broader representations/hierarchy retain missing cases on their own rows; shared error-wire parity remains on DESIGN-002/DESIGN-004 and SPEC-017. Public-read extension: allUsers and allAuthenticatedUsers bindings are accepted and enforced across existing JSON routes and scoped XML reads; anonymous mutations and policy operations require their exact permissions. See docs/en/evidence/public-object-reads.md. Bucket PATCH requires storage.buckets.update and rechecks revocation/incarnation atomically without changing IAM policy; full-check evidence: docs/en/evidence/bucket-metadata-patch.md. All existing scoped grant-enforcement cases plus PATCH pass, so the declared local scope remains IMPLEMENTED; broad provider wire/ACL/hierarchy exclusions stay on their existing rows. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [
         "DESIGN-003",
         "DESIGN-008"
@@ -24511,10 +24574,10 @@
           ]
         },
         {
-          "command": "cargo +1.99.1 test --workspace --locked; cargo +1.99.1 fmt --all --check; cargo +1.99.1 clippy --workspace --all-targets --locked -- -D warnings",
+          "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-23",
-          "artifact": "docs/en/slices/bucket-metadata-put.md",
+          "artifact": "docs/en/evidence/bucket-metadata-put-checks.txt",
           "test_ids": [
             "bucket_put_strict_permissions_and_policy_preservation",
             "storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation"
@@ -28387,7 +28450,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/slices/bucket-metadata-put.md; final integration remains pending.",
+      "notes": "Pinned Go 1.27.3, Storage v1.70.0 and API v0.307.0 pass all five resumable Writer acceptance cases with normal nonzero ChunkSize: default 16 MiB threshold, 256 KiB chunks, exact/short/empty and unknown totals, metadata/checksums, lost-response retry, context cancellation, generation/metageneration and strict overwrite races. Actual resumable requests are asserted; small/empty Writer multipart fallback stays covered. Final evidence: docs/en/evidence/resumable-upload.md. Retain earlier bucket/list/metadata/IAM/public/XML/JSON evidence with its original versions. Signing, broader IAM/ACL, XML breadth, gRPC and invocation-token replay remain pending. Bucket PATCH subset passes Rust/SDK/reference verification: docs/en/evidence/bucket-metadata-patch.md. Keep PARTIAL: the existing pending cases and deviations remain unresolved by PATCH. Bucket PUT replacement cases and local-default limits: docs/en/evidence/bucket-metadata-put.md; scoped final verification passes, with API dependency drift recorded separately.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -28542,7 +28605,7 @@
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
           ],
-          "result": "PENDING"
+          "result": "PASS"
         }
       ],
       "test_ids": [
@@ -28716,6 +28779,16 @@
             "TestBucketMetadataUpdate",
             "TestStrictAuthBucketMetadataUpdate"
           ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "artifact": "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataReplace",
+            "TestStrictAuthBucketMetadataReplace"
+          ]
         }
       ],
       "sdk_evidence": [
@@ -28869,6 +28942,22 @@
           "test_ids": [
             "TestBucketMetadataUpdate",
             "TestStrictAuthBucketMetadataUpdate"
+          ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.307.0",
+          "transport": "HTTP JSON; generated API Buckets.Update sends PUT; high-level Attrs checks; isolated permissive/strict local endpoints and fixture tokens",
+          "result": "PASS",
+          "verified_at": "2026-10-23",
+          "command": "just check-sdk",
+          "artifact": "docs/en/evidence/bucket-metadata-put-sdk-go.txt",
+          "test_ids": [
+            "TestBucketMetadataReplace",
+            "TestStrictAuthBucketMetadataReplace"
           ]
         }
       ],

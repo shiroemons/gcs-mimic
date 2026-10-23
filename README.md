@@ -42,7 +42,7 @@ and protocol differences remain in the same feature ledger.
 | JSON resumable sessions, chunk/status/retry, finalization, cancellation, seven-day expiry, restart recovery and configured host/peer Location; normal Go Writer | XML/signed initiation, response replay, provider edge parity and unrestricted resource/durability claims | [Final resumable verification](docs/en/evidence/resumable-upload.md) |
 | Bucket create/get/delete with explicit compatibility profile, retained generations and default event holds | Broad methods remain PARTIAL; advanced settings and provider wire questions remain pending | [Final bucket verification](docs/en/evidence/bucket-core-parity.md) |
 | Bucket PATCH label merge/removal, default class, versioning/default holds and atomic metageneration conditions | Whole method remains PARTIAL; advanced settings, full projection and provider edge parity remain pending | [Bucket PATCH verification](docs/en/evidence/bucket-metadata-patch.md) |
-| Bucket PUT replacement of labels/default class and versioning/default holds, atomic conditions and resource preservation | Whole method remains PARTIAL; local omitted-field defaults and provider edge parity remain explicit | [Bucket PUT contract](docs/en/slices/bucket-metadata-put.md); final integration pending |
+| Bucket PUT replacement of labels/default class and versioning/default holds, atomic conditions and resource preservation | Whole method remains PARTIAL; local defaults and provider edge parity remain explicit; API dependency update detected | [Final PUT verification](docs/en/evidence/bucket-metadata-put.md): Rust/Go, four-target comparison, both container architectures and native/Docker guide with restart equality pass |
 | Strict local tokens and project-level predefined storage roles | Signatures and full strict authentication | [Authentication](docs/en/evidence/strict-auth.md) |
 | Bucket IAM policy get/set and enforcement with project-plus-bucket grants | Policy methods remain PARTIAL; conditions, custom/basic roles, ACLs, testIamPermissions and unresolved wire parity | [Final IAM verification](docs/en/evidence/bucket-iam.md) |
 | Public/private path-style XML GET/HEAD; anonymous and registered-only bucket grants | Virtual-host routing, XML writes/listing, ACL/UBLA/PAP state machines and signatures; broader XML methods and authentication wire parity remain PARTIAL | [Final public-read verification](docs/en/evidence/public-object-reads.md) |
@@ -63,7 +63,8 @@ EXT-XML-012/017 remain PARTIAL for their explicit remaining cases; see the
 Bucket create/get/delete and their declared versioning/hold effects are delivered;
 see the [final verification](docs/en/evidence/bucket-core-parity.md).
 Bucket metadata PATCH is available in its [documented subset](docs/en/slices/bucket-metadata-patch.md).
-Bucket metadata PUT is available in its [documented replacement subset](docs/en/slices/bucket-metadata-put.md).
+Bucket metadata PUT is delivered in its [documented replacement subset](docs/en/slices/bucket-metadata-put.md),
+with [final verification](docs/en/evidence/bucket-metadata-put.md).
 Next close the basic CRUD/list/metadata/download contract
 gaps, then implement copy, bounded continuation rewrite and compose. Verify
 the complete declared basic JSON scope with HTTP tests, pinned Go/Ruby SDKs
@@ -109,7 +110,8 @@ are not a second whole-method implementation-status system.
 The other products were reviewed through their documentation, source and tests.
 The pinned reference emulator's filesystem and memory backends also ran the
 [bucket wire corpus](docs/en/evidence/bucket-core-comparison.md) and
-[bucket PATCH corpus](docs/en/evidence/bucket-metadata-patch-comparison.md); their upstream
+[bucket PATCH corpus](docs/en/evidence/bucket-metadata-patch-comparison.md) and
+[bucket PUT corpus](docs/en/evidence/bucket-metadata-put-comparison.md); their upstream
 test suites were not run.
 
 ### 🧩 JSON API operations
@@ -133,7 +135,7 @@ their broader Google method rows remain `PARTIAL`, with documented differences.
 | List live buckets with prefix and pagination (`buckets.list`) | ✅ Project/prefix filters and keyset paging | ✅ Prefix and paging | 🚧 All buckets; no prefix/paging |
 | Bucket delete (`buckets.delete`) | ✅ Empty-bucket deletion; source response via compatibility profile | ✅ Empty-bucket deletion | ✅ Empty-bucket deletion |
 | Bucket labels/default `storageClass` PATCH (merge/remove; `buckets.patch`) | ✅ Merge/key-null removal, whole-map null clearing (local interpretation), empty-map preservation and supported default class | ❌ Executed: labels/class ignored; other PATCH settings exist | 🚧 Source review: assigns fields; no label-key merge/null removal |
-| Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ✅ Whole-map replacement; omitted/null labels clear, omitted class STANDARD (local defaults; SPEC-BUCKET-PUT) | ❌ No bucket PUT route; JSON 404 on both pinned backends | ❌ No bucket PUT route in pinned `server.py`; source review only |
+| Bucket labels/default `storageClass` PUT (replacement/defaults; `buckets.update`) | ✅ Executed HTTP/Go/native/Docker replacement and GET consistency; omitted/null labels clear, omitted class STANDARD (local defaults; SPEC-BUCKET-PUT) | ❌ Executed: all 32 PUT cases return JSON 404 on each pinned backend; metadata/bytes preserved | ❌ No bucket PUT route in pinned `server.py`; source review only |
 | Single-request raw media upload | ✅ Bounded streamed bytes | ✅ | ✅ |
 | Single-request JSON multipart metadata + media upload | ✅ Bounded metadata/media; optional checksum part also supported | ✅ | ✅ |
 | JSON resumable initiation, chunks, status and finalization | ✅ Also scoped cancellation, seven-day expiry and restart recovery | ✅ Sessions and chunk uploads | ✅ Initiation, chunks, status and finalization |
@@ -188,8 +190,9 @@ consistency. Bucket PATCH uses the [frozen contract](docs/en/slices/bucket-metad
 clearing interprets the general PATCH deletion rule; scalar null/default,
 unknown/output-only input and no-effect revision behavior remain unverified
 against Google. The broader method rows remain `PARTIAL`. Bucket PUT uses its independently
-[frozen replacement contract](docs/en/slices/bucket-metadata-put.md); final
-integration evidence is pending. Omitted-field defaults, null settings and
+[frozen replacement contract](docs/en/slices/bucket-metadata-put.md) and
+[final integration evidence](docs/en/evidence/bucket-metadata-put.md).
+Omitted-field defaults, null settings and
 revision/error choices remain explicit local policy under SPEC-BUCKET-PUT.
 
 The scoped checkmarks above use recorded execution evidence:

@@ -200,6 +200,10 @@ Unsupported settings and ACL/billing queries return 501; projections expose
 the modeled subset without ACL/owner. See the [contract](slices/bucket-metadata-put.md)
 for accepted full-resource round trips and remaining provider questions.
 
+The [final PUT verification](evidence/bucket-metadata-put.md) records execution
+of the shared create/PATCH/PUT blocks against the native release binary and
+locally built Docker image, including exact resource equality after restart.
+
 ## Verify bucket versioning and default holds
 
 Create-time `versioning.enabled` retains overwritten or deleted generations.

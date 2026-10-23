@@ -104,7 +104,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 0 |
+| JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
 
 ### JSON API / defaultObjectAccessControls
 
@@ -934,7 +934,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 9 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 10 |
 | DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |

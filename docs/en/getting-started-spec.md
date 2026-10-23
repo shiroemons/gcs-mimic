@@ -78,6 +78,8 @@ and the Docker resource before and after restart. Execute the shared
 against the native binary and Docker image. Use the pinned generated Go API
 client's `Buckets.Update` because high-level `BucketHandle.Update` sends PATCH.
 Provider omission/null defaults remain open under SPEC-BUCKET-PUT.
+The [final PUT evidence](evidence/bucket-metadata-put.md) records the completed
+native/Docker blocks, restart equality and full pinned Go SDK verification.
 
 The [README](../../README.md) and [runnable guide](getting-started.md) cover Docker/native builds, probes, configuration, persistent bucket/object media CRUD, multipart and bounded JSON resumable uploads, versioning/default holds, prefix/delimiter/paged listing, conditional metadata patch/replacement, single byte ranges, initial seed directories, Go SDK tests, stopping and isolated smoke checks. Ruby/Rails remain pending. Use those guides for working commands; broader sequences below remain future acceptance targets.
 
