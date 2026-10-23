@@ -22,6 +22,7 @@ struct Headers {
     expected: ExpectedHashes,
     conditions: ObjectConditions,
     metadata: ObjectMetadataUpdate,
+    sha256: Option<[u8; 32]>,
 }
 
 fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Error> {
@@ -45,11 +46,12 @@ fn single<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, Err
     })
 }
 
-fn headers(headers: &HeaderMap, max_bytes: u64) -> Result<Headers, Error> {
+fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers, Error> {
     for key in headers.keys() {
         let name = key.as_str();
         if (name.starts_with("x-goog-")
             && !name.starts_with("x-goog-meta-")
+            && !(signed && name == "x-goog-content-sha256")
             && !matches!(
                 name,
                 "x-goog-hash"
@@ -215,11 +217,19 @@ fn headers(headers: &HeaderMap, max_bytes: u64) -> Result<Headers, Error> {
         ));
     }
     metadata.metadata = Some(Some(custom));
+    let sha256 = auth::signature::payload_hash(headers).map_err(|_| {
+        Error::new(
+            StatusCode::BAD_REQUEST,
+            "InvalidDigest",
+            "Invalid SHA256 declaration.",
+        )
+    })?;
     Ok(Headers {
         content_type,
         expected,
         conditions,
         metadata,
+        sha256,
     })
 }
 
@@ -265,7 +275,12 @@ pub(crate) async fn respond(
         expected,
         conditions,
         metadata,
-    } = headers(request.headers(), config.max_object_bytes)?;
+        sha256,
+    } = headers(
+        request.headers(),
+        config.max_object_bytes,
+        auth::signature::is_signed(request.uri().query()),
+    )?;
     let timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let permit = await_upload_catalog(
         state.catalog.prepare_object_upload(
@@ -296,7 +311,7 @@ pub(crate) async fn respond(
     tokio::pin!(upload);
     let record = tokio::select! {
         result = &mut upload => result,
-        result = stream_upload(request.into_body(), &sender, config.max_object_bytes, activity) => {
+        result = stream_upload(request.into_body(), &sender, config.max_object_bytes, activity, sha256) => {
             if let Err(error) = result {
                 if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
                     return Err(storage_error(upload.await.err().unwrap_or(error), caller));

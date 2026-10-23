@@ -928,7 +928,7 @@ async fn object_response(
             tokio::pin!(upload);
             let record = tokio::select! {
                 result = &mut upload => result?,
-                result = stream_upload(request.into_body(), &sender, max_bytes, activity) => {
+                result = stream_upload(request.into_body(), &sender, max_bytes, activity, None) => {
                     if let Err(error) = result {
                         if sender.send(Err(io::Error::other(error.to_string()))).await.is_err() {
                             return Err(upload.await.err().unwrap_or(error).into());
@@ -1173,8 +1173,10 @@ pub(crate) async fn stream_upload(
     sender: &mpsc::Sender<Result<UploadChunk, io::Error>>,
     max_bytes: u64,
     activity: &watch::Sender<ObjectActivity>,
+    expected_sha256: Option<[u8; 32]>,
 ) -> Result<(), ObjectError> {
     let mut size = 0_u64;
+    let mut sha256 = expected_sha256.map(|_| ring::digest::Context::new(&ring::digest::SHA256));
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
         let bytes = frame
@@ -1185,6 +1187,9 @@ pub(crate) async fn stream_upload(
             .filter(|size| *size <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
         activity.send_modify(|progress| progress.awaiting_catalog = false);
+        if let Some(hash) = &mut sha256 {
+            hash.update(&bytes);
+        }
         // Copy bounded chunks so queued slices cannot retain arbitrarily large transport frames.
         for part in bytes.chunks(64 * 1024) {
             if sender
@@ -1196,6 +1201,12 @@ pub(crate) async fn stream_upload(
                 return Ok(());
             }
         }
+    }
+    if sha256
+        .zip(expected_sha256)
+        .is_some_and(|(hash, expected)| hash.finish().as_ref() != expected)
+    {
+        return Err(ObjectError::ChecksumMismatch);
     }
     Ok(())
 }

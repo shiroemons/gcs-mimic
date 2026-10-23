@@ -180,7 +180,11 @@ pub(crate) fn route(
         let name = json::decode(name, false)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
-        if *method == Method::PUT && !query.is_empty() {
+        if *method == Method::PUT
+            && query
+                .keys()
+                .any(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+        {
             return Err(Error::unsupported());
         }
         let generation = query

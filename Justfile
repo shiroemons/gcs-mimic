@@ -11,7 +11,7 @@ check:
 check-dependencies:
     env -u RUSTUP_TOOLCHAIN cargo xtask dependencies check
 
-# Run the complete pinned Go SDK suite against an isolated server.
+# Run the complete pinned Go and Ruby SDK suites against isolated servers.
 check-sdk:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh
 

@@ -10,7 +10,7 @@ fn fixture() -> (TestDir, TestDir, Server) {
     let config = TestDir::new();
     let data = TestDir::new();
     let mut value = registry();
-    for index in [1, 5] {
+    for index in 0..6 {
         value["identities"][index]["public_keys"] = json!([PUBLIC]);
     }
     let path = config.0.join("identities.json");
@@ -22,6 +22,9 @@ fn fixture() -> (TestDir, TestDir, Server) {
         .ok();
     (config, data, server)
 }
+
+#[path = "signing/put.rs"]
+mod put;
 
 fn sign(
     server: &Server,

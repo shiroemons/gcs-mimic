@@ -203,4 +203,87 @@ func TestV4RSASignedDownload(t *testing.T) {
 		}
 		request("GET", sign("GET", name, nil, nil), "", "", http.StatusOK, payload)
 	}
+
+	t.Run("SignedUpload", func(t *testing.T) {
+		name := "signed-upload.txt"
+		sdkURL := func(method, host string) string {
+			t.Helper()
+			signed, err := storage.SignedURL(bucket.BucketName(), name, &storage.SignedURLOptions{
+				Scheme: storage.SigningSchemeV4, GoogleAccessID: "local-admin@example.invalid", PrivateKey: key,
+				Method: method, ContentType: "text/plain", Expires: time.Now().Add(5 * time.Minute),
+				Hostname: host, Insecure: endpoint.Scheme == "http",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return signed
+		}
+		put := sdkURL("PUT", portless.Host)
+		get := sdkURL("GET", portless.Host)
+		call := func(method, signed, contentType string, want int) []byte {
+			t.Helper()
+			var input io.Reader
+			if method == "PUT" {
+				input = strings.NewReader("signed private bytes")
+			}
+			req, err := http.NewRequestWithContext(ctx, method, signed, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contentType != "" {
+				req.Header.Set("Content-Type", contentType)
+			}
+			res, err := defaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, readErr := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+			closeErr := res.Body.Close()
+			if readErr != nil || closeErr != nil {
+				t.Fatalf("read/close: %v / %v", readErr, closeErr)
+			}
+			if res.StatusCode != want {
+				t.Fatalf("want %d, got %d: %s", want, res.StatusCode, body)
+			}
+			if want == http.StatusForbidden && !bytes.Contains(body, []byte("<Code>SignatureDoesNotMatch</Code>")) {
+				t.Fatalf("unexpected XML error: %s", body)
+			}
+			return body
+		}
+		call("PUT", put, "text/plain", http.StatusOK)
+		call("PUT", put, "changed", http.StatusForbidden)
+		call("PUT", put, "", http.StatusForbidden)
+		call("PUT", put+"&tampered=1", "text/plain", http.StatusForbidden)
+		call("PUT", strings.Replace(put, "/signed-upload.txt?", "/other.txt?", 1), "text/plain", http.StatusForbidden)
+		call("GET", put, "text/plain", http.StatusForbidden)
+		call("PUT", get, "text/plain", http.StatusForbidden)
+		if body := call("GET", get, "text/plain", http.StatusOK); string(body) != "signed private bytes" {
+			t.Fatalf("unexpected bytes: %q", body)
+		}
+		unsigned, err := http.NewRequestWithContext(ctx, "GET", portless.String()+"/"+bucket.BucketName()+"/"+name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := defaultClient.Do(unsigned)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("private object returned %d", res.StatusCode)
+		}
+		explicit, err := http.NewRequestWithContext(ctx, "PUT", sdkURL("PUT", endpoint.Host), strings.NewReader("rejected"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		explicit.Header.Set("Content-Type", "text/plain")
+		res, err = client.Do(explicit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Fatalf("SDK port omission returned %d", res.StatusCode)
+		}
+	})
 }

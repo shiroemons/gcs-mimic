@@ -312,7 +312,7 @@ pub(super) async fn session_response(
     let timeout = std::time::Duration::from_millis(config.catalog_wait_timeout_ms);
     let result = tokio::select! {
         result=&mut upload=>result?,
-        result=stream_upload(request.into_body(),&sender,config.max_object_bytes,activity)=>{
+        result=stream_upload(request.into_body(),&sender,config.max_object_bytes,activity,None)=>{
             if let Err(error)=result {
                 let _=sender.send(Err(std::io::Error::other(error.to_string()))).await;
                 drop(sender);

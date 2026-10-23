@@ -289,8 +289,17 @@ fn canonical_request(
         writeln!(canonical_headers, "{name}:{}", values.join(",")).unwrap();
     }
     let path = canonical_path(uri.path())?;
-    let payload = match headers.get("x-goog-content-sha256") {
-        None => "UNSIGNED-PAYLOAD",
+    payload_hash(headers)?;
+    // Query signatures always use UNSIGNED-PAYLOAD; a declared digest is checked by the adapter.
+    Ok(format!(
+        "{method}\n{path}\n{}\n{canonical_headers}\n{signed}\nUNSIGNED-PAYLOAD",
+        canonical_query(query)
+    ))
+}
+
+pub(crate) fn payload_hash(headers: &HeaderMap) -> Result<Option<[u8; 32]>, Failure> {
+    match headers.get("x-goog-content-sha256") {
+        None => Ok(None),
         Some(value) => {
             let value = value.to_str().map_err(|_| Failure::Malformed)?;
             if headers.get_all("x-goog-content-sha256").iter().count() != 1
@@ -302,13 +311,15 @@ fn canonical_request(
             {
                 return Err(Failure::Malformed);
             }
-            value
+            if value == "UNSIGNED-PAYLOAD" {
+                Ok(None)
+            } else {
+                Ok(Some(
+                    unhex(value)?.try_into().map_err(|_| Failure::Malformed)?,
+                ))
+            }
         }
-    };
-    Ok(format!(
-        "{method}\n{path}\n{}\n{canonical_headers}\n{signed}\n{payload}",
-        canonical_query(query)
-    ))
+    }
 }
 
 fn canonical_path(raw: &str) -> Result<String, Failure> {

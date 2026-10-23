@@ -99,10 +99,21 @@ endpoint=
 strict_endpoint=
 start_server pid endpoint server.log '' --data-dir "$work/data"
 # The identity file holds local-only fixture principals; its tokens are not Google credentials.
+jq --rawfile key fixtures/signing/test-only-public.pem \
+  '.identities |= map(if .id == "local-admin@example.invalid" then . + {public_keys: [$key]} else . end)' \
+  config/identities.json > "$work/identities.json"
 start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$work/strict-data" \
-  --auth-mode strict --identity-file config/identities.json
+  --auth-mode strict --identity-file "$work/identities.json"
 
 cd sdk-tests/go
 export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"
 GOTOOLCHAIN=auto go vet ./...
 GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
+
+if [[ -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
+  cd ../ruby
+  BUNDLE_FROZEN=true bundle check
+  bundle exec ruby https.rb --self-check
+  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb
+  GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 bundle exec ruby https.rb
+fi

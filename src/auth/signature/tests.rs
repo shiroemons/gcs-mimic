@@ -387,6 +387,17 @@ fn content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed() 
     ] {
         let mut headers = HeaderMap::new();
         headers.insert("x-goog-content-sha256", payload.parse().unwrap());
+        let mut canonical_headers = headers.clone();
+        canonical_headers.insert("host", "localhost".parse().unwrap());
+        let canonical = canonical_request(
+            &Method::PUT,
+            &"http://localhost/bucket/o".parse().unwrap(),
+            &canonical_headers,
+            &BTreeMap::new(),
+            "host;x-goog-content-sha256",
+        )
+        .unwrap();
+        assert!(canonical.ends_with("\nUNSIGNED-PAYLOAD"));
         let url = signed("http://localhost/bucket/o", &Method::GET, headers.clone());
         assert!(verify(&url, &Method::GET, headers.clone(), now).is_ok());
         headers.insert("x-goog-content-sha256", "0".repeat(64).parse().unwrap());
