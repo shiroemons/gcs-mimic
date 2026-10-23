@@ -3,6 +3,25 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-CORS-EDGES",
+      "title": "CORS provider header lists, custom mobile origins and malformed-input details remain unverified",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-051", "DESIGN-052", "BEHAVIOR-BUCKET-009", "UX-007", "JSON-BUCKETS-002", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
+      "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/cross-origin",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets",
+        "https://docs.cloud.google.com/storage/docs/troubleshooting#cors",
+        "https://docs.cloud.google.com/storage/docs/cors-configurations",
+        "https://html.spec.whatwg.org/multipage/browsers.html#concept-origin",
+        "https://capacitorjs.com/docs/config",
+        "https://developer.apple.com/documentation/webkit/wkurlschemehandler"
+      ],
+      "observed_at": "2026-10-23",
+      "kind": "SOURCE_QUESTION",
+      "observed_evidence": "Google documents JSON defaults independently of bucket rules, XML first origin/method matching rule and no credential support, subdomain wildcards, and equivalence of omitted/default HTTP/HTTPS ports. The provider does not enumerate the complete JSON exposed-common-header set or document custom iOS-scheme/null acceptance exhaustively. Local scope fixes a standard common-header subset including ETag/Location/Range/Content-Range, supports serialized capacitor/ionic/custom origins and null without an HTTP-only allowlist, and bounds minified stored CORS to 64 KiB. Missing request method uses documented JSON 404; malformed and duplicate headers/origins deny CORS under explicit local validation. Null clearing, omitted PUT reset, exact errors and header formatting are local rules. Apple deep links, WKWebView resource origins and native HTTP networking are distinct. Desktop Chromium and manually supplied mobile Origin headers are separate evidence, not real iOS/Google execution. Full details: docs/en/slices/cors.md and docs/en/slices/cors-mobile-origins.md.",
+      "required_resolution": "Retain these provider/device questions outside the frozen tested local scope. Obtain authoritative clarification or separately authorized real-cloud/device evidence before claiming exact provider expose-list parity, arbitrary mobile-scheme acceptance, IDNA/opaque-origin normalization or malformed-input precedence. Keep custom-origin wire handling distinct from actual WebKit emission, native bridge success and cookie identity. Do not change bucket CORS into authorization or infer XML writes/signed transfers from preflight."
+    },
+    {
       "id": "SPEC-DERIVED-METADATA",
       "title": "Copy/rewrite empty metadata resources, null and class defaults need provider clarification",
       "status": "OPEN",

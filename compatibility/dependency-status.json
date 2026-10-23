@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-23T08:44:11Z",
-  "scope": "Local HTTPS/TLS verification: twelve direct Rust crates, Rust/Go/Ruby toolchains, pinned Go/Ruby SDK graphs and Bundler, container inputs, BuildKit/SBOM generator and release Actions. Added tokio-rustls 0.26.6 with ring/tls12 and Ruby 4.0.9, Bundler 4.0.23, Storage gem 1.62.1; all 35 checked inputs are CURRENT.",
+  "checked_at_utc": "2026-10-23T10:35:56Z",
+  "scope": "JSON/XML CORS, bounded bucket listing and basic API verification: twelve direct Rust crates, Rust/Go/Ruby toolchains, pinned Go/Ruby SDK graphs and Bundler, container inputs, BuildKit/SBOM generator and release Actions. All 35 checked inputs are CURRENT; no dependencies or lockfile resolutions changed for CORS or the resource repair.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/local-tls-dependencies.txt",
-    "follow_up": "All 35 inputs report CURRENT with no freshness exceptions. The detector checks the real direct Cargo resolution edges, including duplicate-named transitive package versions, and the Go/Ruby SDK manifests. The existing daily 03:17 UTC workflow fetches locked packages and runs the detector without an ecosystem runtime requirement. Scheduled remote execution and release-platform verification remain unobserved; runtime/container/SDK behavior is recorded separately by the TLS slice."
+    "artifact": "docs/en/evidence/cors-dependencies.txt",
+    "follow_up": "All 35 inputs report CURRENT with no freshness exceptions; existing pins and all lockfiles are unchanged. The detector checks the real direct Cargo resolution edges, including duplicate-named transitive package versions, and the Go/Ruby SDK manifests. The existing daily 03:17 UTC workflow fetches locked packages and runs the detector without an ecosystem runtime requirement. Scheduled remote execution and release-platform verification remain unobserved; runtime/container/SDK behavior is recorded separately in docs/en/evidence/cors.md."
   },
   "toolchain": {
     "channel": "stable",

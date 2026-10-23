@@ -101,9 +101,9 @@ success stub does not complete a workflow.
 | 10 | Object rewrite | One/multi-call progress, request-bound tokens, atomic destination, retry/restart and pinned Copier pass the [final integrated gate](evidence/derived-objects.md) | Delivered: BEHAVIOR-OBJECT-024 IMPLEMENTED/EXACT; JSON-OBJECTS-012 remains PARTIAL for full ACL/owner projection |
 | 11 | Object compose | Ordered bounded sources, component/CRC32C metadata and atomic source deletion pass the [final integrated gate](evidence/derived-objects.md) | Delivered: JSON-OBJECTS-002 and BEHAVIOR-OBJECT-025/026/027 IMPLEMENTED/EXACT in the declared local scope |
 | 12 | Local HTTPS/TLS | Built-in HTTPS default/explicit HTTP, optional supplied PEM pair, bounded handshake and trusted native/container/Go/Ruby/browser checks passed on 2026-10-23 | Delivered: DESIGN-065 IMPLEMENTED/PROJECT; DESIGN-055 gains HTTPS evidence and remains PARTIAL for proxy/signing; [final verification](evidence/local-tls.md) |
-| 13 | JSON CORS defaults | Official JSON simple/preflight/default-header rules independent of bucket settings; real-browser JSON CRUD and permission denial | Use basic JSON APIs from a different browser origin before signing |
-| 14 | Bucket/XML CORS | Persistent JSON bucket GET/PATCH/PUT CORS settings; XML GET/HEAD and preflight allow/deny/header rules; real browser and restart | Configure bucket CORS and use existing XML reads from a browser |
-| 15 | Basic API, CORS and HTTPS verification | All preceding scopes; HTTP coverage, pinned Go/Ruby, actual-browser CORS over trusted local HTTPS, failure/concurrency/restart and final native/container journeys | Evidence-backed basic bucket/object APIs, CORS and HTTPS before signed URLs |
+| 13 | JSON CORS defaults | Independent JSON defaults, actual-browser CRUD/uploads, exposed headers and strict denial pass the [CORS gate](evidence/cors.md) | Delivered: DESIGN-051 and DESIGN-053 IMPLEMENTED for the frozen scope |
+| 14 | Bucket/XML CORS | Persistent configuration, validation/conditions/races, XML read/preflight rules, custom origins/default ports and browser restart pass the [CORS gate](evidence/cors.md) | Delivered: BEHAVIOR-BUCKET-009 and DESIGN-052 IMPLEMENTED; broad bucket methods remain PARTIAL |
+| 15 | Basic API, CORS and HTTPS verification | Six bucket/nine object HTTP methods, pinned Go/Ruby, trusted HTTPS browser, Rust regressions and native/container journeys pass the [integrated gate](evidence/cors.md) | Delivered: UX-007 IMPLEMENTED for JSON browser transfers and XML reads; broader SDK/Rails and method parity remain explicit |
 | 16 | V4 RSA signed download | Basic verification gate, final-host canonicalization, signer permission, expiry and tamper rejection | Private objects can be downloaded with validated signed GET |
 | 17 | V4 RSA signed upload | Bounded XML PUT, signed headers/payload rules, atomic conditions and failure preservation | Validated signed PUT works |
 | 18 | Signed browser transfers | Reuse implemented CORS/TLS; real-browser signed upload/download, allowed/denied origins, preflight and exposed headers | Complete signed browser workflows over HTTPS |
@@ -133,7 +133,9 @@ and [final evidence](evidence/object-copy.md). Its behavior row is IMPLEMENTED/E
 the method remains PARTIAL for full ACL/owner projection.
 Provider metadata/error/placement questions remain outside declared local acceptance.
 Order 11 compose also passes the shared final gate. The next implementation slice
-is order 13 **JSON CORS defaults**, followed by bucket/XML CORS. Order 12
+is order 16 **V4 RSA signed download**. Orders 13–15 are closed by the
+[CORS and basic API evidence](evidence/cors.md), including independent JSON/XML
+behavior and mobile-origin research without a real-device/cloud claim. Order 12
 **Local HTTPS/TLS** is delivered in the [final TLS evidence](evidence/local-tls.md),
 including default HTTPS, explicit HTTP regression, CA/SAN/expiry failures,
 bounded handshake/streaming deadlines, both container architectures, official

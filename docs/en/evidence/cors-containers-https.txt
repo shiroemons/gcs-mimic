@@ -1,0 +1,240 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders; output capture begins after the initial ARM64 container startup.
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Healthy 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Recreate 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Recreated 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Starting 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Started 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Waiting 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Healthy 
+PASS: trusted HTTPS probes, bucket/media/XML round trip and reachable resumable Location.
+++ mktemp -d
++ cors_dir=<temporary>
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"cors-guide-bucket"}' 'https://localhost:55443/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   409  100   381  100    28   126k   9553 --:--:-- --:--:-- --:--:--  199k
+{"etag":"\"b-1792749881765-1792749881765-1\"","id":"cors-guide-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"cors-guide-bucket","projectNumber":"0","selfLink":"https://localhost:55443/storage/v1/b/cors-guide-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T10:04:41.765Z","updated":"2026-10-23T10:04:41.765Z"}+ curl --disable --noproxy '*' --fail --data-binary 'browser bytes' 'https://localhost:55443/upload/storage/v1/b/cors-guide-bucket/o?uploadType=media&name=example'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   769  100   756  100    13   188k   3310 --:--:-- --:--:-- --:--:--  187k
+{"bucket":"cors-guide-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"kizHgw==","etag":"\"o-3wtve99RRWhVMa3+lqptnA==-1792749881776244-1\"","generation":"1792749881776244","id":"cors-guide-bucket/example/1792749881776244","kind":"storage#object","md5Hash":"3wtve99RRWhVMa3+lqptnA==","mediaLink":"https://localhost:55443/download/storage/v1/b/cors-guide-bucket/o/example?generation=1792749881776244&alt=media","metageneration":"1","name":"example","selfLink":"https://localhost:55443/storage/v1/b/cors-guide-bucket/o/example","size":"13","storageClass":"STANDARD","timeCreated":"2026-10-23T10:04:41.776Z","timeFinalized":"2026-10-23T10:04:41.776Z","timeStorageClassUpdated":"2026-10-23T10:04:41.776Z","updated":"2026-10-23T10:04:41.776Z"}+ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"cors":[{"origin":["https://app.example:443","capacitor://localhost","ionic://localhost"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Probe"],"maxAgeSeconds":0}]}' 'https://localhost:55443/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   722  100   551  100   171   179k  57152 --:--:-- --:--:-- --:--:--  352k
++ jq -e '.cors[0].origin[1] == "capacitor://localhost" and .metageneration == "2"' <temporary>
+true
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -X OPTIONS -H 'Origin: https://app.example' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: x-probe' https://localhost:55443/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://app.example'
+access-control-allow-origin: https://app.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o <temporary> -H 'Origin: capacitor://localhost' https://localhost:55443/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   4896      0 --:--:-- --:--:-- --:--:--  6500
++ printf 'browser bytes'
++ cmp - <temporary>
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: capacitor://localhost'
+access-control-allow-origin: capacitor://localhost
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' 'https://localhost:55443/storage/v1/b/cors-guide-bucket/o/example?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   5124      0 --:--:-- --:--:-- --:--:--  6500
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://another.example'
+access-control-allow-origin: https://another.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' https://localhost:55443/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   5879      0 --:--:-- --:--:-- --:--:--  6500
++ grep -qi '^access-control-allow-origin:' <temporary>
+++ curl --disable --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"cors":[]}' 'https://localhost:55443/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
++ status=412
++ test 412 = 412
++ curl --disable --noproxy '*' --fail -X DELETE https://localhost:55443/storage/v1/b/cors-guide-bucket/o/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -X DELETE https://localhost:55443/storage/v1/b/cors-guide-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ rm -r <temporary>
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   581  100   462  100   119   156k  41204 --:--:-- --:--:-- --:--:--  283k
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   745  100   732  100    13   123k   2242 --:--:-- --:--:-- --:--:--  145k
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Stopping 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Stopped 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Starting 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Started 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Waiting 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Healthy 
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   4693      0 --:--:-- --:--:-- --:--:--  6500
+access-control-allow-origin: capacitor://localhost
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0  0     13   0      0   0      0      0      0                              0  0     13   0      0   0      0      0      0                              0  0     13   0      0   0      0      0      0                              0
+HTTP/1.1 200 OK
+cache-control: private, max-age=0
+content-type: application/x-www-form-urlencoded
+content-length: 13
+accept-ranges: bytes
+x-goog-generation: 1792749881901690
+x-goog-metageneration: 1
+x-goog-hash: crc32c=crPnUQ==,md5=7nuAF/FlNiCLLuXQyiuPaA==
+x-goog-stored-content-length: 13
+x-goog-stored-content-encoding: identity
+etag: "ee7b8017f16536208b2ee5d0ca2b8f68"
+last-modified: Fri, 23 Oct 2026 10:04:41 GMT
+x-goog-storage-class: STANDARD
+connection: close
+access-control-expose-headers: ETag
+vary: Origin
+access-control-allow-origin: capacitor://localhost
+date: Fri, 23 Oct 2026 10:04:44 GMT
+
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Stopping 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Stopped 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Removing 
+ Container gcs-mimic-cors-guide-arm64-27124-gcs-1 Removed 
+ Network gcs-mimic-cors-guide-arm64-27124_default Removing 
+ Volume gcs-mimic-cors-guide-arm64-27124_gcs-data Removing 
+ Volume gcs-mimic-cors-guide-arm64-27124_gcs-data Removed 
+ Network gcs-mimic-cors-guide-arm64-27124_default Removed 
+PASS: arm64 HTTPS container CORS guide, trusted host/peer, persisted configuration/bytes and restart
+
+HTTPS container guide amd64
+sha256:6b7a8d95e0673bdb00a830562ac92b777004b1a7ac64c10b1e16af6cd6aed969 linux/amd64 ["gcs-mimic@sha256:6b7a8d95e0673bdb00a830562ac92b777004b1a7ac64c10b1e16af6cd6aed969"]
+ Network gcs-mimic-cors-guide-amd64-27124_default Creating 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Creating 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Creating 
+ Network gcs-mimic-cors-guide-amd64-27124_default Creating 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Created 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Created 
+ Network gcs-mimic-cors-guide-amd64-27124_default Created 
+ Network gcs-mimic-cors-guide-amd64-27124_default Created 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Creating 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Created 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Starting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Started 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Waiting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Healthy 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Recreate 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Recreated 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Starting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Started 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Waiting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Healthy 
+PASS: trusted HTTPS probes, bucket/media/XML round trip and reachable resumable Location.
+++ mktemp -d
++ cors_dir=<temporary>
++ curl --disable --noproxy '*' --fail -H 'Content-Type: application/json' --data '{"name":"cors-guide-bucket"}' 'https://localhost:55444/storage/v1/b?project=local-project'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   409  100   381  100    28  99633   7322 --:--:-- --:--:-- --:--:--  133k
+{"etag":"\"b-1792749891049-1792749891049-1\"","id":"cors-guide-bucket","kind":"storage#bucket","location":"US","locationType":"multi-region","metageneration":"1","name":"cors-guide-bucket","projectNumber":"0","selfLink":"https://localhost:55444/storage/v1/b/cors-guide-bucket","storageClass":"STANDARD","timeCreated":"2026-10-23T10:04:51.049Z","updated":"2026-10-23T10:04:51.049Z"}+ curl --disable --noproxy '*' --fail --data-binary 'browser bytes' 'https://localhost:55444/upload/storage/v1/b/cors-guide-bucket/o?uploadType=media&name=example'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   769  100   756  100    13   128k   2268 --:--:-- --:--:-- --:--:--  150k
+{"bucket":"cors-guide-bucket","contentType":"application/x-www-form-urlencoded","crc32c":"kizHgw==","etag":"\"o-3wtve99RRWhVMa3+lqptnA==-1792749891064184-1\"","generation":"1792749891064184","id":"cors-guide-bucket/example/1792749891064184","kind":"storage#object","md5Hash":"3wtve99RRWhVMa3+lqptnA==","mediaLink":"https://localhost:55444/download/storage/v1/b/cors-guide-bucket/o/example?generation=1792749891064184&alt=media","metageneration":"1","name":"example","selfLink":"https://localhost:55444/storage/v1/b/cors-guide-bucket/o/example","size":"13","storageClass":"STANDARD","timeCreated":"2026-10-23T10:04:51.064Z","timeFinalized":"2026-10-23T10:04:51.064Z","timeStorageClassUpdated":"2026-10-23T10:04:51.064Z","updated":"2026-10-23T10:04:51.064Z"}+ curl --disable --noproxy '*' --fail -X PATCH -H 'Content-Type: application/json' --data '{"cors":[{"origin":["https://app.example:443","capacitor://localhost","ionic://localhost"],"method":["GET","HEAD"],"responseHeader":["ETag","X-Probe"],"maxAgeSeconds":0}]}' 'https://localhost:55444/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   722  100   551  100   171  81100  25169 --:--:-- --:--:-- --:--:--  117k
++ jq -e '.cors[0].origin[1] == "capacitor://localhost" and .metageneration == "2"' <temporary>
+true
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -X OPTIONS -H 'Origin: https://app.example' -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: x-probe' https://localhost:55444/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://app.example'
+access-control-allow-origin: https://app.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o <temporary> -H 'Origin: capacitor://localhost' https://localhost:55444/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   4121      0 --:--:-- --:--:-- --:--:--  4333
++ printf 'browser bytes'
++ cmp - <temporary>
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: capacitor://localhost'
+access-control-allow-origin: capacitor://localhost
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' 'https://localhost:55444/storage/v1/b/cors-guide-bucket/o/example?alt=media'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   4138      0 --:--:-- --:--:-- --:--:--  4333
++ tr -d '\r'
++ grep -Fxi 'access-control-allow-origin: https://another.example'
+access-control-allow-origin: https://another.example
++ curl --disable --noproxy '*' --fail -D <temporary> -o /dev/null -H 'Origin: https://another.example' https://localhost:55444/cors-guide-bucket/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0   4213      0 --:--:-- --:--:-- --:--:--  4333
++ grep -qi '^access-control-allow-origin:' <temporary>
+++ curl --disable --noproxy '*' --silent --show-error --output /dev/null --write-out '%{http_code}' -X PATCH -H 'Content-Type: application/json' --data '{"cors":[]}' 'https://localhost:55444/storage/v1/b/cors-guide-bucket?ifMetagenerationMatch=1'
++ status=412
++ test 412 = 412
++ curl --disable --noproxy '*' --fail -X DELETE https://localhost:55444/storage/v1/b/cors-guide-bucket/o/example
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ curl --disable --noproxy '*' --fail -X DELETE https://localhost:55444/storage/v1/b/cors-guide-bucket
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
++ rm -r <temporary>
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   581  100   462  100   119   131k  34562 --:--:-- --:--:-- --:--:--  189k
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   745  100   732  100    13   131k   2384 --:--:-- --:--:-- --:--:--  145k
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Stopping 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Stopped 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Starting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Started 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Waiting 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Healthy 
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    13  100    13    0     0    750      0 --:--:-- --:--:-- --:--:--   764
+access-control-allow-origin: capacitor://localhost
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0HTTP/1.1 200 OK
+  0     13   0      0   0      0      0      0                              0  0     13   0      0   0      0      0      0                              0  0     13   0      0   0      0      0      0                              0
+cache-control: private, max-age=0
+content-type: application/x-www-form-urlencoded
+content-length: 13
+accept-ranges: bytes
+x-goog-generation: 1792749891213801
+x-goog-metageneration: 1
+x-goog-hash: crc32c=crPnUQ==,md5=7nuAF/FlNiCLLuXQyiuPaA==
+x-goog-stored-content-length: 13
+x-goog-stored-content-encoding: identity
+etag: "ee7b8017f16536208b2ee5d0ca2b8f68"
+last-modified: Fri, 23 Oct 2026 10:04:51 GMT
+x-goog-storage-class: STANDARD
+connection: close
+access-control-expose-headers: ETag
+vary: Origin
+access-control-allow-origin: capacitor://localhost
+date: Fri, 23 Oct 2026 10:04:54 GMT
+
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Stopping 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Stopped 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Removing 
+ Container gcs-mimic-cors-guide-amd64-27124-gcs-1 Removed 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Removing 
+ Network gcs-mimic-cors-guide-amd64-27124_default Removing 
+ Volume gcs-mimic-cors-guide-amd64-27124_gcs-data Removed 
+ Network gcs-mimic-cors-guide-amd64-27124_default Removed 
+PASS: amd64 HTTPS container CORS guide, trusted host/peer, persisted configuration/bytes and restart
+

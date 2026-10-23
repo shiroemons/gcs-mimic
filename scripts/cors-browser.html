@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>gcs-mimic cross-origin verification</title>
+<body data-status="running"><pre id="results"></pre>
+<script>
+"use strict";
+(async () => {
+  const output = document.querySelector("#results");
+  const report = message => { output.textContent += `${message}\n`; };
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+    report(`PASS: ${message}`);
+  };
+  const query = new URLSearchParams(location.search);
+  const endpoint = new URL(query.get("endpoint"));
+  if (!["localhost", "127.0.0.1", "[::1]", "gcs", "host.docker.internal"].includes(endpoint.hostname)
+      || endpoint.protocol !== "https:" || endpoint.origin === location.origin) {
+    throw new Error("A distinct, explicitly trusted local HTTPS endpoint is required");
+  }
+  const bucket = query.get("bucket");
+  if (!/^cors-browser-[a-z0-9-]+$/.test(bucket)) throw new Error("Use a disposable cors-browser-* bucket");
+  const strict = query.get("profile") === "strict";
+  const base = `${endpoint.origin}/storage/v1/b`;
+  const resource = `${base}/${bucket}`;
+  const admin = strict ? {Authorization: "Bearer local-admin-token"} : {};
+  const call = (url, options = {}) => fetch(url, {
+    cache: "no-store", ...options, headers: {...admin, ...options.headers}, signal: AbortSignal.timeout(15000)
+  });
+  const json = async (url, method, value) => {
+    const response = await call(url, {
+      method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(value)
+    });
+    check(response.ok, `${method} ${new URL(url).pathname} returns ${response.status}`);
+    return response.json();
+  };
+  const blocked = async (url, options, message) => {
+    try { await call(url, options); } catch (error) {
+      if (error instanceof TypeError) { report(`PASS: ${message}`); return; }
+      throw error;
+    }
+    throw new Error(message);
+  };
+  const rule = {
+    origin: [location.origin], method: ["GET", "HEAD"],
+    responseHeader: ["Authorization", "X-Cors-Probe", "ETag", "X-Goog-Generation"],
+    maxAgeSeconds: 0
+  };
+  const xml = `${endpoint.origin}/${bucket}/media`;
+  if (query.get("phase") === "restart") {
+    const persisted = await (await call(resource)).json();
+    check(persisted.cors.length === 1 && Object.entries(rule).every(([key, value]) =>
+      JSON.stringify(persisted.cors[0][key]) === JSON.stringify(value)), "bucket CORS survives restart");
+    const response = await call(xml, {headers: {"X-Cors-Probe": "restart"}});
+    check(response.ok && await response.text() === "browser media", "allowed XML CORS and bytes survive restart");
+    for (const name of ["media", "multipart", "resumable"]) {
+      check((await call(`${resource}/o/${name}`, {method: "DELETE"})).ok, `delete ${name}`);
+    }
+    check((await call(resource, {method: "DELETE"})).ok, "delete disposable bucket after restart verification");
+  } else {
+    await json(`${base}?project=local-project`, "POST", {name: bucket});
+    const listed = await (await call(`${base}?project=local-project`)).json();
+    check(listed.items.some(item => item.name === bucket), "cross-origin bucket listing");
+    await json(resource, "PATCH", {labels: {browser: "patch"}});
+    await json(resource, "PUT", {labels: {browser: "put"}});
+    check((await (await call(resource)).json()).labels.browser === "put", "bucket GET observes PUT replacement");
+    let response = await call(`${endpoint.origin}/upload/storage/v1/b/${bucket}/o?uploadType=media&name=media`, {
+      method: "POST", headers: {"Content-Type": "text/plain"}, body: "browser media"
+    });
+    check(response.ok, "cross-origin raw media upload");
+    const boundary = "gcs-mimic-browser-boundary";
+    response = await call(`${endpoint.origin}/upload/storage/v1/b/${bucket}/o?uploadType=multipart`, {
+      method: "POST", headers: {"Content-Type": `multipart/related; boundary=${boundary}`},
+      body: `--${boundary}\r\nContent-Type: application/json\r\n\r\n{"name":"multipart"}\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\nbrowser multipart\r\n--${boundary}--\r\n`
+    });
+    check(response.ok, "cross-origin multipart upload");
+    response = await call(`${endpoint.origin}/upload/storage/v1/b/${bucket}/o?uploadType=resumable`, {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: '{"name":"resumable"}'
+    });
+    const session = response.headers.get("Location");
+    check(response.ok && session?.startsWith(`${endpoint.origin}/upload/`), "browser can read reachable HTTPS resumable Location");
+    response = await call(session, {
+      method: "PUT", headers: {"Content-Range": "bytes 0-16/17"}, body: "browser resumable"
+    });
+    check(response.ok, "cross-origin resumable finalization");
+    for (const [name, expected] of [["media", "browser media"], ["multipart", "browser multipart"], ["resumable", "browser resumable"]]) {
+      response = await call(`${resource}/o/${name}?alt=media`);
+      check(response.ok && await response.text() === expected, `${name} download bytes`);
+    }
+    response = await call(`${resource}/o/media?fields=name,size`);
+    const selected = await response.json();
+    check(response.ok && Object.keys(selected).sort().join() === "name,size", "JSON fields selection");
+    const etag = response.headers.get("ETag");
+    check(Boolean(etag), "browser can read JSON ETag");
+    response = await fetch(`${resource}/o/media?fields=name`, {
+      credentials: "include", cache: "no-store", signal: AbortSignal.timeout(15000)
+    });
+    check(response.status === (strict ? 401 : 200), "JSON simple credentialed request remains readable without granting access");
+    response = await call(`${resource}/o/media`, {headers: {"If-None-Match": etag}});
+    check(response.status === 304 && await response.text() === "", "browser observes conditional 304");
+    await json(`${resource}/o/media`, "PATCH", {metadata: {browser: "patch"}});
+    await json(`${resource}/o/media`, "PUT", {metadata: {browser: "put"}});
+    const objects = await (await call(`${resource}/o?fields=items(name)`)).json();
+    check(objects.items.length === 3, "cross-origin object listing with fields");
+    if (strict) {
+      response = await call(resource, {
+        method: "PATCH", headers: {Authorization: "Bearer local-viewer-token", "Content-Type": "application/json"},
+        body: '{"labels":{"denied":"true"}}'
+      });
+      check(response.status === 403 && (await response.json()).error.code === 403, "successful JSON preflight does not grant update permission");
+    }
+    await json(resource, "PATCH", {cors: [rule]});
+    response = await call(xml);
+    check(response.ok && await response.text() === "browser media", "XML allowed-origin GET");
+    check(Boolean(response.headers.get("ETag")) && Boolean(response.headers.get("X-Goog-Generation")), "XML configured response headers are exposed");
+    response = await call(xml, {method: "HEAD"});
+    check(response.ok && await response.text() === "", "XML allowed-origin HEAD");
+    response = await call(xml, {headers: {"X-Cors-Probe": "allowed"}});
+    check(response.ok, "XML allowed method and requested-header preflight");
+    await blocked(xml, {headers: {"X-Cors-Denied": "denied"}}, "XML disallowed requested header is blocked by browser");
+    await blocked(xml, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}, "XML disallowed method is blocked by browser");
+    await blocked(xml, {credentials: "include"}, "XML credentialed fetch is blocked by browser");
+    if (strict) {
+      response = await call(xml, {headers: {Authorization: "Bearer local-bucket-reader-token", "X-Cors-Probe": "denied"}});
+      check(response.status === 403 && (await response.text()).includes("AccessDenied"), "allowed XML preflight does not grant object permission");
+    }
+    await json(resource, "PATCH", {cors: [{...rule, origin: ["https://denied.example.invalid"]}]});
+    await blocked(xml, {}, "XML disallowed origin is blocked by browser");
+    response = await call(`${resource}/o/media?alt=media`);
+    check(response.ok && await response.text() === "browser media", "JSON CORS ignores restrictive bucket CORS");
+    await json(resource, "PATCH", {cors: [{...rule, origin: ["*"]}]});
+    response = await call(xml);
+    check(response.ok, "XML wildcard origin is allowed");
+    await json(resource, "PATCH", {cors: []});
+    await blocked(xml, {}, "clearing bucket CORS revokes browser XML access");
+    await json(resource, "PATCH", {cors: [rule]});
+    report(`Restart the emulator and repeat phase=restart with bucket=${bucket} and the same browser origin.`);
+  }
+  document.body.dataset.status = "pass";
+  report(`PASS: ${strict ? "strict" : "permissive"} ${query.get("phase")} browser CORS verification completed`);
+})().catch(error => {
+  document.body.dataset.status = "fail";
+  document.querySelector("#results").textContent += `FAIL: ${error.stack || error}\n`;
+});
+</script>

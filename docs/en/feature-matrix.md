@@ -15,8 +15,8 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 279 | 0 | 18 | 1 | 0 | 0 |
-| behavior | 201 | 151 | 0 | 28 | 22 | 0 | 0 |
-| project_requirement | 92 | 42 | 0 | 26 | 24 | 0 | 0 |
+| behavior | 201 | 147 | 0 | 28 | 26 | 0 | 0 |
+| project_requirement | 92 | 40 | 0 | 27 | 25 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -36,8 +36,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 279 | 5 | 14 | 0 | 0 | 0 |
-| behavior | 151 | 23 | 25 | 2 | 0 | 0 |
-| project_requirement | 42 | 0 | 0 | 0 | 0 | 50 |
+| behavior | 147 | 27 | 25 | 2 | 0 | 0 |
+| project_requirement | 40 | 0 | 0 | 0 | 0 | 52 |
 
 ## api_operation
 
@@ -507,7 +507,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-BUCKET-006 | Bucket default encryption key | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-007 | Encryption enforcement configuration | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-008 | IP filter configuration | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| BEHAVIOR-BUCKET-009 | CORS configuration round-trip | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| BEHAVIOR-BUCKET-009 | CORS configuration round-trip | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
 | BEHAVIOR-BUCKET-010 | Website configuration | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-011 | Usage/access logging configuration | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-BUCKET-012 | Default event-based hold | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
@@ -782,9 +782,9 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-048 | Virtual-hosted-style object endpoints | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-049 | Media endpoint versus metadata endpoint | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-050 | Website host/index/error routing | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-051 | JSON API CORS defaults | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-052 | XML API bucket CORS enforcement | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-053 | Preflight does not grant object access | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-051 | JSON API CORS defaults | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
+| DESIGN-052 | XML API bucket CORS enforcement | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
+| DESIGN-053 | Preflight does not grant object access | IMPLEMENTED | P2 | EXACT | EXACT | 0 |
 | DESIGN-054 | Browser-auth download endpoint boundary | NOT_STARTED | P2 | EXTERNAL | NONE | 0 |
 
 ### XML semantics
@@ -863,7 +863,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | Signed access and invalid-signature journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
-| UX-007 | Browser CORS and direct upload journey | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| UX-007 | Browser CORS and direct upload journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
 | UX-008 | Restart preserves data and permissions | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | UX-009 | Stop versus deliberate reset semantics | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | UX-010 | Isolated parallel CI runs | PARTIAL | P0 | PROJECT | PROJECT | 0 |
@@ -935,7 +935,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 10 |
-| DESIGN-083 | Ruby official SDK integration | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 1 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-086 | Python official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |

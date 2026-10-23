@@ -1,0 +1,343 @@
+Local checkout, home and temporary path prefixes are replaced with placeholders.
+Commands: docker buildx build --platform linux/arm64 --load --tag gcs-mimic:cors-memory-arm64-final .
+          bash -n scripts/cors-memory-smoke.sh
+          bash scripts/cors-memory-smoke.sh gcs-mimic:cors-memory-arm64-final
+Build and smoke exit codes: 0
+Input SHA-256 before build (all rechecked unchanged after smoke):
+8a718d21dab9255c7529a91516a5fe8b6966f97686bb1e7d709bdcfbf7866682  src/storage/catalog.rs
+185cae86e5b11c8a4eece4acdece745e3f50e9129c35937ac257c69223036415  src/storage/mod.rs
+1814b15b199257071b942d34055632122d52814ee8dbeb8d8498485a0ed75c41  src/server.rs
+02b17864f9eb5f2f42b28e9ed3a07ef81cf46dd9b0e07db83af771a8fb019e9e  src/bucket.rs
+d9ea971114ee682a344c3de3f2f78819a13b8ad090c33426098d135acaca1960  src/json/cors.rs
+bf322d9d2e83321e4834d9bab8f1f522dd29881a6c27187407e78b42d3a191b8  src/xml/cors.rs
+2f72fe1b71784ca1ec001bbd1a0d137f092610b6e3720aedfb4e14c89c839e6e  src/tls.rs
+f4621a60dbd81e84ff1e31b83f598d93bfcf2ab76757ac0869fdda41dedc649b  Cargo.toml
+821e03bb0ba30a9b84429c4b3a96e6b21f5379df8891612385f994b4d3839ac2  Cargo.lock
+d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33  rust-toolchain.toml
+16d9eca027887d5b33f1429f2ddd4c97575c8eece8d4c079a1cd172b736bb4e7  xtask/Cargo.toml
+bd6c80cc2fb5a3bb4fbd375dfff94dece6873a5684b48aa328795970a3161c7f  Dockerfile
+b9fde1c672af6b461b4d528d13538616c1744a5a8acdff1a2ca5bfaa31c43ba6  scripts/cors-memory-smoke.sh
+46c23b96df1d02c6303f3aef8cefe5bbe6b9729b7ac6065be9745a377e084f2c  compatibility/upstream/json-schemas.json
+c009ab4a1135b1baeca00ad0cf070f15ae493d8bca27faee97593fb3caf9999c  <temporary-directory>/container-runtime
+All runtime and xtask source SHA-256 before build (rechecked unchanged after smoke):
+2490ff5dbd251439add1b529ee7b64e28f3ae125294c201422e893e8fc83a795  src/auth/mod.rs
+2cc9d59f50366f67f0573678fe9268a69b94b20919be9b54d0dc9da3721d9fb5  src/auth/policy.rs
+6672a210b0b2aafc8c634d49bf037142c9e91a17a010e62ce098c12956e07b3f  src/auth/roles.rs
+02b17864f9eb5f2f42b28e9ed3a07ef81cf46dd9b0e07db83af771a8fb019e9e  src/bucket.rs
+28fc33a0b26289dbbf06aa48c27f4a733dc240d0e2439cb8f94ea0a10879dffb  src/clock.rs
+467b9f90b5e861ef7279bbf55a7ef69b75c0b3517cedcf7a821f7f20f93bd7c5  src/config.rs
+1cb936d1ce73b98c3312b6bb3156d14153e3e5d5095823cc426d1ebad3f5963c  src/http_conditions.rs
+953c598095e3ade904452f85912a7358a7e284b1148bcbdde56b7152db9b1121  src/json/body.rs
+293e4fdcd231ae4143153626da47427be5259d6cf021035f20bbda98ef4ae2e4  src/json/buckets.rs
+c3d0d5c0599969dadf8c91b90edbcc0bb18379aaef120bd1ee9d3fca174a8c10  src/json/compose.rs
+d9ea971114ee682a344c3de3f2f78819a13b8ad090c33426098d135acaca1960  src/json/cors.rs
+539c206d330c54cbbb867672ec16a6108be4b12ba20f64e11886ac95e83eee98  src/json/derived_metadata.rs
+93c0d4861103c96454b0891df294a62e092a386234b484344226a5b4f90bb024  src/json/error.rs
+e346754d575c9dc854473d413755d879efed651e6a93a5d931b9cff75141ee02  src/json/fields.rs
+ea9c49785dce74625c49a181817a33bf371415e4fea97f2bebc797a73247a35b  src/json/iam.rs
+c7da352ad6e727422d0e08cc39585ae3f7e1c92f059090e960e8bba85a54a50e  src/json/mod.rs
+d0884fc1b4c21c0b9928b58e1a86671b1a7efafe4bdae107276ddea33d488c68  src/json/multipart.rs
+ae84dc20e0f6f31a3f5fa522999d76d5b9e26dd64924464d1407a8e8c406afe1  src/json/object_copy.rs
+2ede8b005d1af492bc2a6ae3b3005668a27186fc163f0b0a92265b4f025c535b  src/json/object_list.rs
+b9e369418df3faf1331dc3884006c34f724258534080779c6851da31dc4591ca  src/json/object_metadata.rs
+9757ecba98f7b697b1a2c0836cc53aaca5749642b1c147d674ec69a8e07e84fb  src/json/object_tests.rs
+881fcfee507e409d45b3f72780fd1eba4fb1f0caa9b9478d2c69e891bc187bfc  src/json/objects.rs
+5a846dbb96b09e4409fae5b6fd9ec355c912d6a7bb4a336fd4565ea3927f8907  src/json/page_token.rs
+d05070049eb39d343a8a045a0db6d2bb6a4b1484df240f6e8321e835bc08b13a  src/json/query.rs
+9b190fabd1c3a4c56970a4626ceea90ced747d90de1ffed6d022ba92c226221b  src/json/resumable.rs
+690b9b5fdc9ad19e15a70a93486bedd62b525c654f05e2ec584dfb5e4ecea8f8  src/json/resumable_cancel.rs
+983e8e649f1314d09cafc0525502a0974debbf1785a90d5321bdf0e73d7c81db  src/json/rewrite.rs
+528e9652309a22828f2193af125bd6df8f44bd0d01a4bd376a5672420c5d6ea4  src/json/tests.rs
+85b13ca106489c9636b8510fa0e20198cc7d17e395e374a704f16909d2799f6c  src/lib.rs
+775355a98f88978090d3f76bff5d0750ce8b7de6e26000d9214c6295a79af937  src/main.rs
+ec16280a28a39ce0641401c8efdbd0482c34354ad25099f3a0786827d4cf1c51  src/object.rs
+08819c745e2b4b30fa86533745726f1982ec8f6ddbb883c4ed92f352dabd1c3d  src/seed.rs
+1814b15b199257071b942d34055632122d52814ee8dbeb8d8498485a0ed75c41  src/server.rs
+ff11a004b16a80d8994e6acb2665cc53b4dca53f7dbd3bb8635b7b1955c845e5  src/server/copy.rs
+694d7aef0373d861cd6d00ee32da051416dadf0b5b95965681f55d7978b65362  src/server/resumable.rs
+26254b9f0c4ac8baa64caee0c0435b5f83ea8c0636b23071188a36de1aa5798f  src/server/rewrite.rs
+8a718d21dab9255c7529a91516a5fe8b6966f97686bb1e7d709bdcfbf7866682  src/storage/catalog.rs
+533b849c04ea2ec5d67409169bfb4b16778c55f9ea30eab5201c89e41717375d  src/storage/compose.rs
+771432ff0774a923ff31c48a93d768988433119b7e5ff979b0be4f0163322f3e  src/storage/compose_crc32c.rs
+bc548a513e6c98e9284b521db6e462b55aa23ec09bbd0a22231d58a3744b7f4d  src/storage/derived.rs
+2d93ace9edcaef1154b729fd4d1e34a2dca9a39a6dc49d3c0f87d8c6e9320a80  src/storage/lock.rs
+185cae86e5b11c8a4eece4acdece745e3f50e9129c35937ac257c69223036415  src/storage/mod.rs
+fa3f927c7a3b38910185ea6469f015f432e3dfc2bfa9a63b578c4361a755c378  src/storage/objects.rs
+d070e843777e548862731bb8d009bda77d98b5e5f4974d3650eaab20e43304ce  src/storage/policies.rs
+87f17a80fab22eb4cb258addfd8d1b376f8aadfed1c1bcbff9eb4159a2ae1c49  src/storage/resumable.rs
+86d63e7f79d945986e13bb7d2cd87fe28ee3cecffa6931a60220422be2aa24fe  src/storage/resumable_maintenance.rs
+63eb9bbdcb30633abd7904f1468647b15f536cc2c944148f9880429f215926b0  src/storage/resumable_recovery.rs
+ef6a0a56c889dda272690f84edd79c42024542ae19e27d6e5553ba58eb3e896a  src/storage/resumable_transfer.rs
+d1f8bd1d0571e4826923ea4cea84bcdb8f548cff180f0c94bf6fd0b0a9131958  src/storage/rewrite.rs
+3d3c9e11bdbb25c92fa62dda67e65d2100fa43a6ee37981f919390f780dae358  src/storage/rewrite_token.rs
+2f72fe1b71784ca1ec001bbd1a0d137f092610b6e3720aedfb4e14c89c839e6e  src/tls.rs
+8ad5d7e7df1b46f28da1b7dbd6a6769f68eb99111972f68725ccda14e340c4c6  src/tls/development-ca.pem
+9a541b4d8884d5f27e0f303654bc00efd2bedbeb0f8cc27a4119f5d96c244d76  src/tls/development-cert.pem
+f1f2ff060bc6f3a5531407044c14ce7212b917442622c0eae8b1db37193cbd82  src/tls/development-key.pem
+c08fd2fe8b2537de17c09c9e8b494fbc267d03a0ee817c97d5edfe933a11d5f8  src/url.rs
+bf322d9d2e83321e4834d9bab8f1f522dd29881a6c27187407e78b42d3a191b8  src/xml/cors.rs
+86ed6e24bfeb27a71562bfafaaf0f379cf0b8277604f9ddd4fee68e39ced600a  src/xml/mod.rs
+cb67c976db449940f63c3ffb9e7909092cbe32a40db4a456dc88a1474636797c  xtask/src/container.rs
+c4a94b4d5476c43780310b6fc75b6c9489648c2b82dc9a5e91985035b07609d8  xtask/src/dependencies.rs
+70f84b8b7b1308f3105e557e1ddf55d8082a279bd8499a9cbc37d53599e2d127  xtask/src/lib.rs
+ff62c395ab9da511afbba0ce226c5eec697a7e08ac9d58f8152431df9855fa3d  xtask/src/main.rs
+6f1c1657d2ae8f5297f604e13561480852263a714200779779f3d5b7d1033159  xtask/src/release.rs
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 1.3s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#4 DONE 0.4s
+
+#5 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#5 DONE 1.5s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 331B done
+#6 DONE 0.0s
+
+#7 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#7 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.1s done
+#7 DONE 0.1s
+
+#8 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#8 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf 0.1s done
+#8 DONE 0.1s
+
+#9 [internal] load build context
+#9 transferring context: 116.23kB 0.0s done
+#9 DONE 0.0s
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 CACHED
+
+#12 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#12 CACHED
+
+#13 [build  5/10] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build  6/10] COPY src ./src
+#14 DONE 0.1s
+
+#15 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#15 DONE 0.0s
+
+#16 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 DONE 0.0s
+
+#17 [build  9/10] COPY distribution/notices ./distribution/notices
+#17 DONE 0.0s
+
+#18 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#18 0.180 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#18 0.558 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#18 0.566 info: downloading 2 components
+#18 1.332     Updating crates.io index
+#18 2.056  Downloading crates ...
+#18 2.268   Downloaded futures-core v0.3.34
+#18 2.276   Downloaded crypto-common v0.2.2
+#18 2.281   Downloaded subtle v2.6.1
+#18 2.290   Downloaded rustc_version v0.4.1
+#18 2.295   Downloaded tokio-macros v2.7.2
+#18 2.296   Downloaded untrusted v0.9.0
+#18 2.300   Downloaded windows-targets v0.52.6
+#18 2.301   Downloaded atomic-waker v1.1.2
+#18 2.302   Downloaded httpdate v1.0.3
+#18 2.316   Downloaded errno v0.3.14
+#18 2.318   Downloaded windows-link v0.2.1
+#18 2.319   Downloaded fallible-streaming-iterator v0.1.9
+#18 2.320   Downloaded block-buffer v0.12.1
+#18 2.321   Downloaded crc32c v0.6.8
+#18 2.323   Downloaded http-body v1.1.0
+#18 2.325   Downloaded cfg-if v1.0.5
+#18 2.332   Downloaded shlex v2.0.1
+#18 2.333   Downloaded pkg-config v0.3.34
+#18 2.334   Downloaded http-body-util v0.1.5
+#18 2.335   Downloaded tokio-rustls v0.26.6
+#18 2.340   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#18 2.343   Downloaded zmij v1.0.23
+#18 2.344   Downloaded pin-project-lite v0.2.17
+#18 2.349   Downloaded zeroize v1.9.1
+#18 2.350   Downloaded fallible-iterator v0.3.0
+#18 2.350   Downloaded find-msvc-tools v0.1.15
+#18 2.351   Downloaded signal-hook-registry v1.4.8
+#18 2.353   Downloaded md-5 v0.11.0
+#18 2.356   Downloaded rustls-pki-types v1.15.1
+#18 2.358   Downloaded itoa v1.0.18
+#18 2.359   Downloaded semver v1.0.28
+#18 2.361   Downloaded getrandom v0.2.17
+#18 2.363   Downloaded once_cell v1.21.4
+#18 2.365   Downloaded quote v1.0.47
+#18 2.367   Downloaded hybrid-array v0.4.15
+#18 2.369   Downloaded httparse v1.10.1
+#18 2.371   Downloaded digest v0.11.3
+#18 2.373   Downloaded smallvec v1.16.3
+#18 2.441   Downloaded serde_core v1.0.229
+#18 2.444   Downloaded bitflags v2.13.2
+#18 2.447   Downloaded getrandom v0.4.3
+#18 2.450   Downloaded r-efi v6.0.0
+#18 2.454   Downloaded unicode-ident v1.0.27
+#18 2.456   Downloaded proc-macro2 v1.0.107
+#18 2.458   Downloaded socket2 v0.6.5
+#18 2.459   Downloaded bytes v1.12.1
+#18 2.461   Downloaded serde_derive v1.0.229
+#18 2.464   Downloaded rustls-webpki v0.103.16
+#18 2.467   Downloaded typenum v1.20.1
+#18 2.470   Downloaded http v1.5.0
+#18 2.473   Downloaded serde v1.0.229
+#18 2.476   Downloaded memchr v2.8.3
+#18 2.480   Downloaded mio v1.2.4
+#18 2.484   Downloaded cc v1.9.0
+#18 2.487   Downloaded hyper-util v0.1.21
+#18 2.493   Downloaded serde_json v1.0.154
+#18 2.497   Downloaded rusqlite v0.40.2
+#18 2.502   Downloaded hyper v1.12.0
+#18 2.508   Downloaded vcpkg v0.2.15
+#18 2.536   Downloaded syn v3.0.9
+#18 2.545   Downloaded rustls v0.23.46
+#18 2.553   Downloaded windows_x86_64_gnullvm v0.52.6
+#18 2.560   Downloaded windows_aarch64_gnullvm v0.52.6
+#18 2.571   Downloaded windows_i686_gnullvm v0.52.6
+#18 2.670   Downloaded windows_aarch64_msvc v0.52.6
+#18 2.680   Downloaded windows_x86_64_msvc v0.52.6
+#18 2.689   Downloaded windows_i686_msvc v0.52.6
+#18 2.698   Downloaded libc v0.2.191
+#18 2.732   Downloaded windows_i686_gnu v0.52.6
+#18 2.744   Downloaded windows_x86_64_gnu v0.52.6
+#18 2.756   Downloaded tokio v1.54.1
+#18 2.785   Downloaded ring v0.17.14
+#18 2.812   Downloaded windows-sys v0.61.2
+#18 2.876   Downloaded windows-sys v0.52.0
+#18 2.941   Downloaded libsqlite3-sys v0.38.2
+#18 3.133    Compiling libc v0.2.191
+#18 3.134    Compiling find-msvc-tools v0.1.15
+#18 3.258    Compiling shlex v2.0.1
+#18 3.314    Compiling cc v1.9.0
+#18 3.807    Compiling proc-macro2 v1.0.107
+#18 4.040    Compiling quote v1.0.47
+#18 4.060    Compiling unicode-ident v1.0.27
+#18 4.144    Compiling bytes v1.12.1
+#18 4.408    Compiling cfg-if v1.0.5
+#18 4.423    Compiling syn v3.0.9
+#18 4.503    Compiling ring v0.17.14
+#18 4.708    Compiling errno v0.3.14
+#18 4.756    Compiling itoa v1.0.18
+#18 4.845    Compiling signal-hook-registry v1.4.8
+#18 5.709    Compiling tokio-macros v2.7.2
+#18 5.971    Compiling mio v1.2.4
+#18 6.199    Compiling socket2 v0.6.5
+#18 6.527    Compiling typenum v1.20.1
+#18 6.837    Compiling pin-project-lite v0.2.17
+#18 6.860    Compiling tokio v1.54.1
+#18 9.321    Compiling hybrid-array v0.4.15
+#18 9.544    Compiling http v1.5.0
+#18 10.40    Compiling getrandom v0.2.17
+#18 10.46    Compiling semver v1.0.28
+#18 10.55    Compiling untrusted v0.9.0
+#18 10.58    Compiling zeroize v1.9.1
+#18 10.62    Compiling vcpkg v0.2.15
+#18 10.84    Compiling httparse v1.10.1
+#18 10.95    Compiling pkg-config v0.3.34
+#18 11.10    Compiling libsqlite3-sys v0.38.2
+#18 11.25    Compiling rustls-pki-types v1.15.1
+#18 12.51    Compiling rustc_version v0.4.1
+#18 12.60    Compiling http-body v1.1.0
+#18 12.64    Compiling rustls v0.23.46
+#18 12.70    Compiling futures-core v0.3.34
+#18 12.73    Compiling smallvec v1.16.3
+#18 12.81    Compiling zmij v1.0.23
+#18 12.88    Compiling serde_core v1.0.229
+#18 12.98    Compiling crc32c v0.6.8
+#18 13.06    Compiling rustls-webpki v0.103.16
+#18 13.99    Compiling crypto-common v0.2.2
+#18 14.37    Compiling block-buffer v0.12.1
+#18 14.41    Compiling httpdate v1.0.3
+#18 14.53    Compiling atomic-waker v1.1.2
+#18 14.56    Compiling getrandom v0.4.3
+#18 14.63    Compiling once_cell v1.21.4
+#18 14.69    Compiling subtle v2.6.1
+#18 14.73    Compiling serde_json v1.0.154
+#18 22.71    Compiling hyper v1.12.0
+#18 24.04    Compiling digest v0.11.3
+#18 25.16    Compiling memchr v2.8.3
+#18 25.45    Compiling bitflags v2.13.2
+#18 25.56    Compiling fallible-streaming-iterator v0.1.9
+#18 25.60    Compiling fallible-iterator v0.3.0
+#18 26.81    Compiling md-5 v0.11.0
+#18 26.90    Compiling hyper-util v0.1.21
+#18 27.02    Compiling tokio-rustls v0.26.6
+#18 27.12    Compiling http-body-util v0.1.5
+#18 40.69    Compiling rusqlite v0.40.2
+#18 41.02    Compiling gcs-mimic v0.1.0 (/build)
+#18 57.43     Finished `release` profile [optimized] target(s) in 54.34s
+#18 57.48    Compiling zmij v1.0.23
+#18 57.48    Compiling serde_core v1.0.229
+#18 57.48    Compiling serde_json v1.0.154
+#18 57.48    Compiling memchr v2.8.3
+#18 57.48    Compiling itoa v1.0.18
+#18 58.82    Compiling xtask v0.1.0 (/build/xtask)
+#18 60.08     Finished `release` profile [optimized] target(s) in 2.62s
+#18 60.08      Running `target/release/xtask release notices /distribution-licenses`
+#18 DONE 60.4s
+
+#19 [runtime 2/5] WORKDIR /app
+#19 CACHED
+
+#20 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#20 CACHED
+
+#21 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#21 DONE 0.0s
+
+#22 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 0.2s done
+#23 exporting manifest sha256:33f106167b3466201b07fea9ac20670069794c29421110e7bd41e7c084cd62f3 done
+#23 exporting config sha256:559609d11da6bf30bb708294111a71cb5a1bca3721430cae149685d7c5689a8c done
+#23 exporting attestation manifest sha256:6508b4690f96e6af8ffe530cff00f6fd281bc3212e271bf3cf27655842a879d7 done
+#23 exporting manifest list sha256:6d5b9f6b06f883e7da89afdb5d1a2a44f3ea3e7c66f514aee2bd75a58921d729 done
+#23 naming to docker.io/library/gcs-mimic:cors-memory-arm64-final done
+#23 unpacking to docker.io/library/gcs-mimic:cors-memory-arm64-final 0.1s done
+#23 DONE 0.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/oll59c82lfpq2fw8z32j3lper
+image=sha256:6d5b9f6b06f883e7da89afdb5d1a2a44f3ea3e7c66f514aee2bd75a58921d729 platform=linux/arm64 user=10001:10001
+PASS: accepted 60 configurations, each 20000 empty rules / 60001 minified CORS bytes; each request below 64 KiB
+PASS: initial exact former OOM selector fields=items(name) HTTP 200
+PASS: initial names traversal maxResults=1000 prefix=memory-cors- buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: initial full traversal maxResults=1000 prefix=memory-cors- buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: initial full traversal maxResults=7 prefix=memory-cors-0 buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: initial full traversal maxResults=1 prefix=memory-cors-00 buckets=9 pages=9; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: initial basic health, bucket GET, object media GET and selected-field object list
+running=true OOMKilled=false exit=0 memory=134217728 memorySwap=134217728 readonly=true user=10001:10001
+memory.current=unavailable via Docker archive API; no cgroup peak inferred
+memory.peak=unavailable via Docker archive API; no cgroup peak inferred
+Docker stats snapshot: 21.46MiB / 128MiB (not process RSS or peak)
+PASS: restart exact former OOM selector fields=items(name) HTTP 200
+PASS: restart names traversal maxResults=1000 prefix=memory-cors- buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: restart full traversal maxResults=1000 prefix=memory-cors- buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: restart full traversal maxResults=7 prefix=memory-cors-0 buckets=60 pages=60; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: restart full traversal maxResults=1 prefix=memory-cors-00 buckets=9 pages=9; exact ordered names, no missing/duplicate buckets or truncated rules
+PASS: restart basic health, bucket GET, object media GET and selected-field object list
+running=true OOMKilled=false exit=0 memory=134217728 memorySwap=134217728 readonly=true user=10001:10001
+memory.current=unavailable via Docker archive API; no cgroup peak inferred
+memory.peak=unavailable via Docker archive API; no cgroup peak inferred
+Docker stats snapshot: 12.04MiB / 128MiB (not process RSS or peak)
+PASS: cors-memory-smoke; sequential accepted-data resource regression only, no throughput or concurrency claim
+final_state={"Status":"running","Running":true,"Paused":false,"Restarting":false,"OOMKilled":false,"Dead":false,"Pid":45563,"ExitCode":0,"Error":"","StartedAt":"2026-10-23T10:41:32.932691804Z","FinishedAt":"2026-10-23T10:41:32.749641929Z"} memory=134217728 memorySwap=134217728 image=sha256:6d5b9f6b06f883e7da89afdb5d1a2a44f3ea3e7c66f514aee2bd75a58921d729
