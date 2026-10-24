@@ -1,0 +1,20 @@
+{
+  "StorageClass": "STANDARD",
+  "ContentType": "text/plain",
+  "ContentEncoding": "",
+  "ContentDisposition": "inline",
+  "ContentLanguage": "en",
+  "CacheControl": "private",
+  "Crc32c": "mnG7TA==",
+  "Md5Hash": "XUFAKrxLKna5cZ2REBfFkg==",
+  "Etag": "upstream-custom-value",
+  "ACL": null,
+  "Metadata": {"source": "fixture"},
+  "Created": "1969-12-31T23:59:59.999999Z",
+  "Deleted": "0001-01-01T00:00:00Z",
+  "Updated": "2026-10-24T09:00:00.123456000+09:00",
+  "CustomTime": "0001-01-01T00:00:00Z",
+  "Generation": 1792800000123456,
+  "RetentionMode": "",
+  "RetentionRetainUntil": "0001-01-01T00:00:00Z"
+}

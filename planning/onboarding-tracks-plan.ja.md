@@ -63,7 +63,7 @@
 | 待機付きで上限時間のある同時実行枠 | なし（既存の枠はすべて `try_acquire` で即失敗） | Shared state（管理用のアップロード枠）、Sync（ファイル操作の枠、`sync wait`） | `shared-admin-interface` | 枠の数と上限時間 |
 | 上限付きのファイル読み込み（`take(上限 + 1)` で超過を検出） | `config.rs`（64 KiB）、`auth/mod.rs`（64 KiB）、`tls.rs`（1 MiB）、`main.rs` の秘密鍵（16 KiB） | Configuration、Initializer | `init-parser` | 上限値と、超過時のメッセージ |
 | 基底 URL の検証と正規化 | `config.rs` の `api_base_url` と `url::normalize_base_url` が同じ検査を別々に持つ | Configuration | `config-public-origin` | 設定名を含むエラーメッセージ |
-| 16 進数への変換 | `objects.rs`（blob ID）、`derived.rs`、`rewrite_token.rs` が 1 バイトごとに `format!` | Shared state | `shared-blob-id`（`BlobId` の型と一緒に） | なし |
+| 16 進数への変換 | `objects.rs`（blob ID）、`derived.rs`、`rewrite_token.rs` が 1 バイトごとに `format!` | Import、Shared state | `import-dry-run` が `crate::hashing::encode_lower` を作成済み。`shared-blob-id` が `BlobId` と既存箇所の載せ替えを担当 | なし |
 | event と診断の出力（JSON の event、レベル、全件まとめた診断） | `main.rs`、`seed.rs` の手書きの JSON と、約 25 か所の自由書式の `eprintln!` | Configuration、Initializer、Sync、Import | `config-legacy-input-diagnostics`（最小限）→ `config-log-level`（レベル） | 各 event の項目 |
 | 上限付きのディレクトリのイテレーター（件数と深さの上限、整列、専用スレッドで動かす）と、無視するファイルの判定関数（OS のメタデータ `.DS_Store`・`._*` と、同期のエディタの一時ファイル。取り込み側の無視と、書き出し側の「表現不可」の両方で同じ関数を使う） | `seed.rs` の走査、`objects.rs` の `os_metadata`（seed はこの判定を使っていない） | seed、Sync、Import | `import-dry-run` | **走査の方針はそれぞれ別に持つ**: seed は失敗で閉じる 1 回きり、Sync は stat の差分による増分と無視パターン・大文字小文字の衝突の判定、Import はサイドカーと `.bucketMetadata` の除外と `PathUnescape` |
 | ファイルパスとオブジェクト名の対応（表現できるかの判定を含む） | `seed.rs` がパスの要素を `/` で結合して検証 | Sync、seed、Import | `sync-contract` で規則を決め、最初に使うスライスで作る | 上流の永続形式のバケット名の `PathEscape` は、その形式の読み取り側に置く |
@@ -465,7 +465,7 @@ Initializer、Sync、Import が同じ境界の上で独立に作業できるよ�
   行い、`src/fsutil.rs` を作る（設計の要件の「関数の形」）。参照されていない blob の掃除を ready の後に移す場合は、「公開中の blob の
   保護」に従う。テスト: kill からの復旧、掃除と各経路の公開の並行。ベンチマークの組の「小さなオブジェクト 1 万件の公開と上書き」で、
   基準からの改善を測る。
-- **`shared-blob-id`**（型）: `BlobId`、16 進数変換の共通化、既存のハッシュ計算 4 か所の `src/hashing.rs`（`import-dry-run` が作る）への
+- **`shared-blob-id`**（型）: `BlobId`、作成済みの `crate::hashing::encode_lower` への既存の16進数変換の載せ替え、既存のハッシュ計算 4 か所の `src/hashing.rs`（`import-dry-run` が作る）への
   載せ替え。挙動は変えない。
 - **`shared-publication-modes`**（新しい意味）: `InheritFromReplaced`、`SkipIfSameHash`、`publish_objects`、`publish_from_file` を
   共通関数の上に実装する（`src/fsutil.rs` と `src/hashing.rs` を使う）。`publish_objects` で外した要素の blob は、コミットの後に

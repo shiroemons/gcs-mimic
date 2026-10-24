@@ -127,6 +127,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
+    match args.as_slice() {
+        [command, kind, rest @ ..] if command == "import" && kind == "fake-gcs-server" => {
+            return gcs_mimic::import::cli(rest);
+        }
+        _ => (),
+    }
     if args.first().is_none_or(|s| s != "serve") {
         let diagnostics = gcs_mimic::config_input::cli_diagnostics(&args);
         if diagnostics.is_err() {

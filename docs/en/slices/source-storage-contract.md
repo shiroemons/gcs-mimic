@@ -4,15 +4,25 @@
 
 Contract checked: **2026-10-24**. Scope: DESIGN-062, DESIGN-072, DESIGN-073 and
 AUDIT-014; delivery gate `source-storage-contract` and migration milestones
-`seed-format-adapter` and `filesystem-state-import`. This slice freezes a local
-conversion contract. It adds no importer, configuration setting or Google API.
+`seed-format-adapter` and `filesystem-state-import`. The local read-only
+dry-run is available; destination publication, conversion recovery and memory
+export remain pending. No Google import API or server setting is added.
 Implementation status remains in `compatibility/features.json`.
 
 ## Acceptance cases
 
-The following cases are defined before adapter implementation. All runtime
-cases remain **PENDING**. Existing native seed/publication evidence is retained
-and does not establish source import support.
+The `import-dry-run` implementation additionally requires parser-local
+`deny(clippy::unwrap_used, clippy::expect_used)`, fixed 64 KiB body reads,
+read-only source handles and unchanged bytes, permissions, mtime, ctime and
+xattrs (atime excluded), destination noncreation, bounded JSON report pages,
+and typed source-change evidence. The implementation checks are recorded in
+the linked inspection evidence.
+
+The following cases were defined before adapter implementation. The three
+`import-dry-run` cases have executable evidence in
+[the inspection report](../evidence/import-dry-run.md); publication and the
+other owners' runtime cases remain **PENDING**. Existing native seed/publication
+evidence does not establish source conversion support.
 
 | Case | Feature | Required behavior and negative/boundary checks | Owner |
 | --- | --- | --- | --- |
@@ -23,7 +33,7 @@ and does not establish source import support.
 | source-integrity-report | DESIGN-072 | Report missing/truncated/changed bodies, invalid JSON/base64/times, checksum mismatches, unrepresentable names and directory-only entries; distinguish metadata-only inspection from streamed hash verification; bounded memory and diagnostics; property-test valid bucket escape round trips and panic-free arbitrary timestamp parsing | import-dry-run |
 | source-name-scope | DESIGN-072 | Fixtures for upstream writes named `a//b`, `a/./b`, `a/../b` and `x/../../other/y` report normalized disk names and unverifiable original names; detect observable collisions/escapes, declare Windows separator rules, never invent lost names | import-dry-run |
 | source-preserved-identity | DESIGN-073 | Preserve recoverable disk names, bytes, headers, metadata, generations and exact microsecond Created/Updated; block nonzero sub-microsecond digits with no lossy ms mode; report generated ETag/metageneration/bucket time; verify old generation reads/conditions, allocator bounds and unsupported ACL/history/retention blocks | import-filesystem with shared-imported-identity |
-| source-import-recovery | DESIGN-073 | Per-element SAVEPOINT publication commits successful elements with journal state, closes batches at count/time limits without rolling back successes and stops on disk-full without a retry loop; element rejection is terminal, resumable progress is a contiguous prefix; resume only the same export after interruption/cancellation/Busy/disk-full or inode/ctime-only change; compare inode/ctime within each execution, stop on drift and revalidate drifted committed elements on resume; test crashes before/after recording that stop; cancel the caller while commit runs on the SQLite execution thread, drop its handle and retain the blob/readable committed body; reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit; verify ambiguous commit, visible cleanup failures off Tokio workers, bounded handles, manifest equality, abandonment and shutdown cleanup; see Delivery boundaries for unresolved requests | import-filesystem with shared-import-journal and shared-publication-modes |
+| source-import-recovery | DESIGN-073 | Per-element SAVEPOINT publication commits successful elements with journal state, closes batches at count/time limits without rolling back successes and stops on disk-full without a retry loop; element rejection is terminal, resumable progress is a contiguous prefix; resume only the same export after interruption/cancellation/Busy/disk-full or inode/ctime-only change; compare inode/ctime within each execution, stop on drift and revalidate drifted committed elements on resume; test crashes before/after recording that stop; cancel the caller while commit runs on the SQLite execution thread, drop its handle and retain the blob/readable committed body; reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit; verify ambiguous commit, visible cleanup failures off Tokio workers, bounded handles, manifest equality, abandonment and shutdown cleanup; see Delivery boundaries for accepted handoffs and pending runtime evidence | import-filesystem with shared-import-journal and shared-publication-modes |
 | source-import-authorization | DESIGN-073 | Require AdminGrant in both auth profiles; no imported IAM/public grants; strict post-cutover reads deny anonymous/ungranted principals and allow configured authorized principals; bucket default hold is retained without adding holds to imported objects | import-filesystem with shared-admin-interface and shared-publication-modes |
 | source-cutover | AUDIT-014 | Empty separate destination only; unfinished import blocks serve/readiness; completion atomically enables serve and disables seed replay; changed source or foreign destination cannot resume; backup/rollback leaves source intact | import-filesystem |
 | source-memory-boundary | AUDIT-014 | Memory state is a separate live-export format with active/archive membership, bucket settings and all generations; never infer it from a seed tree or claim a live-only listing is lossless | go-adapter-live-export, outside this slice |
@@ -35,10 +45,10 @@ The [source manifest](../../../compatibility/upstream/source-storage-contract.js
 records the inspected git blobs and MIME content digests. The reference is
 fake-gcs-server **v1.56.1**, commit
 `896ece51e49eed0946089f3089f6343855c0d106`, not its moving main branch.
-Review covered `fakestorage/server.go`, `fakestorage/object.go`, `main.go`,
+Contract review covered `fakestorage/server.go`, `fakestorage/object.go`, `main.go`,
 `Dockerfile` and the backend files named in that manifest.
 The [existing storage investigation](../fake-gcs-server-storage.md) supplies
-earlier execution evidence; this slice only reads upstream source.
+earlier execution evidence; the contract-stage upstream review was read-only.
 
 The onboarding findings' seed and backend descriptions still match that
 revision. Two details matter for conversion: Linux/macOS bucket creation time
@@ -232,7 +242,7 @@ changed fields as specified below. `import-filesystem` maps
 `AdminError::SourceChanged` from `stage_from_file` to that same importer failure;
 the read-only reader and `import-dry-run` do not depend on Shared state's errors.
 Never classify retryability by matching error text.
-This is an interface request, not code added by this slice. Publication
+This interface is implemented by `import-dry-run`. Publication
 copy/replace/stat operations remain owned by `shared-publication-io`.
 `import-dry-run` can start without Shared state, but merges only after
 `repo-lints`. Unsafe stays only in this file, following repo-lints' scoped
@@ -434,8 +444,9 @@ destination. Stage and verify bodies outside SQL transactions in bounded
 batches; `stage_from_file` returns an opaque verified staged handle accepted by
 `publish_objects`. The handle protects its blob as in-flight publication and
 never exposes a private blob path to the adapter. Unresolved handles, including
-unattempted work carried between calls, require a bounded budget; the unresolved
-budget and staging/publication overlap are handed off in Delivery boundaries.
+unattempted work carried between calls, require a bounded budget. The Shared
+state receiving record accepts that budget and staging/publication overlap;
+runtime evidence remains pending as recorded in Delivery boundaries.
 Use create-if-absent imported publication with the plan's **per-element
 SAVEPOINTs**: one rejected element must not roll back other successful elements.
 The adapter-state hook commits only successful elements' object/bucket records,
@@ -494,8 +505,9 @@ common hasher and bounded workers. Unchanged committed bodies are not reread.
 Continue only if paths, sizes, mtime, selected metadata and every revalidated
 digest still match; otherwise use the terminal failure rules below. Accept new
 inode/ctime observations only after that element passes revalidation; they form
-the baseline for comparisons within the resumed execution. Persistence of that
-new baseline remains unresolved; see Delivery boundaries. Chmod-only changes,
+the baseline for comparisons within the resumed execution. The Shared state
+receiving record assigns bounded durable replacement of that baseline to
+`shared-import-journal`; runtime evidence remains pending. Chmod-only changes,
 reattaching identical xattrs, and an inode-only replacement preserving bytes,
 mtime and metadata must pass this revalidation. Uncommitted bodies still pass
 through `stage_from_file` once. The coordinator approved this limited exception
@@ -559,52 +571,54 @@ implicit catalog downgrade.
 
 ## Delivery boundaries
 
-This slice changes contract, acceptance decomposition and source pins only.
-It creates none of the common runtime code components. The common-components
-table remains authoritative with the documented fsutil first-arrival rule
-above. Shared interfaces required before filesystem import are:
+The contract stage pinned source evidence before runtime changes. The
+read-only implementation now supplies hashing, bounded traversal/ignore
+predicates, overlap checks and the fsutil source metadata reader. Existing
+storage hash loops remain for `shared-blob-id`; `storage::objects::os_metadata`
+should adopt the common OS-file predicate in its owning slice. Native seed
+uses the shared overlap check and retains its existing import semantics.
+Its comparison accepts already-canonicalized paths after async resolution,
+so seed performs no additional synchronous filesystem calls on Tokio workers.
+`import-seed-adapter` is requested to adopt the shared Walker during its
+dedicated-worker/local-publication migration, keeping native limits and its
+separately owned OS-file policy change. The Shared state storage owner is
+requested to adopt `source_tree::is_os_metadata` for regular catalog entries;
+this slice changes neither storage recovery nor seed's existing ignore policy.
+Shared interfaces required before filesystem publication are:
 
 | Owner | Required interface and acceptance |
 | --- | --- |
 | import-dry-run / shared-publication-io, whichever lands first | Create `src/fsutil.rs`, make approved libc direct and update the dependency ledger per investigation section 7; the later slice extends it. import-dry-run owns SourceMetadataBuffer and the single-call xattr reader accepting only that type, with Linux/macOS ABI, missing/unsupported/permission/exact-cap/cap-plus-one tests; shared-publication-io owns copy/replace/stat. import-dry-run starts without Shared state but merges after repo-lints, with its scoped unsafe exception |
 | shared-admin-interface | AdminGrant in both profiles; no policy/public-access side effects from source project/name; shutdown drains work and releases locks |
-| shared-publication-modes | Request staging-only verified handles (`stage_from_file`), accepted by `publish_objects`, without exposing private paths. Preserve unresolved/possibly committed blobs across caller cancellation during SQLite commit and handle drop; committed bodies remain readable. Reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit, under section 5 publication protection. Failures stay visible and cleanup never blocks Tokio workers on synchronous I/O or SQLite. Preserve per-element SAVEPOINTs and atomic successful-element journal updates; test both cleanup invariants, terminal element exclusion retaining independent successes, count/time closure and disk-full stopping. Retain bucket default hold without synthesizing imported object holds; later uploads inherit the default. Shared state chooses mechanisms; see handoffs below for unresolved budget |
+| shared-publication-modes | Request staging-only verified handles (`stage_from_file`), accepted by `publish_objects`, without exposing private paths. Preserve unresolved/possibly committed blobs across caller cancellation during SQLite commit and handle drop; committed bodies remain readable. Reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit, under section 5 publication protection. Failures stay visible and cleanup never blocks Tokio workers on synchronous I/O or SQLite. Preserve per-element SAVEPOINTs and atomic successful-element journal updates; test both cleanup invariants, terminal element exclusion retaining independent successes, count/time closure and disk-full stopping. Retain bucket default hold without synthesizing imported object holds; later uploads inherit the default. Shared state chooses mechanisms; the receiving record accepts the budget, with runtime evidence pending |
 | shared-timestamp-precision | Schema 14 stores bucket/object times in microseconds; migrate version 13 atomically, preserve API resources/ETags and internal deadlines, and reject overflow without conversion. Own the initial AUDIT-014 timestamp migration/backup/downgrade cases in catalog-timestamp-precision.md |
 | shared-imported-identity | Explicit source generation, verified hashes and exact microsecond timestamps after shared-timestamp-precision; advance allocator safely, reject collisions; ETags and metageneration stay native generated values, including after patch |
-| shared-import-journal | Request committed digests and per-element inode/ctime observations with binding, typed failure and contiguous resumable progress in the publication transaction; observations are readable in bounded pages. Test terminal element rejection without hole-filling resume, revalidation of drifted committed elements, retryable inode/ctime-only stops with crashes before/after recording them, commit crash boundaries and atomic final import/seed completion. Shared state chooses internal representation; baseline persistence is unresolved below |
+| shared-import-journal | Request committed digests and per-element inode/ctime observations with binding, typed failure and contiguous resumable progress in the publication transaction; observations are readable in bounded pages. Test terminal element rejection without hole-filling resume, revalidation of drifted committed elements, retryable inode/ctime-only stops with crashes before/after recording them, commit crash boundaries and atomic final import/seed completion. Shared state chooses internal representation; the receiving record assigns durable baseline replacement, with runtime evidence pending |
 | shared-contract | Later schema slices add their own migration/backup/downgrade acceptance cases to AUDIT-014; replacement-validation retains the final migration gate. The initial timestamp migration cases belong to shared-timestamp-precision |
 
-The owning feature rows' `known_deviations` are authoritative for Shared state
-request status and unresolved handoffs; this section explains their scope.
-Filesystem publication still requires accepted shared interfaces.
+The [Shared state receiving record](onboarding-state-contract.md#accepted-import-requests)
+accepts the import handoffs and assigns implementation, independent review
+and coordinator reconciliation responsibilities. Acceptance establishes a
+delivery obligation, not runtime evidence. Filesystem publication still
+requires those implemented, verified shared interfaces.
 `import-dry-run` may proceed independently. No Shared state ledger entry or
 implementation is implied by the remaining Import requests.
 
 ### Known limitations and handoffs
 
-- Acceptance evidence, a single canonical receiving record, who verifies it and
-  who updates the Import ledger before `import-filesystem` are unresolved.
-  Candidate owners: coordinator and `shared-contract`. The requests have not
-  been accepted; repeated prose is not acceptance evidence. DESIGN-073 records
-  this limitation rather than inventing an acceptance protocol here.
+- The Shared state receiving record owns handoff acceptance. The implementation
+  owner supplies tests/evidence, the independent reviewer verifies them, and
+  the coordinator verifies prerequisite integration and requests Import-ledger
+  reconciliation before `import-filesystem` starts. Runtime evidence is pending.
 - shared-timestamp-precision accepts the initial AUDIT-014 schema 14 timestamp
   migration/backup/downgrade cases. Broader catalog upgrade and source cutover
   cases remain pending; later schema slices own their migrations.
-- The former one-call unresolved-handle bound is stricter than section 5's
-  sum of publication-route limits, including management slots plus one
-  `publish_objects` batch. It could prevent staging the next batch during
-  commit; no performance effect has been measured. Budget, permitted overlap
-  and benchmark coverage remain unresolved, rather than fixing a new limit
-  here. Candidate owners: `shared-contract` and `shared-publication-modes`.
-  DESIGN-073 records this limitation.
-- Revalidated inode/ctime observations form the current execution's baseline;
-  whether they are persisted, by whom, and with what bounded journal operation
-  remains unresolved. Without persistence, repeated resumes may reread every
-  committed body after filesystem relocation. The existing approval covers
-  revalidation of affected committed elements, not an agreed persistence
-  mechanism or a measured repeated-resume budget. Candidate owners:
-  `shared-contract`, `shared-import-journal` and `import-filesystem`.
-  DESIGN-073 records this limitation; this slice selects neither policy.
+- `shared-publication-modes` accepts the bounded staging/publication budget and
+  permitted overlap in that receiving record. Runtime implementation and the
+  `import-overlap` benchmark remain pending; dry-run owns no staged handles.
+- `shared-import-journal` accepts durable per-element inode/ctime observation
+  replacement after digest revalidation, in pages of at most 256. Runtime
+  implementation, crash evidence and `import-resume` measurements remain pending.
 
 - `import-dry-run`: read-only decoders, bounded report, source fingerprints,
   hash/overlap/walk helpers and the fsutil read; start without Shared state and
@@ -621,16 +635,161 @@ implementation is implied by the remaining Import requests.
 - `go-adapter-live-export`: separate memory exporter/history work. No claim of
   complete source inventory, live directory synchronization or legacy reseed.
 
-DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014 remain PARTIAL.
-Their import cases are PENDING. Existing API/seed evidence and
-remaining upgrade/resource/durability cases remain intact. No performance code
-changed, so no benchmark was run and no speed/resource result is claimed;
-reader/publication implementations must use the shared-contract benchmark
-profile once that contract exists.
+DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014 remain PARTIAL. The reader,
+integrity-report and normalized-name cases are the only promoted acceptance
+cases. Existing API/seed evidence and remaining publication, cutover,
+upgrade/resource/durability cases remain intact. `import-overlap` and
+`import-resume` stay PENDING until publication/journal interfaces exist. The
+coordinator confirmed that this dry-run slice verifies fixed buffers, bounded
+pages and bytes hashed without time/CPU/RSS measurements or performance claims.
 
-## Verification
+### Executable dry-run
 
-Checks executed on 2026-10-24:
+Stop the source writer or supply an immutable snapshot, preferably mounted
+read-only. Use an absent destination with an existing parent or an empty
+separate directory. No destination, database, marker or listener is created.
+
+```sh
+cargo run --locked --offline -- import fake-gcs-server \
+  --source source-snapshot --data-dir converted-data \
+  --metadata-mode sidecar --source-platform unix --dry-run
+```
+
+Add `--verify-bodies` to hash each body once. Xattr snapshots require
+`--metadata-mode xattr`; Windows-source xattr mode is rejected on every host.
+`--dry-run` is required while publication is unavailable. Source bytes,
+permissions, mtime, ctime and xattrs are unchanged; reads can update atime.
+
+Stdout is JSON Lines: one `import_report` header, `import_page` records with
+at most 256 combined records/findings, and `import_summary` with exact counts.
+One dedicated OS thread scans and hashes through a two-page bounded channel.
+The walk caps all entries (including sidecars) at 10000 and directory depth at
+32 below a bucket; hitting either cap makes inspection incomplete. Metadata
+records cap at 64 KiB and body chunks at 64 KiB. The default body cap is 1 GiB,
+inclusive. Shared `Diagnostic` output goes to stderr in bounded batches with
+relative path/field keys and concrete remedies. A closed output joins the
+worker and returns failure. No complete object catalog or findings list is kept.
+
+The summary separates `complete` scan traversal from `eligible` supported
+metadata and `bodies_verified`. `buckets` and `objects` count discovered
+directories/body candidates, while `eligible_buckets` and `eligible_objects`
+equal the emitted eligible record counts. Blocked buckets and objects emit
+findings instead of eligible records. `entries` counts every visited entry,
+including sidecars and detritus. Metadata-only scans report zero `bytes_hashed`
+and cannot certify body checksums.
+Before emitting any bucket, the Walker's bounded root snapshot detects every decoded
+alias. All aliases are blocked; objects under a blocked or duplicate parent
+remain fully inspected under the same limits, including metadata, body and
+directory-only findings. Only record emission and eligible counters are
+suppressed: neither Object nor Directory records escape a blocked parent.
+Clean children do not repeat the parent's blocking diagnostic. Discovered
+counts still include those children. Acceptance includes a blocked bucket
+with corrupt JSON, a missing sidecar, a valid body and a directory-only name.
+Root alias accounting and walking consume the same bounded root snapshot;
+there is no second directory enumeration or preliminary stat. All valid decoded
+root names participate regardless of type, so replacement between a file and
+directory cannot hide an alias. A typed bucket state distinguishes
+eligible, blocked, duplicate and invalid parents.
+`Walker::root_entries()` is a pre-walk view: callers must use it before the
+first `next()`; a debug assertion guards this ordering. The root set remains
+bounded and source writers must remain stopped.
+
+Bucket-name decoding is repeated at preflight, duplicate classification and
+root validation; `Blocked` also represents an uninspected valid parent. This
+is a bounded bookkeeping cost, not an eligibility bypass: parent failures
+retain a noneligible state and descendants still receive their own findings.
+Consolidating decoded names/failure material into a pending-state record is
+deferred to `import-filesystem` when it integrates validated bucket records
+with publication; keeping that larger state representation out of dry-run
+avoids changing its tested diagnostic order solely for bookkeeping.
+
+`fingerprint_format: 1` uses SHA-256 through the existing ring dependency.
+Each context begins with `gcs-mimic-source-fingerprint`, a NUL byte, version
+byte 1 and its fixed domain (`export`, `stat`, or `bodies`). Each record encodes
+kind and relative path as u64-big-endian byte length followed by bytes, then
+a u64-big-endian field count and each length-prefixed byte field in fixed
+order. Options bind source revision, mode byte (xattr 0, sidecar 1), platform
+byte (Unix 0, Windows 1), u64 body/entry/depth limits. Export records bind raw
+relative paths, decoded bucket/name, raw selected attributes, u64 body size
+and signed i128-big-endian mtime nanoseconds. Bucket, directory-only and
+skipped-OS entries have distinct kind tags; final u64 entry/skip counts are
+included. No Rust/JSON struct serialization defines this binary format.
+
+Digest fields are lowercase 64-character hexadecimal strings and are present
+only after a complete, eligible inspection. Incomplete or blocked scans expose
+no export, stat or verified-body fingerprint. One `FINGERPRINT_FORMAT` constant
+governs both the context prefix and the reported format.
+
+`manifest_sha256` is the source-comparable metadata/stat-only export digest.
+It excludes inode, device and ctime, which have a separate
+`stat_observations_sha256` context. Those observations encode each optional
+field's presence byte followed by a fixed u64 inode, u64 device and i128 ctime;
+absent values use zero payloads. They detect drift within an execution without
+making filesystem relocation a changed export. Verified body checksum summaries
+use `body_digests_sha256`, with 16 MD5 bytes and four big-endian CRC32C bytes
+per ordered path. No fingerprint is publication/resume authority.
+Bucket stat time is report-only and excluded from fingerprints. Any
+`SourceChanged` failure retains the observed changed fields; inode/ctime-only
+drift is distinguished by a typed predicate for the later importer.
+
+Reports preserve source ETag text while declaring native ETags, metageneration,
+bucket time/project/location/class as generated values. Ordinary stored
+`.DS_Store`/`._*` objects remain objects; only unpaired regular OS detritus is
+counted as skipped. Sidecars, malformed escapes, duplicate decoded buckets,
+unknown/duplicate JSON fields, unsafe headers, unsupported ACL/retention/time
+semantics and suffix collisions are diagnosed. Directories remain report-only
+candidates and never become empty objects. Unix backslashes remain literal;
+Windows-source backslashes materialized as Unix filename characters block as
+ambiguous instead of being guessed into new paths. Native Windows runtime
+execution and file-ID/ctime observation are unverified; its optional observation
+fields are absent. No dry-run report is publication authority or a losslessness
+certificate. Memory exports remain a separate unavailable format.
+
+Native storage-class and fixed-header validation is shared with API parsing:
+unsupported REGIONAL/RAPID placement, non-ASCII/control-character header
+values and over-100-character contentLanguage values block inspection. Source
+corruption carries its field, reason and cause-specific remedy; a missing
+sidecar is an attribute-missing finding, not a generic filesystem failure.
+Unsupported xattr inspection in sidecar mode warns once per object and never
+silently verifies absence. Body buffers are allocated once per verification
+worker and reused; metadata-only scans allocate no body buffer. Only OS-named
+files receive a detritus probe. Rechecks compare xattrs in the fixed buffer or
+sidecar bytes in bounded chunks without a second full metadata copy, followed
+by one opened-file/path fingerprint check.
+
+The shared object hasher saves a typed, allocation-free state. `to_bytes()`
+encodes exactly 101 bytes: format byte, big-endian u64 read-byte count, the
+pinned 88-byte md-5 0.11 state and big-endian u32 CRC32C. `from_bytes()` is the
+single validation boundary and rejects wrong lengths, unknown formats and
+counts inconsistent with the MD5 block-count/buffer-length layout. Unknown formats
+are rejected. Upgrading an incompatible md-5 state ABI requires a format bump
+and rereading bodies instead of decoding an older state as the new layout.
+The typed state is private; `resume(state, offset)` consumes a validated state
+and rejects an offset unequal to its read-byte count. A compile-time size
+assertion freezes the MD5 state ABI and field boundaries derive from it.
+A 65537-byte fixed-input golden vector pins all 101 persisted bytes
+so an ABI change fails tests even when its serialized length stays unchanged.
+Import fingerprints use `hashing::encode_lower` for lowercase hexadecimal.
+The `shared-blob-id` owner is requested to consolidate the existing storage,
+JSON and authentication encoders with this helper when migrating hash loops.
+Test-only xattr creation has one safe fixture wrapper and cleanup guard; hosts
+without xattr support print an execution-unavailable reason while deterministic
+errno/length tests still run. Native Linux/macOS execution evidence records
+whether that platform capability was actually exercised.
+That fixture wrapper and all unsafe calls reside inside `src/fsutil.rs` under
+the documented fsutil exception. Import xattr behavior tests use the library's
+`cfg(test)` path; integration tests never import unsafe source via `#[path]`
+or add an unsafe allowance. Corruption remedies use a typed object-field enum
+and borrowed static text; only dynamic limit remedies allocate. Invalid and
+unsupported storage classes have distinct object-specific reasons/remedies,
+and depth remedies report the selected limit. API PATCH/PUT wire tests retain
+501 for non-ASCII disposition and 400 for a tabbed cache-control value.
+
+## Contract-stage verification
+
+The original contract-only checks executed on 2026-10-24 are retained below.
+Runtime inspection evidence is maintained separately in
+[import-dry-run.md](../evidence/import-dry-run.md).
 
 | Check | Result |
 | --- | --- |
@@ -667,5 +826,6 @@ docker distroless/cc-debian13:nonroot: UPDATE_AVAILABLE current=sha256:83b9b5058
 
 <!-- markdownlint-enable MD013 -->
 
-No container build, SDK execution, real-cloud test, upstream runtime probe,
-cross-platform xattr execution or benchmark was performed in this slice.
+The original contract-only stage performed no container build, SDK execution,
+real-cloud test, upstream runtime probe, cross-platform xattr execution or
+benchmark. The later dry-run evidence records its scoped Linux/macOS execution.

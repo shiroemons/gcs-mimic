@@ -42,6 +42,7 @@ pub use iam::{parse_policy, policy_resource};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
 pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
+pub(crate) use object_metadata::validate_fixed_metadata;
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_media_range,

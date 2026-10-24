@@ -1,0 +1,6 @@
+[
+  {"original_bucket":"bucket-one","original":"a//b","disk":"bucket-one/a/b"},
+  {"original_bucket":"bucket-one","original":"a/./b","disk":"bucket-one/a/b"},
+  {"original_bucket":"bucket-one","original":"a/../b","disk":"bucket-one/b"},
+  {"original_bucket":"bucket-one","original":"x/../../other/y","disk":"other/y"}
+]

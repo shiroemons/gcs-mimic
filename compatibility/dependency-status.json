@@ -18,6 +18,16 @@
   },
   "direct_dependencies": [
     {
+      "name": "libc", "current": "0.2.191", "latest_non_yanked_stable": "0.2.191",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 855401, "minimum_rust": "1.65",
+      "purpose": "Approved promotion of the existing locked libc package for descriptor-based, read-only, fixed-capacity source xattr inspection in fsutil; no shell subprocess or xattr crate.",
+      "features": ["std"],
+      "maintenance": "Official rust-lang repository is not archived; last push 2026-10-24T07:26:51Z. Latest non-yanked stable independently checked in the official Cargo index on 2026-10-24; published 2026-10-16T22:56:46Z.",
+      "source_urls": ["https://index.crates.io/li/bc/libc", "https://static.crates.io/crates/libc/libc-0.2.191.crate", "https://api.github.com/repos/rust-lang/libc"],
+      "source_sha256": "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a",
+      "resolution_constraints": "Promoted unchanged from the existing production dependency graph. Cargo.lock adds only the application's direct libc edge; no new package or resolved version. Unsafe remains limited to fsutil's documented Linux/macOS ABI calls."
+    },
+    {
       "name": "proptest", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
       "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 213842, "minimum_rust": "1.88",
       "purpose": "Development-only property tests for arbitrary legacy/native CLI and environment input without parser panics or malformed diagnostic JSON.",

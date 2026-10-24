@@ -1,0 +1,25 @@
+Local checkout paths are redacted to <checkout>; other output is unchanged.
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running `target/debug/xtask dependencies check`
+checked_at_unix_seconds=1792838391
+rust: CURRENT current=1.99.1 latest=1.99.1
+bytes: CURRENT current=1.12.1 latest=1.12.1
+crc32c: CURRENT current=0.6.8 latest=0.6.8
+getrandom: CURRENT current=0.4.3 latest=0.4.3
+http-body-util: CURRENT current=0.1.5 latest=0.1.5
+hyper: CURRENT current=1.12.0 latest=1.12.0
+hyper-util: CURRENT current=0.1.21 latest=0.1.21
+libc: CURRENT current=0.2.191 latest=0.2.191
+md-5: CURRENT current=0.11.0 latest=0.11.0
+proptest: CURRENT current=1.12.0 latest=1.12.0
+ring: CURRENT current=0.17.14 latest=0.17.14
+rusqlite: UPDATE_AVAILABLE current=0.40.2 latest=0.41.0
+serde: CURRENT current=1.0.229 latest=1.0.229
+serde_json: CURRENT current=1.0.154 latest=1.0.154
+tokio: CURRENT current=1.54.1 latest=1.54.1
+tokio-rustls: CURRENT current=0.26.6 latest=0.26.6
+windows-sys: CURRENT current=0.61.2 latest=0.61.2
+actions/checkout: CURRENT current=3d3c42e5aac5ba805825da76410c181273ba90b1 latest=3d3c42e5aac5ba805825da76410c181273ba90b1
+actions/setup-go: CURRENT current=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e latest=b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+CHECK_FAILED: fetch failed: https://api.github.com/repos/actions/upload-artifact/releases/latest: HTTP 403

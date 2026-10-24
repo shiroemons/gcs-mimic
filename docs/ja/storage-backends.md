@@ -69,6 +69,52 @@ gcs-mimicはカタログに初期化済みの印を保存し、APIで変更し�
 この調査はサイドカー方式、Linux・Windows、停電、同時編集の実行検証を含みません。
 全13件の結果は[英語の実行記録](../en/evidence/fake-gcs-server-filesystem.txt)を参照してください。
 
+## 永続データを変更せずに検査する
+
+開発版では、停止したfake-gcs-serverの永続データをdry-runで検査できます。
+実際の移行や再開処理は未実装です。DESIGN-062、DESIGN-072、DESIGN-073、
+AUDIT-014の状態は引き続きPARTIALです。
+
+書き込み元を停止するか、不変のスナップショットを用意してください。
+可能なら読み取り専用でマウントします。宛先には、既存の親ディレクトリの下にある
+未作成の名前か、ソースと重ならない空のディレクトリを指定します。
+
+```sh
+cargo run --locked --offline -- import fake-gcs-server \
+  --source source-snapshot --data-dir converted-data \
+  --metadata-mode sidecar --source-platform unix --dry-run
+```
+
+拡張属性方式のスナップショットには`--metadata-mode xattr`を指定します。
+方式はルート全体で固定し、読み取りエラーが出ても別方式へ切り替えません。
+ソースがWindowsなら`--source-platform windows --metadata-mode sidecar`を使います。
+`--dry-run`は必須です。宛先、カタログ、移行マーカー、リスナーは作りません。
+
+既定ではメタデータだけを検査します。`--verify-bodies`を加えると、
+本文を64 KiBずつ一度だけ読み、保存されたMD5・CRC32Cと照合します。
+本文、権限、mtime、ctime、拡張属性は変更しません。読み取りでatimeが変わる場合はあります。
+
+標準出力はJSON Linesです。ヘッダー、最大256件の記録・診断を含むページ、
+正確な件数を含む集計を順に出します。標準エラーには共通の診断形式で修正方法を出します。
+メタデータだけの検査は`bodies_verified: false`です。
+`complete`は走査の完了、`eligible`は検出した問題による移行可否を示し、
+どちらも移行の完了を意味しません。
+`buckets`と`objects`は発見した候補数、`eligible_buckets`と`eligible_objects`は
+出力した適格な記録の数です。不適格な候補は、フィールド、原因、修正方法を診断に出します。
+移行元を比べる指紋`manifest_sha256`と、同一実行中のinode・ctimeの変化を調べる
+`stat_observations_sha256`は別に計算します。どちらも形式の版を持つSHA-256です。
+
+サイドカーを含めて10000エントリー、バケット配下32階層、属性64 KiB、
+本文1 GiBを上限とします。走査上限を超えた場合や、対応できない属性・破損・
+チェックサムの不一致がある場合は失敗します。元のAPI名は保存形式から復元できないため、
+正規化されたディスク上の名前だけを報告し、`original_names_verified: false`を明示します。
+ディレクトリだけの項目から空のオブジェクトを作ることはありません。
+
+ネイティブWindowsでの実行とファイルID・ctimeの取得は未検証です。
+メモリ方式の全世代エクスポートは別の未実装機能です。
+詳細な範囲と検証結果は[英語の契約](../en/slices/source-storage-contract.md#executable-dry-run)と
+[検証記録](../en/evidence/import-dry-run.md)を参照してください。
+
 ## SQLiteと実フォルダの同期は両立できるか
 
 両立できますが、現在のgcs-mimicには双方向同期がありません。

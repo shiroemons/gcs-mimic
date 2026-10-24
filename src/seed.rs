@@ -80,7 +80,7 @@ async fn import_directory(
     }
     let root = tokio::fs::canonicalize(root).await?;
     let data = tokio::fs::canonicalize(&config.data_dir).await?;
-    if root.starts_with(&data) || data.starts_with(&root) {
+    if crate::source_tree::paths_overlap_canonical(&root, &data) {
         return Err(io::Error::other("seed_dir and data_dir must not overlap"));
     }
     let mut count = 0;

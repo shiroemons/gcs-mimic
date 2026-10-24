@@ -175,23 +175,26 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>
             let value = value.as_str().ok_or_else(|| {
                 JsonError::invalid_argument(format!("{key} must be a string or null"))
             })?;
-            if key == "contentLanguage" && value.chars().count() > 100 {
-                return Err(JsonError::invalid_argument(
-                    "contentLanguage exceeds 100 characters",
-                ));
-            }
-            if !value.is_ascii() {
-                return Err(JsonError::unsupported_object("non-ASCII fixed metadata"));
-            }
-            // These fields become HTTP headers; reject control characters before committing state.
-            if value.bytes().any(|byte| byte < 32 || byte == 127)
-                || HeaderValue::from_str(value).is_err()
-            {
-                return Err(JsonError::invalid_argument(format!(
-                    "Invalid {key} header value"
-                )));
-            }
+            validate_fixed_metadata(key, value)?;
             Ok(Some(value.to_owned()))
         })
         .transpose()
+}
+
+pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), JsonError> {
+    if key == "contentLanguage" && value.chars().count() > 100 {
+        return Err(JsonError::invalid_argument(
+            "contentLanguage exceeds 100 characters",
+        ));
+    }
+    if !value.is_ascii() {
+        return Err(JsonError::unsupported_object("non-ASCII fixed metadata"));
+    }
+    // These fields become HTTP headers; reject controls before either publication path.
+    if value.bytes().any(|byte| byte < 32 || byte == 127) || HeaderValue::from_str(value).is_err() {
+        return Err(JsonError::invalid_argument(format!(
+            "Invalid {key} header value"
+        )));
+    }
+    Ok(())
 }

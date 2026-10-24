@@ -564,6 +564,16 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
     let mut server = Server::start(&dir);
     let original = server.setup();
     for method in ["PATCH", "PUT"] {
+        server
+            .update(
+                method,
+                "",
+                json!({"contentDisposition":"filename=日本語.txt"}),
+            )
+            .error(501, "notImplemented");
+        server
+            .update(method, "", json!({"cacheControl":"private\tmax-age=0"}))
+            .error(400, "invalidArgument");
         for (body, reason) in [
             ("{", "parseError"),
             ("[]", "invalidArgument"),

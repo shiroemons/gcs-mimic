@@ -1,0 +1,155 @@
+Local checkout paths are redacted to <checkout>; other output is unchanged.
+
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+   Compiling libc v0.2.191
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling proc-macro2 v1.0.107
+   Compiling cc v1.9.0
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling bytes v1.12.1
+   Compiling syn v3.0.9
+   Compiling ring v0.17.14
+   Compiling errno v0.3.14
+   Compiling itoa v1.0.18
+   Compiling signal-hook-registry v1.4.8
+   Compiling socket2 v0.6.5
+   Compiling tokio-macros v2.7.2
+   Compiling mio v1.2.4
+   Compiling pin-project-lite v0.2.17
+   Compiling rand_core v0.10.1
+   Compiling typenum v1.20.1
+   Compiling tokio v1.54.1
+   Compiling hybrid-array v0.4.15
+   Compiling http v1.5.0
+   Compiling getrandom v0.2.17
+   Compiling httparse v1.10.1
+   Compiling getrandom v0.4.3
+   Compiling pkg-config v0.3.34
+   Compiling vcpkg v0.2.15
+   Compiling semver v1.0.28
+   Compiling serde_core v1.0.229
+   Compiling untrusted v0.9.0
+   Compiling zeroize v1.9.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling rustc_version v0.4.1
+   Compiling libsqlite3-sys v0.38.2
+   Compiling http-body v1.1.0
+   Compiling futures-core v0.3.34
+   Compiling smallvec v1.16.3
+   Compiling rustls v0.23.46
+   Compiling zmij v1.0.23
+   Compiling rustls-webpki v0.103.16
+   Compiling crc32c v0.6.8
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling subtle v2.6.1
+   Compiling autocfg v1.5.1
+   Compiling serde_json v1.0.154
+   Compiling bitflags v2.13.2
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling serde v1.0.229
+   Compiling once_cell v1.21.4
+   Compiling hyper v1.12.0
+   Compiling num-traits v0.2.19
+   Compiling digest v0.11.3
+   Compiling serde_derive v1.0.229
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling memchr v2.8.3
+   Compiling rusqlite v0.40.2
+   Compiling tokio-rustls v0.26.6
+   Compiling md-5 v0.11.0
+   Compiling hyper-util v0.1.21
+   Compiling http-body-util v0.1.5
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+   Compiling rand v0.10.3
+   Compiling rand_xorshift v0.5.0
+   Compiling chacha20 v0.10.2
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling core_detect v1.0.0
+   Compiling proptest v1.12.0
+warning: unused import: `time::Duration`
+  --> src/startup.rs:17:5
+   |
+17 |     time::Duration,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.78s
+     Running tests/import.rs (target/debug/deps/import-1ad4499021c4932b)
+
+running 15 tests
+test blocked_bucket_reports_child_corruption_without_emitting_records ... ok
+test discovered_counts_and_eligible_records_agree_for_buckets_and_objects ... ok
+test corrupt_records_are_all_reported_with_relative_fields_original_values_and_remedies ... ok
+test body_stream_bounds_chunks_and_detects_same_size_replacement_and_truncation ... ok
+test invalid_parent_names_and_attributes_keep_child_diagnostics ... ok
+test overlap_and_walk_fail_closed_without_creating_destination ... ok
+test escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block ... ok
+test duplicate_bucket_aliases_never_emit_eligible_child_records ... ok
+test sidecar_inspection_is_read_only_and_distinguishes_body_verification ... ok
+test cli_never_starts_serve_and_requires_explicit_read_only_mode ... ok
+test native_storage_class_and_fixed_metadata_validation_matches_import_eligibility ... ok
+test normalized_source_names_are_reported_without_inventing_original_names ... ok
+test export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift ... ok
+test broken_report_output_joins_the_bounded_worker_without_destination_writes ... ok
+test metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.14s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-4314bfd35724b4a3)
+
+running 3 tests
+test fsutil::tests::metadata_errno_retains_platform_distinctions ... ok
+test fsutil::tests::metadata_lengths_include_exact_cap_and_empty ... ok
+xattr write ceiling for 65536 bytes: No space left on device (os error 28)
+xattr write ceiling for 65537 bytes: Argument list too long (os error 7)
+test fsutil::tests::descriptor_xattr_reads_are_bounded_and_read_only ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-4314bfd35724b4a3)
+
+running 7 tests
+test import::codec::tests::exact_times_offsets_zero_and_negative_epoch ... ok
+test import::tests::ordinary_xattr_objects_do_not_get_a_detritus_probe ... ok
+test import::tests::unsupported_xattr_inspection_warns_once_per_sidecar_object ... ok
+test import::tests::xattr_snapshot_verifies_bodies_without_mutating_source_attributes ... ok
+test import::codec::tests::valid_bucket_names_round_trip ... ok
+test import::codec::tests::arbitrary_times_never_panic ... ok
+test import::codec::tests::escaped_names_round_trip ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 190 filtered out; finished in 0.03s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-4314bfd35724b4a3)
+
+running 2 tests
+test hashing::tests::encode_lower_preserves_leading_zeroes ... ok
+test hashing::tests::checkpoint_resumes_both_digests ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-4314bfd35724b4a3)
+
+running 1 test
+test source_tree::tests::root_snapshot_is_shared_with_the_walk ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 196 filtered out; finished in 0.00s
+
+   Compiling serde_core v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling xtask v0.1.0 (<checkout>/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.54s
+     Running `target/debug/xtask release notices target/import-notices`

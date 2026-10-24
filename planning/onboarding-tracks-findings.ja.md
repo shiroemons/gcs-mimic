@@ -216,7 +216,7 @@ feature、保守状況、出典 URL、SHA-256、解決の制約を書く。配�
 | JSON の event | `main.rs` の `ready` / `stopped` / `bind_wait`、`seed.rs` の `seeding` | それぞれ手書きの `println!` / `eprintln!` |
 | ディレクトリ走査と OS のメタデータの判定 | `seed.rs` の `entries` と走査、`objects.rs` の `os_metadata` | 走査の上限（10000 件、32 階層）と `.DS_Store`・`._*` の判定 |
 | HTTP クライアント | `main.rs` の `healthcheck` と `probe_response` | TLS・CA・2 秒の期限・16 KiB の応答上限を持つ最小の GET クライアント |
-| 16 進数への変換 | `objects.rs`（blob ID の生成）、`derived.rs`、`rewrite_token.rs` | いずれも 1 バイトごとに `format!("{byte:02x}")` |
+| 16 進数への変換 | `objects.rs`（blob ID の生成）、`derived.rs`、`rewrite_token.rs` | 既存箇所は1バイトごとに `format!("{byte:02x}")`。`import-dry-run` が `crate::hashing::encode_lower` を作成済みで、`shared-blob-id` が既存箇所を載せ替える |
 
 性能と堅牢性に関わる点:
 
