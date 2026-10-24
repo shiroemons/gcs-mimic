@@ -124,7 +124,7 @@ cd gcs-mimic
 docker compose build
 ```
 
-The repository supplies `compose.yaml`, `config/development.toml`, fixture samples and the Dockerfile. Image references in documentation initially use the locally built `gcs-mimic:dev`. Add registry pull commands only after an actual release exists, and test their exact tag.
+The repository supplies `compose.yaml`, `config/development.json`, fixture samples and the Dockerfile. The current server reads flat JSON; the structured TOML example below is a future design target, not an accepted file format. Image references in source-build documentation use the locally built `gcs-mimic:dev`. Planned registry examples remain explicitly marked unavailable until publication; verify their exact tag before treating them as installation instructions.
 
 ## 2. Stable proposed CLI and configuration contract
 
@@ -180,38 +180,39 @@ mkdir -p fixtures/local-bucket
 printf 'Hello from the emulator.\n' > fixtures/local-bucket/hello.txt
 ```
 
-Expected checked-in compose contract:
+This reduced layout follows the checked-in `compose.yaml`: it keeps the image's
+CMD, which binds `0.0.0.0:4443` and stores data on the named volume, and uses the
+default HTTPS scheme. It does not mount the host-loopback development JSON.
+Use `compose.seed.yaml` for one-time fixture loading; the structured TOML example
+above remains a future target.
 
 ```yaml
 services:
   gcs:
     build: .
     image: gcs-mimic:dev
-    command: ["serve", "--config", "/etc/gcs-mimic/config.toml"]
     ports:
       - "127.0.0.1:4443:4443"
     read_only: true
-    tmpfs:
-      - /tmp:size=32m
     volumes:
-      - ./config/development.toml:/etc/gcs-mimic/config.toml:ro
-      - ./fixtures:/fixtures:ro
       - gcs-data:/var/lib/gcs-mimic
+    environment:
+      GCS_MIMIC_API_BASE_URL: https://localhost:4443
     healthcheck:
-      test: ["CMD", "gcs-mimic", "healthcheck", "--url", "http://127.0.0.1:4443/_internal/health"]
+      test: ["CMD", "gcs-mimic", "healthcheck", "--url", "https://localhost:4443/_internal/ready"]
       interval: 2s
       timeout: 2s
-      start_period: 5s
+      start_period: 2s
       retries: 15
 volumes:
   gcs-data:
 ```
 
-The image runs as a non-root user and prepares ownership so the named data volume works without a manual chmod. Upload staging belongs on the data volume, not the bounded /tmp mount. An optional resource-limited compose override is validated separately.
+The image runs as a non-root user and prepares ownership so the named data volume works without a manual chmod. Upload staging belongs on the data volume. The checked-in Compose file also supplies resource and process limits.
 
 ```bash
 docker compose up -d --wait
-curl --fail http://127.0.0.1:4443/_internal/health
+docker compose exec -T gcs gcs-mimic healthcheck --url https://localhost:4443/_internal/ready
 ```
 
 Ready means persistence recovery and initial seeding have finished. A running process alone is insufficient.
@@ -332,9 +333,15 @@ References:
 
 ## 8. Strict private/public/signed access walkthrough
 
-The repository ships `compose.strict.yaml`, `config/strict.toml` and a clearly labelled local identity fixture. The strict TOML is a complete configuration sharing the same listener/storage settings as development, with `auth.mode = "strict"` and `auth.identity_file = "/etc/gcs-mimic/identities.toml"`. These are emulator fixtures, not real Google credentials.
+The repository ships `compose.strict.yaml` and `config/identities.json`.
+The override keeps the base Compose listener/storage settings, selects
+`GCS_MIMIC_AUTH_MODE=strict` and sets `GCS_MIMIC_IDENTITY_FILE` to the read-only
+mount `/etc/gcs-mimic/identities.json`. There is no shipped strict TOML config.
+The current registry is JSON with inline RSA public keys. These are clearly
+labelled emulator fixtures, not real Google credentials.
 
-Proposed fixture schema, to be implemented and frozen with this workflow:
+The following TOML fixture schema and file-key layout are proposed future
+targets, not configuration accepted by 0.1.0:
 
 ```toml
 [[identities]]
@@ -348,9 +355,16 @@ public_keys = ["/etc/gcs-mimic/signer.pub.pem"]
 project_roles = { "local-project" = ["roles/storage.objectViewer"] }
 ```
 
-The strict compose override replaces the config mount and adds read-only mounts for `config/identities.toml` and `.local/auth/signer.pub.pem`. It never mounts the private key into the running server. The test token is deliberately non-secret and valid only inside this local identity registry.
+The current strict override mounts only `config/identities.json`; it does not
+replace the config mount or mount a separate public-key file. A future file-key
+fixture layout would need an explicit read-only mount for its generated public
+key. Never mount a signer private key into the server. The test token is
+deliberately non-secret and valid only inside this local identity registry.
 
-Generate a throwaway test signing key:
+For that proposed future layout, generate a throwaway test signing key. These
+commands do not register it in the current inline-PEM JSON fixture; use the
+[runnable signing guide](getting-started.md#signed-private-downloads-and-uploads)
+for the implemented workflow:
 
 ```bash
 mkdir -p .local/auth
@@ -359,7 +373,10 @@ openssl pkey -in .local/auth/signer.pem -pubout -out .local/auth/signer.pub.pem
 docker compose -f compose.yaml -f compose.strict.yaml up -d --wait
 ```
 
-The strict override mounts the public key and identity fixture, not the private key. Ignore .local in git. Never load personal production credentials by default.
+The current strict override mounts the JSON identity fixture containing public
+keys, never a private key. The newly generated public key above would need
+explicit registration before it could authorize requests. Ignore `.local` in
+Git. Never load personal production credentials by default.
 
 Expected sequence:
 

@@ -910,6 +910,7 @@
         "completion_conditions": [
           "Verify the actual selected source on all promised native targets and required CI gates; distinguish baseline runs from current-source evidence.",
           "Complete freshness/release checks, notices, archive checksums, resource evidence and the supported first-release guide scope.",
+          "Prepare docs/en/releases/0.1.0.md with ledger/evidence mapping, schema/upgrade limits and runnable file combinations; distinguish pre-tag gates that must pass from tag execution, assign pin refresh/revalidation and pending SHA/diff/freshness rules to dist-tag-publication, and remove source-identity/resource/schedule finalization markers before publication; failed local gates remain release-blocking; see docs/en/slices/dist-release-notes.md.",
           "Publish only after separate authorization; verify registry/release access and immutable identity instead of treating configured workflows as executed."
         ],
         "deferred_scope": "The first 0.x release does not require Rails, initializer, synchronization, gRPC, lifecycle or all coverage groups; it does require the explicit release-policy/platform gates. Version 1.0.0 additionally requires the complete reference-superset gate and named extensions."
@@ -1180,7 +1181,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Existing v-tag binary Release success calls native amd64/arm64 container verification and GHCR publication. Exact versions remain immutable; minor/latest aliases advance by numeric stable version order. Images retain project/Cargo/Rust/native/OS notices, SPDX SBOM and SLSA provenance. See docs/en/container-distribution.md.",
+      "notes": "Configured v-tag binary Release success calls native amd64/arm64 container verification and GHCR publication. Exact versions remain immutable; minor/latest aliases advance by numeric stable version order. Images retain project/Cargo/Rust/native/OS notices, SPDX SBOM and SLSA provenance. The 0.1.0 preparation notes do not establish publication; see docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DIST-001",
         "DIST-002"
@@ -1253,7 +1254,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Eight native targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. Windows uses write-through blob publication and a documented restart/process-termination recovery profile; no OS-crash/power-loss namespace guarantee. See docs/en/binary-distribution.md.",
+      "notes": "Eight configured native targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. The 0.1.0 notes distinguish historical macOS ARM64 archive checks and native Linux container CI from unexecuted eight-target release verification. Windows restart/process-termination scope is not an OS-crash/power-loss guarantee; macOS power-loss and exhaustive crash boundaries remain unverified. See docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -1325,7 +1326,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. See docs/en/binary-distribution.md.",
+      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. Initial 0.1.0 notes and documentation consistency are prepared under docs/en/slices/dist-release-notes.md; manual/tag execution and publication remain pending.",
       "dependencies": [
         "DIST-001"
       ],
@@ -1345,10 +1346,91 @@
           "description": "Observe manual eight-target artifacts and a separately authorized first tag release, including failure gates and downloaded checksums.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DIST-002-RELEASE-NOTES",
+          "description": "Map every included workflow and first-useful-release roadmap requirement to IMPLEMENTED/PARTIAL ledger rows and evidence; document first-release migration, schema 13, accepted schemas 0-13 except unreleased schema 2, future-schema rejection, tested platforms, limitations, backups, forward upgrades and unguaranteed downgrades.",
+          "result": "PASS",
+          "test_ids": [
+            "release-notes-scope"
+          ]
+        },
+        {
+          "id": "DIST-002-SOURCE-IDENTITY",
+          "description": "Check preparation commit efa27b8db2b5b772fd04849362f500e99cf43679, including revised notes, against behavior baseline 71883c0 using the protected path set including Justfile and compatibility/upstream/; require empty output and record the exact SHA. This historical PASS predates the main rebase, whose protected-input comparison is nonempty; it does not verify the rebased tree or a future tag candidate.",
+          "result": "PASS",
+          "test_ids": [
+            "release-source-identity"
+          ]
+        },
+        {
+          "id": "DIST-002-TAG-SOURCE-IDENTITY",
+          "description": "dist-tag-publication must confirm the 0.1.0 behavior baseline after main rebase and compare the exact tested notes/evidence-bearing tag candidate under its pending identity/diff/revalidation contract. Comparison with preparation baseline 71883c0 now includes repo-lints Cargo.toml/src/tests/xtask changes, config-contract's reference comparison script and import-contract's source-storage JSON/verifier; this slice neither selects the final baseline nor approves those differences. Final tag run IDs and gate results are recorded by dist-post-publication in the main-branch ledger, not in the tag's frozen preparation snapshot.",
+          "result": "PENDING",
+          "test_ids": [
+            "release-tag-source-identity"
+          ]
+        },
+        {
+          "id": "DIST-002-PIN-REVISION-CONTRACT",
+          "description": "dist-tag-publication owns the required pin refresh, including the known newer distroless digest, and its revalidation; define baseline, revalidated pin-revision and tag SHA correspondence, protected-input comparisons and evidence placement without a candidate containing its own future SHA/run ID.",
+          "result": "PENDING",
+          "test_ids": [
+            "release-pin-revision-contract"
+          ]
+        },
+        {
+          "id": "DIST-002-PIN-DIFF-CONTRACT",
+          "description": "dist-tag-publication must define permitted pin-update differences and classification/revalidation, considering rust-toolchain.toml channel, Cargo.toml version requirements, xtask/src/release.rs hard-coded rustc checks/tests, MUSL_SOURCE_SHA256, musl source URL and musl-1.2.5.tar.gz references, Dockerfile FROM tags/digests and syntax frontend digest, actions pins/comments, .github/workflows/binaries.yaml inline musl URL/SHA-256, sdk-tests/go/go.mod go/toolchain/dependency requirements, sdk-tests/ruby/.ruby-version and Gemfile, upstream manifest URLs/digests, lockfiles, dependency-status, notices and version-scoped notice review strings; these cover the Rust/Go/Ruby scope in compatibility/dependency-status.json and known release pins, not an allowlist in this slice.",
+          "result": "PENDING",
+          "test_ids": [
+            "release-pin-diff-contract"
+          ]
+        },
+        {
+          "id": "DIST-002-TAG-FRESHNESS-CONTRACT",
+          "description": "dist-tag-publication must resolve the freshness window between the last pre-push check and tag validation, and obtain the owner's recovery decision if freshness fails after tag push before any Release/assets exist; neither deleting that tag nor advancing the version is authorized here.",
+          "result": "PENDING",
+          "test_ids": [
+            "release-tag-freshness-contract"
+          ]
+        },
+        {
+          "id": "DIST-002-RELEASE-BODY",
+          "description": "Render notes as a GitHub Release body without repository context; require statements true at publication, workflow-based tag gates without the tag's run ID, and absolute v0.1.0 links whose paths/anchors exist. FAIL while any finalize marker remains: source identity must confirm the behavior baseline and candidate comparison under the publication contract; resource measurements must include idle/1 GiB transfer RSS, separate cgroup memory and CPU seconds with tag-pinned dist-resource-measurement evidence; schedule text must state actual unverified weekend execution, weekly exception review and latest-dependency candidate status. Recheck final wording/links before tagging; live tag URLs can only be checked after tag creation.",
+          "result": "FAIL",
+          "test_ids": [
+            "release-notes-body"
+          ]
+        },
+        {
+          "id": "DIST-002-DOC-CONSISTENCY",
+          "description": "Reconcile English/Japanese README and release statements; verify shipped files against git ls-files, configuration TOML references as proposed/future only, relative links, and actual Compose/config/Dockerfile combinations for listener, persistent data path, scheme and readiness probe.",
+          "result": "PASS",
+          "test_ids": [
+            "release-doc-consistency"
+          ]
+        },
+        {
+          "id": "DIST-002-LOCAL-GATES",
+          "description": "Require all-CURRENT dependency freshness with exit 0, zero Markdown lint issues, final-source just pre-push exit 0 and generated compatibility check exit 0; any failure blocks release, and recording a failure, an exception or separate stage passes cannot satisfy the gate.",
+          "result": "FAIL",
+          "test_ids": [
+            "release-local-gates"
+          ]
         }
       ],
       "test_ids": [
-        "binary-workflow-syntax"
+        "binary-workflow-syntax",
+        "release-source-identity",
+        "release-tag-source-identity",
+        "release-pin-revision-contract",
+        "release-pin-diff-contract",
+        "release-tag-freshness-contract",
+        "release-notes-body",
+        "release-notes-scope",
+        "release-doc-consistency",
+        "release-local-gates"
       ],
       "verification": [
         {
@@ -1359,14 +1441,87 @@
           "test_ids": [
             "binary-workflow-syntax"
           ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes-dependencies.txt",
+          "test_ids": [
+            "release-local-gates"
+          ]
+        },
+        {
+          "command": "git diff --name-only 71883c0 efa27b8db2b5b772fd04849362f500e99cf43679 -- src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ compatibility/upstream/ compatibility/dependency-status.json LICENSE-MIT LICENSE-APACHE",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-source-identity"
+          ]
+        },
+        {
+          "command": "Manual first-release/Included-workflows mapping and schema/upgrade review; git grep configuration TOML references; git ls-files config/ and Compose files; Node file/anchor checks (102 relative and 12 tag-pinned links, 6 documents) and Compose/Dockerfile combination assertions",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-notes-scope",
+            "release-doc-consistency"
+          ]
+        },
+        {
+          "command": "gh api -X POST /markdown --input - < <(jq -n --rawfile text docs/en/releases/0.1.0.md '{text:$text, mode:\"gfm\"}'); preparation-only rendered href and candidate-tree path/anchor checks (12 tag-pinned links); three finalize markers still block final Release-body acceptance",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-notes-body"
+          ]
+        },
+        {
+          "command": "! rg -n '<!-- finalize:' docs/en/releases/0.1.0.md",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-notes-body"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Remote workflow execution and public publication have not occurred. The first-release roadmap scope is a maintainer review requirement, not automatically established by a release notes file."
+        "Native release workflow execution and public publication have not occurred. Existing Foundation evidence only matches historical preparation baseline 71883c0, not the rebased tree, revised pins or a future tag; it does not verify eight archives, checksums, DLL imports or glibc symbols. Main rebase adds repo-lints protected inputs (Cargo.toml/src/tests/xtask), config-contract's reference comparison script and import-contract's source-storage JSON/verifier; dist-tag-publication must confirm the final behavior baseline and revalidation without treating these as approved pin differences. Freshness exit 1 and full pre-push exit 18 keep release-local-gates FAIL and block release; the passing post-rebase just check and separate stage passes are insufficient. dist-tag-publication owns actual pin refresh/revalidation including distroless, pending pin-revision SHA/diff/freshness contracts, exact-tag source identity and final Release-body checks. Source-identity/resource/schedule finalize markers remain release-blocking. The current workflow checks a nonempty notes file, not markers/links; proposed dist-tag-publication follow-up is workflow enforcement of the marker guard and protected-input comparison. dist-post-publication records final tag gate results in the main-branch ledger. Proposed follow-up: select pinned Ruby explicitly for pre-push."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "JSON-ANYWHERECACHES-001",
@@ -38545,16 +38700,16 @@
       "interface": "Emulator distribution",
       "phase": "P0",
       "priority": "HIGH",
-      "status": "PARTIAL",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
       "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Baseline f7ac025 Foundation CI passed on native amd64 hardware. The current notice-augmented publication image still requires remote execution; local amd64 uses emulation. Baseline CI and current-source verification are distinguished in docs/en/evidence/ghcr.md.",
+      "notes": "Foundation run 39995036204 at 9003939 passed the notice-augmented image smoke on native amd64 and arm64. That run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. Local amd64 remains emulated; remote native execution is separate evidence. This completes the historical native container scope, not registry publication or verification of later inputs. See docs/en/evidence/dist-release-notes.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
-      "acceptance_status": "DECOMPOSED",
+      "acceptance_status": "COMPLETE",
       "acceptance_cases": [
         {
           "id": "DESIGN-059-A1",
@@ -38567,12 +38722,24 @@
         {
           "id": "DESIGN-059-P1",
           "description": "Execute the notice-augmented publication image smoke on native amd64 hardware; baseline f7ac025 Foundation CI already passed.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "native-amd64-container-ci"
+          ]
+        },
+        {
+          "id": "DESIGN-059-RELEASE-CI",
+          "description": "Inspect existing successful Foundation pinned/stable and native amd64/arm64 jobs and require no protected-input differences from baseline 71883c0 using the slice path set; do not infer eight native archives or publication.",
+          "result": "PASS",
+          "test_ids": [
+            "release-ci-evidence"
+          ]
         }
       ],
       "test_ids": [
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "native-amd64-container-ci",
+        "release-ci-evidence"
       ],
       "verification": [
         {
@@ -38592,14 +38759,31 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "command": "gh run view 39995036204 --json headSha,conclusion,jobs,url; gh run view 39995036204 --log",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "native-amd64-container-ci",
+            "release-ci-evidence"
+          ]
+        },
+        {
+          "command": "git diff --name-only 900393902a1a7a58ac34d5a77d37861105d106ef 71883c0 -- src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ compatibility/upstream/ compatibility/dependency-status.json LICENSE-MIT LICENSE-APACHE",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-ci-evidence"
+          ]
         }
       ],
       "sdk_evidence": [],
-      "known_deviations": [
-        "Baseline f7ac025 passed native amd64 CI; the current notice-augmented publication image remains unverified on remote native amd64."
-      ],
+      "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-060",
@@ -41790,7 +41974,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Generated docs, Rust checks and native-platform Docker jobs are configured and locally validated. Justfile pre-push checks reuse the CI Rust/shell runner and existing SDK/container harnesses; command order and failure propagation are self-tested. See docs/en/evidence/pre-push.md.",
+      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push remains unverified for the rebased tree. See docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -41816,7 +42000,7 @@
         {
           "id": "DESIGN-099-local-checks",
           "description": "Run shared local/CI checks in order, stop at every injected Cargo failure, and complete the local pre-push Rust, Go SDK and both container architecture checks.",
-          "result": "PASS",
+          "result": "FAIL",
           "test_ids": [
             "shared-check-failure-propagation",
             "local-pre-push-suite"
@@ -41825,15 +42009,27 @@
         {
           "id": "DESIGN-099-P1",
           "description": "Observe remote CI gates execute, including native amd64.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "remote-foundation-ci"
+          ]
+        },
+        {
+          "id": "DESIGN-099-RELEASE-CI",
+          "description": "Inspect existing successful Foundation pinned/stable and native amd64/arm64 jobs and require no protected-input differences from baseline 71883c0 using the slice path set; retain separate local release gates and native archive/publication requirements.",
+          "result": "PASS",
+          "test_ids": [
+            "release-ci-evidence"
+          ]
         }
       ],
       "test_ids": [
         "workflow-yaml-syntax",
         "container-foundation-smoke",
         "shared-check-failure-propagation",
-        "local-pre-push-suite"
+        "local-pre-push-suite",
+        "remote-foundation-ci",
+        "release-ci-evidence"
       ],
       "verification": [
         {
@@ -41871,14 +42067,60 @@
           "test_ids": [
             "local-pre-push-suite"
           ]
+        },
+        {
+          "command": "gh run view 39995036204 --json headSha,conclusion,jobs,url; gh run view 39995036204 --log",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "remote-foundation-ci",
+            "release-ci-evidence"
+          ]
+        },
+        {
+          "command": "git diff --name-only 900393902a1a7a58ac34d5a77d37861105d106ef 71883c0 -- src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ compatibility/upstream/ compatibility/dependency-status.json LICENSE-MIT LICENSE-APACHE",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-ci-evidence"
+          ]
+        },
+        {
+          "command": "just pre-push",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "local-pre-push-suite"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "local-pre-push-suite"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "local-pre-push-suite"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Remote CI has not run; local amd64 uses emulation."
+        "Pre-rebase preparation just pre-push exited 18 on 2026-10-24: Ruby 3.4.1 was selected instead of pinned 4.0.9. The complete pre-push command has not subsequently passed; post-rebase just check and separate test/SDK/container passes do not replace it. Explicit pinned-Ruby selection in scripts/sdk-go.sh is proposed for a separate slice."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "UX-001",
@@ -43986,7 +44228,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Daily xtask detects Rust/direct Cargo, Actions, Docker runtime and peer-curl pins, Debian stable, Go language/toolchain and direct Go modules; every-calendar-day workflow has no cooldown.",
+      "notes": "Daily xtask detects actual Rust/Cargo, Actions, container/Debian, Go and Ruby inputs. Successful scheduled weekday run 39925933967 was observed read-only; weekend execution remains pending. The 0.1.0 preparation freshness check detected a distroless digest update (exit 1); no dependency pin changed. See docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DEP-001",
         "DEP-003"
@@ -44041,6 +44283,14 @@
             "go_versions_exclude_prereleases_and_retractions",
             "go_manifest_direct_requirements_and_exact_toolchain"
           ]
+        },
+        {
+          "id": "DEP-005-WEEKDAY",
+          "description": "Observe an existing successful default-branch weekday scheduled freshness execution without inferring weekend coverage.",
+          "result": "PASS",
+          "test_ids": [
+            "scheduled-weekday-freshness"
+          ]
         }
       ],
       "test_ids": [
@@ -44050,7 +44300,8 @@
         "dependencies::tests::metadata_and_proxy_headers_fail_closed",
         "go_sdk_scope_and_lockfile_are_declared",
         "go_versions_exclude_prereleases_and_retractions",
-        "go_manifest_direct_requirements_and_exact_toolchain"
+        "go_manifest_direct_requirements_and_exact_toolchain",
+        "scheduled-weekday-freshness"
       ],
       "verification": [
         {
@@ -44092,14 +44343,32 @@
           "test_ids": [
             "freshness-live-check"
           ]
+        },
+        {
+          "command": "gh run view 39925933967 --json createdAt,conclusion,event,jobs,headSha,url",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "scheduled-weekday-freshness"
+          ]
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Default-branch scheduled execution, including weekends, remains unobserved; detection is verified locally."
+        "Weekday scheduled execution is observed; weekend execution remains unverified. Current-source freshness reports an unresolved distroless runtime digest update."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DEP-006",
@@ -44117,7 +44386,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Slice-start official-source freshness check passed through Rust xtask. Release and weekly-review procedures are documented.",
+      "notes": "Historical slice-start checks passed. The 0.1.0 release preparation reran official-source freshness and found a distroless runtime digest update (exit 1); dist-tag-publication owns the actual refresh and revalidation before publication. Release and weekly-review procedures are documented but their full cycles remain unexecuted. See docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DEP-001"
       ],
@@ -44151,14 +44420,23 @@
           "test_ids": [
             "freshness-live-check"
           ]
+        },
+        {
+          "command": "just check-dependencies",
+          "result": "FAIL",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes-dependencies.txt",
+          "test_ids": [
+            "freshness-live-check"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "No release or weekly maintenance cycle has occurred."
+        "No release or weekly maintenance cycle has occurred; 0.1.0 preparation freshness fails on a newer distroless runtime digest."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DEP-007",
@@ -44319,7 +44597,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Pinned/current-stable Rust CI and native amd64/arm64 Docker lanes are configured with locked builds and generated-doc gates.",
+      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust and native amd64/arm64 Docker lanes, including locked builds and generated-doc gates. That run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. Latest-dependency candidate builds remain unimplemented. See docs/en/evidence/dist-release-notes.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -44337,10 +44615,19 @@
           "description": "Observe remote pinned/current-stable/native-platform runs and latest-dependency candidate builds.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DEP-009-REMOTE-LANES",
+          "description": "Observe existing pinned/current-stable Rust and native amd64/arm64 container Foundation execution; latest-dependency candidate execution remains a separate pending requirement.",
+          "result": "PASS",
+          "test_ids": [
+            "remote-foundation-ci"
+          ]
         }
       ],
       "test_ids": [
-        "workflow-yaml-syntax"
+        "workflow-yaml-syntax",
+        "remote-foundation-ci"
       ],
       "verification": [
         {
@@ -44351,14 +44638,23 @@
           "test_ids": [
             "workflow-yaml-syntax"
           ]
+        },
+        {
+          "command": "gh run view 39995036204 --json headSha,conclusion,jobs,url",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "remote-foundation-ci"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Remote CI has not run; latest-dependency candidate builds are not implemented."
+        "Remote pinned/current-stable/native-platform runs are observed; latest-dependency candidate builds remain unimplemented."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "AUDIT-001",

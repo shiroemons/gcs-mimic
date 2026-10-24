@@ -13,6 +13,10 @@ setup is needed for this HTTP example.
 
 **Image publication is pending.** The example targets the planned first image,
 `ghcr.io/shiroemons/gcs-mimic:0.1.0`; it cannot be pulled yet.
+The [0.1.0 release notes](docs/en/releases/0.1.0.md) describe the selected scope;
+the [preparation evidence](docs/en/evidence/dist-release-notes.md#remaining-gates)
+records the remaining publication gates. To run today, follow the
+[source-build guide](docs/en/getting-started.md).
 
 Save this as `compose.yaml`:
 
@@ -70,7 +74,7 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Retain object version history | ✅ | ◐ Memory backend | ❌ |
 | Keep API-created bytes across restart | ✅ | ✅ Filesystem | ✅ Disk |
 | API writes visible as bucket/object files | ❌ | ✅ Filesystem | ✅ Disk |
-| Import a bucket/object seed directory | ✅ Once | ✅ Startup or reseed | ❌ |
+| Load bucket/object seed bytes | ✅ Once | ✅ Startup or reseed | ❌ |
 | Default CORS for JSON API requests | ✅ | ✅ | ❌ |
 | Enforce bucket-specific XML CORS rules | ✅ | ❌ | ❌ |
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
@@ -80,6 +84,7 @@ These are workflow summaries, not claims of complete Google API compatibility.
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
 `v2026.07.19`; gcs-mimic is unreleased `0.1.0`.
+Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated
 [feature matrix](docs/en/feature-matrix.md) for implementation status.
@@ -93,6 +98,9 @@ sources and verification limits, and the generated
   No database server is required. Internal filenames are not object names.
 - A `bucket/object` seed directory can be imported once. Live directory sync
   and a file for initial per-bucket settings are not implemented yet.
+- Existing emulator backend metadata/history import is not implemented.
+  `FAKE_GCS_*` environment variables are silently ignored in 0.1.0; use the
+  documented `GCS_MIMIC_*` equivalents.
 
 For existing fake-gcs-server setups, see the
 [option mapping and migration guide](docs/en/fake-gcs-server-migration.md#startup-options-and-current-equivalents).
@@ -108,6 +116,7 @@ For existing fake-gcs-server setups, see the
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
+- [0.1.0 release notes and known limitations](docs/en/releases/0.1.0.md)
 
 ## License
 

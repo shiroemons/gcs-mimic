@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
-| project_requirement | 92 | 38 | 0 | 27 | 27 | 0 | 0 |
+| project_requirement | 92 | 38 | 0 | 26 | 28 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -841,7 +841,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-058 | Dockerの単一コマンド起動 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
-| DESIGN-059 | linux/amd64コンテナの提供 | PARTIAL | P0 | PROJECT | PROJECT | 0 |
+| DESIGN-059 | linux/amd64コンテナの提供 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-060 | linux/arm64コンテナの提供 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-061 | ホスト・Compose内からの接続例 | IMPLEMENTED | P0 | PROJECT | PROJECT | 0 |
 | DESIGN-062 | 読み取り専用フィクスチャ投入 | PARTIAL | P0 | PROJECT | PROJECT | 0 |

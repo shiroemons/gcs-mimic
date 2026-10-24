@@ -15,6 +15,9 @@ Docker Composeとcurlを使います。ソースの取得、Rust、証明書の�
 **イメージは未公開です。** 初回公開予定の
 `ghcr.io/shiroemons/gcs-mimic:0.1.0`は、まだpullできません。
 以下は公開後、またはローカルで検証したイメージに置き換えて使う手順です。
+[0.1.0のリリースノート（英語）](../en/releases/0.1.0.md)に対象範囲、
+[準備の証跡（英語）](../en/evidence/dist-release-notes.md#remaining-gates)に公開前の確認項目を記載しています。
+現在動かす場合は[ソースからの導入手順（英語）](../en/getting-started.md)を使ってください。
 
 次を`compose.yaml`として保存します。
 
@@ -66,11 +69,17 @@ fake-gcs-serverの初期ファイルがある場合は、同じ`data/BUCKET/OBJE
 | 再起動後もデータを保持する | 対応 |
 | 実フォルダとAPIを双方向同期する | 未実装 |
 | 初期バケット設定をファイルで渡す | 未実装 |
+| 既存エミュレーターのメタデータ・履歴を取り込む | 未実装 |
+| gRPCを使う | 未実装 |
+| 公開Dockerイメージをpullする | 未公開 |
 
 CORSはバケットごとのXML用ルールと、JSON APIの固定ルールに分かれます。
 メタデータは組み込みSQLite、ファイル本体は別ファイルへ保存します。
 データベースサーバーは不要ですが、内部ファイル名はオブジェクト名と一致しません。
 Google API全体やfake-gcs-serverとの完全互換を示すものではありません。
+一度だけ読み込む初期ファイルと、既存バックエンドの状態の取り込みは別の機能です。
+0.1.0は`FAKE_GCS_*`環境変数を無視します。
+[対応する設定](fake-gcs-server-configuration.md)を確認し、`GCS_MIMIC_*`を指定してください。
 
 ## 次に読む
 
@@ -80,6 +89,7 @@ Google API全体やfake-gcs-serverとの完全互換を示すものではあり�
 - [ファイル保存の仕組み](storage-backends.md)
 - [ロードマップ](roadmap.md)と[並列開発の計画](delivery-plan.md)
 - [バージョンと公開の方針](release-policy.md)
+- [0.1.0のリリースノートと既知の制限（英語）](../en/releases/0.1.0.md)
 - [開発とpush前の確認](development.md)
 
 HTTPS、SDK、認証の詳しい手順は
