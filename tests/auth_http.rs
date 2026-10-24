@@ -998,7 +998,31 @@ fn auth_http_startup_rejects_invalid_profiles_and_registries() {
             "{case}: no readiness before failure"
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains(message), "{case}: {stderr}");
+        let events: Vec<serde_json::Value> = stderr
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let event = events
+            .iter()
+            .find(|event| event["level"] == "error")
+            .unwrap();
+        assert_eq!(event["event"], "diagnostics", "{case}");
+        assert_eq!(event["level"], "error", "{case}");
+        if matches!(
+            case,
+            "strict without registry" | "registry in permissive" | "unknown mode"
+        ) {
+            assert!(stderr.contains(message), "{case}: {stderr}");
+        } else {
+            assert_eq!(event["diagnostics"][0]["source"], "identity", "{case}");
+            assert_eq!(event["diagnostics"][0]["key"], "identity_file", "{case}");
+            assert!(
+                event["diagnostics"][0]["fix"]
+                    .as_str()
+                    .unwrap()
+                    .contains("readable valid registry")
+            );
+        }
         // The registry is checked before the catalog is created or the listener is bound.
         assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 0, "{case}");
     }

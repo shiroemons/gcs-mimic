@@ -22,7 +22,7 @@ pub fn http_config() -> gcs_mimic::config::Config {
 pub fn load_http_config(
     args: &[String],
     env: &std::collections::BTreeMap<String, String>,
-) -> Result<gcs_mimic::config::Config, String> {
+) -> Result<gcs_mimic::config::Config, gcs_mimic::diagnostics::Diagnostics> {
     let mut args = args.to_vec();
     args.extend(["--scheme".into(), "http".into()]);
     gcs_mimic::config::Config::load(&args, env)

@@ -1,7 +1,9 @@
 use gcs_mimic::{
     auth::{Auth, Registry},
+    bucket::CatalogError,
     clock::{Clock, SystemClock},
     config::Config,
+    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     server::{self, State},
     storage::Catalog,
     tls,
@@ -87,14 +89,53 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            let nested = error
+                .downcast_ref::<io::Error>()
+                .and_then(|e| e.get_ref())
+                .and_then(|e| e.downcast_ref::<Diagnostics>());
+            let fallback = Diagnostics::error(
+                DiagnosticSource::Runtime,
+                "runtime",
+                "Command failed; check --help and the configured local resources.",
+            );
+            let diagnostics = error
+                .downcast_ref::<Diagnostics>()
+                .or(nested)
+                .unwrap_or(&fallback);
+            let _ = diagnostics.write(io::stderr().lock());
             ExitCode::FAILURE
         }
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
+    let args: Vec<_> = std::env::args_os()
+        .skip(1)
+        .take(2054)
+        .map(|arg| {
+            arg.into_string().map_err(|_| {
+                Diagnostics::error(
+                    DiagnosticSource::Cli,
+                    "input",
+                    "Options and values must be valid UTF-8; correct the supplied argument.",
+                )
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    if args.len() == 2054 {
+        return Err(Diagnostics::error(
+            DiagnosticSource::Cli,
+            "input_limit",
+            "Configuration accepts at most 1024 supplied settings; remove excess arguments.",
+        )
+        .into());
+    }
+    if args.first().is_none_or(|s| s != "serve") {
+        let diagnostics = gcs_mimic::config_input::cli_diagnostics(&args);
+        if diagnostics.is_err() {
+            return Err(diagnostics.into());
+        }
+    }
     match args.as_slice() {
         [help] if help == "--help" => {
             println!("{HELP}");
@@ -108,7 +149,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{HELP}");
             Ok(())
         }
-        [command, rest @ ..] if command == "healthcheck" => Ok(healthcheck(rest)?),
+        [command, rest @ ..] if command == "healthcheck" => {
+            healthcheck(rest).map_err(|error| Diagnostics::error(DiagnosticSource::Cli, "--url",
+                if error.kind() == io::ErrorKind::TimedOut { "probe deadline exceeded; check the local endpoint and CA trust." }
+                else { "Healthcheck failed; require HTTP 200 from a complete local probe response, and verify the URL and CA trust (including 403 access denial)." }))?;
+            Ok(())
+        }
         [command, kind] if command == "tls" && kind == "ca" => {
             print!("{}", tls::DEVELOPMENT_CA_PEM);
             Ok(())
@@ -118,7 +164,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "public" => {
-            println!("{}", url_public(rest)?);
+            println!(
+                "{}",
+                url_public(rest).map_err(|fix| Diagnostics::error(
+                    DiagnosticSource::Cli,
+                    "url",
+                    fix
+                ))?
+            );
             Ok(())
         }
         [command, kind, help] if command == "url" && kind == "sign" && help == "--help" => {
@@ -126,35 +179,66 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
-            println!("{}", url_sign(rest)?);
+            println!(
+                "{}",
+                url_sign(rest).map_err(|fix| Diagnostics::error(
+                    DiagnosticSource::Cli,
+                    "url",
+                    fix
+                ))?
+            );
             Ok(())
         }
         [command, rest @ ..] if command == "serve" => {
-            let env: BTreeMap<_, _> = std::env::vars()
-                .filter(|(key, _)| key.starts_with("GCS_MIMIC_"))
-                .collect();
-            let config = Config::load(rest, &env)?;
+            let mut report = Config::preflight_os(rest, std::env::vars_os());
             // Validate supplied TLS material before touching the catalog, seed or listener.
-            let acceptor = tls::load_server(&config)?;
+            let mut acceptor = None;
+            if report.valid(&["scheme", "tls_cert", "tls_key"]) {
+                match tls::load_server(&report.config) {
+                    Ok(value) => acceptor = value,
+                    Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Tls, "tls_cert",
+                        "Cannot load TLS identity; provide readable matching PEM tls_cert/tls_key files, each at most 1 MiB, with one private key and a certificate chain.")),
+                }
+            }
             // Load the registry before binding so a bad identity file never reaches readiness.
-            let auth = match &config.identity_file {
-                Some(path) => Auth::strict(Registry::load(path)?),
-                None => Auth::permissive(),
-            };
+            let mut auth = Auth::permissive();
+            if report.valid(&["auth_mode", "identity_file"])
+                && let Some(path) = &report.config.identity_file
+            {
+                match Registry::load(path) {
+                    Ok(registry) => auth = Auth::strict(registry),
+                    Err(_) => report.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Identity, "identity_file",
+                        "Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.")),
+                }
+            }
+            if report.valid(&["data_dir", "seed_dir"]) {
+                report
+                    .diagnostics
+                    .warnings
+                    .extend(gcs_mimic::config_input::data_warning(
+                        &report.config,
+                        Path::new("/data"),
+                    ));
+            }
+            if report.diagnostics.is_err() {
+                return Err(report.diagnostics.into());
+            }
+            report.diagnostics.write(io::stderr().lock())?;
+            let config = report.config;
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(config.worker_threads)
                 .max_blocking_threads(config.max_blocking_threads)
                 .enable_all()
-                .build()?;
+                .build().map_err(|_| phase(DiagnosticSource::Runtime, "runtime", "Cannot create runtime; check worker limits and available system resources."))?;
             runtime.block_on(async move {
                 #[cfg(unix)]
-                let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+                let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register termination signal; check the local runtime environment."))?;
                 #[cfg(unix)]
-                let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+                let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register interrupt signal; check the local runtime environment."))?;
                 #[cfg(windows)]
-                let mut terminate = tokio::signal::windows::ctrl_break()?;
+                let mut terminate = tokio::signal::windows::ctrl_break().map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register termination signal; check the local runtime environment."))?;
                 #[cfg(windows)]
-                let mut interrupt = tokio::signal::windows::ctrl_c()?;
+                let mut interrupt = tokio::signal::windows::ctrl_c().map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot register interrupt signal; check the local runtime environment."))?;
                 let shutdown = async {
                     #[cfg(any(unix, windows))]
                     tokio::select! { _ = interrupt.recv() => Ok(()), _ = terminate.recv() => Ok(()) }
@@ -162,29 +246,32 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     tokio::signal::ctrl_c().await
                 };
                 let clock = Arc::new(SystemClock);
-                let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(io::Error::other)?;
-                catalog.configure_public_access_prevention(auth.public_access_prevention_projects()).await.map_err(io::Error::other)?;
+                let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."))?;
+                catalog.configure_public_access_prevention(auth.public_access_prevention_projects()).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting."))?;
                 let seed = match gcs_mimic::seed::import(&catalog, &config, clock.as_ref()).await {
                     Ok(seed) => seed,
                     Err(error) => {
-                        catalog.close().await.map_err(io::Error::other)?;
-                        return Err(error);
+                        let mut diagnostics = Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error));
+                        if catalog.close().await.is_err() {
+                            diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog after seed failure; inspect persistence before restarting."));
+                        }
+                        return Err(io::Error::other(diagnostics));
                     }
                 };
                 tokio::pin!(shutdown);
                 let listener = tokio::select! {
                     biased;
                     result = &mut shutdown => {
-                        catalog.close().await.map_err(io::Error::other)?;
-                        result?;
+                        catalog.close().await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog; inspect persistence before restarting."))?;
+                        result.map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot receive shutdown signal; check the runtime environment."))?;
                         println!("{{\"event\":\"stopped\"}}");
                         return Ok(());
                     }
-                    listener = bind_listener(config.listen) => listener?,
+                    listener = bind_listener(config.listen) => listener.map_err(|error| phase(DiagnosticSource::Listener, "listen", if error.kind() == io::ErrorKind::AddrInUse { "Address already in use; choose a free --listen IP:PORT." } else { "Cannot bind listener; check --listen IP:PORT and local network permissions." }))?,
                 };
                 catalog.start_resumable_maintenance();
                 let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
-                let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr()?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
+                let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "listen", "Cannot inspect listener address; check the local network environment."))?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
                 if let Some(count) = state.auth.identity_count() {
                     ready["identities"] = count.into();
                 }
@@ -192,14 +279,52 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ready["scheme"] = config.scheme.as_str().into();
                 ready["tls_handshake_timeout_ms"] = config.tls_handshake_timeout_ms.into();
                 println!("{ready}");
-                server::serve_with_tls(listener, config, state, shutdown, acceptor).await?;
+                server::serve_with_tls(listener, config, state, shutdown, acceptor).await.map_err(|error| {
+                    if error.get_ref().is_some_and(|e| e.is::<CatalogError>()) {
+                        phase(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog; inspect persistence before restarting.")
+                    } else {
+                        phase(DiagnosticSource::Listener, "listen", "Listener or shutdown failed; inspect active connections and native catalog before restarting.")
+                    }
+                })?;
                 println!("{{\"event\":\"stopped\"}}");
                 Ok::<_, io::Error>(())
             })?;
             Ok(())
         }
-        _ => Err(format!("invalid command; {HELP}").into()),
+        _ => Err(Diagnostics::error(
+            DiagnosticSource::Cli,
+            "command",
+            "Invalid command; use gcs-mimic --help for supported native commands.",
+        )
+        .into()),
     }
+}
+
+fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error {
+    io::Error::other(Diagnostics::error(source, key, fix))
+}
+
+fn seed_failure(error: &io::Error) -> String {
+    let message = error.to_string();
+    let reason = [
+        "top-level entries",
+        "Invalid bucket name",
+        "Invalid object name",
+        "max_object_bytes",
+        "must not overlap",
+        "32 directory levels",
+        "10000 entries",
+        "only regular files",
+        "not a symlink",
+        "must be UTF-8",
+        "belongs to another project",
+    ]
+    .into_iter()
+    .find(|reason| message.contains(reason))
+    .unwrap_or("unreadable or invalid fixture input");
+    format!(
+        "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
+    )
 }
 
 async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
@@ -399,10 +524,10 @@ fn url_sign(args: &[String]) -> Result<String, String> {
         .unwrap_or_else(|| SystemClock.now());
     let mut key = Vec::new();
     std::fs::File::open(required("--private-key")?)
-        .map_err(|e| format!("private key: {e}"))?
+        .map_err(|_| "Cannot read private key; provide a readable local RSA PEM file.")?
         .take(16385)
         .read_to_end(&mut key)
-        .map_err(|e| format!("private key: {e}"))?;
+        .map_err(|_| "Cannot read private key; provide a readable local RSA PEM file.")?;
     gcs_mimic::auth::signature::sign_url(
         &url,
         &method,

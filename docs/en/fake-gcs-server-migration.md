@@ -153,8 +153,10 @@ Use native names where they already express the intended role. Retaining every
 source suffix or adding aliases is not required. Keep CLI > environment > server
 JSON > default precedence. If aliases are added later, reject contradictory
 values at the same precedence rather than depending on iteration order.
-Legacy `FAKE_GCS_*` keys must not become implicit compatibility-mode switches;
-the planned diagnostic for them is not implemented.
+Legacy `FAKE_GCS_*` keys do not select compatibility mode. The development
+binary rejects the 19 known keys with migration advice and warns on unknown
+names; these are diagnostics, not aliases. See the
+[migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics).
 
 `GCS_MIMIC_PORT` in the repository's source-build Compose file controls host
 publication only. It is not a native server option. Seed input, durable storage,

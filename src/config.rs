@@ -1,6 +1,12 @@
-use crate::auth::AuthMode;
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
+use crate::{
+    auth::AuthMode,
+    config_input::{Input, InputError, Inputs, NATIVE_KEYS},
+    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
+};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::File,
     io::Read,
     net::SocketAddr,
@@ -83,7 +89,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            listen: "127.0.0.1:4443".parse().unwrap(),
+            listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             scheme: Scheme::Https,
             tls_cert: None,
             tls_key: None,
@@ -109,52 +115,138 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn load(args: &[String], env: &BTreeMap<String, String>) -> Result<Self, String> {
-        let mut flags = BTreeMap::new();
-        for pair in args.chunks(2) {
-            if pair.len() != 2 || !pair[0].starts_with("--") {
-                return Err("serve options require --name VALUE pairs".into());
-            }
-            let key = pair[0][2..].replace('-', "_");
-            if flags.insert(key.clone(), pair[1].clone()).is_some() {
-                return Err(format!("duplicate option: {}", pair[0]));
-            }
+    pub fn load(args: &[String], env: &BTreeMap<String, String>) -> Result<Self, Diagnostics> {
+        let report = Self::preflight(args, env);
+        if report.diagnostics.is_err() {
+            Err(report.diagnostics)
+        } else {
+            Ok(report.config)
         }
-        let path = flags
-            .remove("config")
-            .or_else(|| env.get("GCS_MIMIC_CONFIG").cloned());
-        let mut settings = BTreeMap::new();
-        if let Some(path) = path {
-            let mut bytes = Vec::new();
-            File::open(Path::new(&path))
-                .map_err(|e| format!("config: {e}"))?
-                .take(65_537)
-                .read_to_end(&mut bytes)
-                .map_err(|e| e.to_string())?;
-            if bytes.len() > 65_536 {
-                return Err("config exceeds 64 KiB".into());
-            }
-            let value: serde_json::Value =
-                serde_json::from_slice(&bytes).map_err(|e| format!("config: {e}"))?;
-            for (key, value) in value.as_object().ok_or("config must be a JSON object")? {
-                let text = if let Some(text) = value.as_str() {
-                    text.to_owned()
-                } else if value.is_u64() {
-                    value.to_string()
+    }
+
+    pub fn preflight(args: &[String], env: &BTreeMap<String, String>) -> ConfigurationReport {
+        let mut inputs = Inputs::default();
+        inputs.cli(args, true);
+        inputs.environment(env);
+        Self::from_inputs(inputs)
+    }
+
+    pub fn preflight_os(
+        args: &[String],
+        env: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    ) -> ConfigurationReport {
+        let mut inputs = Inputs::default();
+        inputs.cli(args, true);
+        inputs.environment_os(env);
+        Self::from_inputs(inputs)
+    }
+
+    fn from_inputs(mut inputs: Inputs) -> ConfigurationReport {
+        inputs.diagnose_legacy();
+        let mut invalid_file_fields = BTreeSet::new();
+        let selector = inputs
+            .entries
+            .iter()
+            .filter(|i| {
+                i.name == "config"
+                    && !i.legacy
+                    && i.source != DiagnosticSource::Config
+                    && !i.key.starts_with("FAKE_GCS_")
+            })
+            .max_by_key(|i| {
+                if i.source == DiagnosticSource::Cli {
+                    1
                 } else {
-                    return Err(format!("config {key}: expected string or unsigned integer"));
-                };
-                settings.insert(key.clone(), text);
+                    0
+                }
+            })
+            .cloned();
+        if let Some(selector) = selector.filter(|input| input.invalid.is_none()) {
+            match read_config(&selector.value) {
+                Ok(values) => {
+                    for (key, value) in values {
+                        let text = value
+                            .as_str()
+                            .map(str::to_owned)
+                            .or_else(|| value.as_u64().map(|v| v.to_string()));
+                        if !inputs.push(Input {
+                            source: DiagnosticSource::Config,
+                            key: key.clone(),
+                            name: key.clone(),
+                            value: text.clone().unwrap_or_default(),
+                            legacy: false,
+                            invalid: None,
+                        }) {
+                            break;
+                        }
+                        if text.is_none() {
+                            invalid_file_fields.insert(key.clone());
+                            inputs.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Config,
+                                key, "Expected a string or unsigned integer; use the documented flat JSON setting type."));
+                            inputs.entries.pop();
+                        }
+                    }
+                }
+                Err(fix) => inputs.diagnostics.errors.push(Diagnostic::new(
+                    selector.source,
+                    selector.key,
+                    fix,
+                )),
             }
         }
-        for (key, value) in env {
-            if let Some(key) = key.strip_prefix("GCS_MIMIC_")
-                && key != "CONFIG"
+        let mut settings = BTreeMap::new();
+        let mut seen_cli = BTreeSet::new();
+        for source in [
+            DiagnosticSource::Config,
+            DiagnosticSource::Environment,
+            DiagnosticSource::Cli,
+        ] {
+            for input in inputs
+                .entries
+                .iter()
+                .filter(|i| i.source == source && !i.legacy && !i.key.starts_with("FAKE_GCS_"))
             {
-                settings.insert(key.to_ascii_lowercase(), value.clone());
+                if source == DiagnosticSource::Cli && !seen_cli.insert(&input.name) {
+                    inputs.diagnostics.errors.push(Diagnostic::new(
+                        source,
+                        &input.key,
+                        "Duplicate option; supply each --name VALUE option exactly once.",
+                    ));
+                }
+                if !NATIVE_KEYS.contains(&input.name.as_str())
+                    || (input.name == "config" && source == DiagnosticSource::Config)
+                {
+                    let fix = match input.name.as_str() {
+                        "port" => {
+                            "GCS_MIMIC_PORT is Compose-only host port publication; keep it in the Compose invocation, remove it from the server environment and use GCS_MIMIC_LISTEN=0.0.0.0:4443 for server binding."
+                        }
+                        "image" => {
+                            "GCS_MIMIC_IMAGE is Compose-only image selection; remove it from the server environment; there is no server equivalent."
+                        }
+                        "tls_dir" => {
+                            "GCS_MIMIC_TLS_DIR is Compose-only mount selection; remove it from the server environment and supply GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem."
+                        }
+                        _ => {
+                            "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
+                        }
+                    };
+                    inputs
+                        .diagnostics
+                        .errors
+                        .push(Diagnostic::new(source, &input.key, fix));
+                    continue;
+                }
+                settings.insert(input.name.clone(), input.clone());
             }
         }
-        settings.extend(flags);
+        let mut report = ConfigurationReport {
+            config: Self::default(),
+            diagnostics: inputs.diagnostics,
+            invalid: invalid_file_fields
+                .into_iter()
+                .filter(|key| !settings.contains_key(key))
+                .collect(),
+        };
         let explicit_api_base_url = settings.contains_key("api_base_url");
         let tls_options_supplied = settings.keys().any(|key| {
             matches!(
@@ -162,149 +254,281 @@ impl Config {
                 "tls_cert" | "tls_key" | "tls_handshake_timeout_ms"
             )
         });
-        let mut config = Self::default();
-        for (key, value) in settings {
-            match key.as_str() {
-                "scheme" => config.scheme = value.parse()?,
-                "tls_cert" | "tls_key" => {
-                    if value.is_empty() {
-                        return Err(format!("{key} must not be empty"));
-                    }
-                    if key == "tls_cert" {
-                        config.tls_cert = Some(PathBuf::from(value));
-                    } else {
-                        config.tls_key = Some(PathBuf::from(value));
-                    }
+        for (key, input) in &settings {
+            if let Some(invalid) = input.invalid {
+                report.invalid.insert(key.clone());
+                if invalid == InputError::Encoding {
+                    report.diagnostics.errors.push(Diagnostic::new(
+                        input.source,
+                        &input.key,
+                        "Setting values must be valid UTF-8; correct the environment value.",
+                    ));
                 }
-                "tls_handshake_timeout_ms" => {
-                    config.tls_handshake_timeout_ms = bounded(&key, &value, 1, 60_000)?
-                }
-                "api_base_url" => {
-                    let uri: hyper::Uri = value.parse().map_err(|_| "invalid api_base_url")?;
-                    if !matches!(uri.scheme_str(), Some("http" | "https"))
-                        || uri.authority().is_none_or(|a| a.as_str().contains('@'))
-                        || uri.query().is_some()
-                        || value.contains('#')
-                    {
-                        return Err("api_base_url must be an absolute HTTP(S) URL without credentials, query or fragment".into());
+                continue;
+            }
+            if key == "config" {
+                continue;
+            }
+            let mut candidate = report.config.clone();
+            let config = &mut candidate;
+            let value = input.value.clone();
+            let result: Result<(), String> = (|| {
+                match key.as_str() {
+                    "scheme" => config.scheme = value.parse()?,
+                    "tls_cert" | "tls_key" => {
+                        if value.is_empty() {
+                            return Err(format!("{key} must not be empty"));
+                        }
+                        if key == "tls_cert" {
+                            config.tls_cert = Some(PathBuf::from(value));
+                        } else {
+                            config.tls_key = Some(PathBuf::from(value));
+                        }
                     }
-                    config.api_base_url = value.trim_end_matches('/').to_owned();
-                }
-                "xml_virtual_host_domains" => {
-                    if !value.is_empty() {
-                        for domain in value.split(',') {
-                            let domain = domain.trim().to_ascii_lowercase();
-                            validate_dns_name(&domain)?;
-                            if config.xml_virtual_host_domains.contains(&domain) {
-                                return Err(format!(
-                                    "duplicate xml_virtual_host_domains entry: {domain}"
-                                ));
-                            }
-                            if config.xml_virtual_host_domains.len() == 32 {
-                                return Err(
+                    "tls_handshake_timeout_ms" => {
+                        config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
+                    }
+                    "api_base_url" => {
+                        let uri: hyper::Uri = value.parse().map_err(|_| "invalid api_base_url")?;
+                        if !matches!(uri.scheme_str(), Some("http" | "https"))
+                            || uri.authority().is_none_or(|a| a.as_str().contains('@'))
+                            || uri.query().is_some()
+                            || value.contains('#')
+                        {
+                            return Err("api_base_url must be an absolute HTTP(S) URL without credentials, query or fragment".into());
+                        }
+                        config.api_base_url = value.trim_end_matches('/').to_owned();
+                    }
+                    "xml_virtual_host_domains" => {
+                        if !value.is_empty() {
+                            for domain in value.split(',') {
+                                let domain = domain.trim().to_ascii_lowercase();
+                                validate_dns_name(&domain)?;
+                                if config.xml_virtual_host_domains.contains(&domain) {
+                                    return Err("duplicate xml_virtual_host_domains entry; remove repeated DNS names".into());
+                                }
+                                if config.xml_virtual_host_domains.len() == 32 {
+                                    return Err(
                                     "xml_virtual_host_domains must contain at most 32 DNS names"
                                         .into(),
                                 );
+                                }
+                                config.xml_virtual_host_domains.push(domain);
                             }
-                            config.xml_virtual_host_domains.push(domain);
+                            // The most specific configured suffix owns overlapping domains.
+                            config
+                                .xml_virtual_host_domains
+                                .sort_by_key(|d| std::cmp::Reverse(d.len()));
                         }
-                        // The most specific configured suffix owns overlapping domains.
-                        config
-                            .xml_virtual_host_domains
-                            .sort_by_key(|d| std::cmp::Reverse(d.len()));
                     }
-                }
-                "data_dir" => {
-                    if value.is_empty() {
-                        return Err("data_dir must not be empty".into());
+                    "data_dir" => {
+                        if value.is_empty() {
+                            return Err("data_dir must not be empty".into());
+                        }
+                        config.data_dir = PathBuf::from(value);
                     }
-                    config.data_dir = PathBuf::from(value);
-                }
-                "seed_dir" => {
-                    if value.is_empty() {
-                        return Err("seed_dir must not be empty".into());
+                    "seed_dir" => {
+                        if value.is_empty() {
+                            return Err("seed_dir must not be empty".into());
+                        }
+                        config.seed_dir = Some(PathBuf::from(value));
                     }
-                    config.seed_dir = Some(PathBuf::from(value));
-                }
-                "seed_project" => {
-                    crate::json::validate_project(&value)
-                        .map_err(|error| format!("seed_project: {}", error.message))?;
-                    config.seed_project = value;
-                }
-                "listen" => {
-                    config.listen = value
-                        .parse()
-                        .map_err(|_| "listen must be an IP:port socket address")?
-                }
-                "max_connections" => {
-                    config.max_connections = bounded(&key, &value, 1, 1024)? as usize
-                }
-                "max_object_bytes" => {
-                    config.max_object_bytes = bounded(&key, &value, 1, 5 * 1024_u64.pow(4))?
-                }
-                "worker_threads" => config.worker_threads = bounded(&key, &value, 1, 32)? as usize,
-                "max_blocking_threads" => {
-                    config.max_blocking_threads = bounded(&key, &value, 1, 32)? as usize
-                }
-                "connection_timeout_ms" => {
-                    config.connection_timeout_ms = bounded(&key, &value, 1, 60_000)?
-                }
-                "object_request_timeout_ms" => {
-                    config.object_request_timeout_ms = bounded(&key, &value, 1, 86_400_000)?
-                }
-                "catalog_wait_timeout_ms" => {
-                    config.catalog_wait_timeout_ms = bounded(&key, &value, 1, 60_000)?
-                }
-                "shutdown_timeout_ms" => {
-                    config.shutdown_timeout_ms = bounded(&key, &value, 1, 60_000)?
-                }
-                "auth_mode" => config.auth_mode = value.parse()?,
-                "compat_profile" => config.compat_profile = value.parse()?,
-                "identity_file" => {
-                    if value.is_empty() {
-                        return Err("identity_file must not be empty".into());
+                    "seed_project" => {
+                        crate::json::validate_project(&value)
+                            .map_err(|error| format!("seed_project: {}", error.message))?;
+                        config.seed_project = value;
                     }
-                    config.identity_file = Some(PathBuf::from(value));
+                    "listen" => {
+                        config.listen = value
+                            .parse()
+                            .map_err(|_| "listen must be an IP:port socket address")?
+                    }
+                    "max_connections" => {
+                        config.max_connections = bounded(key, &value, 1, 1024)? as usize
+                    }
+                    "max_object_bytes" => {
+                        config.max_object_bytes = bounded(key, &value, 1, 5 * 1024_u64.pow(4))?
+                    }
+                    "worker_threads" => {
+                        config.worker_threads = bounded(key, &value, 1, 32)? as usize
+                    }
+                    "max_blocking_threads" => {
+                        config.max_blocking_threads = bounded(key, &value, 1, 32)? as usize
+                    }
+                    "connection_timeout_ms" => {
+                        config.connection_timeout_ms = bounded(key, &value, 1, 60_000)?
+                    }
+                    "object_request_timeout_ms" => {
+                        config.object_request_timeout_ms = bounded(key, &value, 1, 86_400_000)?
+                    }
+                    "catalog_wait_timeout_ms" => {
+                        config.catalog_wait_timeout_ms = bounded(key, &value, 1, 60_000)?
+                    }
+                    "shutdown_timeout_ms" => {
+                        config.shutdown_timeout_ms = bounded(key, &value, 1, 60_000)?
+                    }
+                    "auth_mode" => config.auth_mode = value.parse()?,
+                    "compat_profile" => config.compat_profile = value.parse()?,
+                    "identity_file" => {
+                        if value.is_empty() {
+                            return Err("identity_file must not be empty".into());
+                        }
+                        config.identity_file = Some(PathBuf::from(value));
+                    }
+                    _ => return Err("Unknown setting; remove it and use --help.".into()),
                 }
-                _ => return Err(format!("unknown setting: {key}")),
+                Ok(())
+            })();
+            match result {
+                Ok(()) => report.config = candidate,
+                Err(fix) => {
+                    report.invalid.insert(key.clone());
+                    report
+                        .diagnostics
+                        .errors
+                        .push(Diagnostic::new(input.source, &input.key, fix));
+                }
             }
         }
+        let config = &mut report.config;
         match config.scheme {
-            Scheme::Http if tls_options_supplied => {
-                return Err("TLS settings require scheme=https".into());
+            Scheme::Http if tls_options_supplied && !report.invalid.contains("scheme") => {
+                for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
+                    if let Some(input) = settings.get(name)
+                        && !report.invalid.contains(name)
+                    {
+                        report.diagnostics.errors.push(Diagnostic::new(
+                            input.source,
+                            &input.key,
+                            "TLS settings require scheme=https; remove TLS settings for HTTP.",
+                        ));
+                        report.invalid.insert(name.into());
+                    }
+                }
             }
-            Scheme::Https if config.tls_cert.is_some() != config.tls_key.is_some() => {
-                return Err("tls_cert and tls_key must be supplied together".into());
+            Scheme::Https
+                if config.tls_cert.is_some() != config.tls_key.is_some()
+                    && !["scheme", "tls_cert", "tls_key"]
+                        .iter()
+                        .any(|k| report.invalid.contains(*k)) =>
+            {
+                let name = if config.tls_cert.is_some() {
+                    "tls_cert"
+                } else {
+                    "tls_key"
+                };
+                if let Some(input) = settings.get(name) {
+                    report.diagnostics.errors.push(Diagnostic::new(
+                        input.source,
+                        &input.key,
+                        "tls_cert and tls_key must be supplied together; provide both PEM paths.",
+                    ));
+                }
+                report.invalid.insert(name.into());
             }
             _ => {}
         }
         if !explicit_api_base_url {
             config.api_base_url = format!("{}://127.0.0.1:4443", config.scheme.as_str());
         }
-        let api: hyper::Uri = config
-            .api_base_url
-            .parse()
-            .map_err(|_| "invalid api_base_url")?;
-        if crate::xml::bucket_for_authority(
-            api.authority().unwrap().as_str(),
-            &config.xml_virtual_host_domains,
-        )
-        .is_some()
+        if !["api_base_url", "xml_virtual_host_domains"]
+            .iter()
+            .any(|k| report.invalid.contains(*k))
+            && config
+                .api_base_url
+                .parse::<hyper::Uri>()
+                .ok()
+                .and_then(|api| api.authority().cloned())
+                .is_some_and(|a| {
+                    crate::xml::bucket_for_authority(a.as_str(), &config.xml_virtual_host_domains)
+                        .is_some()
+                })
         {
-            return Err("api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain".into());
+            let input = settings
+                .get("api_base_url")
+                .or_else(|| settings.get("xml_virtual_host_domains"));
+            if let Some(input) = input {
+                report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."));
+            }
         }
         // Reject mismatched profiles so a registry is never silently ignored or missing.
         match (config.auth_mode, &config.identity_file) {
-            (AuthMode::Strict, None) => {
-                return Err("auth_mode=strict requires identity_file".into());
+            (AuthMode::Strict, None) if !report.invalid.contains("identity_file") => {
+                if let Some(input) = settings.get("auth_mode") {
+                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "auth_mode=strict requires identity_file; provide --identity-file identities.json."));
+                }
+                report.invalid.insert("identity_file".into());
             }
-            (AuthMode::Permissive, Some(_)) => {
-                return Err("identity_file requires auth_mode=strict".into());
+            (AuthMode::Permissive, Some(_)) if !report.invalid.contains("auth_mode") => {
+                if let Some(input) = settings.get("identity_file") {
+                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "identity_file requires auth_mode=strict; select strict mode or remove the registry setting."));
+                }
+                report.invalid.insert("identity_file".into());
             }
             _ => {}
         }
-        Ok(config)
+        report
     }
+}
+
+pub struct ConfigurationReport {
+    pub config: Config,
+    pub diagnostics: Diagnostics,
+    invalid: BTreeSet<String>,
+}
+
+impl ConfigurationReport {
+    pub fn valid(&self, keys: &[&str]) -> bool {
+        !keys.iter().any(|key| self.invalid.contains(*key))
+    }
+}
+
+struct ConfigEntries(Vec<(String, serde_json::Value)>);
+
+impl<'de> serde::Deserialize<'de> for ConfigEntries {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries;
+        impl<'de> serde::de::Visitor<'de> for Entries {
+            type Value = ConfigEntries;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a flat configuration object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if entries.len() > crate::config_input::MAX_SETTINGS
+                        || key.len() > crate::config_input::MAX_KEY_BYTES
+                    {
+                        return Err(serde::de::Error::custom(
+                            "configuration input limit exceeded",
+                        ));
+                    }
+                    entries.push((key, map.next_value()?));
+                }
+                Ok(ConfigEntries(entries))
+            }
+        }
+        deserializer.deserialize_map(Entries)
+    }
+}
+
+fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, &'static str> {
+    let mut bytes = Vec::new();
+    File::open(Path::new(path)).and_then(|f| f.take(65_537).read_to_end(&mut bytes))
+        .map_err(|_| "Cannot read config; select a readable JSON file with --config PATH or GCS_MIMIC_CONFIG.")?;
+    if bytes.len() > 65_536 {
+        return Err("Config exceeds 64 KiB; reduce the file size.");
+    }
+    serde_json::from_slice::<ConfigEntries>(&bytes).map(|entries| entries.0).map_err(|error| {
+        if error.to_string().starts_with("configuration input limit exceeded") {
+            "Configuration input limit exceeded; supply at most 1024 settings across inputs and keys at most 256 UTF-8 bytes."
+        } else {
+            "Malformed config; provide a valid flat JSON object with string or unsigned integer values."
+        }
+    })
 }
 
 pub(crate) fn validate_dns_name(value: &str) -> Result<(), String> {
@@ -339,7 +563,119 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn effective_validation_aggregates_without_cascades_and_keeps_native_precedence() {
+        let env = BTreeMap::from([
+            (
+                "GCS_MIMIC_WORKER_THREADS".into(),
+                "bad-lower-priority".into(),
+            ),
+            ("GCS_MIMIC_MAX_CONNECTIONS".into(), "0".into()),
+            ("GCS_MIMIC_AUTH_MODE".into(), "bad-secret-mode".into()),
+            ("GCS_MIMIC_IDENTITY_FILE".into(), "ids.json".into()),
+            ("FAKE_GCS_PORT".into(), "8080".into()),
+        ]);
+        let args = [
+            "--worker-threads",
+            "3",
+            "--listen",
+            "invalid-secret-listen",
+            "--tls-cert",
+            "",
+            "--tls-key",
+            "key.pem",
+        ]
+        .map(String::from);
+        let report = Config::preflight(&args, &env);
+        assert_eq!(report.config.worker_threads, 3);
+        assert_eq!(report.diagnostics.errors.len(), 5);
+        assert!(report.valid(&["worker_threads"]));
+        assert!(!report.valid(&["auth_mode", "tls_cert"]));
+        assert!(!report.diagnostics.to_string().contains("secret"));
+        assert!(!report.diagnostics.to_string().contains("supplied together"));
+        assert!(
+            !report
+                .diagnostics
+                .to_string()
+                .contains("requires auth_mode")
+        );
+    }
+
+    #[test]
+    fn config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources() {
+        let file = std::env::temp_dir().join(format!(
+            "gcs-mimic-config-count-{}.json",
+            std::process::id()
+        ));
+        let args = ["--config".into(), file.to_str().unwrap().into()];
+        for (count, accepted) in [(1023, true), (1024, false), (1025, false), (1026, false)] {
+            let fields = vec!["\"max_connections\":32"; count].join(",");
+            std::fs::write(&file, format!("{{{fields}}}")).unwrap();
+            let report = Config::preflight(&args, &BTreeMap::new());
+            assert_eq!(!report.diagnostics.is_err(), accepted, "{count}");
+            if !accepted {
+                assert!(
+                    report
+                        .diagnostics
+                        .to_string()
+                        .to_lowercase()
+                        .contains("limit")
+                );
+            }
+        }
+        for bytes in [256, 257] {
+            std::fs::write(&file, format!("{{\"{}\":1}}", "x".repeat(bytes))).unwrap();
+            let report = Config::preflight(&args, &BTreeMap::new());
+            assert_eq!(
+                report
+                    .diagnostics
+                    .to_string()
+                    .to_lowercase()
+                    .contains("limit"),
+                bytes > 256
+            );
+        }
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn native_syntax_errors_preserve_invalid_prerequisites_without_cascades() {
+        for args in [
+            vec!["--identity-file", "ids.json", "--auth-mode=strict"],
+            vec!["--identity-file", "ids.json", "--auth-mode"],
+            vec!["--tls-key", "key.pem", "--tls-cert=cert.pem"],
+            vec!["--tls-key", "key.pem", "--tls-cert"],
+            vec![
+                "--tls-cert",
+                "cert.pem",
+                "--tls-key",
+                "key.pem",
+                "--scheme=http",
+            ],
+        ] {
+            let report = Config::preflight(
+                &args.into_iter().map(String::from).collect::<Vec<_>>(),
+                &BTreeMap::new(),
+            );
+            assert_eq!(report.diagnostics.errors.len(), 1, "{}", report.diagnostics);
+            assert!(
+                report.diagnostics.errors[0]
+                    .fix
+                    .contains("--name VALUE pairs")
+            );
+            assert!(!report.valid(&["auth_mode", "tls_cert", "scheme"]));
+        }
+        let env = BTreeMap::from([
+            ("GCS_MIMIC_AUTH_MODE".into(), "strict".into()),
+            ("GCS_MIMIC_IDENTITY_FILE".into(), "ids.json".into()),
+        ]);
+        let report = Config::preflight(&["--auth-mode=strict".into()], &env);
+        assert_eq!(report.diagnostics.errors.len(), 1);
+        assert!(!report.valid(&["auth_mode"]));
+    }
 
     #[test]
     fn virtual_host_domains_are_opt_in_bounded_and_follow_precedence() {
@@ -412,6 +748,7 @@ mod tests {
         assert!(
             Config::load(&args, &env)
                 .unwrap_err()
+                .to_string()
                 .contains("api_base_url host selects an XML virtual bucket")
         );
         *args.last_mut().unwrap() = "http://example.invalid:4443".into();
@@ -422,7 +759,7 @@ mod tests {
         std::fs::remove_file(file).unwrap();
     }
 
-    fn load_http(args: &[String], env: &BTreeMap<String, String>) -> Result<Config, String> {
+    fn load_http(args: &[String], env: &BTreeMap<String, String>) -> Result<Config, Diagnostics> {
         let mut args = args.to_vec();
         args.extend(["--scheme".into(), "http".into()]);
         Config::load(&args, env)
@@ -575,6 +912,7 @@ mod tests {
             assert!(
                 load_http(&["--compat-profile".into(), value.into()], &BTreeMap::new())
                     .unwrap_err()
+                    .to_string()
                     .contains("compat_profile")
             );
         }
@@ -744,27 +1082,32 @@ mod tests {
         );
         // A higher-precedence permissive mode with a lower-precedence registry is a conflict.
         let permissive_env = BTreeMap::from([("GCS_MIMIC_AUTH_MODE".into(), "permissive".into())]);
-        assert_eq!(
-            load_http(&args, &permissive_env).unwrap_err(),
-            "identity_file requires auth_mode=strict"
+        assert!(
+            load_http(&args, &permissive_env)
+                .unwrap_err()
+                .to_string()
+                .contains("identity_file requires auth_mode=strict")
         );
         let mut strict_cli = vec!["--auth-mode".into(), "strict".into()];
-        assert_eq!(
-            load_http(&strict_cli, &permissive_env).unwrap_err(),
-            "auth_mode=strict requires identity_file"
+        assert!(
+            load_http(&strict_cli, &permissive_env)
+                .unwrap_err()
+                .to_string()
+                .contains("auth_mode=strict requires identity_file")
         );
         strict_cli.extend(["--identity-file".into(), "ids.json".into()]);
         assert_eq!(
             load_http(&strict_cli, &permissive_env).unwrap().auth_mode,
             AuthMode::Strict
         );
-        assert_eq!(
+        assert!(
             load_http(
                 &["--identity-file".into(), "ids.json".into()],
                 &BTreeMap::new()
             )
-            .unwrap_err(),
-            "identity_file requires auth_mode=strict"
+            .unwrap_err()
+            .to_string()
+            .contains("identity_file requires auth_mode=strict")
         );
         for invalid in ["", "Strict", "none", "STRICT"] {
             assert!(

@@ -38276,7 +38276,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that would select a virtual bucket; an explicitly configured base domain itself stays path-style.",
+      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that would select a virtual bucket; an explicitly configured base domain itself stays path-style. Legacy input diagnostics now distinguish bind, advertised API, future public origin and Compose publication roles, with safe effective host/port/URL advice and explicit unsupported-capability guidance. Evidence: docs/en/evidence/configuration-diagnostics.md; public/default-origin runtime cases remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -38362,6 +38362,9 @@
       "test_ids": [
         "advertised_endpoint_precedence_and_validation",
         "bkt_http_crud_metadata_conditions_and_errors",
+        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "compose_only_variables_and_missing_subcommand_report_native_migration",
+        "native_helper_values_that_look_like_legacy_flags_are_preserved",
         "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence",
         "obj_http_encoded_names_and_invalid_names",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
@@ -38373,6 +38376,17 @@
         "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
       ],
       "verification": [
+        {
+          "command": "cargo test --lib config --locked --offline; cargo test --test foundation --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/configuration-diagnostics.md",
+          "test_ids": [
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "native_helper_values_that_look_like_legacy_flags_are_preserved"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -42568,7 +42582,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. docs/en/slices/configuration-workflows.md specifies the 19-variable migration, shared diagnostics, endpoint and remaining-setting contracts; independent contract review and runtime acceptance remain pending below.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are implemented and verified in docs/en/evidence/configuration-diagnostics.md. Parent status remains PARTIAL; independent contract review and the endpoint, public-host, dual-listener, log-level and remaining-setting runtime slices retain their pending cases in docs/en/slices/configuration-workflows.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -42620,8 +42634,40 @@
         {
           "id": "UX-003-LEGACY-DIAGNOSTICS",
           "description": "config-legacy-input-diagnostics: cover all 19 env/CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. Warn on unknown FAKE_GCS_* and disjoint nonempty /data; suppress harmful seed advice for native overlap/ancestry/symlinks/missing-path uncertainty and test inspection errors. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
+            "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
+            "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
+            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
+            "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
+            "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
+            "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
+            "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "native_helper_values_that_look_like_legacy_flags_are_preserved",
+            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
+            "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
+            "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+            "config_input::tests::native_environment_encoding_follows_effective_precedence"
+          ]
+        },
+        {
+          "id": "UX-003-DIAGNOSTIC-SAFETY",
+          "description": "Legacy diagnostics production parser/config/renderer modules deny clippy unwrap_used and expect_used, allowing assertion conveniences only inside test modules. The typed Config::load error reaches every caller; bounded input and per-page rendering preserve independent errors and never expose raw parser/I/O values or create data_dir on invalid startup.",
+          "result": "PASS",
+          "test_ids": [
+            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
+            "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
+            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
+            "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades"
+          ]
         },
         {
           "id": "UX-003-DUAL-LISTENER",
@@ -42652,7 +42698,25 @@
         "container-host-peer-bucket-crud",
         "guide-host-peer-object-media",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
-        "ruby-basic-api"
+        "ruby-basic-api",
+        "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+        "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+        "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
+        "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
+        "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
+        "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+        "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
+        "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
+        "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
+        "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
+        "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+        "compose_only_variables_and_missing_subcommand_report_native_migration",
+        "native_helper_values_that_look_like_legacy_flags_are_preserved",
+        "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+        "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
+        "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
+        "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+        "config_input::tests::native_environment_encoding_follows_effective_precedence"
       ],
       "verification": [
         {
@@ -42690,6 +42754,32 @@
           "test_ids": [
             "ruby-basic-api"
           ]
+        },
+        {
+          "command": "cargo test --lib config --locked --offline; cargo test --lib diagnostics --locked --offline; cargo test --test foundation --locked --offline; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/configuration-diagnostics.md",
+          "test_ids": [
+            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
+            "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
+            "config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded",
+            "config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors",
+            "config_input::tests::arbitrary_legacy_and_native_inputs_never_panic",
+            "config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources",
+            "config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence",
+            "diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages",
+            "startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects",
+            "unknown_legacy_environment_warns_and_native_server_still_becomes_ready",
+            "compose_only_variables_and_missing_subcommand_report_native_migration",
+            "native_helper_values_that_look_like_legacy_flags_are_preserved",
+            "non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors",
+            "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
+            "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
+            "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
+            "config_input::tests::native_environment_encoding_follows_effective_precedence"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -42698,7 +42788,7 @@
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "UX-004",

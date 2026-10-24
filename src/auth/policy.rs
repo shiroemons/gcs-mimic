@@ -73,7 +73,7 @@ impl Policy {
             .as_array()
             .ok_or("invalid stored bindings")?
             .iter()
-            .map(|binding| {
+            .map(|binding| -> Result<Binding, &'static str> {
                 Ok(Binding {
                     role: binding["role"]
                         .as_str()

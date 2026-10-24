@@ -1944,8 +1944,9 @@ jq . "$native_dir/server.log"
 rm -r "$native_dir"
 ```
 
-Compose-only `GCS_MIMIC_IMAGE` and `GCS_MIMIC_PORT` must be unset before native startup:
-the binary rejects unknown `GCS_MIMIC_` settings. The temporary native catalog above is
+Compose-only `GCS_MIMIC_IMAGE`, `GCS_MIMIC_PORT` and `GCS_MIMIC_TLS_DIR` must be
+unset before native startup; the binary explains their image, host-port and
+mount roles. The temporary native catalog above is
 removed after a successful SIGTERM shutdown; use `--data-dir data` to keep a local catalog.
 The native example uses permissive mode, so XML reads bypass authorization.
 On macOS and other Unix systems outside Linux/Android, restarting on the same
@@ -1963,6 +1964,12 @@ The resulting binary needs no Rust, Python, curl or Go installation. CLI overrid
 `GCS_MIMIC_` environment, JSON config and defaults; `--config` overrides
 `GCS_MIMIC_CONFIG`. Config files are capped at 64 KiB; invalid settings fail before
 readiness. The current configuration is JSON; future TOML settings are unavailable.
+Independent configuration, TLS and identity errors are collected into stderr
+JSON diagnostic batches before catalog access; warnings precede errors. Known
+legacy inputs fail with native migration advice, unknown `FAKE_GCS_*` names
+warn, and native values preserve their existing precedence. See
+[migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
+for the bounded input, redaction and `/data` inspection rules.
 
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |

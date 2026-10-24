@@ -548,6 +548,334 @@ fn config_precedence_validation_and_size_limit() {
 }
 
 #[test]
+fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects() {
+    let root = TestDir::new();
+    let data = root.0.join("never-created");
+    let file = root.0.join("malformed.json");
+    let cert = root.0.join("cert.pem");
+    let key = root.0.join("key.pem");
+    let identity = root.0.join("identities.json");
+    fs::write(&file, "{ secret-config-value").unwrap();
+    fs::write(&cert, "secret-certificate-value").unwrap();
+    fs::write(&key, "secret-private-key-value").unwrap();
+    fs::write(&identity, "{ secret-identity-value").unwrap();
+    let output = common::server_command()
+        .env_clear()
+        .args(["serve", "--data-dir"])
+        .arg(&data)
+        .arg("--config")
+        .arg(file)
+        .arg("--tls-cert")
+        .arg(cert)
+        .arg("--tls-key")
+        .arg(key)
+        .args(["--auth-mode", "strict", "--identity-file"])
+        .arg(identity)
+        .args(["--worker-threads", "0", "-port=8080", "-host", "127.0.0.2"])
+        .env("FAKE_GCS_PORT", "9000")
+        .env("FAKE_GCS_UNRELATED", "secret-unknown-value")
+        .env("GCS_MIMIC_MAX_CONNECTIONS", "0")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!data.exists());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(!text.contains("secret-"), "{text}");
+    assert!(!text.contains(&root.0.display().to_string()), "{text}");
+    let events: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(events.len(), 2, "{text}");
+    assert_eq!(events[0]["level"], "warn");
+    assert_eq!(events[1]["level"], "error");
+    let diagnostics = events[1]["diagnostics"].as_array().unwrap();
+    for (source, key) in [
+        ("cli", "--config"),
+        ("cli", "--worker-threads"),
+        ("cli", "-host"),
+        ("cli", "-port"),
+        ("environment", "FAKE_GCS_PORT"),
+        ("environment", "GCS_MIMIC_MAX_CONNECTIONS"),
+        ("tls", "tls_cert"),
+        ("identity", "identity_file"),
+    ] {
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d["source"] == source && d["key"] == key),
+            "{source}/{key}: {text}"
+        );
+    }
+    assert!(text.contains("GCS_MIMIC_LISTEN=127.0.0.2:8080"));
+}
+
+#[test]
+fn invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures() {
+    let root = TestDir::new();
+    let data = root.0.join("never-created");
+    let cert = root.0.join("cert.pem");
+    let key = root.0.join("key.pem");
+    let identity = root.0.join("identities.json");
+    for file in [&cert, &key, &identity] {
+        fs::write(file, "secret-invalid-material").unwrap();
+    }
+    let output = common::server_command()
+        .env_clear()
+        .args(["serve", "--data-dir"])
+        .arg(&data)
+        .args(["--tls-handshake-timeout-ms", "0", "--tls-cert"])
+        .arg(cert)
+        .arg("--tls-key")
+        .arg(key)
+        .args(["--auth-mode", "strict", "--identity-file"])
+        .arg(identity)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!data.exists());
+    let text = String::from_utf8(output.stderr).unwrap();
+    let events: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let errors = events.iter().find(|e| e["level"] == "error").unwrap()["diagnostics"]
+        .as_array()
+        .unwrap();
+    assert_eq!(errors.len(), 3, "{text}");
+    for (source, key) in [
+        ("cli", "--tls-handshake-timeout-ms"),
+        ("tls", "tls_cert"),
+        ("identity", "identity_file"),
+    ] {
+        assert!(
+            errors
+                .iter()
+                .any(|d| d["source"] == source && d["key"] == key),
+            "{text}"
+        );
+    }
+    assert!(!text.contains("secret-invalid-material"));
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let invalid = || OsString::from_vec(b"secret-invalid-\xff-value".to_vec());
+    let root = TestDir::new();
+    let mut child = common::server_command()
+        .env_clear()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(root.0.join("valid-data"))
+        .env("FAKE_GCS_UNRELATED", invalid())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["event"], "ready");
+    common::stop_server(&mut child, &mut stdout);
+    let mut text = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(warning["level"], "warn");
+    assert_eq!(warning["diagnostics"][0]["key"], "FAKE_GCS_UNRELATED");
+    assert!(!text.contains("secret-invalid"));
+    for with_known in [false, true] {
+        let data = root.0.join(if with_known {
+            "invalid-known-data"
+        } else {
+            "invalid-cli-data"
+        });
+        let mut command = common::server_command();
+        command
+            .env_clear()
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--max-connections",
+                "0",
+                "--data-dir",
+            ])
+            .arg(&data)
+            .env("FAKE_GCS_UNRELATED", invalid());
+        if with_known {
+            command
+                .env("FAKE_GCS_PORT", invalid())
+                .env("GCS_MIMIC_WORKER_THREADS", invalid());
+        }
+        let output = command.output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!data.exists());
+        let text = String::from_utf8(output.stderr).unwrap();
+        let events: Vec<serde_json::Value> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(events[0]["level"], "warn");
+        let errors = events.iter().find(|e| e["level"] == "error").unwrap()["diagnostics"]
+            .as_array()
+            .unwrap();
+        assert_eq!(errors.len(), if with_known { 3 } else { 1 }, "{text}");
+        assert!(errors.iter().any(|d| d["key"] == "--max-connections"));
+        if with_known {
+            assert!(text.contains("<PORT_0_TO_65535>"), "{text}");
+            for key in ["FAKE_GCS_PORT", "GCS_MIMIC_WORKER_THREADS"] {
+                assert!(
+                    errors
+                        .iter()
+                        .any(|d| d["key"] == key && d["fix"].as_str().unwrap().contains("UTF-8")),
+                    "{text}"
+                );
+            }
+        }
+        assert!(!text.contains("secret-invalid"));
+    }
+}
+
+#[test]
+fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
+    let root = TestDir::new();
+    let mut child = common::server_command()
+        .env_clear()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(root.0.join("data"))
+        .env("FAKE_GCS_UNRELATED_APP", "secret-app-value")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["event"], "ready");
+    common::stop_server(&mut child, &mut stdout);
+    let mut text = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut text)
+        .unwrap();
+    let warning: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(warning["level"], "warn");
+    assert_eq!(warning["diagnostics"][0]["key"], "FAKE_GCS_UNRELATED_APP");
+    assert!(!text.contains("secret-app-value"));
+}
+
+#[test]
+fn compose_only_variables_and_missing_subcommand_report_native_migration() {
+    let root = TestDir::new();
+    let output = common::server_command()
+        .env_clear()
+        .args(["serve", "--data-dir"])
+        .arg(root.0.join("data"))
+        .env("GCS_MIMIC_PORT", "secret")
+        .env("GCS_MIMIC_IMAGE", "secret")
+        .env("GCS_MIMIC_TLS_DIR", "secret")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!root.0.join("data").exists());
+    let text = String::from_utf8(output.stderr).unwrap();
+    let events: Vec<serde_json::Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let event = events
+        .iter()
+        .find(|event| event["level"] == "error")
+        .unwrap();
+    assert_eq!(event["diagnostics"].as_array().unwrap().len(), 3);
+    assert!(!text.contains("secret"));
+    for expected in [
+        "Compose-only",
+        "host port",
+        "image selection",
+        "mount selection",
+        "GCS_MIMIC_TLS_CERT",
+    ] {
+        assert!(text.contains(expected), "{text}");
+    }
+    let output = common::server_command()
+        .env_clear()
+        .args(["-scheme=http", "-port", "9000", "--data=fixtures"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    for expected in [
+        "-scheme",
+        "-port",
+        "--data",
+        "serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic",
+    ] {
+        assert!(text.contains(expected), "{text}");
+    }
+}
+
+#[test]
+fn native_helper_values_that_look_like_legacy_flags_are_preserved() {
+    for command in ["public", "sign"] {
+        for object in ["-data", "-port", "-x"] {
+            let mut process = common::server_command();
+            process.env_clear().args([
+                "url",
+                command,
+                "--base-url",
+                "http://localhost:4443",
+                "--bucket",
+                "bucket",
+                "--object",
+                object,
+            ]);
+            if command == "sign" {
+                process.args([
+                    "--method",
+                    "GET",
+                    "--expires",
+                    "15m",
+                    "--signer",
+                    "local-viewer@example.invalid",
+                    "--private-key",
+                    "fixtures/signing/test-only-private.pem",
+                    "--timestamp",
+                    "20261023T120000Z",
+                ]);
+            }
+            let output = process.output().unwrap();
+            assert!(output.status.success(), "{command}/{object}: {output:?}");
+            assert!(output.stderr.is_empty());
+            assert!(String::from_utf8_lossy(&output.stdout).contains(object));
+        }
+    }
+}
+
+#[test]
 fn cli_help_errors_and_bind_failure() {
     let bin = env!("CARGO_BIN_EXE_gcs-mimic");
     for flag in ["--help", "--version"] {

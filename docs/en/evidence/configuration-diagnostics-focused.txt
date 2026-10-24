@@ -1,0 +1,68 @@
+Local checkout path prefixes are replaced with <checkout> below.
+
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.80s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-c3178e83a8dd1913)
+
+running 19 tests
+test config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence ... ok
+test config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades ... ok
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls ... ok
+test config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens ... ok
+test config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens ... ok
+test config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty ... ok
+test config::tests::object_limit_precedence_and_bounds ... ok
+test config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded ... ok
+test config::tests::authentication_profile_precedence_and_validation ... ok
+test config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence ... ok
+test config_input::tests::native_environment_encoding_follows_effective_precedence ... ok
+test config::tests::tls_configuration_precedence_and_validation ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test config::tests::compat_profile_precedence_and_validation ... ok
+test config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources ... ok
+test config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors ... ok
+test config::tests::transfer_timeout_precedence_and_bounds ... ok
+test config_input::tests::arbitrary_legacy_and_native_inputs_never_panic ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 156 filtered out; finished in 1.64s
+
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.69s
+     Running tests/foundation.rs (target/debug/deps/foundation-35560cebe88ce7f4)
+
+running 19 tests
+test config_precedence_validation_and_size_limit ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test shutdown_releases_catalog_before_return_with_state_clones_alive ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
+test compose_only_variables_and_missing_subcommand_report_native_migration ... ok
+test invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures ... ok
+test startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test native_helper_values_that_look_like_legacy_flags_are_preserved ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test unknown_legacy_environment_warns_and_native_server_still_becomes_ready ... ok
+test cli_help_errors_and_bind_failure ... ok
+test process_shutdown_reports_stopped_and_releases_catalog_for_restart ... ok
+{"event":"bind_wait","listen":"127.0.0.1:51166","reason":"address_in_use","timeout_ms":65000}
+test live_wildcard_and_specific_listeners_are_exclusive ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+test process_restarts_on_same_port_without_allowing_a_second_live_listener ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.98s
+
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.20s
+     Running tests/foundation.rs (target/debug/deps/foundation-35560cebe88ce7f4)
+
+running 1 test
+test non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.62s
+
+    Checking gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.20s

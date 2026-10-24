@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-23T11:22:49Z",
-  "scope": "V4 RSA signed downloads: thirteen direct Rust crates after promoting the existing ring 0.17.14 TLS edge, Rust/Go/Ruby toolchains, pinned SDK graphs, container inputs and release Actions. No resolved dependency version changes; ring supplies RSA and SHA-256 without another crypto crate.",
+  "checked_at_utc": "2026-10-24T08:41:38Z",
+  "scope": "Configuration migration diagnostics: existing Rust/Go/Ruby, container and Action inputs plus promoted serde derive and development-only proptest. The locked production package versions are unchanged; eleven packages are added only to the test graph.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
-    "exit_code": 0,
-    "result": "CURRENT",
-    "artifact": "docs/en/evidence/signed-download-dependencies.txt",
-    "follow_up": "The slice-start check reports all 35 existing inputs CURRENT; the final post-promotion check includes ring as the 36th input. Daily detection reads the actual direct Cargo edges and pinned Go/Ruby manifests. Scheduled remote execution and release-platform checks remain unobserved; no container builds were run in this slice."
+    "exit_code": 1,
+    "result": "UPDATE_AVAILABLE",
+    "artifact": "docs/en/evidence/configuration-diagnostics-dependencies.txt",
+    "follow_up": "Rust, serde/proptest and the other direct Rust dependencies, SDK inputs and Actions are CURRENT. The existing distroless/cc-debian13:nonroot digest has an available update from 83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf to 3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e; Distribution owns its remediation and release gate. No container build, SDK execution or remote workflow was run in this slice."
   },
   "toolchain": {
     "channel": "stable",
@@ -17,6 +17,26 @@
     "release_url": "https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/"
   },
   "direct_dependencies": [
+    {
+      "name": "proptest", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
+      "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 213842, "minimum_rust": "1.88",
+      "purpose": "Development-only property tests for arbitrary legacy/native CLI and environment input without parser panics or malformed diagnostic JSON.",
+      "features": ["std"],
+      "maintenance": "Official repository is not archived; last push 2026-10-10T18:18:37Z. Latest non-yanked stable release independently verified from the official Cargo index on 2026-10-24.",
+      "source_urls": ["https://index.crates.io/pr/op/proptest", "https://static.crates.io/crates/proptest/proptest-1.12.0.crate", "https://raw.githubusercontent.com/proptest-rs/proptest/v1.12.0/proptest/Cargo.toml", "https://api.github.com/repos/proptest-rs/proptest"],
+      "source_sha256": "b8530004ccb15eae51c7e40009fbe317f341f804db54dc033eec1c50be28cfa0",
+      "resolution_constraints": "Default features disabled; std only, without fork, timeout or bit-set. Cargo.lock adds eleven test-only packages; the production dependency graph does not include proptest."
+    },
+    {
+      "name": "serde", "current": "1.0.229", "latest_non_yanked_stable": "1.0.229",
+      "license": "MIT OR Apache-2.0", "minimum_rust": "1.56",
+      "purpose": "Typed shared diagnostic serialization and bounded configuration object deserialization preserving duplicate-key occurrence counts.",
+      "features": ["derive", "std"],
+      "maintenance": "Publisher release 2026-07-18; latest non-yanked stable independently verified from the official Cargo index on 2026-10-24.",
+      "source_urls": ["https://index.crates.io/se/rd/serde", "https://github.com/serde-rs/serde/tree/v1.0.229"],
+      "source_sha256": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba",
+      "resolution_constraints": "Promotes existing locked serde and derive packages; no production package version change."
+    },
     {
       "name": "ring", "current": "0.17.14", "latest_non_yanked_stable": "0.17.14",
       "license": "Apache-2.0 AND ISC", "compressed_crate_bytes": 1502610, "minimum_rust": "1.66.0",

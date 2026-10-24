@@ -2,9 +2,10 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract proposed on **2026-10-24** for `configuration-workflows`, pending
-independent review with no major findings. This is a
-documentation slice, not implementation of the settings reserved below.
+Contract established on **2026-10-24** for `configuration-workflows`; independent
+review results remain in the ledger. The legacy-input diagnostics slice now
+implements the input/preflight and shared diagnostic contracts below; reserved
+settings remain unavailable until their named slices deliver effective behavior.
 DESIGN-055 and UX-003 remain PARTIAL; DESIGN-064 and DESIGN-065 retain their
 implemented precedence and single-listener TLS scopes. The
 [feature ledger](../../../compatibility/features.json) owns status and evidence.
@@ -17,9 +18,10 @@ The configuration/startup findings in
 [`planning/onboarding-tracks-findings.ja.md`](../../../planning/onboarding-tracks-findings.ja.md#2-設定と起動)
 were checked against `src/config.rs`, `src/main.rs`, `src/url.rs`,
 `src/xml/mod.rs`, `src/server.rs` and the Compose files. They still describe the
-current implementation: first-error validation, ignored `FAKE_GCS_*`, one
+baseline implementation: first-error validation, ignored `FAKE_GCS_*`, one
 listener, a fixed default advertised port, no stored public origin and no log
-level. No server source, catalog, startup ordering or dependencies change here.
+level. The diagnostics implementation replaces the first two limitations while
+preserving the catalog and config → material → catalog → bind startup order.
 
 This contract follows the decisions in
 [`planning/onboarding-tracks-plan.ja.md`](../../../planning/onboarding-tracks-plan.ja.md#4-configuration).
@@ -455,6 +457,25 @@ plaintext errors or extra methods. DESIGN-055/UX-003 runtime cases stay PENDING.
 
 ## Acceptance and delivery ownership
 
+### Legacy diagnostics implementation acceptance
+
+The diagnostics slice verifies the existing `UX-003-LEGACY-DIAGNOSTICS`
+contract with focused parser, configuration, renderer and process tests before
+marking it PASS. Production parsing and diagnostic modules deny Clippy
+`unwrap_used` and `expect_used`; assertion conveniences are allowed only inside
+their test modules. Configuration reports retain the independently valid
+effective settings for TLS/identity preflight even when another setting fails;
+invalid prerequisites suppress only dependent checks. The public `Config::load`
+returns a typed diagnostic collection on failure, and the CLI emits its warnings
+before its errors without duplicating prose. No catalog or startup phase is
+reordered. Resource throughput, RSS, CPU and latency are unmeasured in this slice.
+OS environment keys are classified before decoding values: unknown legacy
+values are never interpreted, and effective known/native encoding failures join
+other independently detectable diagnostics. Invalid native syntax retains its
+prerequisite state, rather than validating dependent fields against defaults.
+Native option names require exactly two hyphens; legacy names permit exactly
+one or two. TLS material loading does not depend on handshake-timeout validity.
+
 These cases are recorded in the ledger before implementation. Contract review
 checks the 19-row inventory, defaults/validation/precedence, shared diagnostic
 examples and measured Host rules. It remains PENDING until an independent
@@ -516,3 +537,16 @@ image update; this configuration contract does not duplicate its remediation
 record or deadline. The existing pin is preserved, not declared current. Next
 implementation can begin with `config-legacy-input-diagnostics` after independent
 contract review; public-origin delivery uses the measured Host rules above.
+
+### Legacy diagnostics runtime verification
+
+The diagnostics implementation and focused regression tests are recorded in
+[configuration diagnostics evidence](../evidence/configuration-diagnostics.md).
+It delivers the 19-name migration inventory, bounded aggregate configuration
+validation, independent TLS/identity preflight and the shared JSON renderer.
+The earlier contract-only verification record is historical; it does not
+describe newly reserved settings as implemented. Endpoint-default resolution,
+public-origin routing, dual listeners and log-level filtering remain the named
+future slices. Literal host `/data` is not modified by tests; isolated paths
+exercise the production inspector. Runtime/signal allocation and simultaneous
+cleanup failures are not fault-injected, and performance remains unmeasured.

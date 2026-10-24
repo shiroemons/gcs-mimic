@@ -3,7 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
-現在のgcs-mimicは`FAKE_GCS_*`を無視します。別名としては使えません。
+開発版のgcs-mimicは既知19個の`FAKE_GCS_*`を移行案内付きのエラーにし、未知の名前は警告します。
+空の値もエラーです。別名としては使えません。0.1.0での無視から変更しています。
 
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)
@@ -76,7 +77,25 @@ CLIで上書きする場合や追加HTTPリスナーを使わない場合も起�
 
 gcs-mimicの優先順位はCLI、環境変数、サーバーJSON設定、既定値の順です。
 未知の`GCS_MIMIC_*`はエラーになり、空の値が常に既定値扱いになるわけではありません。
-`FAKE_GCS_*`を見つけて移行方法を表示する診断は、まだ実装していません。
+CLI・環境変数・JSON設定と、独立して読めるTLS・identityの不正をまとめて検査します。
+stderrへ`source`・元の`key`・直し方の`fix`を持つJSONを、警告、エラーの順で出します。
+エラー時は非ゼロ終了し、ready通知もデータディレクトリ作成も起きません。
+値や秘密は表示せず、安全性を確認した接続先などに限って移行例へ反映します。
+未対応の将来設定を利用可能とは案内しません。
+未知の旧変数の値は解釈せず、非UTF-8でも警告のままです。
+既知変数・native設定の文字コード不正は、独立したCLIやファイルの不正とまとめて表示します。
+
+旧フラグはハイフン1本・2本、値の分離・`=`形式を検出します。
+nativeの`serve --scheme http`や`--object -data`の値はそのまま扱います。
+Composeの`command`はCMDを置き換えるため、nativeへ移すときも
+`serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic`相当の待受・永続化指定が必要です。
+`GCS_MIMIC_PORT`・`GCS_MIMIC_IMAGE`・`GCS_MIMIC_TLS_DIR`はCompose呼び出し側だけに渡してください。
+
+seed未指定で無関係な`/data`に中身がある場合は、一度だけのseed取込設定を警告します。
+自動取込はせず、native保存先との重なり・親子・symlinkを検査して危険な案内を避けます。
+設定はCLI・環境変数・JSONを合わせて1024件、元のキーはUTF-8で256バイトまでです。
+JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制限します。
+[契約と検証結果](../en/evidence/configuration-diagnostics.md)を参照してください。
 
 | 用途 | 現在の設定 | 違い |
 | --- | --- | --- |

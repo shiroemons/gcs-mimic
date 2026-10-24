@@ -2,6 +2,8 @@ pub mod auth;
 pub mod bucket;
 pub mod clock;
 pub mod config;
+pub mod config_input;
+pub mod diagnostics;
 mod http_conditions;
 pub mod json;
 pub mod object;

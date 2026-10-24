@@ -99,8 +99,9 @@ sources and verification limits, and the generated
 - A `bucket/object` seed directory can be imported once. Live directory sync
   and a file for initial per-bucket settings are not implemented yet.
 - Existing emulator backend metadata/history import is not implemented.
-  `FAKE_GCS_*` environment variables are silently ignored in 0.1.0; use the
-  documented `GCS_MIMIC_*` equivalents.
+  Development builds reject the 19 known `FAKE_GCS_*` environment variables
+  with migration advice and warn on unknown names; use the documented
+  `GCS_MIMIC_*` settings. This changes 0.1.0's silent-ignore behavior.
 
 For existing fake-gcs-server setups, see the
 [option mapping and migration guide](docs/en/fake-gcs-server-migration.md#startup-options-and-current-equivalents).

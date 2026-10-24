@@ -72,8 +72,10 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 ## Current gcs-mimic equivalents
 
-Use native names by role. **The current binary ignores `FAKE_GCS_*` variables**;
-they are not aliases. The planned migration diagnostic is not implemented.
+Use native names by role. **The development binary rejects all 19 known
+`FAKE_GCS_*` variables**, including empty values, with migration instructions;
+they are not aliases. Unknown `FAKE_GCS_*` names warn without stopping startup.
+This intentionally changes 0.1.0's silent-ignore behavior for the next minor.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
 [native configuration reference](getting-started.md#native-binary-and-configuration).
@@ -99,6 +101,49 @@ See [option examples](fake-gcs-server-migration.md#startup-options-and-current-e
 host-port variable**, not a server environment setting. Passing it to the binary
 does not configure the listener. Do not mechanically rename every `FAKE_GCS_`
 suffix to `GCS_MIMIC_`.
+
+## Migration diagnostics
+
+Startup collects independent CLI, environment, JSON, TLS and identity failures
+before opening the catalog or binding a listener. It emits newline-delimited
+JSON on stderr: warnings first, then errors, each with a `diagnostics` array of
+`source`, original `key`, and actionable `fix`. Errors return nonzero with no
+ready event or data-directory creation. Diagnostic records sort by source and
+original key; repeated keys keep encounter order. Values and material contents
+are omitted, except validated migration host/port/scheme/location/log-level
+values and HTTP(S) URLs without credentials, queries or fragments.
+Unknown legacy environment values are not decoded, including non-UTF-8 values.
+Invalid effective native/known legacy encodings join the same error batch;
+they do not hide independent CLI or material errors.
+
+For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
+`GCS_MIMIC_LISTEN=127.0.0.2:8080`. A safe external URL retains its proxy prefix.
+Unsupported dual listeners, public-host routing, global location/log settings,
+memory backend and event delivery are identified as unsupported; future names
+are not working replacements. JSON CORS callers can remove the old global
+header setting; XML/public callers configure bucket CORS `responseHeader`.
+
+Legacy option names are detected in one- and two-hyphen forms with separate or
+equals values, including a Compose command that omits `serve`. Native
+`serve --scheme http` remains valid; native options require `--name VALUE`,
+so `--scheme=http` receives syntax advice. Native value positions such as
+`url public --object -data` retain their meaning. Compose `command` replaces
+the image CMD: include `serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic`
+or the corresponding operator-selected bind and volume paths.
+
+`GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are Compose-only
+interpolation variables; keep them outside the native server environment.
+Use `LISTEN` for server binding and `TLS_CERT`/`TLS_KEY` for actual PEM files.
+With no `seed_dir`, an unrelated nonempty `/data` warns that
+`GCS_MIMIC_SEED_DIR=/data` imports once into a fresh data directory. No implicit
+import occurs. Overlap, ancestors and symlink aliases of native storage suppress
+that advice; inspection uncertainty warns without recommending overlapping seed.
+
+Configuration accepts at most 1024 supplied settings across CLI/environment/file
+and keys at most 256 UTF-8 bytes; duplicate JSON keys count as occurrences.
+The JSON file retains its 64 KiB limit. See the
+[workflow contract](slices/configuration-workflows.md#shared-diagnostics-contract)
+and [execution evidence](evidence/configuration-diagnostics.md).
 
 ## Evidence and sources
 
