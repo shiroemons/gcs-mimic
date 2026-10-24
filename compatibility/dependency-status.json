@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-24T11:07:27Z",
-  "scope": "Initializer parsing: existing Rust/Go/Ruby/container/Action inputs, serde_json raw_value and reuse of the approved direct libc dependency for Unix O_NONBLOCK alongside fsutil xattr inspection. No package version or package count changes relative to the integrated source-import baseline.",
+  "checked_at_utc": "2026-10-24T13:05:59Z",
+  "scope": "Approved rusqlite 0.41.0 migration over the initializer baseline: only rusqlite and its required libsqlite3-sys package versions change. Existing Rust/Go/Ruby/container/Action inputs, serde_json raw_value, libc fsutil xattr inspection and Unix O_NONBLOCK initializer validation, and development-only proptest uses are preserved. Feature implementation status and catalog schema are unchanged by this dependency update.",
   "freshness_check": {
-    "command": "cargo xtask dependencies check",
+    "command": "just check-dependencies",
     "exit_code": 1,
     "result": "UPDATE_AVAILABLE",
-    "artifact": "docs/en/slices/bucket-initialization.md",
-    "follow_up": "Rust 1.99.1, libc 0.2.191, serde/proptest, SDK inputs, Actions and other checked inputs are current except for rusqlite 0.41.0 (locked 0.40.2), owned by Shared state/dependency updates, and distroless/cc-debian13:nonroot, owned by Distribution: locked sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf, latest sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e. Both unresolved updates require review by 2026-10-25 before integration/release; Distribution retains the container release gate. No freshness exception or parser-slice container build, SDK execution or remote workflow is claimed; source-import and startup evidence remains separate."
+    "artifact": "docs/en/evidence/rusqlite-dependencies.txt",
+    "follow_up": "All direct Rust dependencies, including adopted rusqlite 0.41.0, Rust, SDK inputs and Actions are CURRENT. The existing distroless/cc-debian13:nonroot digest has an available update from 83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf to 3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e; Distribution owns remediation, review by 2026-10-25 before integration/release, and the container release gate. No freshness exception is claimed. Compatibility results and unexecuted checks are recorded in docs/en/evidence/rusqlite-update.md; source-import, initializer and startup evidence remains separate."
   },
   "toolchain": {
     "channel": "stable",
@@ -121,13 +121,14 @@
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
     },
     {
-      "name": "rusqlite", "current": "0.40.2", "latest_non_yanked_stable": "0.41.0",
-      "license": "MIT", "compressed_crate_bytes": 177215, "minimum_rust": null,
+      "name": "rusqlite", "current": "0.41.0", "latest_non_yanked_stable": "0.41.0",
+      "license": "MIT", "compressed_crate_bytes": 181395, "minimum_rust": "1.89.0",
       "purpose": "Indexed transactional bucket/object catalog with bundled SQLite, durable generation allocation, WAL recovery and atomic mutation preconditions.",
       "features": ["bundled"],
-      "maintenance": "Official Cargo-index check detected non-yanked stable 0.41.0; Shared state/dependency updates must review migration by 2026-10-25. This is unresolved drift, not an approved freshness exception.",
-      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.40.2.crate", "https://github.com/rusqlite/rusqlite"],
-      "resolution_constraints": "Default features disabled; bundled SQLite only. Cargo.lock pins libsqlite3-sys 0.38.2 and the full graph; no cache, pooling or extension features. No rust-version is declared by the crate."
+      "maintenance": "Official publisher repository is not archived; last push 2026-10-24T10:36:00Z. Latest non-yanked stable checked from the official Cargo index on 2026-10-24; crate published 2026-10-24T10:35:41Z and publisher release at 10:36:00Z.",
+      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.41.0.crate", "https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0", "https://api.github.com/repos/rusqlite/rusqlite", "https://index.crates.io/li/bs/libsqlite3-sys", "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.39.0.crate"],
+      "source_sha256": "9c026b4444579e8d754556c6c75d040d69c4a44283cdb648ab8a8d5965c2cfa8",
+      "resolution_constraints": "Default features disabled; bundled SQLite only (implies modern_sqlite). Cargo.lock changes only rusqlite 0.40.2 to 0.41.0 and required libsqlite3-sys 0.38.2 to 0.39.0, bundling SQLite 3.53.2 to 3.54.0. libsqlite3-sys is MIT, 2759088 compressed bytes, Rust 1.88.0, non-yanked, SHA-256 b0e7f1cd558a82cc3af091ed13f0f03846f89851c60a10713ce5cfd484195494. The rusqlite release mentions Rust 1.88.0, but both registry and distributed manifests declare 1.89.0; the project remains on tested Rust 1.99.1. No cache, pooling, SQLCipher, bindgen, WASM or Rust extension features added. See docs/en/evidence/rusqlite-update.md for API/build changes and catalog compatibility."
     },
     {
       "name": "bytes", "current": "1.12.1", "latest_non_yanked_stable": "1.12.1",

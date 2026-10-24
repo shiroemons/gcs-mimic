@@ -205,6 +205,15 @@ Release gates require a successful check against the currently verified stable c
 
 ## Dependency status evidence
 
+The approved rusqlite update adopts 0.41.0 with defaults disabled and only
+`bundled`, resolving libsqlite3-sys 0.39.0 and SQLite 3.54.0. No application API
+or catalog schema change is required. The registry and distributed crate declare
+Rust 1.89.0 despite the release notes mentioning 1.88.0; the tested project pin
+remains 1.99.1. Package provenance, build changes and old-catalog compatibility
+are recorded in the [migration evidence](evidence/rusqlite-update.md).
+The [freshness check](evidence/rusqlite-dependencies.txt) still exits 1 for the
+existing distroless digest update; this migration does not resolve that gate.
+
 The V4 signed-download slice promotes the already locked TLS transitive dependency
 `ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,
 verification and canonical-request SHA-256. No second crypto implementation is
