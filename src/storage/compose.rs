@@ -1,6 +1,5 @@
 use super::{Catalog, DerivedDestination, DerivedSourceSpec, compose_crc32c::combine, objects};
 use crate::{
-    auth::OBJECTS_GET,
     bucket::BucketAccess,
     object::{ComposeSource, ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord},
 };
@@ -22,7 +21,7 @@ fn incarnation(connection: &Connection, bucket: &str) -> Result<String, ObjectEr
 }
 
 impl Catalog {
-    pub async fn compose_object(
+    pub(crate) async fn compose_object(
         &self,
         mut destination: DerivedDestination,
         sources: Vec<ComposeSource>,
@@ -40,7 +39,7 @@ impl Catalog {
             let bucket = destination.bucket.clone();
             let mut source_access = destination.access.clone();
             if let BucketAccess::Policy { permission, .. } = &mut source_access {
-                *permission = OBJECTS_GET.into();
+                *permission = crate::auth::Permission::ObjectsGet;
             }
             let initial = destination.clone();
             let read_access = source_access.clone();
@@ -225,7 +224,7 @@ mod tests {
         DerivedDestination {
             bucket: "bucket".into(),
             name: "destination".into(),
-            ..Default::default()
+            ..DerivedDestination::new(BucketAccess::Permissive)
         }
     }
 

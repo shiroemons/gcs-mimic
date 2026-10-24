@@ -230,6 +230,6 @@ fn destination(
             crc32c: Some(source.crc32c),
         },
         conditions: request.conditions(false),
-        access: BucketAccess::Unchecked,
+        access: BucketAccess::Permissive,
     })
 }

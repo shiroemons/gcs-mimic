@@ -1,4 +1,5 @@
 mod object_effects_support;
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin, Publication, PublishMode};
 use object_effects_support::{Server, blobs, common::TestDir, request, settings};
 use std::{
     io::Write,
@@ -486,7 +487,7 @@ fn versioned_crash_recovery_preserves_referenced_generations() {
 #[tokio::test]
 async fn versioned_schema_migrations_preserve_objects() {
     use gcs_mimic::{
-        object::{ExpectedHashes, ObjectConditions, UploadChunk},
+        object::{ExpectedHashes, UploadChunk},
         storage::Catalog,
     };
     for version in [7, 8] {
@@ -499,7 +500,12 @@ async fn versioned_schema_migrations_preserve_objects() {
         let expected: (gcs_mimic::object::ObjectRecord, Vec<u8>) = {
             let catalog = Catalog::open(&dir.0).await.unwrap();
             let (mut record, mut reader) = catalog
-                .open_object("test-bucket", "file", None, ObjectConditions::default())
+                .admin(Origin::Seed)
+                .open_object(
+                    &BucketName::new("test-bucket").unwrap(),
+                    &ObjectName::new("file").unwrap(),
+                    None,
+                )
                 .await
                 .unwrap();
             let mut bytes = Vec::new();
@@ -530,17 +536,32 @@ async fn versioned_schema_migrations_preserve_objects() {
         for _ in 0..2 {
             let catalog = Catalog::open(&dir.0).await.unwrap();
             let record = catalog
-                .get_object("test-bucket", "file", None, ObjectConditions::default())
+                .admin(Origin::Seed)
+                .get_object(
+                    &BucketName::new("test-bucket").unwrap(),
+                    &ObjectName::new("file").unwrap(),
+                    None,
+                )
                 .await
                 .unwrap();
             assert_eq!(record, expected.0);
             assert_eq!(record.generation.to_string(), original["generation"]);
             assert!(!record.event_based_hold);
             assert!(record.time_deleted.is_none());
-            let bucket = catalog.get_bucket("test-bucket").await.unwrap().unwrap();
+            let bucket = catalog
+                .admin(Origin::Seed)
+                .get_bucket(&BucketName::new("test-bucket").unwrap())
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(bucket.versioning_enabled, version == 8);
             let (selected, mut reader) = catalog
-                .open_object("test-bucket", "file", None, ObjectConditions::default())
+                .admin(Origin::Seed)
+                .open_object(
+                    &BucketName::new("test-bucket").unwrap(),
+                    &ObjectName::new("file").unwrap(),
+                    None,
+                )
                 .await
                 .unwrap();
             assert_eq!(selected, expected.0);
@@ -567,13 +588,18 @@ async fn versioned_schema_migrations_preserve_objects() {
         tx.send(Ok(UploadChunk::End)).await.unwrap();
         drop(tx);
         let next = catalog
-            .put_object(
-                "test-bucket",
-                "file",
-                "text/plain".into(),
-                ExpectedHashes::default(),
-                ObjectConditions::default(),
-                10,
+            .admin(Origin::Seed)
+            .publish_object(
+                &BucketName::new("test-bucket").unwrap(),
+                &ObjectName::new("file").unwrap(),
+                Publication {
+                    content_type: "text/plain".into(),
+                    expected: ExpectedHashes::default(),
+                    condition: None,
+                    metadata: Default::default(),
+                    max_bytes: 10,
+                    mode: PublishMode::Replace,
+                },
                 rx,
             )
             .await

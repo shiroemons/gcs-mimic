@@ -154,7 +154,11 @@ impl Catalog {
 
     async fn run_resumable_maintenance(&self) -> Result<Option<SystemTime>, CatalogError> {
         let result = self.maintain_resumable_inner().await;
-        *self.0.maintenance_error.lock().map_err(unavailable)? =
+        *self
+            .0
+            .maintenance_error
+            .lock()
+            .map_err(|error| unavailable(error.to_string()))? =
             result.as_ref().err().map(ToString::to_string);
         result
     }

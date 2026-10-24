@@ -1,0 +1,2891 @@
+Local checkout, user-home and temporary-directory prefixes are redacted; other command output is unchanged.
+
+COMMAND: just check
+bash scripts/test-pre-push.sh
+PASS: container recipes overlap, label both output streams, wait for cleanup, propagate failures and support serial execution
+bash scripts/test-check.sh
+PASS: shared checks run in order and stop at every failing Cargo command
+env -u RUSTUP_TOOLCHAIN bash scripts/check.sh
+    Checking gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.50s
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.50s
+     Running unittests src/lib.rs (target/debug/deps/gcs_mimic-f9ca284d547bb85a)
+
+running 338 tests
+test auth::tests::notable_role_consequences_follow_the_snapshot ... ok
+test auth::signature::tests::canonical_headers_match_the_official_published_example ... ok
+test auth::signature::tests::canonical_query_sorts_decoded_names_before_encoding ... ok
+test auth::tests::pap_parent_fixture_rejects_malformed_and_unbounded_projects ... ok
+test auth::tests::registry_file_read_is_bounded ... ok
+test auth::tests::role_snapshot_is_sorted_unique_storage_permission_data ... ok
+test auth::tests::strict_caller_resolution ... ok
+test bounded_file::tests::inclusive_limit_reads_only_one_extra_byte ... ok
+test auth::signature::tests::registry_accepts_only_bounded_public_rsa_pem_and_rejects_private_material ... ok
+test auth::tests::registry_validation_rejects_invalid_files_without_partial_load ... ok
+test auth::tests::evaluation_is_driven_by_snapshot_data ... ok
+test bucket_init::tests::closed_schema_rejects_unknown_unsupported_and_disabled_noops ... ok
+test auth::signature::tests::signed_time_boundaries_use_the_injected_clock_and_documented_skew ... ok
+test auth::signature::tests::signed_method_resource_query_host_port_headers_and_hex_are_bound ... ok
+test bucket_init::tests::failed_retention_never_evicts_an_existing_diagnostic ... ok
+test bucket_init::tests::existing_api_acceptance_and_legacy_profile_remain_separate ... ok
+test auth::signature::tests::content_sha256_is_bound_when_supplied_and_extension_headers_must_be_signed ... ok
+test auth::signature::tests::malformed_duplicate_scope_duration_and_unknown_signer_are_rejected ... ok
+test bucket_init::tests::invalid_projects_do_not_hide_independent_native_errors ... ok
+test auth::signature::tests::signer_normalizes_default_ports_and_verifier_rejects_conflicting_absolute_authority ... ok
+test bucket_init::tests::malformed_documents_versions_and_shapes_fail_without_parser_leaks ... ok
+test bucket_init::tests::native_settings_project_precedence_and_injected_microseconds ... ok
+test auth::signature::tests::raw_paths_query_sorting_and_header_normalization_preserve_signed_distinctions ... ok
+test bucket_init::tests::repeated_members_at_every_depth_and_decoded_global_names_are_reported ... ok
+test bucket_init::tests::entries_after_the_count_limit_are_not_interpreted ... ok
+test bounded_file::tests::bounded_reads_preserve_fifo_inputs ... ok
+test bucket_init::tests::regular_files_relative_paths_symlinks_and_read_failures ... ok
+test bucket_init::tests::shared_renderer_preserves_complete_sorted_escaped_batches ... ok
+test bucket_init::tests::generalized_detail_groups_preserve_fields_after_rule_and_member_noise ... ok
+test config::tests::advertised_endpoint_precedence_and_validation ... ok
+test config::tests::authentication_profile_precedence_and_validation ... ok
+test config::tests::bucket_initializer_selectors_remain_unsupported_until_startup_integration ... ok
+test bucket_init::tests::diagnostic_noise_preserves_other_entries_and_document_failures ... ok
+test config::tests::config_file_diagnostics_keep_the_selected_source_and_field ... ok
+test config::tests::compat_profile_precedence_and_validation ... ok
+test bucket_init::tests::shortened_first_errors_and_root_typo_advice_remain_visible ... ok
+test config::tests::data_directory_precedence_and_validation ... ok
+test config::tests::effective_validation_aggregates_without_cascades_and_keeps_native_precedence ... ok
+test config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades ... ok
+test config::tests::object_limit_precedence_and_bounds ... ok
+test config::tests::bounded_config_reads_preserve_fifo_inputs ... ok
+test config::tests::public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls ... ok
+test config::tests::tls_configuration_precedence_and_validation ... ok
+test config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence ... ok
+test config::tests::transfer_timeout_precedence_and_bounds ... ok
+test config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence ... ok
+test config::tests::config_occurrence_limits_count_duplicate_json_keys_and_all_input_sources ... ok
+test config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls ... ok
+test config_input::tests::native_environment_encoding_follows_effective_precedence ... ok
+test config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens ... ok
+test config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens ... ok
+test config_input::tests::data_inspection_is_bounded_conservative_and_resolves_missing_ancestors ... ok
+test diagnostics::tests::batches_are_ordered_escaped_independent_and_do_not_replay_pages ... ok
+test config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty ... ok
+test fsutil::tests::metadata_errno_retains_platform_distinctions ... ok
+test fsutil::tests::metadata_lengths_include_exact_cap_and_empty ... ok
+test fsutil::tests::descriptor_xattr_reads_are_bounded_and_read_only ... ok
+test hashing::tests::encode_lower_preserves_leading_zeroes ... ok
+test http_conditions::tests::etag_comparison_rejects_invalid_tags_even_after_a_matching_member ... ok
+test http_conditions::tests::etag_comparison_uses_http_lists_and_strong_or_weak_matching ... ok
+test bucket_init::tests::oversized_entries_keep_structural_and_duplicate_name_diagnostics ... ok
+test auth::tests::pap_mutations_require_update_and_set_iam_permissions ... ok
+test import::codec::tests::exact_times_offsets_zero_and_negative_epoch ... ok
+test hashing::tests::checkpoint_resumes_both_digests ... ok
+test config_input::tests::supplied_occurrences_and_original_utf8_keys_are_bounded ... ok
+test import::tests::ordinary_xattr_objects_do_not_get_a_detritus_probe ... ok
+test import::tests::unsupported_xattr_inspection_warns_once_per_sidecar_object ... ok
+test json::cors::tests::cors_origin_syntax_is_independent_of_listener_and_url_schemes ... ok
+test json::derived_metadata::tests::empty_body_inherits_and_explicit_resource_replaces_metadata_without_source_holds ... ok
+test import::tests::xattr_snapshot_verifies_bodies_without_mutating_source_attributes ... ok
+test json::fields::tests::fields_persisted_selection_does_not_depend_on_current_schema ... ok
+test json::fields::tests::fields_reject_malformed_unknown_and_scalar_children ... ok
+test json::fields::tests::fields_bound_length_depth_and_selection_count ... ok
+test json::fields::tests::fields_select_paths_subselectors_wildcards_and_omitted_values ... ok
+test json::iam::tests::etag_bytes_accept_protojson_encodings_and_normalize_for_comparison ... ok
+test json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters ... ok
+test json::fields::tests::fields_rendered_resource_paths_match_pinned_schemas ... ok
+test json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata ... ok
+test import::codec::tests::valid_bucket_names_round_trip ... ok
+test json::multipart::tests::multipart_parser_rejects_missing_parts_bad_headers_and_truncation ... ok
+test import::codec::tests::escaped_names_round_trip ... ok
+test json::object_tests::obj_error_001_status_reason_envelope_and_private_diagnostics ... ok
+test json::object_tests::obj_headers_001_upload_defaults_hashes_and_multiple_headers ... ok
+test json::object_tests::obj_headers_002_invalid_hashes_and_unsupported_semantics ... ok
+test json::object_tests::obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected ... ok
+test json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value ... ok
+test json::object_tests::obj_name_001_exactly_once_decoding_and_utf8_boundaries ... ok
+test json::object_tests::obj_query_001_required_upload_and_unsupported_types ... ok
+test json::object_tests::obj_query_002_duplicates_invalid_scalars_and_method_parameters ... ok
+test json::object_tests::obj_render_001_exact_resource_and_encoded_generation_links ... ok
+test json::object_tests::obj_render_002_media_headers_match_selected_generation_and_hashes ... ok
+test json::object_tests::obj_route_001_media_upload_metadata_download_delete ... ok
+test json::object_tests::obj_route_002_namespace_and_method_boundaries ... ok
+test json::object_tests::obj_signed_int64_and_download_endpoint_regressions ... ok
+test json::page_token::tests::bkt_lst_002_rejects_valid_checksum_with_invalid_version_or_payload ... ok
+test json::page_token::tests::object_list_tokens_reject_valid_checksums_with_invalid_payloads ... ok
+test json::rewrite::tests::rewrite_route_decodes_once_and_bounds_byte_budgets ... ok
+test json::tests::bkt_body_001_empty_exact_cap_multiframe_and_trailers ... ok
+test json::tests::bkt_body_001_rejects_oversize_and_read_errors ... ok
+test json::tests::bkt_err_001_envelope_content_type_and_catalog_mappings ... ok
+test json::tests::bkt_get_001_and_id_001_bucket_wire_fields ... ok
+test json::tests::bkt_get_002_and_del_002_signed_conditions ... ok
+test json::tests::bkt_id_001_utc_milliseconds_leap_century_and_range ... ok
+test json::tests::bkt_id_002_etag_changes_with_revision_and_incarnation ... ok
+test json::tests::bkt_ins_001_defaults_and_server_owned_values ... ok
+test json::tests::bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields ... ok
+test bucket_init::tests::encoded_resource_cannot_expand_past_the_native_body_limit ... ok
+test json::tests::bkt_ins_002_labels_unicode_boundaries_and_count ... ok
+test import::codec::tests::arbitrary_times_never_panic ... ok
+test json::tests::bkt_ins_002_recognized_unsupported_fields_never_succeed ... ok
+test json::tests::bkt_ins_002_output_only_fields_do_not_override_server_state ... ok
+test json::tests::bkt_ins_003_location_and_storage_class_subset ... ok
+test json::tests::bkt_lst_001_max_results_defaults_bounds_and_clamping ... ok
+test json::tests::bkt_lst_001_response_omits_empty_items_and_absent_token ... ok
+test json::tests::bkt_lst_002_tokens_round_trip_scope_and_query_cursor ... ok
+test json::tests::bkt_lst_002_token_tampering_and_invalid_shapes ... ok
+test json::tests::bkt_name_001_length_charset_and_dot_boundaries ... ok
+test json::tests::bkt_name_002_ipv4_and_reserved_names ... ok
+test json::tests::bkt_qry_001_duplicate_unknown_and_misplaced_parameters ... ok
+test json::tests::bkt_qry_002_projection_alt_and_boolean_validation ... ok
+test json::tests::bkt_qry_001_every_common_and_method_unsupported_parameter ... ok
+test json::tests::bkt_route_001_exact_routes_and_method_variants ... ok
+test json::tests::bkt_route_002_path_decodes_only_after_splitting ... ok
+test json::tests::bkt_qry_002_required_project_and_limits ... ok
+test json::tests::bkt_route_003_wrong_method_has_allow_header ... ok
+test bucket_init::tests::inclusive_file_entry_and_count_limits_include_original_bytes ... ok
+test bucket_init::tests::first_error_summaries_cover_all_entries_with_bounded_ranges ... ok
+test json::multipart::tests::multipart_parser_preserves_boundary_prefixes_at_every_chunk_split ... ok
+test bucket_init::tests::arbitrary_bytes_never_panic ... ok
+test bucket_init::tests::schema_shaped_inputs_keep_native_and_typed_conversion_consistent ... ok
+test bucket_init::tests::arbitrary_json_shapes_and_depths_never_panic ... ok
+test bucket_init::tests::successful_parses_preserve_input_count_names_and_order ... ok
+test source_tree::tests::root_snapshot_is_shared_with_the_walk ... ok
+test storage::catalog::admin::tests::admin_admission_is_independent_of_saturated_api_slots ... ok
+test storage::catalog::admin::tests::admin_cancelled_body_cleans_staging_before_unlock ... ok
+test json::multipart::tests::multipart_parser_streams_large_media_with_bounded_carry ... ok
+test storage::catalog::admin::tests::admin_corrupt_sqlite_and_stored_values_remain_typed ... ok
+test storage::catalog::admin::tests::admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock ... ok
+test storage::catalog::admin::tests::admin_ensure_batches_preserve_identity_order_and_rollback ... ok
+test storage::catalog::admin::tests::admin_holds_and_disk_full_keep_their_error_types ... ok
+test storage::catalog::admin::tests::admin_ensure_full_batch_and_concurrent_creates_are_atomic ... ok
+test storage::catalog::admin::tests::admin_names_generations_and_permissions_are_validated ... ok
+test server::copy::tests::copy_advisory_failure_does_not_begin_a_transfer ... ok
+test storage::catalog::admin::tests::admin_invalid_metadata_cannot_replace_a_readable_generation ... ok
+test storage::catalog::admin::tests::admin_replace_preserves_conditions_checksums_metadata_and_versions ... ok
+test storage::catalog::admin::tests::admin_shutdown_holds_lock_through_renamed_publication ... ok
+test json::multipart::tests::multipart_parser_reads_long_headers_and_padding_in_one_byte_frames ... ok
+test storage::catalog::admin::tests::admin_wait_deadlines_queue_limit_and_closed_state_are_typed ... ok
+test storage::catalog::admin::tests::disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes ... ok
+test storage::catalog::compose::tests::component_count_saturates_and_success_cleans_temporary_links ... ok
+test storage::catalog::admin::tests::disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes ... ok
+test storage::catalog::compose::tests::composed_size_cap_preserves_sources_and_leaves_no_transfer ... ok
+test storage::catalog::compose_crc32c::tests::nested_combination_is_associative_and_preserves_empty_components ... ok
+test storage::catalog::compose_crc32c::tests::every_split_matches_direct_crc32c ... ok
+test storage::catalog::compose_crc32c::tests::arbitrary_ordered_components_match_direct_crc32c ... ok
+test storage::catalog::derived::tests::abandoned_handler_guard_waits_for_writer_then_reclaims_transfer ... ok
+test storage::catalog::derived::tests::all_source_conditions_are_checked_before_pinning_and_ranges_are_validated ... ok
+test server::copy::tests::shutdown_during_copy_recovers_without_a_destination ... ok
+test server::copy::tests::composite_count_uses_the_destination_class_selected_at_commit ... ok
+test server::copy::tests::copy_rechecks_destination_conditions_after_the_advisory_check ... ok
+test storage::catalog::derived::tests::batch_source_resolution_checks_every_source_and_cleans_partial_pins ... ok
+test server::copy::tests::copy_rechecks_source_read_grant_before_publication ... ok
+test server::copy::tests::copy_handler_drop_and_advance_failure_reclaim_the_owned_transfer ... ok
+test storage::catalog::derived::tests::foreign_key_bindings_cascade_on_cancel_expiry_and_quarantine ... ok
+test storage::catalog::derived::tests::callback_reclamation_failure_preserves_success_and_maintenance_retries ... ok
+test storage::catalog::derived::tests::cleanup_failure_preserves_original_publication_error ... ok
+test storage::catalog::derived::tests::committed_callback_deletion_reclaims_source_blob_without_restart ... ok
+test storage::catalog::derived::tests::callback_source_deletion_rolls_back_with_destination_and_checks_holds ... ok
+test storage::catalog::derived::tests::corrupt_transfer_is_discarded_without_blocking_catalog_recovery ... ok
+test storage::catalog::derived::tests::dropping_begin_after_binding_starts_reclaims_the_ephemeral_transfer ... ok
+test server::copy::tests::timed_out_publication_admission_never_commits_after_the_response ... ok
+test storage::catalog::derived::tests::incomplete_and_transient_publication_failures_preserve_resumable_progress ... ok
+test storage::catalog::derived::tests::destination_race_has_one_winner_and_failed_publication_cleans_staging ... ok
+test storage::catalog::derived::tests::injected_clock_expiry_is_enforced_and_maintenance_reclaims_inputs ... ok
+test config_input::tests::arbitrary_legacy_and_native_inputs_never_panic ... ok
+test storage::catalog::objects::tests::failed_v1_migration_never_commits_an_unreopenable_v2_catalog ... ok
+test storage::catalog::derived::tests::request_binding_commits_or_rolls_back_with_transfer_ownership ... ok
+test storage::catalog::objects::tests::metadata_migration_rolls_back_all_columns_and_version_after_late_failure ... ok
+test storage::catalog::derived::tests::recovery_rejects_same_length_corrupted_acknowledged_prefix ... ok
+test storage::catalog::derived::tests::recovery_restores_renamed_uncommitted_output_and_empty_sources ... ok
+test storage::catalog::derived::tests::migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object ... ok
+test storage::catalog::objects::tests::object_range_reader_seeks_sparse_blob_and_bounds_every_chunk ... ok
+test storage::catalog::objects::tests::object_list_skips_noncurrent_rows_with_bounded_sql_work ... ok
+test storage::catalog::objects::tests::object_list_seeks_past_large_prefixes_with_bounded_sql_work ... ok
+test server::copy::tests::slow_copy_stream_is_not_limited_by_the_catalog_wait_budget ... ok
+test storage::catalog::derived::tests::restart_reclaims_ephemeral_transfers_and_preserves_continuable_transfers ... ok
+test storage::catalog::objects::tests::versioning_migration_copies_named_columns_from_permuted_legacy_table ... ok
+test storage::catalog::derived::tests::unknown_transfer_ids_cannot_remove_another_transfers_source ... ok
+test storage::catalog::resumable::tests::failed_session_migration_rolls_back_tables_indexes_and_version ... ok
+test storage::catalog::objects::tests::forbidden_overwrite_is_rechecked_atomically_after_a_concurrent_create ... ok
+test storage::catalog::derived::tests::pinned_ranges_resume_after_source_deletion_restart_and_uncommitted_tail ... ok
+test storage::catalog::derived::tests::validation_sees_same_name_source_before_retirement_and_completion_sees_destination ... ok
+test storage::catalog::rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+test storage::catalog::rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+test storage::catalog::policies::cancellation_tests::cancelled_policy_request_still_executes_its_owned_job ... ok
+test storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication ... ok
+test storage::catalog::objects::tests::operations_recheck_the_authorized_project_after_bucket_recreation ... ok
+test storage::catalog::tests::bucket_settings_migration_rolls_back_columns_and_version_after_late_failure ... ok
+test storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit ... ok
+test storage::catalog::tests::immutable_uri_preserves_native_windows_paths ... ok
+test storage::catalog::rewrite::tests::rewrite_initial_request_owner_reclaims_undelivered_state ... ok
+test storage::catalog::objects::tests::missing_bucket_access_reauthorizes_against_the_actual_project ... ok
+test storage::catalog::tests::timestamps_use_integer_unix_milliseconds ... ok
+test storage::catalog::timestamp_tests::timestamp_fixture_downgrade_floors_signed_values_and_deletion_times ... ok
+test storage::catalog::tests::immutable_uri_reads_exact_unicode_and_reserved_filename ... ok
+test storage::catalog::timestamp_tests::timestamp_migration_rejects_overflow_without_changing_version_or_values ... ok
+test storage::catalog::timestamp_tests::timestamp_migration_scales_extrema_and_rolls_back_after_partial_update ... ok
+test storage::catalog::rewrite::tests::rewrite_committed_completion_does_not_reread_an_expired_token ... ok
+test storage::catalog::tests::bucket_patch_rechecks_revocation_and_bucket_recreation ... ok
+test storage::catalog::tests::bucket_put_rechecks_revocation_and_bucket_recreation ... ok
+test storage::catalog::objects::tests::pap_is_rechecked_after_upload_admission_and_before_reads ... ok
+test storage::catalog::objects::tests::revoked_bucket_binding_is_rechecked_inside_operations ... ok
+test storage::catalog::tests::close_waits_for_cancelled_blocking_work_and_invalidates_clones ... ok
+test storage::catalog::tests::poisoned_catalog_permanently_revokes_readiness ... ok
+test storage::catalog_tests::catalog_child_process ... ok
+test storage::catalog_tests::bucket_put_uses_clock_and_rolls_back_invalid_replacement ... ok
+test storage::catalog::timestamp_tests::timestamp_migration_preserves_resources_etags_permissions_and_sessions ... ok
+test storage::catalog_tests::concurrent_duplicate_creates_have_exactly_one_winner ... ok
+test storage::catalog_tests::bucket_patch_uses_clock_and_rolls_back_invalid_merge ... ok
+test storage::catalog_tests::bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries ... ok
+test storage::catalog_tests::bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates ... ok
+test server::copy::tests::copy_pins_source_conditions_at_selection_during_concurrent_replacement ... ok
+test storage::catalog_tests::directory_lock_lives_until_the_last_handle_drops ... ok
+test storage::catalog_tests::delete_preconditions_are_atomic_and_preserve_failed_records ... ok
+test storage::catalog_tests::drop_releases_lock_while_a_forked_child_has_not_execed ... ok
+test storage::catalog::timestamp_tests::timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors ... ok
+test storage::catalog_tests::indexed_listing_orders_filters_pages_and_limits ... ok
+test storage::catalog_tests::create_get_delete_and_restart_preserve_every_field ... ok
+test storage::catalog_tests::pap_migrates_version_twelve_and_persists_configured_state ... ok
+test storage::catalog_tests::recovers_committed_wal_after_process_exit_without_drop ... ok
+test storage::catalog_tests::rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters ... ok
+test storage::catalog_tests::failed_policy_migration_rolls_back_and_restarts_from_version_five ... ok
+test storage::catalog_tests::timestamp_version_fourteen_reopen_preserves_timestamps ... ok
+test storage::object_tests::cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup ... ok
+test storage::catalog_tests::policy_migration_visits_every_bucket_in_binary_name_order ... ok
+test storage::object_tests::concurrent_create_if_absent_has_exactly_one_winner_and_no_orphans ... ok
+test storage::catalog_tests::rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes ... ok
+test storage::object_tests::committed_mutations_succeed_when_reclaim_is_deferred_to_restart ... ok
+test storage::object_tests::all_four_preconditions_apply_to_reads_uploads_and_deletes ... ok
+test storage::catalog::timestamp_tests::timestamp_writes_floor_microseconds_across_publication_routes ... ok
+test storage::object_tests::deleted_generations_are_never_reused_after_restart_or_backward_clock ... ok
+test storage::object_tests::empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes ... ok
+test storage::object_tests::generation_selection_nonempty_bucket_and_open_readers_survive_unlink ... ok
+test storage::object_tests::failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed ... ok
+test storage::object_tests::limits_bad_hashes_and_body_errors_leave_no_generation_or_blob ... ok
+test storage::object_tests::producer_closure_without_eof_never_publishes_partial_bytes ... ok
+test storage::object_tests::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog ... ok
+test storage::object_tests::metadata_update_races_with_delete_and_upload_preserve_atomic_identity ... ok
+test storage::object_tests::recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects ... ok
+test storage::object_tests::missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock ... ok
+test storage::object_tests::round_trip_exact_hashes_opaque_names_and_restart ... ok
+test storage::object_tests::stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded ... ok
+test storage::object_tests::unreleased_v2_catalog_is_rejected_without_changing_data ... ok
+test storage::catalog_tests::bucket_settings_migrate_supported_catalogs ... ok
+test storage::object_tests::upload_precheck_rejects_without_waiting_for_body_or_creating_staging ... ok
+test bucket_init::tests::diagnostics_are_bounded_with_an_exact_omitted_count ... ok
+test storage::resumable_http_tests::busy_session_rejects_competing_writer_while_other_sessions_progress ... ok
+test storage::resumable_http_tests::acknowledged_prefix_resumes_through_router_after_restart_and_expired_writes_fail ... ok
+test storage::object_tests::incompatible_schema_constraints_indexes_and_v1_conflicts_are_read_only ... ok
+test storage::catalog_tests::rejects_future_schema_unversioned_data_and_corruption ... ok
+test storage::resumable_http_tests::cancellation_racing_append_respects_writer_and_prevents_later_publication ... ok
+test storage::object_tests::recovery_ignores_os_metadata_and_names_other_stray_entries ... ok
+test storage::object_tests::v1_migration_is_transactional_and_current_schema_reopens_idempotently ... ok
+test storage::resumable_http_tests::checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried ... ok
+test storage::resumable_http_tests::contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_session ... ok
+test storage::resumable_http_tests::all_four_initiation_conditions_are_rechecked_atomically_and_cannot_be_relaxed ... ok
+test storage::catalog::rewrite::tests::rewrite_active_sessions_are_bounded_and_busy_expiry_does_not_block_others ... ok
+test storage::resumable_http_tests::chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots ... ok
+test storage::resumable_http_tests::checksum_and_final_metadata_failures_preserve_the_previous_full_resource ... ok
+test storage::resumable_http_tests::final_metadata_and_completion_snapshot_survive_catalog_restart ... ok
+test storage::resumable_http_tests::finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout ... ok
+test storage::resumable_http_tests::capability_delegate_uses_initiator_grants_and_rechecks_overwrite_and_revocation ... ok
+test storage::resumable_http_tests::cancellation_racing_finalization_has_one_terminal_winner_and_preserves_live_bytes ... ok
+test storage::resumable_http_tests::initiation_checks_strict_create_and_overwrite_permissions_before_staging ... ok
+test storage::resumable_http_tests::initiation_preserves_encoded_names_metadata_and_query_precedence ... ok
+test storage::resumable_http_tests::initiation_returns_opaque_fixed_location_and_status_without_publication ... ok
+test storage::resumable_http_tests::invalid_initiation_and_status_leave_no_session_or_file ... ok
+test storage::resumable_http_tests::interrupted_chunk_releases_writer_and_preserves_only_acknowledged_bytes ... ok
+test storage::resumable_http_tests::malformed_ranges_and_wrong_lengths_never_advance_the_durable_prefix ... ok
+test storage::resumable_http_tests::obj_http_resumable_failed_overwrites_preserve_metadata_bytes_and_files ... ok
+test storage::resumable_http_tests::object_caps_apply_to_known_unknown_and_streamed_lengths ... ok
+test storage::resumable_http_tests::sdk_initiation_accepts_one_retry_token_without_generation_conditions ... ok
+test storage::resumable_http_tests::final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget ... ok
+test storage::resumable_http_tests::obj_http_resumable_independent_empty_and_multichunk_checksum_vectors ... ok
+test storage::resumable_http_tests::sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_at_completion ... ok
+test storage::resumable_http_tests::host_follows_returned_location_and_streams_large_body_in_small_buffers ... ok
+test storage::resumable_http_tests::session_deadline_during_transfer_returns_not_found_without_acknowledging_tail ... ok
+test storage::resumable_http_tests::failed_finalization_and_cancel_cleanup_retry_before_session_deadline ... ok
+test storage::resumable_http_tests::retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation ... ok
+test storage::resumable_http_tests::strict_anonymous_cancellation_rejects_bodies_and_follows_original_deadline ... ok
+test storage::resumable_http_tests::two_create_if_absent_sessions_have_one_finalization_winner ... ok
+test storage::resumable_lifecycle_tests::cancel_obeys_writer_lease_and_only_one_cancellation_wins ... ok
+test storage::object_tests::conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic ... ok
+test storage::resumable_http_tests::unknown_total_sdk_post_duplicate_overlap_and_empty_final_preserve_prefix ... ok
+test storage::resumable_lifecycle_tests::cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadline ... ok
+test storage::resumable_http_tests::single_empty_and_exact_multiple_uploads_replay_original_completion_after_overwrite ... ok
+test storage::resumable_lifecycle_tests::completed_session_cannot_be_cancelled_or_have_its_bytes_removed ... ok
+test storage::resumable_lifecycle_tests::cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slot ... ok
+test storage::resumable_lifecycle_tests::anonymous_cancel_removes_staging_and_terminal_errors_follow_original_deadline ... ok
+test storage::resumable_lifecycle_tests::cancel_reloads_terminal_state_when_transition_no_longer_matches ... ok
+test storage::resumable_lifecycle_tests::expiry_waits_for_writer_and_retries_after_lease_release ... ok
+test storage::resumable_lifecycle_tests::expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it ... ok
+test storage::resumable_lifecycle_tests::idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup ... ok
+test storage::object_tests::recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry ... ok
+test storage::resumable_lifecycle_tests::recovery_rejects_ambiguous_active_publication_without_deleting_either_copy ... ok
+test storage::resumable_lifecycle_tests::recovery_rejects_symlink_prefix_without_changing_its_target ... ok
+test storage::resumable_lifecycle_tests::restart_restores_rename_before_commit_instead_of_deleting_acknowledged_bytes ... ok
+test storage::catalog_tests::repeated_concurrent_use_close_and_reopen_preserves_data ... ok
+test storage::resumable_lifecycle_tests::restart_discards_write_before_offset_commit_and_preserves_committed_prefix ... ok
+test storage::resumable_lifecycle_tests::writer_lease_is_reacquired_after_drop_and_panic ... ok
+test url::tests::encodes_reserved_and_non_ascii_bytes ... ok
+test url::tests::keeps_slashes_unless_a_segment_is_a_dot_segment ... ok
+test url::tests::arbitrary_base_normalization_is_idempotent ... ok
+test url::tests::normalizes_base_urls ... ok
+test storage::resumable_lifecycle_tests::scheduler_retries_failed_cleanup_and_clears_its_error_after_repair ... ok
+test url::tests::public_origins_normalize_dns_ips_ports_and_root_paths ... ok
+test url::tests::prefixed_public_origins_normalize_idempotently ... ok
+test url::tests::rejects_invalid_base_urls ... ok
+test url::tests::rejects_invalid_bucket_names ... ok
+test url::tests::public_origins_reject_port_zero ... ok
+test url::tests::rejects_invalid_object_names ... ok
+test url::tests::virtual_host_urls_preserve_final_authority_and_raw_object_path ... ok
+test xml::cors::tests::xml_cors_matches_default_ports_and_mobile_origins_without_http_allowlist ... ok
+test xml::cors::tests::xml_cors_matches_first_rule_and_never_grants_credentials ... ok
+test xml::cors::tests::xml_cors_denials_wildcards_and_malformed_headers ... ok
+test xml::cors::tests::xml_cors_subdomain_wildcard_preserves_scheme_port_and_domain_boundary ... ok
+test storage::resumable_tests::checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired_sessions ... ok
+test storage::resumable_lifecycle_tests::restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_session_expiry ... ok
+test storage::resumable_tests::sessions_persist_options_offsets_deadline_and_exclusive_admission ... ok
+test storage::resumable_lifecycle_tests::missing_short_and_nonfile_acknowledged_prefixes_block_readiness ... ok
+test url::tests::normalized_public_origins_are_idempotent ... ok
+test storage::resumable_http_tests::initiation_session_cap_and_status_prefix_are_bounded ... ok
+test storage::resumable_tests::previous_schema_migrates_and_invalid_session_options_are_rejected_read_only ... ok
+test storage::catalog::derived::tests::transfer_kinds_have_independent_bounded_quotas_across_restart ... ok
+test storage::resumable_lifecycle_tests::recovery_pages_active_prefixes_and_reclaims_orphans_and_deferred_blobs ... ok
+test storage::resumable_tests::retained_session_cap_is_atomic_and_rejection_creates_no_file ... ok
+test storage::resumable_lifecycle_tests::expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots ... ok
+test storage::catalog::admin::tests::admin_publication_times_out_at_the_public_admission_deadline ... ok
+
+test result: ok. 338 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.72s
+
+     Running unittests src/main.rs (target/debug/deps/gcs_mimic-108c48b8ac0ee811)
+
+running 7 tests
+test startup::tests::shutdown_wins_before_starting_the_next_phase ... ok
+test startup::tests::phase_completion_and_signal_errors_are_preserved ... ok
+test startup::tests::close_failure_preserves_primary_diagnostics_and_unstructured_errors ... ok
+test startup::tests::catalog_open_failure_preserves_diagnostics_without_repolling ... ok
+test startup::tests::shutdown_during_recovery_drains_open_before_unlocking ... ok
+test startup::tests::shutdown_during_policy_configuration_drains_owned_work ... ok
+test startup::tests::startup_failures_close_catalog_even_with_live_handles ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/auth_http.rs (target/debug/deps/auth_http-cd516b48f6e57a64)
+
+running 102 tests
+test cors::json_cors_preflight_defaults_never_authenticate_or_grant_access ... ok
+test auth_http_strict_rejects_anonymous_and_unsupported_credentials ... ok
+test auth_http_rejected_uploads_do_not_read_or_stage_the_body ... ok
+test iam::auth_http_revoked_bucket_grants_deny_every_basic_method_and_preserve_objects ... ok
+test auth_http_upload_into_a_bucket_recreated_in_another_project_is_forbidden ... ok
+test cors::xml_cors_uses_persisted_bucket_rules_without_changing_json_or_permissions ... ok
+test iam::auth_http_media_and_multipart_recheck_revoked_overwrite_grants_after_streaming ... ok
+test auth_http_concurrent_creates_without_delete_have_one_winner ... ok
+test cors::json_cors_wraps_bucket_object_streaming_errors_and_validators ... ok
+test cors::mobile_origins_and_default_ports_round_trip_and_authorize_cors_independently ... ok
+test auth_http_project_roles_gate_each_route ... ok
+test iam::iam_default_policy_and_versions ... ok
+test auth_http_permissive_ignores_any_authorization ... ok
+test auth_http_startup_rejects_invalid_profiles_and_registries ... ok
+test iam::iam_preserves_duplicate_members_and_role_bindings ... ok
+test iam::iam_permissive_policy_and_cas ... ok
+test iam::iam_policy_round_trip_and_unconditional_versions ... ok
+test auth_http_admin_full_crud_and_restart_with_same_registry ... ok
+test iam::iam_bucket_grants_authorize_only_the_target_bucket ... ok
+test iam::iam_principal_and_body_limits ... ok
+test iam::iam_recreated_bucket_has_fresh_policy ... ok
+test iam::iam_bucket_grants_cover_existing_routes ... ok
+test iam::iam_rejects_invalid_policy_shapes ... ok
+test iam::iam_rejects_queries_paths_and_bodies ... ok
+test iam::iam_rejects_unsupported_policy_semantics ... ok
+test iam::iam_policy_survives_restart ... ok
+test iam::iam_requires_effective_get_and_set_permissions ... ok
+test iam::iam_stale_and_concurrent_etags ... ok
+test signing::overrides::xml_response_overrides_are_absent_from_error_responses ... ok
+test signing::invalid_signing_keys_fail_before_readiness_and_permissive_remains_explicit ... ok
+test signing::overrides::xml_response_overrides_from_cli_reach_the_server ... ok
+test signing::pap::pap_disabled_uniform_access_noop_matches_python_client ... ok
+test signing::overrides::xml_response_overrides_preserve_selected_metadata_ranges_and_cors ... ok
+test signing::pap::pap_invalid_and_unsupported_settings_preserve_resources ... ok
+test iam::iam_revocation_races_object_reads ... ok
+test iam::iam_migrates_v5_catalog ... ok
+test signing::overrides::xml_response_overrides_reject_injection_duplicates_and_unknown_names ... ok
+test signing::pap::pap_signed_requests_suppress_all_authenticated_users_grants ... ok
+test signing::partial_signing_fields_never_become_anonymous_under_public_grants ... ok
+test virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready ... ok
+test signing::pap::pap_signed_get_head_put_use_signer_grants_and_reject_tampering ... ok
+{"diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}],"event":"diagnostics","level":"warn"}
+test signing::pap::pap_parent_fixture_inheritance_restart_and_release ... ok
+test signing::put::signed_put_conditions_are_atomic_and_cors_wraps_success_and_failure ... ok
+test signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body ... ok
+test signing::signed_tampering_never_falls_back_to_public_access_and_has_xml_errors ... ok
+test signing::signed_private_get_head_range_and_bucket_grants_use_signer_permissions ... ok
+test signing::put::signed_put_streams_private_bytes_metadata_and_signed_headers ... ok
+test signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart ... ok
+{"diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}],"event":"diagnostics","level":"warn"}
+test signing::pap::pap_resumable_finalization_rechecks_public_initiator ... ok
+test signing::signed_paths_and_repeated_headers_round_trip_without_normalizing_object_names ... ok
+test virtual_host::public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation ... ok
+test virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket ... ok
+test signing::put::signed_put_sha256_and_md5_failures_preserve_the_full_previous_resource ... ok
+test virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors ... ok
+test virtual_host::virtual_host_absolute_target_authority_must_match_host_before_dispatch ... ok
+{"diagnostics":[{"fix":"public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid.","key":"--public-base-url","source":"cli"}],"event":"diagnostics","level":"warn"}
+test virtual_host::virtual_host_cli_signs_literal_response_queries_for_the_final_bucket_host ... ok
+test signing::pap::pap_suppresses_public_reads_writes_preserves_bindings_and_reactivates ... ok
+test virtual_host::virtual_host_public_access_and_xml_cors_use_bucket_rules ... ok
+test virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver ... ok
+test virtual_host::virtual_host_signed_response_overrides_bind_query_and_preserve_metadata ... ok
+test virtual_host::public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts ... ok
+test virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch ... ok
+test virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance ... ok
+test xml::anonymous_bucket_and_policy_operations_require_granted_permissions ... ok
+test virtual_host::virtual_host_signatures_bind_host_port_raw_path_and_addressing_style ... ok
+test virtual_host::virtual_host_pap_preserves_signed_transfers_and_reactivates_stored_public_grants ... ok
+test virtual_host::virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style ... ok
+test xml::public_members_authorize_anonymous_and_registered_callers_without_token_fallback ... ok
+test xml::anonymous_object_mutations_require_each_granted_permission ... ok
+test xml::uniform_access_settings_fail_closed ... ok
+test xml::public_grants_survive_restart_and_revocation_preserves_etag_checks ... ok
+test xml::xml_head_matches_get_headers_and_selected_metadata ... ok
+test xml::xml_cache_control_respects_metadata_and_distinguishes_public_from_authenticated ... ok
+test xml::xml_invalid_bucket_paths_keep_json_unknown_route_errors ... ok
+test xml::xml_go_sdk_read_headers_accept_telemetry_without_replaying_reads ... ok
+test xml::xml_missing_resources_follow_effective_permission_disclosure ... ok
+test xml::xml_permissive_reads_ignore_credentials_without_granting_public_policy ... ok
+test xml::public_revocation_racing_xml_and_json_reads_denies_subsequent_requests ... ok
+test xml::xml_bucket_paths_reserve_only_api_namespaces ... ok
+test xml::xml_read_idempotency_tokens_require_one_nonempty_value ... ok
+test xml::xml_ranges_generation_and_preconditions_use_one_live_generation ... ok
+test xml::xml_signatures_and_unsupported_headers_never_fall_back_to_public_access ... ok
+test xml::xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly ... ok
+test xml::xml_unsupported_operations_fail_before_reading_a_body ... ok
+test xml_put::xml_put_bucket_cors_covers_preflight_success_and_denials ... ok
+test xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries ... ok
+test xml_put::xml_put_conditions_and_concurrent_overwrites_are_atomic ... ok
+test xml_put::xml_put_invalid_headers_and_checksums_preserve_entire_object ... ok
+test xml_put::xml_put_individual_and_combined_hash_headers_accept_matching_bytes ... ok
+test xml::xml_public_urls_round_trip_raw_encoded_names_without_normalization ... ok
+test virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values ... ok
+test xml_put::xml_put_rechecks_create_delete_and_bucket_grants_at_publication ... ok
+test signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants ... ok
+test xml_put::xml_put_metadata_hashes_empty_and_encoded_paths_round_trip ... ok
+test xml_put::xml_put_unsupported_inputs_fail_before_continue_and_preserve_state ... ok
+test xml_put::xml_put_upload_admission_is_bounded_and_releases_aborted_slots ... ok
+test virtual_host::public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_routes ... ok
+test xml_put::xml_put_strict_permissions_and_public_grants_never_fallback_on_invalid_tokens ... ok
+test xml_put::xml_put_versioning_and_default_event_holds_match_shared_uploads ... ok
+test xml::xml_open_reader_keeps_generation_metadata_and_bytes_during_overwrite_and_revocation ... ok
+connection deadline or object body inactivity timeout exceeded
+connection deadline or object body inactivity timeout exceeded
+test xml_put::xml_put_incomplete_disconnect_shutdown_and_restart_reclaim_artifacts ... ok
+object request deadline exceeded
+test xml_put::xml_put_chunked_trailers_and_body_deadlines_cannot_publish ... ok
+
+test result: ok. 102 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.98s
+
+     Running tests/basic_contract_http.rs (target/debug/deps/basic_contract_http-2fd614aba68b00d6)
+
+running 12 tests
+test basic_contract_generation_match_zero_rejects_live_reads_and_metadata_mutations ... ok
+test basic_contract_strict_denials_keep_complete_json_envelopes_with_fields_selection ... ok
+test basic_contract_json_errors_keep_complete_envelopes_with_fields_selection ... ok
+test basic_contract_local_bucket_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_bucket_metageneration_match_matrix_preserves_failed_resources ... ok
+test basic_contract_single_request_resumable_checksums_validate_stored_bytes ... ok
+test basic_contract_multipart_metadata_only_checksums_validate_stored_bytes ... ok
+test basic_contract_media_hash_matrix_validates_each_checksum_and_preserves_failed_overwrites ... ok
+test basic_contract_local_object_metageneration_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_object_generation_match_matrix_preserves_failed_resources ... ok
+test basic_contract_local_object_generation_not_match_mutations_use_412_without_side_effects ... ok
+test basic_contract_object_metageneration_match_matrix_preserves_failed_resources ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+
+     Running tests/bucket_http.rs (target/debug/deps/bucket_http-ad687e94b30667cc)
+
+running 60 tests
+test bkt_http_failed_recovery_never_reports_ready ... ok
+test bkt_http_crud_metadata_conditions_and_errors ... ok
+test bkt_http_malformed_conditions_preserve_all_bucket_methods ... ok
+test bkt_http_query_body_name_and_route_boundaries ... ok
+test bkt_http_sorted_scoped_pagination_and_limits ... ok
+test bucket_core_create_get_defaults ... ok
+test bkt_http_concurrent_duplicates_restart_and_exclusive_directory ... ok
+test bucket_core_invalid_requests_preserve_state ... ok
+test bucket_core_native_restart_preserves_source_only_names_without_exposing_them ... ok
+test bucket_core_missing_and_delete_recreate ... ok
+test bucket_core_nonempty_delete_preserves_objects ... ok
+test bucket_cors_concurrent_conditioned_updates_have_one_winner ... ok
+test bucket_api_settings_drive_versioning_and_hold_effects ... ok
+test bucket_core_profile_lookup_names_and_json_framing ... ok
+test bucket_core_source_input_shape ... ok
+test bucket_core_settings_round_trip ... ok
+test bucket_core_strict_protection_settings_never_create_an_unprotected_bucket ... ok
+test bucket_core_strict_permissions ... ok
+test bucket_core_unsupported_settings_preserve_state ... ok
+test bucket_core_project_and_names ... ok
+test bucket_cors_malformed_input_preserves_entire_resource ... ok
+test bucket_get_rejects_patch_only_acl_query_parameters ... ok
+test bucket_core_migrates_v7_settings ... ok
+test bucket_core_restart_settings ... ok
+test bucket_patch_conditions_and_query_contract ... ok
+test bucket_patch_conditioned_race_has_one_winner ... ok
+test bucket_patch_accepts_only_empty_lifecycle_rules ... ok
+test bucket_patch_empty_null_and_invalid_inputs ... ok
+test bucket_patch_full_resource_round_trip_preserves_unchanged_fields ... ok
+test bucket_patch_legacy_rendering_and_restart ... ok
+test bucket_cors_metadata_round_trip_conditions_replacement_and_restart ... ok
+test bucket_patch_merges_labels_class_and_preserves_resources ... ok
+test bucket_patch_missing_bucket_validates_body_before_lookup ... ok
+test bucket_patch_label_boundaries_and_classes ... ok
+test bucket_patch_location_comparison_is_case_insensitive ... ok
+test bucket_patch_null_settings_follow_profile_defaults ... ok
+test bucket_patch_rejects_get_only_generation_query_parameter ... ok
+test bucket_profile_name_bound_keeps_created_buckets_reachable ... ok
+test bucket_patch_strict_permissions_and_policy_preservation ... ok
+test bucket_patch_unsupported_and_output_inputs_preserve_state ... ok
+test bucket_profile_paging_preserves_names_and_resource_defaults ... ok
+test bucket_put_conditioned_race_has_one_winner ... ok
+test bucket_put_legacy_rendering_and_restart ... ok
+test bucket_put_full_resource_round_trip_preserves_unchanged_fields ... ok
+test bucket_patch_settings_control_future_object_effects ... ok
+test bucket_put_empty_null_and_invalid_inputs ... ok
+test bucket_put_label_boundaries_and_classes ... ok
+test bucket_put_missing_bucket_validates_body_before_lookup ... ok
+test bkt_http_conditional_delete_and_metadata_mutation_have_one_winner ... ok
+test bucket_put_location_comparison_is_case_insensitive ... ok
+test bucket_put_rejects_get_only_generation_query_parameter ... ok
+test bucket_put_null_settings_follow_profile_defaults ... ok
+test bucket_put_strict_permissions_and_policy_preservation ... ok
+test bucket_put_conditions_and_query_contract ... ok
+test bucket_put_replaces_omitted_fields_and_preserves_resources ... ok
+test bucket_put_settings_control_future_object_effects ... ok
+test bucket_profile_names_support_object_and_xml_routes ... ok
+test bucket_put_unsupported_and_output_inputs_preserve_state ... ok
+test bkt_http_list_clamps_to_1000_with_lookahead ... ok
+test bucket_cors_large_metadata_lists_page_without_loss ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.39s
+
+     Running tests/compose_validation.rs (target/debug/deps/compose_validation-c44a1481ab9fca10)
+
+running 6 tests
+test compose_body_rejects_recognized_unsupported_and_unknown_semantics ... ok
+test compose_body_preserves_source_order_duplicates_generations_and_metadata ... ok
+test compose_body_accepts_one_and_thirty_two_sources_and_empty_destination ... ok
+test compose_body_rejects_invalid_generation_values ... ok
+test compose_body_rejects_malformed_source_and_destination_shapes ... ok
+test compose_body_checks_final_custom_metadata_size_before_transfer ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fields_http.rs (target/debug/deps/fields_http-9fffcead34f7838e)
+
+running 8 tests
+test fields_bucket_methods_and_policy_preserve_mutations ... ok
+test fields_invalid_selection_precedes_read_etag_evaluation ... ok
+test fields_invalid_selectors_and_errors_never_filter_or_mutate ... ok
+test fields_read_etag_validators_use_the_complete_resource ... ok
+test fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged ... ok
+test fields_invalid_selectors_leave_all_routes_unchanged ... ok
+test fields_object_methods_lists_and_zero_byte_metadata ... ok
+test fields_resumable_final_response_survives_restart_and_replay ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/foundation.rs (target/debug/deps/foundation-92db692431347316)
+
+running 19 tests
+test config_precedence_validation_and_size_limit ... ok
+test invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures ... ok
+test compose_only_variables_and_missing_subcommand_report_native_migration ... ok
+test startup_diagnostics_aggregate_independent_inputs_and_material_without_side_effects ... ok
+test healthcheck_rejects_truncated_malformed_and_oversized_responses ... ok
+test native_helper_values_that_look_like_legacy_flags_are_preserved ... ok
+test non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors ... ok
+test cli_help_errors_and_bind_failure ... ok
+test process_shutdown_reports_stopped_and_releases_catalog_for_restart ... ok
+test unknown_legacy_environment_warns_and_native_server_still_becomes_ready ... ok
+test rejects_bodies_and_oversized_or_malformed_headers ... ok
+test shutdown_stops_accepting_on_original_listener ... ok
+test wire_probes_clock_and_unimplemented_routes ... ok
+test healthcheck_exit_status_tracks_readiness ... ok
+test shutdown_releases_catalog_before_return_with_state_clones_alive ... ok
+test live_wildcard_and_specific_listeners_are_exclusive ... ok
+{"event":"bind_wait","listen":"127.0.0.1:64928","reason":"address_in_use","timeout_ms":65000}
+test connection_limit_deadline_and_shutdown_release_idle_clients ... ok
+test healthcheck_deadline_includes_slow_streaming_responses ... ok
+test process_restarts_on_same_port_without_allowing_a_second_live_listener ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.87s
+
+     Running tests/import.rs (target/debug/deps/import-edff7c56f60213da)
+
+running 15 tests
+test overlap_and_walk_fail_closed_without_creating_destination ... ok
+test body_stream_bounds_chunks_and_detects_same_size_replacement_and_truncation ... ok
+test discovered_counts_and_eligible_records_agree_for_buckets_and_objects ... ok
+test invalid_parent_names_and_attributes_keep_child_diagnostics ... ok
+test escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block ... ok
+test duplicate_bucket_aliases_never_emit_eligible_child_records ... ok
+test normalized_source_names_are_reported_without_inventing_original_names ... ok
+test sidecar_inspection_is_read_only_and_distinguishes_body_verification ... ok
+test blocked_bucket_reports_child_corruption_without_emitting_records ... ok
+test corrupt_records_are_all_reported_with_relative_fields_original_values_and_remedies ... ok
+test export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift ... ok
+test cli_never_starts_serve_and_requires_explicit_read_only_mode ... ok
+test native_storage_class_and_fixed_metadata_validation_matches_import_eligibility ... ok
+test broken_report_output_joins_the_bounded_worker_without_destination_writes ... ok
+test metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/object_compose_http.rs (target/debug/deps/object_compose_http-c486ea360460dae0)
+
+running 18 tests
+test compose_rejects_invalid_or_unsupported_input_without_mutation ... ok
+deferred derived cleanup: catalog unavailable: injected compose cleanup failure
+deferred compose cleanup: catalog unavailable: injected compose cleanup failure
+test compose_method_body_and_selector_boundaries ... ok
+test compose_rechecks_source_delete_grant_while_read_and_create_remain_allowed ... ok
+test compose_destination_condition_is_rechecked_after_streaming ... ok
+test compose_hold_added_after_streaming_preserves_destination_and_sources ... ok
+test compose_same_name_noncurrent_source_hold_is_rechecked_before_publication ... ok
+test compose_late_source_delete_failure_rolls_back_destination_and_earlier_deletions ... ok
+test compose_incarnation_change_preserves_original_error_and_recovers_after_restart ... ok
+test compose_source_and_destination_preconditions_preserve_failed_overwrites ... ok
+test compose_rechecks_read_and_create_grants_after_streaming ... ok
+test compose_order_checksums_metadata_fields_and_restart ... ok
+test compose_source_generation_change_never_deletes_the_replacement ... ok
+test compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination ... ok
+test compose_strict_requires_both_read_create_and_delete_for_destructive_cases ... ok
+test compose_strict_admin_can_replace_self_source_and_delete_other_sources ... ok
+test compose_concurrent_create_if_absent_has_one_winner ... ok
+test compose_storage_class_defaults_and_event_holds ... ok
+test compose_one_empty_repeated_and_nested_sources_exceed_old_component_limit ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.15s
+
+     Running tests/object_copy_http.rs (target/debug/deps/object_copy_http-df5dcf56af8d5b4d)
+
+running 9 tests
+test copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation ... ok
+test strict_copy_requires_source_read_destination_create_and_delete_for_overwrite ... ok
+test concurrent_copy_create_if_absent_publishes_exactly_one_generation ... ok
+test strict_cross_bucket_copy_uses_distinct_source_and_destination_grants ... ok
+test copy_preserves_composite_identity_and_inherited_class_until_class_or_location_changes ... ok
+test copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it ... ok
+test copy_validates_checksums_and_holds_without_inheriting_source_hold ... ok
+test copy_checks_all_source_and_destination_conditions_and_preserves_failed_targets ... ok
+test copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running tests/object_effects_support.rs (target/debug/deps/object_effects_support-646a6ad4195ac18e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/object_hold_http.rs (target/debug/deps/object_hold_http-cb0d417ef63cdf1b)
+
+running 4 tests
+test event_hold_permissions_and_invalid_input ... ok
+test event_hold_metadata_release_and_restart ... ok
+test held_objects_reject_delete_and_replacement ... ok
+test default_hold_applies_to_all_upload_modes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+
+     Running tests/object_http.rs (target/debug/deps/object_http-455b716cdd79fbe2)
+
+running 27 tests
+test obj_http_early_rejections_survive_body_larger_than_socket_buffers ... ok
+test obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection ... ok
+test obj_http_precheck_and_method_alt_reject_before_consuming_body ... ok
+test obj_http_disconnected_overwrite_preserves_the_previous_generation ... ok
+test obj_http_bad_hashes_and_unsupported_requests_never_publish ... ok
+test obj_http_all_preconditions_read_304_mutation_412_and_missing_precedence ... ok
+test obj_http_concurrent_create_if_absent_has_one_winner ... ok
+test obj_http_encoded_names_and_invalid_names ... ok
+test obj_http_restart_and_sigkill_mid_upload_clean_staging ... ok
+test obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket ... ok
+test obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body ... ok
+test obj_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_upload_limit_precedes_advisory_check_without_catalog_wait ... ok
+test obj_http_sigkill_after_blob_rename_before_commit_and_after_success ... ok
+test obj_http_zero_multichunk_binary_and_size_limits ... ok
+test resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot ... ok
+test obj_http_completed_body_waits_for_commit_past_inactivity_deadline ... ok
+test resumable_sigkill_before_offset_commit_truncates_unacknowledged_tail ... ok
+test resumable_sigkill_after_chunk_acknowledgment_preserves_range_and_bytes ... ok
+connection deadline or object body inactivity timeout exceeded
+test obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish ... ok
+test obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out ... ok
+test obj_http_queued_precheck_waits_past_body_inactivity_deadline ... ok
+test obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_http_trickle_upload_deadline_releases_permits_without_publication ... ok
+test resumable_sigkill_after_final_checkpoint_restores_active_staging ... ok
+object request deadline exceeded
+test resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object ... ok
+test obj_http_trickle_download_stops_at_absolute_deadline ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.30s
+
+     Running tests/object_list_http.rs (target/debug/deps/object_list_http-ce45972d99d436f0)
+
+running 6 tests
+test object_list_invalid_unsupported_and_missing_bucket_errors ... ok
+test object_list_tokens_bind_query_and_reject_corruption ... ok
+test object_list_resources_defaults_empty_and_restart ... ok
+test object_list_mutations_between_pages_do_not_duplicate_or_skip_survivors ... ok
+test object_list_prefix_delimiter_offsets_unicode_and_single_entry_pages ... ok
+test object_list_default_and_upper_page_limit_are_1000_for_both_projections ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.80s
+
+     Running tests/object_metadata_http.rs (target/debug/deps/object_metadata_http-a804456efdf47ce1)
+
+running 5 tests
+test invalid_and_unsupported_metadata_never_mutates_objects ... ok
+test metadata_boundaries_encoding_negotiation_and_reupload_defaults ... ok
+test all_conditions_generation_selectors_and_conditioned_races ... ok
+test patch_merges_put_replaces_and_download_reflects_persistent_metadata ... ok
+test conditional_delete_and_metadata_patch_have_one_winner ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/object_multipart_http.rs (target/debug/deps/object_multipart_http-92eda06dced33aed)
+
+running 21 tests
+test obj_multipart_http_malformed_checksum_json_preserves_existing_generation ... ok
+test obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks ... ok
+test obj_http_malformed_conditions_reject_every_object_method_without_mutation ... ok
+test fields_multipart_response_preserves_uploaded_metadata_and_bytes ... ok
+test obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation ... ok
+test obj_multipart_http_query_name_overrides_only_valid_metadata_names ... ok
+test obj_multipart_http_custom_metadata_cap_rejects_before_media_or_staging ... ok
+test obj_http_failed_media_and_multipart_overwrites_preserve_full_resource_without_leaks ... ok
+test obj_multipart_http_media_json_and_custom_metadata_caps ... ok
+test obj_multipart_http_null_and_empty_content_type_fall_back_to_media_part ... ok
+test obj_multipart_http_checks_metadata_header_and_final_part_hashes_before_publication ... ok
+test obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutation ... ok
+test obj_multipart_http_truncated_checksum_part_preserves_existing_generation ... ok
+test obj_multipart_http_streams_one_byte_chunks_and_boundary_like_binary ... ok
+test obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body ... ok
+test obj_multipart_http_round_trip_metadata_hashes_and_restart ... ok
+test obj_multipart_http_rejects_malformed_framing_and_bounds_final_json ... ok
+test obj_http_media_and_multipart_independent_checksum_vectors_across_chunks ... ok
+test obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite ... ok
+test obj_http_media_and_multipart_recheck_each_condition_after_streaming ... ok
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+object request deadline exceeded
+test obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.62s
+
+     Running tests/object_range_http.rs (target/debug/deps/object_range_http-80740b8677d23c06)
+
+running 16 tests
+test obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding ... ok
+test etag::json_etag_read_object_metadata_media_and_range ... ok
+test etag::json_etag_read_unsupported_lists_dates_and_writes ... ok
+test etag::json_etag_read_authorization_precedes_validators ... ok
+test etag::json_etag_read_syntax_and_missing_resources ... ok
+test etag::json_etag_read_combined_query_conditions_use_one_selected_record ... ok
+test etag::json_etag_read_iam_policy_validators_preserve_fields_and_permissions ... ok
+test etag::json_etag_read_if_match_overrides_if_unmodified_since ... ok
+test obj_range_http_single_ranges_and_representation_headers ... ok
+test etag::json_etag_read_selected_generation_zero_byte_and_public_cache ... ok
+test etag::json_etag_read_date_precedence_and_unrelated_routes_preserve_behavior ... ok
+test obj_range_http_strict_authorization_precedes_range_evaluation ... ok
+test obj_range_http_unsatisfiable_empty_and_ignored_ranges ... ok
+test etag::json_etag_read_buckets_and_metadata_changes_in_both_profiles ... ok
+test etag::json_etag_read_metadata_update_and_overwrite_pin_open_reader ... ok
+test obj_range_http_generation_preconditions_and_overwrite_pin_open_reader ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/object_versioning_http.rs (target/debug/deps/object_versioning_http-f3d073651782c869)
+
+running 9 tests
+test versioned_strict_permissions ... ok
+test versioned_overwrite_and_generation_reads ... ok
+test disabled_versioning_preserves_history_and_bucket_nonempty ... ok
+test versioned_delete_and_permanent_generation_delete ... ok
+deferred blob reclaim 7cfa37daba5190cf225a467028e88d6e: object I/O: permission denied
+test versioned_crash_recovery_preserves_referenced_generations ... ok
+test timestamp_migration_preserves_versioned_json_get_and_xml_head ... ok
+test versioned_listing_pages_and_query_boundaries ... ok
+test versioned_overwrite_delete_race ... ok
+test versioned_schema_migrations_preserve_objects ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+     Running tests/public_origin_cli.rs (target/debug/deps/public_origin_cli-03935cb32edb2c4f)
+
+running 2 tests
+test helpers_read_only_explicit_public_origin_and_keep_base_overrides ... ok
+test helpers_validate_explicit_file_even_when_the_base_is_overridden ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/rewrite_http.rs (target/debug/deps/rewrite_http-bed349c48f4f2d9f)
+
+running 25 tests
+test rewrite_create_if_absent_race_has_one_atomic_winner ... ok
+test rewrite_composite_source_preserves_or_resets_component_count_without_md5 ... ok
+test rewrite_all_conditions_preserve_failed_destination_and_retained_source ... ok
+test rewrite_expired_completed_session_never_journals_the_live_blob_on_restart ... ok
+test rewrite_cross_bucket_grants_are_rechecked_without_copying_source_holds ... ok
+test rewrite_explicit_retained_generation_can_continue_after_a_live_overwrite ... ok
+test rewrite_continuation_rechecks_strict_grants_and_destination_conditions ... ok
+test rewrite_completion_replay_rejects_recreated_buckets ... ok
+test rewrite_expired_token_and_restart_cleanup_preserve_live_destination ... ok
+test rewrite_concurrent_token_retry_has_one_progress_checkpoint ... ok
+test rewrite_metadata_checksums_validate_and_identity_is_path_selected ... ok
+discarding invalid derived transfer 7e8fa767878693562a04e639e0f96d88: catalog unavailable: No such file or directory (os error 2)
+test rewrite_composite_count_uses_the_bucket_class_selected_at_publication ... ok
+test rewrite_strict_permissions_holds_versioning_and_unsupported_inputs ... ok
+test rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail ... ok
+test rewrite_revoked_overwrite_delete_permission_preserves_destination_and_releases_state ... ok
+test rewrite_one_call_empty_metadata_fields_and_same_name ... ok
+test rewrite_tokens_cannot_change_path_parameters_body_or_byte_budget ... ok
+test rewrite_progress_replay_reclaims_state_after_bucket_recreation ... ok
+discarding invalid derived transfer fdd3fd004c1de5928c50fbe458cc167c: catalog unavailable: derived prefix is shorter than its checkpoint
+test rewrite_progress_retry_restart_and_completion_replay_publish_once ... ok
+test rewrite_source_overwrite_delete_and_metadata_change_fail_closed ... ok
+discarding invalid derived transfer e6ea2045d74bdca55d8436f8573ca755: catalog unavailable: derived prefix checksum differs from checkpoint
+test rewrite_invalid_acknowledged_prefix_is_cleanly_rejected_after_restart ... ok
+test rewrite_initial_catalog_wait_and_streaming_finish_before_returning_success ... ok
+test rewrite_large_source_uses_request_budget_instead_of_catalog_wait_budget ... ok
+test rewrite_completed_cache_evicts_without_rejecting_new_rewrites ... ok
+test abandoned_rewrite_quota_preserves_copy_and_compose_capacity_after_restart ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.35s
+
+     Running tests/rewrite_token.rs (target/debug/deps/rewrite_token-9eedd2505f1d066e)
+
+running 2 tests
+test rewrite_token::tests::tokens_are_opaque_and_tampering_never_selects_the_original_token ... ok
+test rewrite_token::tests::continuation_binds_every_supplied_parameter_body_and_path ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/seed.rs (target/debug/deps/seed-89ce0d226f306722)
+
+running 13 tests
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+test disabled_startup_never_replays_fixtures_later ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+{"event":"seeding"}
+test sigterm_during_seed_drains_writes_releases_lock_and_retries ... ok
+{"event":"seeding"}
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+{"event":"seeding"}
+test symlinks_and_special_files_fail_closed ... ok
+{"event":"seeding"}
+test populated_v4_catalog_migrates_without_seeding ... ok
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+{"event":"seeding"}
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+{"event":"seeding"}
+test sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.35s
+
+     Running tests/sign_url_cli.rs (target/debug/deps/sign_url_cli-c1f8e09f6f7ab749)
+
+running 7 tests
+test signing_cli_outputs_a_verified_final_host_url_and_repeated_headers ... ok
+test signing_cli_virtual_host_url_binds_final_bucket_host_and_port ... ok
+test signing_cli_explicit_config_binds_normalized_final_host ... ok
+test signing_cli_preserves_fifo_private_key_inputs ... ok
+test signing_cli_private_key_limit_is_inclusive ... ok
+test signing_cli_rejects_unknown_duplicate_unpaired_and_forbidden_header_options ... ok
+test signing_cli_validates_duration_methods_timestamps_and_private_key_inputs ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/signed_browser_http.rs (target/debug/deps/signed_browser_http-c41798c5545a2b47)
+
+running 9 tests
+test invalid_virtual_host_bucket_names_reject_preflight_without_cors ... ok
+test signed_invalid_object_names_keep_error_cors_without_bypassing_validation ... ok
+test signed_failures_keep_cors_and_preserve_object ... ok
+test signed_encoded_paths_keep_preflight_transfer_and_error_cors ... ok
+test signed_cors_selects_the_host_bucket_before_the_path_bucket ... ok
+test signed_preflight_never_grants_permission_and_pap_preserves_signer_access ... ok
+test signed_put_preflight_ignores_signature_and_never_publishes ... ok
+test signed_rules_change_between_preflight_and_actual_and_survive_restart ... ok
+test signed_transfers_expose_bucket_headers_without_granting_credentials ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/tls.rs (target/debug/deps/tls-75c8b760a53b0d36)
+
+running 9 tests
+test signed_private_download_uses_the_https_listener_host_and_port ... ok
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+test tls_invalid_material_never_reaches_readiness_or_creates_data ... ok
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+TLS handshake error: received fatal alert: UnknownCA
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+TLS handshake error: received fatal alert: UnknownCA
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+test tls_embedded_default_startup_exports_only_ca_and_keeps_custom_trust_separate ... ok
+TLS handshake error: received fatal alert: UnknownCA
+Generated two-day throwaway certificates for localhost, gcs and loopback IPs.
+TLS handshake error: received fatal alert: UnknownCA
+TLS handshake error: received fatal alert: UnknownCA
+TLS handshake error: received corrupt message of type InvalidContentType
+TLS handshake error: received fatal alert: CertificateExpired
+TLS handshake error: received fatal alert: CertificateExpired
+TLS handshake error: received fatal alert: BadCertificate
+test tls_rejects_untrusted_wrong_host_expired_and_plaintext ... ok
+test virtual_host_https_requires_a_matching_supplied_certificate ... ok
+test tls_trust_versions_streaming_urls_and_restart ... ok
+TLS handshake deadline exceeded
+test tls_handshake_admission_timeout_shutdown_and_strict_permissions ... ok
+connection deadline or object body inactivity timeout exceeded
+test tls_healthcheck_deadline_includes_stalled_handshake ... ok
+object request deadline exceeded
+test tls_streaming_progress_and_upload_deadlines_preserve_existing_object ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+
+     Running tests/url_cli.rs (target/debug/deps/url_cli-35d830be41be8687)
+
+running 7 tests
+test ignores_config_file_environment_and_data_directory ... ok
+test prints_usage_for_help ... ok
+test prints_virtual_host_url_with_dotted_bucket_and_explicit_port ... ok
+test prints_one_encoded_url_for_options_in_any_order ... ok
+test rejects_missing_duplicate_unknown_and_unpaired_options ... ok
+test rejects_invalid_inputs_without_stdout ... ok
+test rejects_reserved_api_collisions_without_stdout ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (target/debug/deps/xtask-0dab50d39a7e97d1)
+
+running 23 tests
+test dependencies::tests::public_gcr_registry_does_not_request_or_send_authentication ... ok
+test dependencies::tests::docker_hub_registry_default_preserves_token_authentication ... ok
+test container::tests::malformed_and_prerelease_versions_cannot_publish ... ok
+test dependencies::tests::metadata_and_proxy_headers_fail_closed ... ok
+test dependencies::tests::gcr_oci_index_and_lowercase_digest_headers_are_preserved ... ok
+test dependencies::tests::stable_major_selection_and_registry_paths ... ok
+test dependencies::tests::ruby_and_gem_latest_versions_include_new_majors ... ok
+test container::tests::aliases_never_move_backwards_and_zero_major_is_not_an_alias ... ok
+test dependencies::tests::direct_resolution_excludes_older_transitive_packages_with_the_same_name ... ok
+test dependencies::tests::go_versions_exclude_prereleases_and_retractions ... ok
+test dependencies::tests::ruby_manifest_requires_exact_registry_pins ... ok
+test dependencies::tests::unknown_or_malformed_registry_is_rejected_before_network_access ... ok
+test dependencies::tests::go_manifest_direct_requirements_and_exact_toolchain ... ok
+test release::tests::binary_version_must_match_exactly ... ok
+test dependencies::tests::go_new_major_paths_are_checked_until_missing ... ok
+test dependencies::tests::go_missing_majors_and_proxy_failures_are_distinct ... ok
+test release::tests::native_notice_requirements_follow_the_target_runtime ... ok
+test release::tests::missing_notices_and_escaping_license_files_fail_closed ... ok
+test release::tests::invalid_target_and_existing_output_are_rejected_without_mutation ... ok
+test tests::schema_enumerations_match_validator ... ok
+test release::tests::reviewed_crc32c_sources_are_retained_and_new_versions_require_review ... ok
+test release::tests::all_root_notices_and_explicit_license_file_are_retained ... ok
+test release::tests::notice_only_output_needs_neither_git_nor_an_executable ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running unittests src/main.rs (target/debug/deps/xtask-96202dc37aa12e26)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/compatibility.rs (target/debug/deps/compatibility-e7c8d09705121019)
+
+running 11 tests
+test partial_and_simulated_work_remain_explicit ... ok
+test coverage_dimensions_remain_separate ... ok
+test unknown_cyclic_and_incomplete_dependencies_fail ... ok
+test invalid_identity_enums_counts_and_provenance_fail ... ok
+test rendering_is_order_independent_and_escapes_markup ... ok
+test evidence_artifacts_cannot_escape_repository ... ok
+test completed_claims_require_linked_passing_evidence ... ok
+test baseline_and_completed_evidence_validate ... ok
+test cli_usage_and_errors_have_correct_exit_status ... ok
+test malformed_oversized_and_mismatched_inputs_fail ... ok
+test render_check_detects_stale_views_without_mutating ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/dependencies.rs (target/debug/deps/dependencies-7b881eb6ab127b0d)
+
+running 2 tests
+test go_sdk_scope_and_lockfile_are_declared ... ok
+test fetch_failure_is_never_reported_as_current ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+   Doc-tests gcs_mimic
+
+running 4 tests
+test src/storage/admin.rs - storage::catalog::admin (line 4) - compile fail ... ok
+test src/storage/admin.rs - storage::catalog::admin (line 9) - compile fail ... ok
+test src/storage/admin.rs - storage::catalog::admin (line 12) - compile fail ... ok
+test src/fsutil.rs - fsutil::read_source_metadata (line 52) - compile fail ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+   Doc-tests xtask
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/xtask compatibility check`
+Validated 591 feature rows; 401 parameter locations and 357 schema fields are separate inventories.
+PASS: container publication validates inputs, API failures, immutable retries, attestations and alias selection without network access
+Usage: bash scripts/smoke-containers.sh [--image IMAGE] [linux/amd64|linux/arm64 ...]
+Unsupported platform: linux/unknown
+
+COMMAND: just check-sdk (Go PASS; Ruby environment preflight failed before execution)
+env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh --with-ruby
+   Compiling getrandom v0.4.3
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.32s
+=== RUN   TestStrictAuthBucketIAM
+--- PASS: TestStrictAuthBucketIAM (0.07s)
+=== RUN   TestBucketIAMPermissive
+    bucket_iam_test.go:96: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestBucketIAMPermissive (0.00s)
+=== RUN   TestBucketMetadataReplace
+    buckets_put_test.go:24: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestBucketMetadataReplace (0.03s)
+=== RUN   TestStrictAuthBucketMetadataReplace
+--- PASS: TestStrictAuthBucketMetadataReplace (0.02s)
+=== RUN   TestEmulatorEndpoint
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1:4443
+=== RUN   TestEmulatorEndpoint/http://[::1]:4443/
+=== RUN   TestEmulatorEndpoint/https://localhost:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443
+=== RUN   TestEmulatorEndpoint/http://gcs:4443#01
+=== RUN   TestEmulatorEndpoint/https://storage.googleapis.com
+=== RUN   TestEmulatorEndpoint/http://169.254.169.254
+=== RUN   TestEmulatorEndpoint/http://127.0.0.1.evil.invalid
+=== RUN   TestEmulatorEndpoint/http://user@localhost
+=== RUN   TestEmulatorEndpoint/http://localhost/storage/v1
+=== RUN   TestEmulatorEndpoint/http://localhost?target=cloud
+=== RUN   TestEmulatorEndpoint/localhost:4443
+--- PASS: TestEmulatorEndpoint (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://[::1]:4443/ (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://localhost:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://gcs:4443#01 (0.00s)
+    --- PASS: TestEmulatorEndpoint/https://storage.googleapis.com (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://169.254.169.254 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://127.0.0.1.evil.invalid (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://user@localhost (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost/storage/v1 (0.00s)
+    --- PASS: TestEmulatorEndpoint/http://localhost?target=cloud (0.00s)
+    --- PASS: TestEmulatorEndpoint/localhost:4443 (0.00s)
+=== RUN   TestBucketSettingsRoundTrip
+    buckets_test.go:172: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=false/hold=true
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=false
+=== RUN   TestBucketSettingsRoundTrip/versioning=true/hold=true
+--- PASS: TestBucketSettingsRoundTrip (0.01s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=false (0.00s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=false/hold=true (0.00s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=false (0.00s)
+    --- PASS: TestBucketSettingsRoundTrip/versioning=true/hold=true (0.00s)
+=== RUN   TestBucketLifecycle
+    buckets_test.go:216: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestBucketLifecycle (0.01s)
+=== RUN   TestBucketMetadataUpdate
+    buckets_update_test.go:16: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestBucketMetadataUpdate (0.00s)
+=== RUN   TestStrictAuthBucketMetadataUpdate
+--- PASS: TestStrictAuthBucketMetadataUpdate (0.02s)
+=== RUN   TestBucketCORS
+    cors_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestBucketCORS (0.01s)
+=== RUN   TestStrictAuthBucketCORS
+--- PASS: TestStrictAuthBucketCORS (0.02s)
+=== RUN   TestPartialResponseFields
+    fields_test.go:13: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestPartialResponseFields (0.02s)
+=== RUN   TestObjectCompose
+    objects_compose_test.go:17: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectCompose (0.11s)
+=== RUN   TestObjectComposeStrictPermissions
+--- PASS: TestObjectComposeStrictPermissions (0.05s)
+=== RUN   TestObjectCopyJSON
+    objects_copy_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectCopyJSON (0.07s)
+=== RUN   TestObjectCopyHighLevelCopierUsesRewrite
+--- PASS: TestObjectCopyHighLevelCopierUsesRewrite (0.00s)
+=== RUN   TestReadETagValidators
+    objects_etag_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestReadETagValidators (0.02s)
+=== RUN   TestObjectList
+    objects_list_test.go:21: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectList/IteratorSmallPages
+=== RUN   TestObjectList/Prefix
+=== RUN   TestObjectList/Delimiter
+=== RUN   TestObjectList/TrailingDelimiter
+=== RUN   TestObjectList/PrefixOffsetsDelimiter
+=== RUN   TestObjectList/Offsets
+=== RUN   TestObjectList/ReverseOffsets
+=== RUN   TestObjectList/Multibyte
+=== RUN   TestObjectList/LongDelimiter
+--- PASS: TestObjectList (0.23s)
+    --- PASS: TestObjectList/IteratorSmallPages (0.01s)
+    --- PASS: TestObjectList/Prefix (0.00s)
+    --- PASS: TestObjectList/Delimiter (0.01s)
+    --- PASS: TestObjectList/TrailingDelimiter (0.01s)
+    --- PASS: TestObjectList/PrefixOffsetsDelimiter (0.00s)
+    --- PASS: TestObjectList/Offsets (0.00s)
+    --- PASS: TestObjectList/ReverseOffsets (0.00s)
+    --- PASS: TestObjectList/Multibyte (0.00s)
+    --- PASS: TestObjectList/LongDelimiter (0.00s)
+=== RUN   TestObjectMetadataUpdate
+    objects_metadata_test.go:19: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectMetadataUpdate (0.03s)
+=== RUN   TestObjectMultipartWriter
+    objects_multipart_test.go:20: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectMultipartWriter/0_bytes
+=== RUN   TestObjectMultipartWriter/156000_bytes
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C
+=== RUN   TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5
+--- PASS: TestObjectMultipartWriter (0.11s)
+    --- PASS: TestObjectMultipartWriter/0_bytes (0.04s)
+    --- PASS: TestObjectMultipartWriter/156000_bytes (0.05s)
+    --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish (0.01s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/CRC32C (0.00s)
+        --- PASS: TestObjectMultipartWriter/checksum_mismatch_does_not_publish/MD5 (0.00s)
+=== RUN   TestObjectRangeReader
+    objects_range_test.go:18: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectRangeReader/closed
+=== RUN   TestObjectRangeReader/open_ended
+=== RUN   TestObjectRangeReader/suffix
+=== RUN   TestObjectRangeReader/clamped
+=== RUN   TestObjectRangeReader/large_suffix
+--- PASS: TestObjectRangeReader (0.03s)
+    --- PASS: TestObjectRangeReader/closed (0.00s)
+    --- PASS: TestObjectRangeReader/open_ended (0.00s)
+    --- PASS: TestObjectRangeReader/suffix (0.00s)
+    --- PASS: TestObjectRangeReader/clamped (0.00s)
+    --- PASS: TestObjectRangeReader/large_suffix (0.00s)
+=== RUN   TestObjectResumableWriter
+    objects_resumable_test.go:80: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectResumableWriter/default_chunk_size_resumable
+=== RUN   TestObjectResumableWriter/default_chunk_size_small_multipart
+=== RUN   TestObjectResumableWriter/multiple_256_KiB_chunks
+=== RUN   TestObjectResumableWriter/empty_final_chunk
+=== RUN   TestObjectResumableWriter/empty_object
+=== RUN   TestObjectResumableWriter/unknown_length_stream
+--- PASS: TestObjectResumableWriter (0.53s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_resumable (0.32s)
+    --- PASS: TestObjectResumableWriter/default_chunk_size_small_multipart (0.03s)
+    --- PASS: TestObjectResumableWriter/multiple_256_KiB_chunks (0.05s)
+    --- PASS: TestObjectResumableWriter/empty_final_chunk (0.05s)
+    --- PASS: TestObjectResumableWriter/empty_object (0.02s)
+    --- PASS: TestObjectResumableWriter/unknown_length_stream (0.05s)
+=== RUN   TestObjectResumableChecksumFailurePreservesObject
+    objects_resumable_test.go:152: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false
+=== RUN   TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true
+--- PASS: TestObjectResumableChecksumFailurePreservesObject (0.19s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=false (0.04s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/CRC32C_existing=true (0.05s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=false (0.04s)
+    --- PASS: TestObjectResumableChecksumFailurePreservesObject/MD5_existing=true (0.06s)
+=== RUN   TestObjectResumableConditionsAtFinalization
+    objects_resumable_test.go:228: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=false
+=== RUN   TestObjectResumableConditionsAtFinalization/existing=true
+--- PASS: TestObjectResumableConditionsAtFinalization (0.28s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=false (0.12s)
+    --- PASS: TestObjectResumableConditionsAtFinalization/existing=true (0.16s)
+=== RUN   TestObjectResumableMetagenerationAtFinalization
+    objects_resumable_test.go:278: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectResumableMetagenerationAtFinalization (0.13s)
+=== RUN   TestObjectResumableContextCancellationDoesNotPublish
+    objects_resumable_test.go:318: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectResumableContextCancellationDoesNotPublish (0.02s)
+=== RUN   TestObjectResumableRetriesLostChunkResponse
+    objects_resumable_test.go:438: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectResumableRetriesLostChunkResponse (0.11s)
+=== RUN   TestStrictAuthResumableWriter
+--- PASS: TestStrictAuthResumableWriter (0.07s)
+=== RUN   TestStrictAuthResumableCreatorOverwriteRace
+--- PASS: TestStrictAuthResumableCreatorOverwriteRace (0.14s)
+=== RUN   TestObjectRewriteCopier
+    objects_rewrite_test.go:61: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectRewriteCopier/one_call_same_location
+=== RUN   TestObjectRewriteCopier/multiple_calls_across_locations
+=== RUN   TestObjectRewriteCopier/exact_byte_boundary
+=== RUN   TestObjectRewriteCopier/empty_object
+--- PASS: TestObjectRewriteCopier (0.41s)
+    --- PASS: TestObjectRewriteCopier/one_call_same_location (0.13s)
+    --- PASS: TestObjectRewriteCopier/multiple_calls_across_locations (0.12s)
+    --- PASS: TestObjectRewriteCopier/exact_byte_boundary (0.11s)
+    --- PASS: TestObjectRewriteCopier/empty_object (0.04s)
+=== RUN   TestObjectMediaLifecycle
+    objects_test.go:63: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+=== RUN   TestObjectMediaLifecycle/dir/file.bin
+=== RUN   TestObjectMediaLifecycle/dir%2Ffile.bin
+=== RUN   TestObjectMediaLifecycle/space_name.bin
+=== RUN   TestObjectMediaLifecycle/日本語/雪_+?#%.bin
+--- PASS: TestObjectMediaLifecycle (0.10s)
+    --- PASS: TestObjectMediaLifecycle/dir/file.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/dir%2Ffile.bin (0.03s)
+    --- PASS: TestObjectMediaLifecycle/space_name.bin (0.02s)
+    --- PASS: TestObjectMediaLifecycle/日本語/雪_+?#%.bin (0.03s)
+=== RUN   TestObjectVersioning
+    objects_versioning_test.go:85: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectVersioning (0.04s)
+=== RUN   TestObjectEventBasedHold
+    objects_versioning_test.go:121: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestObjectEventBasedHold (0.02s)
+=== RUN   TestPublicAccessPrevention
+--- PASS: TestPublicAccessPrevention (0.05s)
+=== RUN   TestXMLReadsStrict
+=== RUN   TestXMLReadsStrict/whole
+=== RUN   TestXMLReadsStrict/range
+=== RUN   TestXMLReadsStrict/generation
+=== RUN   TestXMLReadsStrict/matching_conditions
+=== RUN   TestXMLReadsStrict/head
+--- PASS: TestXMLReadsStrict (0.02s)
+    --- PASS: TestXMLReadsStrict/whole (0.00s)
+    --- PASS: TestXMLReadsStrict/range (0.00s)
+    --- PASS: TestXMLReadsStrict/generation (0.00s)
+    --- PASS: TestXMLReadsStrict/matching_conditions (0.00s)
+    --- PASS: TestXMLReadsStrict/head (0.00s)
+=== RUN   TestPublicReadsGrantAndRevoke
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=false
+=== RUN   TestPublicReadsGrantAndRevoke/JSON=true
+--- PASS: TestPublicReadsGrantAndRevoke (0.06s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=false (0.03s)
+    --- PASS: TestPublicReadsGrantAndRevoke/JSON=true (0.03s)
+=== RUN   TestPublicReadsAllAuthenticatedUsers
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous
+=== RUN   TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered
+--- PASS: TestPublicReadsAllAuthenticatedUsers (0.03s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=false/unregistered (0.00s)
+    --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/registered_without_project_roles (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/anonymous (0.00s)
+        --- PASS: TestPublicReadsAllAuthenticatedUsers/JSON=true/unregistered (0.00s)
+=== RUN   TestXMLReadsEncodedNames
+=== RUN   TestXMLReadsEncodedNames/space_name.bin
+=== RUN   TestXMLReadsEncodedNames/plus+name.bin
+=== RUN   TestXMLReadsEncodedNames/percent%2Fname.bin
+=== RUN   TestXMLReadsEncodedNames/日本語/雪.bin
+=== RUN   TestXMLReadsEncodedNames/dir/file.bin
+--- PASS: TestXMLReadsEncodedNames (0.14s)
+    --- PASS: TestXMLReadsEncodedNames/space_name.bin (0.01s)
+    --- PASS: TestXMLReadsEncodedNames/plus+name.bin (0.02s)
+    --- PASS: TestXMLReadsEncodedNames/percent%2Fname.bin (0.02s)
+    --- PASS: TestXMLReadsEncodedNames/日本語/雪.bin (0.02s)
+    --- PASS: TestXMLReadsEncodedNames/dir/file.bin (0.02s)
+=== RUN   TestXMLReadsPermissive
+    public_reads_test.go:267: official Storage SDK v1.70.0; HTTP JSON transport; endpoint=http://127.0.0.1:53886
+--- PASS: TestXMLReadsPermissive (0.03s)
+=== RUN   TestV4RSASignedDownload
+=== RUN   TestV4RSASignedDownload/ResponseOverrides
+=== RUN   TestV4RSASignedDownload/SignedUpload
+--- PASS: TestV4RSASignedDownload (0.18s)
+    --- PASS: TestV4RSASignedDownload/ResponseOverrides (0.01s)
+    --- PASS: TestV4RSASignedDownload/SignedUpload (0.03s)
+=== RUN   TestStrictAuthAdminLifecycle
+    strict_auth_test.go:247: strict endpoint; admin principal from the local fixture registry; project=local-project
+--- PASS: TestStrictAuthAdminLifecycle (0.02s)
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous
+=== RUN   TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token
+--- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials (0.02s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/anonymous (0.00s)
+    --- PASS: TestStrictAuthRejectsMissingAndInvalidCredentials/unregistered_token (0.00s)
+=== RUN   TestStrictAuthObjectViewer
+--- PASS: TestStrictAuthObjectViewer (0.02s)
+=== RUN   TestStrictAuthObjectCreator
+--- PASS: TestStrictAuthObjectCreator (0.04s)
+=== RUN   TestHTTPSCertificateTrust
+=== RUN   TestHTTPSCertificateTrust/untrusted
+=== RUN   TestHTTPSCertificateTrust/explicit_CA
+2026/10/24 23:28:58 http: TLS handshake error from 127.0.0.1:54845: remote error: tls: bad certificate
+--- PASS: TestHTTPSCertificateTrust (0.02s)
+    --- PASS: TestHTTPSCertificateTrust/untrusted (0.02s)
+    --- PASS: TestHTTPSCertificateTrust/explicit_CA (0.00s)
+=== RUN   TestV4RSAVirtualHostedURLs
+--- PASS: TestV4RSAVirtualHostedURLs (0.09s)
+PASS
+ok  	gcs-mimic/sdk-tests/go	4.136s
+?   	gcs-mimic/sdk-tests/go/cmd/free-port	[no test files]
+Your Ruby version is 3.4.1, but your Gemfile specified 4.0.9
+--- server.log ---
+{"event":"ready","listen":"127.0.0.1:53886","protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":32,"max_object_bytes":1073741824,"worker_threads":2,"max_blocking_threads":2,"connection_timeout_ms":5000,"object_request_timeout_ms":900000,"catalog_wait_timeout_ms":30000,"shutdown_timeout_ms":5000,"auth_mode":"permissive","seed":{"outcome":"disabled"},"scheme":"http","tls_handshake_timeout_ms":5000,"public_base_url":null,"public_virtual_host_enabled":false}
+{"event":"stopped"}
+--- strict-server.log ---
+{"event":"ready","listen":"127.0.0.1:53890","protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":32,"max_object_bytes":1073741824,"worker_threads":2,"max_blocking_threads":2,"connection_timeout_ms":5000,"object_request_timeout_ms":900000,"catalog_wait_timeout_ms":30000,"shutdown_timeout_ms":5000,"auth_mode":"strict","identities":4,"seed":{"outcome":"disabled"},"scheme":"http","tls_handshake_timeout_ms":5000,"public_base_url":null,"public_virtual_host_enabled":false}
+{"event":"stopped"}
+error: recipe `check-sdk` failed on line 17 with exit code 18
+
+COMMAND: Pinned Ruby 4.0.9 SDK permissive and strict checks
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [arm64-darwin27]
+4.0.23
+The Gemfile's dependencies are satisfied
+Ruby HTTP/HTTPS harness origin self-check passed
+Ruby 4.0.9; google-cloud-storage 1.62.1; HTTP 6 bucket methods, 9 object methods, derived bytes and 3 resumable chunks passed
+Ruby V4 response overrides passed: official query option, exact headers and bytes, value tamper rejection and unchanged metadata
+Ruby V4 GET/PUT passed: default endpoint signer binds storage.googleapis.com and fails locally; bucket-bound host:port with an explicit bucket/name path succeeds without rewriting signed URLs
+Ruby 4.0.9; google-cloud-storage 1.62.1; HTTP 6 bucket methods, 9 object methods, derived bytes and 3 resumable chunks passed
+
+COMMAND: Linux ARM64 seed (missing-config run, targeted retry, complete mounted-config run)
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 331B done
+#5 DONE 0.0s
+
+#6 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#6 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 4.40kB done
+#7 DONE 0.0s
+
+#8 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#8 CACHED
+
+#9 [build  6/10] COPY src ./src
+#9 CACHED
+
+#10 [build  5/10] COPY xtask/src ./xtask/src
+#10 CACHED
+
+#11 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#11 CACHED
+
+#12 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#12 CACHED
+
+#13 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#13 CACHED
+
+#14 [build  9/10] COPY distribution/notices ./distribution/notices
+#14 CACHED
+
+#15 [build  2/10] WORKDIR /build
+#15 CACHED
+
+#16 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#16 CACHED
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 6.9s done
+#17 exporting manifest sha256:b06bbdbe93699e236f594c7953b2c3705b132fe7140e0c04e33235a703c91dd0 done
+#17 exporting config sha256:d3dbc788e580706e1fd39ab02d3b135fd18336583ad7b6b8879ef1201328b934 done
+#17 exporting attestation manifest sha256:8618a1e4dcd1066c282fe98281207d08ec6ac322f162b47e962e2ec8a2ec9bcb done
+#17 exporting manifest list sha256:f45a88943ace6fcd27953f06b93406ee09859d12eaa55e24d6126ee2247080a8 done
+#17 naming to docker.io/library/gcs-mimic:shared-admin-seed-80544 done
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-80544
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-80544 1.3s done
+#17 DONE 8.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/hgknqeijrrnzmefsvxvs6nm8f
+Linux aarch64
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo 1.99.1 (5f94df478 2026-08-27)
+   Compiling libc v0.2.191
+   Compiling shlex v2.0.1
+   Compiling proc-macro2 v1.0.107
+   Compiling find-msvc-tools v0.1.15
+   Compiling cc v1.9.0
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling bytes v1.12.1
+   Compiling syn v3.0.9
+   Compiling ring v0.17.14
+   Compiling errno v0.3.14
+   Compiling itoa v1.0.18
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.4
+   Compiling tokio-macros v2.7.2
+   Compiling socket2 v0.6.5
+   Compiling typenum v1.20.1
+   Compiling rand_core v0.10.1
+   Compiling pin-project-lite v0.2.17
+   Compiling tokio v1.54.1
+   Compiling hybrid-array v0.4.15
+   Compiling http v1.5.0
+   Compiling getrandom v0.2.17
+   Compiling serde_core v1.0.229
+   Compiling pkg-config v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling httparse v1.10.1
+   Compiling getrandom v0.4.3
+   Compiling vcpkg v0.2.15
+   Compiling zeroize v1.9.1
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling libsqlite3-sys v0.39.0
+   Compiling http-body v1.1.0
+   Compiling smallvec v1.16.3
+   Compiling zmij v1.0.23
+   Compiling futures-core v0.3.34
+   Compiling rustls v0.23.46
+   Compiling rustls-webpki v0.103.16
+   Compiling crc32c v0.6.8
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling atomic-waker v1.1.2
+   Compiling serde v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling serde_json v1.0.154
+   Compiling once_cell v1.21.4
+   Compiling bitflags v2.13.2
+   Compiling subtle v2.6.1
+   Compiling httpdate v1.0.3
+   Compiling hyper v1.12.0
+   Compiling num-traits v0.2.19
+   Compiling digest v0.11.3
+   Compiling serde_derive v1.0.229
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling memchr v2.8.3
+   Compiling rusqlite v0.41.0
+   Compiling md-5 v0.11.0
+   Compiling tokio-rustls v0.26.6
+   Compiling hyper-util v0.1.21
+   Compiling http-body-util v0.1.5
+   Compiling gcs-mimic v0.1.0 (/build)
+   Compiling rand v0.10.3
+   Compiling chacha20 v0.10.2
+   Compiling rand_xorshift v0.5.0
+   Compiling core_detect v1.0.0
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.12.0
+warning: unused import: `time::Duration`
+  --> src/startup.rs:17:5
+   |
+17 |     time::Duration,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.76s
+     Running tests/seed.rs (target/debug/deps/seed-bbc805825236f2d4)
+
+running 14 tests
+{"event":"seeding"}
+test disabled_startup_never_replays_fixtures_later ... ok
+{"event":"seeding"}
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+{"event":"seeding"}
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+test non_utf8_fixture_names_fail_closed ... ok
+{"event":"seeding"}
+test fixture_depth_and_entry_count_are_bounded ... ok
+test populated_v4_catalog_migrates_without_seeding ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding"}
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+{"diagnostics":[{"fix":"Cannot load identity_file; provide a readable valid registry at most 64 KiB with unique ids/tokens, supported project_roles and valid RSA public_keys; remove unknown fields and private keys.","key":"identity_file","source":"identity"}],"event":"diagnostics","level":"error"}
+test seeded_http_metadata_bytes_and_strict_administrative_import ... FAILED
+{"event":"seeding"}
+{"event":"seeding"}
+test sigterm_during_seed_drains_writes_releases_lock_and_retries ... ok
+test symlinks_and_special_files_fail_closed ... ok
+{"event":"seeding"}
+test sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files ... ok
+
+failures:
+
+---- seeded_http_metadata_bytes_and_strict_administrative_import stdout ----
+
+thread 'seeded_http_metadata_bytes_and_strict_administrative_import' (1896) panicked at tests/seed.rs:58:56:
+ready after seeding: Error("EOF while parsing a value", line: 1, column: 0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    seeded_http_metadata_bytes_and_strict_administrative_import
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.31s
+
+error: test failed, to rerun pass `--test seed`
+
+Pinned Linux strict seed case with the read-only identity fixture mounted
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 DONE 0.0s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 331B done
+#5 DONE 0.0s
+
+#6 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#6 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 4.40kB done
+#7 DONE 0.0s
+
+#8 [build  6/10] COPY src ./src
+#8 CACHED
+
+#9 [build  9/10] COPY distribution/notices ./distribution/notices
+#9 CACHED
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  5/10] COPY xtask/src ./xtask/src
+#11 CACHED
+
+#12 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#12 CACHED
+
+#13 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#13 CACHED
+
+#14 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#14 CACHED
+
+#15 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#15 CACHED
+
+#16 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#16 CACHED
+
+#17 exporting to image
+#17 exporting layers done
+#17 exporting manifest sha256:b06bbdbe93699e236f594c7953b2c3705b132fe7140e0c04e33235a703c91dd0 done
+#17 exporting config sha256:d3dbc788e580706e1fd39ab02d3b135fd18336583ad7b6b8879ef1201328b934 done
+#17 exporting attestation manifest sha256:4fa7093f408085a6e9af50c7350bf386deba757bbeb9d4769f34efaa6f5539b2
+#17 exporting attestation manifest sha256:4fa7093f408085a6e9af50c7350bf386deba757bbeb9d4769f34efaa6f5539b2 done
+#17 exporting manifest list sha256:568853958331a39d76f51206e6be23f59bee74bdcbf8d58328886f8c962bb7e4 done
+#17 naming to docker.io/library/gcs-mimic:shared-admin-seed-95576 done
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-95576
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-95576 1.3s done
+#17 DONE 1.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/k4rnodnzjumq1lhk6n3aot51i
+Linux aarch64
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling find-msvc-tools v0.1.15
+   Compiling shlex v2.0.1
+   Compiling cc v1.9.0
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling syn v3.0.9
+   Compiling bytes v1.12.1
+   Compiling ring v0.17.14
+   Compiling errno v0.3.14
+   Compiling itoa v1.0.18
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.4
+   Compiling tokio-macros v2.7.2
+   Compiling socket2 v0.6.5
+   Compiling rand_core v0.10.1
+   Compiling typenum v1.20.1
+   Compiling pin-project-lite v0.2.17
+   Compiling tokio v1.54.1
+   Compiling hybrid-array v0.4.15
+   Compiling http v1.5.0
+   Compiling getrandom v0.2.17
+   Compiling serde_core v1.0.229
+   Compiling pkg-config v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling httparse v1.10.1
+   Compiling vcpkg v0.2.15
+   Compiling zeroize v1.9.1
+   Compiling semver v1.0.28
+   Compiling getrandom v0.4.3
+   Compiling rustc_version v0.4.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling libsqlite3-sys v0.39.0
+   Compiling http-body v1.1.0
+   Compiling smallvec v1.16.3
+   Compiling zmij v1.0.23
+   Compiling rustls v0.23.46
+   Compiling futures-core v0.3.34
+   Compiling rustls-webpki v0.103.16
+   Compiling crc32c v0.6.8
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling subtle v2.6.1
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling serde v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling serde_json v1.0.154
+   Compiling once_cell v1.21.4
+   Compiling bitflags v2.13.2
+   Compiling num-traits v0.2.19
+   Compiling hyper v1.12.0
+   Compiling digest v0.11.3
+   Compiling serde_derive v1.0.229
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling memchr v2.8.3
+   Compiling rusqlite v0.41.0
+   Compiling md-5 v0.11.0
+   Compiling hyper-util v0.1.21
+   Compiling tokio-rustls v0.26.6
+   Compiling http-body-util v0.1.5
+   Compiling gcs-mimic v0.1.0 (/build)
+   Compiling rand v0.10.3
+   Compiling rand_xorshift v0.5.0
+   Compiling chacha20 v0.10.2
+   Compiling core_detect v1.0.0
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling proptest v1.12.0
+warning: unused import: `time::Duration`
+  --> src/startup.rs:17:5
+   |
+17 |     time::Duration,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.25s
+     Running tests/seed.rs (target/debug/deps/seed-bbc805825236f2d4)
+
+running 1 test
+{"event":"seeding"}
+{"event":"seeding"}
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.09s
+
+
+Final complete Linux seed suite with read-only identity fixture mounted
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB 0.0s done
+#1 DONE 0.1s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 1.6s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.1s done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 DONE 1.1s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 331B done
+#5 DONE 0.0s
+
+#6 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#6 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.1s done
+#6 DONE 0.1s
+
+#7 [internal] load build context
+#7 transferring context: 4.40kB 0.0s done
+#7 DONE 0.0s
+
+#8 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#8 CACHED
+
+#9 [build  5/10] COPY xtask/src ./xtask/src
+#9 CACHED
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#11 CACHED
+
+#12 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#12 CACHED
+
+#13 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#13 CACHED
+
+#14 [build  9/10] COPY distribution/notices ./distribution/notices
+#14 CACHED
+
+#15 [build  6/10] COPY src ./src
+#15 CACHED
+
+#16 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#16 CACHED
+
+#17 exporting to image
+#17 exporting layers done
+#17 exporting manifest sha256:b06bbdbe93699e236f594c7953b2c3705b132fe7140e0c04e33235a703c91dd0 0.0s done
+#17 exporting config sha256:d3dbc788e580706e1fd39ab02d3b135fd18336583ad7b6b8879ef1201328b934 0.0s done
+#17 exporting attestation manifest sha256:c92bd39a152408afa3889d207eb37ad7f7d120382883c2f904c3f078c030ec88
+#17 exporting attestation manifest sha256:c92bd39a152408afa3889d207eb37ad7f7d120382883c2f904c3f078c030ec88 0.2s done
+#17 exporting manifest list sha256:3b51645785d89e25149a2b647b9f7444b99a1b31d34bd8102d9c116457806af9
+#17 exporting manifest list sha256:3b51645785d89e25149a2b647b9f7444b99a1b31d34bd8102d9c116457806af9 0.1s done
+#17 naming to docker.io/library/gcs-mimic:shared-admin-seed-52279 0.0s done
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-52279
+#17 unpacking to docker.io/library/gcs-mimic:shared-admin-seed-52279 1.6s done
+#17 DONE 2.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/3au6zzcrfs3y7wieychvg6cbp
+Linux aarch64
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+   Compiling libc v0.2.191
+   Compiling proc-macro2 v1.0.107
+   Compiling find-msvc-tools v0.1.15
+   Compiling shlex v2.0.1
+   Compiling cc v1.9.0
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling cfg-if v1.0.5
+   Compiling syn v3.0.9
+   Compiling bytes v1.12.1
+   Compiling ring v0.17.14
+   Compiling errno v0.3.14
+   Compiling itoa v1.0.18
+   Compiling signal-hook-registry v1.4.8
+   Compiling tokio-macros v2.7.2
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling rand_core v0.10.1
+   Compiling pin-project-lite v0.2.17
+   Compiling typenum v1.20.1
+   Compiling tokio v1.54.1
+   Compiling hybrid-array v0.4.15
+   Compiling http v1.5.0
+   Compiling getrandom v0.2.17
+   Compiling vcpkg v0.2.15
+   Compiling zeroize v1.9.1
+   Compiling semver v1.0.28
+   Compiling serde_core v1.0.229
+   Compiling pkg-config v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling httparse v1.10.1
+   Compiling getrandom v0.4.3
+   Compiling libsqlite3-sys v0.39.0
+   Compiling rustc_version v0.4.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling http-body v1.1.0
+   Compiling smallvec v1.16.3
+   Compiling zmij v1.0.23
+   Compiling rustls v0.23.46
+   Compiling futures-core v0.3.34
+   Compiling rustls-webpki v0.103.16
+   Compiling crc32c v0.6.8
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling bitflags v2.13.2
+   Compiling subtle v2.6.1
+   Compiling httpdate v1.0.3
+   Compiling atomic-waker v1.1.2
+   Compiling serde v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling serde_json v1.0.154
+   Compiling once_cell v1.21.4
+   Compiling num-traits v0.2.19
+   Compiling hyper v1.12.0
+   Compiling digest v0.11.3
+   Compiling serde_derive v1.0.229
+   Compiling memchr v2.8.3
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling rusqlite v0.41.0
+   Compiling hyper-util v0.1.21
+   Compiling md-5 v0.11.0
+   Compiling tokio-rustls v0.26.6
+   Compiling http-body-util v0.1.5
+   Compiling gcs-mimic v0.1.0 (/build)
+   Compiling rand v0.10.3
+   Compiling rand_xorshift v0.5.0
+   Compiling chacha20 v0.10.2
+   Compiling unarray v0.1.4
+   Compiling regex-syntax v0.8.11
+   Compiling core_detect v1.0.0
+   Compiling proptest v1.12.0
+warning: unused import: `time::Duration`
+  --> src/startup.rs:17:5
+   |
+17 |     time::Duration,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.26s
+     Running tests/seed.rs (target/debug/deps/seed-bbc805825236f2d4)
+
+running 14 tests
+{"event":"seeding"}
+test disabled_startup_never_replays_fixtures_later ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test explicit_project_and_empty_seed_directory_are_supported ... ok
+resumable maintenance failed; retrying: catalog unavailable: catalog operation limit reached
+{"event":"seeding"}
+test interrupted_import_retries_without_overwrite_and_releases_lock ... ok
+test fixture_depth_and_entry_count_are_bounded ... ok
+test non_utf8_fixture_names_fail_closed ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test populated_v4_catalog_migrates_without_seeding ... ok
+test invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive ... ok
+{"event":"seeding"}
+test probes_cannot_succeed_while_seed_publication_is_blocked ... ok
+test seed_configuration_precedence_and_validation ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds ... ok
+{"event":"seeding"}
+{"event":"seeding"}
+test seeded_http_metadata_bytes_and_strict_administrative_import ... ok
+{"event":"seeding"}
+test sigterm_during_seed_drains_writes_releases_lock_and_retries ... ok
+test symlinks_and_special_files_fail_closed ... ok
+{"event":"seeding"}
+test sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.07s
+
+
+COMMAND: bash scripts/smoke-containers.sh linux/arm64 linux/amd64
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 1.3s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 ...
+
+#5 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#5 DONE 0.3s
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 DONE 1.2s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 331B done
+#6 DONE 0.0s
+
+#7 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#7 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 done
+#7 DONE 0.0s
+
+#8 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#8 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 1.70MB 0.0s done
+#9 DONE 0.0s
+
+#10 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#10 CACHED
+
+#11 [build  2/10] WORKDIR /build
+#11 CACHED
+
+#12 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#12 CACHED
+
+#13 [build  5/10] COPY xtask/src ./xtask/src
+#13 CACHED
+
+#14 [build  6/10] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#15 DONE 0.0s
+
+#16 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 DONE 0.0s
+
+#17 [build  9/10] COPY distribution/notices ./distribution/notices
+#17 DONE 0.0s
+
+#18 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#18 0.115 info: syncing channel updates for 1.99.1-aarch64-unknown-linux-gnu
+#18 0.521 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#18 0.529 info: downloading 2 components
+#18 1.709     Updating crates.io index
+#18 2.362  Downloading crates ...
+#18 2.499   Downloaded subtle v2.6.1
+#18 2.504   Downloaded untrusted v0.9.0
+#18 2.527   Downloaded digest v0.11.3
+#18 2.577   Downloaded errno v0.3.14
+#18 2.582   Downloaded unarray v0.1.4
+#18 2.585   Downloaded windows-link v0.2.1
+#18 2.586   Downloaded crypto-common v0.2.2
+#18 2.588   Downloaded tokio-macros v2.7.2
+#18 2.602   Downloaded block-buffer v0.12.1
+#18 2.604   Downloaded httpdate v1.0.3
+#18 2.605   Downloaded atomic-waker v1.1.2
+#18 2.606   Downloaded rustc_version v0.4.1
+#18 2.610   Downloaded rand_xorshift v0.5.0
+#18 2.613   Downloaded cpufeatures v0.3.1
+#18 2.614   Downloaded http-body v1.1.0
+#18 2.615   Downloaded fallible-streaming-iterator v0.1.9
+#18 2.616   Downloaded windows-targets v0.52.6
+#18 2.617   Downloaded crc32c v0.6.8
+#18 2.619   Downloaded futures-core v0.3.34
+#18 2.629   Downloaded signal-hook-registry v1.4.8
+#18 2.630   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#18 2.632   Downloaded tokio-rustls v0.26.6
+#18 2.634   Downloaded zeroize v1.9.1
+#18 2.635   Downloaded itoa v1.0.18
+#18 2.636   Downloaded core_detect v1.0.0
+#18 2.638   Downloaded bitflags v2.13.2
+#18 2.642   Downloaded md-5 v0.11.0
+#18 2.643   Downloaded rand_core v0.10.1
+#18 2.645   Downloaded autocfg v1.5.1
+#18 2.646   Downloaded cfg-if v1.0.5
+#18 2.648   Downloaded zmij v1.0.23
+#18 2.649   Downloaded shlex v2.0.1
+#18 2.650   Downloaded pin-project-lite v0.2.17
+#18 2.656   Downloaded rustls-pki-types v1.15.1
+#18 2.658   Downloaded http-body-util v0.1.5
+#18 2.659   Downloaded find-msvc-tools v0.1.15
+#18 2.660   Downloaded once_cell v1.21.4
+#18 2.662   Downloaded fallible-iterator v0.3.0
+#18 2.663   Downloaded smallvec v1.16.3
+#18 2.664   Downloaded semver v1.0.28
+#18 2.666   Downloaded quote v1.0.47
+#18 2.668   Downloaded pkg-config v0.3.34
+#18 2.669   Downloaded httparse v1.10.1
+#18 2.672   Downloaded hybrid-array v0.4.15
+#18 2.673   Downloaded getrandom v0.2.17
+#18 2.675   Downloaded unicode-ident v1.0.27
+#18 2.678   Downloaded socket2 v0.6.5
+#18 2.679   Downloaded num-traits v0.2.19
+#18 2.682   Downloaded chacha20 v0.10.2
+#18 2.683   Downloaded getrandom v0.4.3
+#18 2.686   Downloaded r-efi v6.0.0
+#18 2.689   Downloaded proc-macro2 v1.0.107
+#18 2.707   Downloaded serde_core v1.0.229
+#18 2.709   Downloaded serde_derive v1.0.229
+#18 2.713   Downloaded bytes v1.12.1
+#18 2.716   Downloaded serde v1.0.229
+#18 2.719   Downloaded rustls-webpki v0.103.16
+#18 2.721   Downloaded memchr v2.8.3
+#18 2.726   Downloaded rand v0.10.3
+#18 2.729   Downloaded http v1.5.0
+#18 2.731   Downloaded mio v1.2.4
+#18 2.736   Downloaded serde_json v1.0.154
+#18 2.761   Downloaded typenum v1.20.1
+#18 2.764   Downloaded cc v1.9.0
+#18 2.767   Downloaded hyper-util v0.1.21
+#18 2.773   Downloaded hyper v1.12.0
+#18 2.778   Downloaded rusqlite v0.41.0
+#18 2.783   Downloaded proptest v1.12.0
+#18 2.791   Downloaded vcpkg v0.2.15
+#18 2.824   Downloaded syn v3.0.9
+#18 2.831   Downloaded regex-syntax v0.8.11
+#18 2.836   Downloaded rustls v0.23.46
+#18 2.847   Downloaded windows_x86_64_gnullvm v0.52.6
+#18 2.853   Downloaded windows_aarch64_gnullvm v0.52.6
+#18 2.859   Downloaded windows_i686_gnullvm v0.52.6
+#18 2.889   Downloaded windows_x86_64_msvc v0.52.6
+#18 2.898   Downloaded libc v0.2.191
+#18 2.937   Downloaded windows_x86_64_gnu v0.52.6
+#18 2.950   Downloaded windows_i686_gnu v0.52.6
+#18 2.965   Downloaded windows_aarch64_msvc v0.52.6
+#18 2.973   Downloaded windows_i686_msvc v0.52.6
+#18 2.982   Downloaded tokio v1.54.1
+#18 3.014   Downloaded ring v0.17.14
+#18 3.044   Downloaded windows-sys v0.61.2
+#18 3.095   Downloaded windows-sys v0.52.0
+#18 3.146   Downloaded libsqlite3-sys v0.39.0
+#18 3.256    Compiling libc v0.2.191
+#18 3.256    Compiling find-msvc-tools v0.1.15
+#18 3.328    Compiling shlex v2.0.1
+#18 3.368    Compiling proc-macro2 v1.0.107
+#18 3.485    Compiling cc v1.9.0
+#18 3.725    Compiling unicode-ident v1.0.27
+#18 3.747    Compiling quote v1.0.47
+#18 4.002    Compiling cfg-if v1.0.5
+#18 4.013    Compiling bytes v1.12.1
+#18 4.049    Compiling syn v3.0.9
+#18 4.281    Compiling ring v0.17.14
+#18 4.445    Compiling errno v0.3.14
+#18 4.480    Compiling itoa v1.0.18
+#18 4.548    Compiling signal-hook-registry v1.4.8
+#18 5.073    Compiling tokio-macros v2.7.2
+#18 5.293    Compiling socket2 v0.6.5
+#18 5.567    Compiling mio v1.2.4
+#18 5.772    Compiling pin-project-lite v0.2.17
+#18 5.787    Compiling typenum v1.20.1
+#18 6.058    Compiling hybrid-array v0.4.15
+#18 6.221    Compiling tokio v1.54.1
+#18 7.097    Compiling http v1.5.0
+#18 7.742    Compiling getrandom v0.2.17
+#18 7.794    Compiling vcpkg v0.2.15
+#18 7.959    Compiling zeroize v1.9.1
+#18 7.996    Compiling pkg-config v0.3.34
+#18 8.120    Compiling untrusted v0.9.0
+#18 8.141    Compiling serde_core v1.0.229
+#18 8.209    Compiling semver v1.0.28
+#18 8.278    Compiling httparse v1.10.1
+#18 8.373    Compiling rustc_version v0.4.1
+#18 9.898    Compiling libsqlite3-sys v0.39.0
+#18 10.02    Compiling rustls-pki-types v1.15.1
+#18 10.18    Compiling http-body v1.1.0
+#18 10.21    Compiling smallvec v1.16.3
+#18 10.28    Compiling futures-core v0.3.34
+#18 10.31    Compiling zmij v1.0.23
+#18 10.32    Compiling rustls v0.23.46
+#18 10.37    Compiling rustls-webpki v0.103.16
+#18 11.92    Compiling crc32c v0.6.8
+#18 12.14    Compiling crypto-common v0.2.2
+#18 12.52    Compiling block-buffer v0.12.1
+#18 12.56    Compiling httpdate v1.0.3
+#18 12.67    Compiling atomic-waker v1.1.2
+#18 12.69    Compiling getrandom v0.4.3
+#18 12.75    Compiling subtle v2.6.1
+#18 12.78    Compiling serde_json v1.0.154
+#18 12.83    Compiling serde v1.0.229
+#18 12.90    Compiling once_cell v1.21.4
+#18 20.17    Compiling hyper v1.12.0
+#18 21.32    Compiling digest v0.11.3
+#18 21.49    Compiling serde_derive v1.0.229
+#18 22.40    Compiling bitflags v2.13.2
+#18 22.48    Compiling fallible-streaming-iterator v0.1.9
+#18 22.51    Compiling memchr v2.8.3
+#18 22.74    Compiling fallible-iterator v0.3.0
+#18 24.08    Compiling md-5 v0.11.0
+#18 24.14    Compiling hyper-util v0.1.21
+#18 24.24    Compiling tokio-rustls v0.26.6
+#18 24.32    Compiling http-body-util v0.1.5
+#18 36.04    Compiling rusqlite v0.41.0
+#18 36.33    Compiling gcs-mimic v0.1.0 (/build)
+#18 45.34 warning: unused import: `time::Duration`
+#18 45.34   --> src/startup.rs:17:5
+#18 45.34    |
+#18 45.34 17 |     time::Duration,
+#18 45.34    |     ^^^^^^^^^^^^^^
+#18 45.34    |
+#18 45.34    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+#18 45.34 
+#18 54.34 warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+#18 54.34     Finished `release` profile [optimized] target(s) in 51.12s
+#18 54.38    Compiling serde_core v1.0.229
+#18 54.38    Compiling zmij v1.0.23
+#18 54.38    Compiling serde_json v1.0.154
+#18 54.38    Compiling memchr v2.8.3
+#18 54.38    Compiling itoa v1.0.18
+#18 55.44    Compiling xtask v0.1.0 (/build/xtask)
+#18 56.39     Finished `release` profile [optimized] target(s) in 2.02s
+#18 56.39      Running `target/release/xtask release notices /distribution-licenses`
+#18 DONE 56.7s
+
+#19 [runtime 2/5] WORKDIR /app
+#19 CACHED
+
+#20 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#20 CACHED
+
+#21 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#21 DONE 0.0s
+
+#22 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 0.2s done
+#23 exporting manifest sha256:271d11c7846402ef20de6b15fd85baeda2c3c61df93ceb69d19948f78c004781 done
+#23 exporting config sha256:30e737adb9202546e3abb5bf60eb462af2b0960dd6edecc5cc10c7d09b75258e done
+#23 exporting attestation manifest sha256:5f078cefcb7069b352ca01a7e3f6cf95de284f58eb8bfcadd3d0f9c7db30125c done
+#23 exporting manifest list sha256:d74aece899d4ff7c405c9beac5a8deb2c129ffc5d37b0b79471fd996f95c408b done
+#23 naming to docker.io/library/gcs-mimic:bucket-smoke-arm64-41081 done
+#23 unpacking to docker.io/library/gcs-mimic:bucket-smoke-arm64-41081 0.1s done
+#23 DONE 0.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/i4l2bfae5s4uoj1r63tsmh1hn
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic tls ca
+       gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --scheme MODE                https (http|https; one listener)
+  --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
+  --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
+  --data-dir PATH              data (exclusive persistent catalog)
+  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-project ID            local-project (owning project for seeded buckets)
+  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
+  --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
+  --max-connections N          32 (1..1024)
+  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
+  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
+Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
+Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
+identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
+development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Authentication is permissive by default; strict mode checks local bearer tokens and grants.
+gcs-mimic 0.1.0
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Creating 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Creating 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-41081-gcs-run-1f7b3004007f Creating 
+ Container gcs-mimic-bucket-arm64-41081-gcs-run-1f7b3004007f Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removed 
+ Network gcs-mimic-bucket-arm64-41081_default Removing 
+ Network gcs-mimic-bucket-arm64-41081_default Removed 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removed 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Removing 
+ Network gcs-mimic-bucket-arm64-41081_default Removing 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-41081_default Removed 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Network gcs-mimic-bucket-arm64-41081_default Creating 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Creating 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Created 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Created 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Network gcs-mimic-bucket-arm64-41081_default Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-arm64-41081-gcs-1 Removed 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Removing 
+ Network gcs-mimic-bucket-arm64-41081_default Removing 
+ Volume gcs-mimic-bucket-arm64-41081_gcs-data Removed 
+ Network gcs-mimic-bucket-arm64-41081_default Removed 
+PASS: linux/arm64 build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Creating 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Created 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-arm64-41081_default Removing 
+ Network gcs-mimic-seed-arm64-41081_default Removed 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-arm64-41081_default Removing 
+ Network gcs-mimic-seed-arm64-41081_default Removed 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removed 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Removing 
+ Network gcs-mimic-seed-arm64-41081_default Removing 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Removed 
+ Network gcs-mimic-seed-arm64-41081_default Removed 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Network gcs-mimic-seed-arm64-41081_default Creating 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Created 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Network gcs-mimic-seed-arm64-41081_default Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-arm64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-arm64-41081_default Removing 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Removing 
+ Volume gcs-mimic-seed-arm64-41081_gcs-data Removed 
+ Network gcs-mimic-seed-arm64-41081_default Removed 
+PASS: linux/arm64 read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.91kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#2 DONE 0.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#4 DONE 0.0s
+
+#5 [internal] load metadata for gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#5 DONE 0.3s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 331B done
+#6 DONE 0.0s
+
+#7 [runtime 1/5] FROM gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf
+#7 resolve gcr.io/distroless/cc-debian13:nonroot@sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf done
+#7 DONE 0.0s
+
+#8 [build  1/10] FROM docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6
+#8 resolve docker.io/library/rust:1.99.1-slim-trixie@sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6 0.0s done
+#8 DONE 0.0s
+
+#9 [internal] load build context
+#9 transferring context: 4.40kB done
+#9 DONE 0.0s
+
+#10 [build  2/10] WORKDIR /build
+#10 CACHED
+
+#11 [build  3/10] COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+#11 DONE 0.0s
+
+#12 [build  4/10] COPY xtask/Cargo.toml ./xtask/Cargo.toml
+#12 DONE 0.0s
+
+#13 [build  5/10] COPY xtask/src ./xtask/src
+#13 DONE 0.0s
+
+#14 [build  6/10] COPY src ./src
+#14 DONE 0.0s
+
+#15 [build  7/10] COPY compatibility/upstream/json-schemas.json ./compatibility/upstream/json-schemas.json
+#15 DONE 0.0s
+
+#16 [build  8/10] COPY LICENSE-MIT LICENSE-APACHE ./
+#16 DONE 0.0s
+
+#17 [build  9/10] COPY distribution/notices ./distribution/notices
+#17 DONE 0.0s
+
+#18 [build 10/10] RUN cargo fetch --locked     && cargo build --locked --offline --release --bin gcs-mimic --jobs 2 --config 'profile.release.strip="symbols"'     && mkdir -p target/release-notices     && cp "/usr/share/doc/gcc-$(cc -dumpversion)-base/copyright" target/release-notices/GCC-COPYRIGHT     && cargo run --locked --offline --release --package xtask -- release notices /distribution-licenses     && install -d -o 10001 -g 10001 /runtime-data
+#18 0.260 info: syncing channel updates for 1.99.1-x86_64-unknown-linux-gnu
+#18 0.668 info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+#18 0.682 info: downloading 2 components
+#18 2.521     Updating crates.io index
+#18 3.356  Downloading crates ...
+#18 3.522   Downloaded errno v0.3.14
+#18 3.537   Downloaded pin-project-lite v0.2.17
+#18 3.545   Downloaded proc-macro2 v1.0.107
+#18 3.554   Downloaded socket2 v0.6.5
+#18 3.559   Downloaded cpufeatures v0.3.1
+#18 3.568   Downloaded fallible-streaming-iterator v0.1.9
+#18 3.571   Downloaded unarray v0.1.4
+#18 3.574   Downloaded rand_xorshift v0.5.0
+#18 3.576   Downloaded itoa v1.0.18
+#18 3.578   Downloaded http-body v1.1.0
+#18 3.579   Downloaded atomic-waker v1.1.2
+#18 3.588   Downloaded cfg-if v1.0.5
+#18 3.590   Downloaded tokio-macros v2.7.2
+#18 3.592   Downloaded crypto-common v0.2.2
+#18 3.597   Downloaded windows-targets v0.52.6
+#18 3.604   Downloaded httpdate v1.0.3
+#18 3.606   Downloaded windows-link v0.2.1
+#18 3.607   Downloaded futures-core v0.3.34
+#18 3.609   Downloaded rustc_version v0.4.1
+#18 3.615   Downloaded quote v1.0.47
+#18 3.618   Downloaded signal-hook-registry v1.4.8
+#18 3.620   Downloaded subtle v2.6.1
+#18 3.621   Downloaded shlex v2.0.1
+#18 3.623   Downloaded pkg-config v0.3.34
+#18 3.625   Downloaded autocfg v1.5.1
+#18 3.627   Downloaded wasi v0.11.1+wasi-snapshot-preview1
+#18 3.629   Downloaded untrusted v0.9.0
+#18 3.633   Downloaded digest v0.11.3
+#18 3.635   Downloaded tokio-rustls v0.26.6
+#18 3.637   Downloaded zeroize v1.9.1
+#18 3.638   Downloaded fallible-iterator v0.3.0
+#18 3.639   Downloaded block-buffer v0.12.1
+#18 3.641   Downloaded find-msvc-tools v0.1.15
+#18 3.642   Downloaded rand_core v0.10.1
+#18 3.644   Downloaded md-5 v0.11.0
+#18 3.645   Downloaded crc32c v0.6.8
+#18 3.647   Downloaded core_detect v1.0.0
+#18 3.649   Downloaded zmij v1.0.23
+#18 3.651   Downloaded http-body-util v0.1.5
+#18 3.653   Downloaded httparse v1.10.1
+#18 3.655   Downloaded rustls-pki-types v1.15.1
+#18 3.657   Downloaded chacha20 v0.10.2
+#18 3.662   Downloaded hybrid-array v0.4.15
+#18 3.667   Downloaded once_cell v1.21.4
+#18 3.670   Downloaded unicode-ident v1.0.27
+#18 3.673   Downloaded semver v1.0.28
+#18 3.676   Downloaded smallvec v1.16.3
+#18 3.677   Downloaded getrandom v0.2.17
+#18 3.680   Downloaded serde_derive v1.0.229
+#18 3.682   Downloaded bitflags v2.13.2
+#18 3.686   Downloaded num-traits v0.2.19
+#18 3.689   Downloaded getrandom v0.4.3
+#18 3.692   Downloaded serde_core v1.0.229
+#18 3.696   Downloaded r-efi v6.0.0
+#18 3.700   Downloaded bytes v1.12.1
+#18 3.705   Downloaded rustls-webpki v0.103.16
+#18 3.743   Downloaded serde v1.0.229
+#18 3.748   Downloaded rand v0.10.3
+#18 3.752   Downloaded typenum v1.20.1
+#18 3.754   Downloaded memchr v2.8.3
+#18 3.759   Downloaded mio v1.2.4
+#18 3.764   Downloaded hyper-util v0.1.21
+#18 3.770   Downloaded http v1.5.0
+#18 3.773   Downloaded cc v1.9.0
+#18 3.777   Downloaded serde_json v1.0.154
+#18 3.784   Downloaded hyper v1.12.0
+#18 3.789   Downloaded rusqlite v0.41.0
+#18 3.795   Downloaded proptest v1.12.0
+#18 3.803   Downloaded vcpkg v0.2.15
+#18 3.837   Downloaded syn v3.0.9
+#18 3.844   Downloaded regex-syntax v0.8.11
+#18 3.850   Downloaded rustls v0.23.46
+#18 3.861   Downloaded windows_aarch64_gnullvm v0.52.6
+#18 3.867   Downloaded windows_x86_64_gnullvm v0.52.6
+#18 3.874   Downloaded windows_i686_gnullvm v0.52.6
+#18 3.899   Downloaded libc v0.2.191
+#18 3.941   Downloaded windows_x86_64_gnu v0.52.6
+#18 3.953   Downloaded windows_x86_64_msvc v0.52.6
+#18 3.962   Downloaded windows_aarch64_msvc v0.52.6
+#18 3.972   Downloaded windows_i686_gnu v0.52.6
+#18 3.984   Downloaded windows_i686_msvc v0.52.6
+#18 3.995   Downloaded tokio v1.54.1
+#18 4.032   Downloaded ring v0.17.14
+#18 4.062   Downloaded windows-sys v0.61.2
+#18 4.115   Downloaded windows-sys v0.52.0
+#18 4.168   Downloaded libsqlite3-sys v0.39.0
+#18 4.773    Compiling libc v0.2.191
+#18 4.774    Compiling find-msvc-tools v0.1.15
+#18 5.808    Compiling proc-macro2 v1.0.107
+#18 6.826    Compiling shlex v2.0.1
+#18 7.570    Compiling cc v1.9.0
+#18 8.631    Compiling unicode-ident v1.0.27
+#18 9.200    Compiling quote v1.0.47
+#18 10.14    Compiling bytes v1.12.1
+#18 11.83    Compiling syn v3.0.9
+#18 12.17    Compiling cfg-if v1.0.5
+#18 12.42    Compiling ring v0.17.14
+#18 13.62    Compiling errno v0.3.14
+#18 14.71    Compiling itoa v1.0.18
+#18 14.74    Compiling tokio-macros v2.7.2
+#18 16.03    Compiling signal-hook-registry v1.4.8
+#18 17.77    Compiling mio v1.2.4
+#18 19.70    Compiling socket2 v0.6.5
+#18 21.92    Compiling typenum v1.20.1
+#18 23.24    Compiling pin-project-lite v0.2.17
+#18 23.74    Compiling tokio v1.54.1
+#18 28.01    Compiling hybrid-array v0.4.15
+#18 29.26    Compiling http v1.5.0
+#18 32.69    Compiling getrandom v0.2.17
+#18 34.15    Compiling zeroize v1.9.1
+#18 34.31    Compiling vcpkg v0.2.15
+#18 35.30    Compiling pkg-config v0.3.34
+#18 35.65    Compiling untrusted v0.9.0
+#18 36.45    Compiling serde_core v1.0.229
+#18 36.52    Compiling httparse v1.10.1
+#18 37.40    Compiling semver v1.0.28
+#18 37.73    Compiling libsqlite3-sys v0.39.0
+#18 38.47    Compiling rustc_version v0.4.1
+#18 39.53    Compiling rustls-pki-types v1.15.1
+#18 41.92    Compiling http-body v1.1.0
+#18 42.89    Compiling smallvec v1.16.3
+#18 44.14    Compiling futures-core v0.3.34
+#18 44.17    Compiling zmij v1.0.23
+#18 45.13    Compiling rustls v0.23.46
+#18 45.32    Compiling rustls-webpki v0.103.16
+#18 45.74    Compiling crc32c v0.6.8
+#18 54.18    Compiling crypto-common v0.2.2
+#18 56.00    Compiling block-buffer v0.12.1
+#18 56.93    Compiling httpdate v1.0.3
+#18 58.63    Compiling atomic-waker v1.1.2
+#18 59.59    Compiling subtle v2.6.1
+#18 60.35    Compiling serde_json v1.0.154
+#18 61.17    Compiling getrandom v0.4.3
+#18 62.02    Compiling serde v1.0.229
+#18 62.97    Compiling once_cell v1.21.4
+#18 80.02    Compiling hyper v1.12.0
+#18 84.29    Compiling digest v0.11.3
+#18 85.79    Compiling serde_derive v1.0.229
+#18 86.74    Compiling memchr v2.8.3
+#18 88.62    Compiling fallible-streaming-iterator v0.1.9
+#18 89.24    Compiling fallible-iterator v0.3.0
+#18 89.34    Compiling bitflags v2.13.2
+#18 90.24    Compiling rusqlite v0.41.0
+#18 94.93    Compiling md-5 v0.11.0
+#18 96.32    Compiling hyper-util v0.1.21
+#18 97.51    Compiling tokio-rustls v0.26.6
+#18 98.04    Compiling http-body-util v0.1.5
+#18 99.07    Compiling gcs-mimic v0.1.0 (/build)
+#18 117.6 warning: unused import: `time::Duration`
+#18 117.6   --> src/startup.rs:17:5
+#18 117.6    |
+#18 117.6 17 |     time::Duration,
+#18 117.6    |     ^^^^^^^^^^^^^^
+#18 117.6    |
+#18 117.6    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+#18 117.6 
+#18 133.2 warning: `gcs-mimic` (bin "gcs-mimic") generated 1 warning (run `cargo fix --bin "gcs-mimic" -p gcs-mimic` to apply 1 suggestion)
+#18 133.2     Finished `release` profile [optimized] target(s) in 2m 08s
+#18 133.6    Compiling serde_core v1.0.229
+#18 133.6    Compiling zmij v1.0.23
+#18 133.6    Compiling serde_json v1.0.154
+#18 133.6    Compiling memchr v2.8.3
+#18 133.6    Compiling itoa v1.0.18
+#18 138.3    Compiling xtask v0.1.0 (/build/xtask)
+#18 144.9     Finished `release` profile [optimized] target(s) in 11.55s
+#18 144.9      Running `target/release/xtask release notices /distribution-licenses`
+#18 DONE 145.6s
+
+#19 [runtime 2/5] WORKDIR /app
+#19 CACHED
+
+#20 [runtime 3/5] COPY --link --from=build --chown=10001:10001 /runtime-data/ /var/lib/gcs-mimic/
+#20 CACHED
+
+#21 [runtime 4/5] COPY --link --from=build /build/target/release/gcs-mimic /usr/local/bin/gcs-mimic
+#21 DONE 0.0s
+
+#22 [runtime 5/5] COPY --link --from=build /distribution-licenses/ /usr/share/licenses/gcs-mimic/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 0.3s done
+#23 exporting manifest sha256:4b62b457a74dcf3aec04ca01c725403763a1cc25462689c4d7bfc6e11cf06c71 done
+#23 exporting config sha256:7c95115b047fcadacc37045822dd3607e1237bf94d866027c2ef9a3fa7f60c82 done
+#23 exporting attestation manifest sha256:439fca7762e9b7933c457ab80c94b70c8f06228a3df647656a1e85ebe8aec65b done
+#23 exporting manifest list sha256:0b680b8e0c6a33c47a0ad5836cca8846c7c45242497bd4950bf341798213aeef done
+#23 naming to docker.io/library/gcs-mimic:bucket-smoke-amd64-41081 done
+#23 DONE 0.3s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ulj0cwbrqj2sgp893aiqqs7mw
+gcs-mimic — local Cloud Storage emulator foundation
+Usage: gcs-mimic serve [--config PATH] [OPTIONS]
+       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic tls ca
+       gcs-mimic url public --base-url URL --bucket NAME --object NAME
+       gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
+       gcs-mimic --help | --version
+
+Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --listen IP:PORT             127.0.0.1:4443
+  --scheme MODE                https (http|https; one listener)
+  --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
+  --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
+  --data-dir PATH              data (exclusive persistent catalog)
+  --seed-dir PATH              none (read-only fixtures; fresh data directory only)
+  --seed-project ID            local-project (owning project for seeded buckets)
+  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
+  --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
+  --max-connections N          32 (1..1024)
+  --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
+  --worker-threads N           2 (1..32)
+  --max-blocking-threads N     2 (1..32)
+  --connection-timeout-ms N    5000 (1..60000; headers/body inactivity for objects)
+  --object-request-timeout-ms N 900000 (1..86400000; absolute upload/media deadline)
+  --catalog-wait-timeout-ms N  30000 (1..60000; upload advisory/commit wait)
+  --shutdown-timeout-ms N      5000 (1..60000)
+  --auth-mode MODE             permissive (permissive|strict; strict needs --identity-file)
+  --compat-profile PROFILE     native (native|legacy-emulator; independent of authentication)
+  --identity-file PATH         none (strict-mode JSON identity registry, at most 64 KiB)
+  GCS_MIMIC_CONFIG selects a JSON config file; --config overrides it.
+
+HTTP/1 probes and scoped JSON/XML APIs are available over HTTP or TLS 1.2/1.3.
+HTTPS defaults to public local-development credentials for localhost, gcs and loopback IPs.
+Supply both --tls-cert and --tls-key to replace them. Export the root with gcs-mimic tls ca.
+Clients must trust the issuing CA and match a certificate SAN; public test keys provide no
+identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
+development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
+HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Authentication is permissive by default; strict mode checks local bearer tokens and grants.
+gcs-mimic 0.1.0
+{"diagnostics":[{"fix":"Healthcheck failed; require HTTP 200 from a complete local probe response, and verify the URL and CA trust (including 403 access denial).","key":"--url","source":"cli"}],"event":"diagnostics","level":"error"}
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-41081-gcs-run-aa542b0e4da5 Creating 
+ Container gcs-mimic-bucket-amd64-41081-gcs-run-aa542b0e4da5 Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Removing 
+ Network gcs-mimic-bucket-amd64-41081_default Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Healthy 
+access-control-allow-origin: capacitor://localhost
+access-control-allow-origin: https://browser.example
+access-control-max-age: 3600
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Removing 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Removing 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Removed 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Creating 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Creating 
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Network gcs-mimic-bucket-amd64-41081_default Creating 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Created 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Created 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Network gcs-mimic-bucket-amd64-41081_default Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-bucket-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Removing 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Removing 
+ Volume gcs-mimic-bucket-amd64-41081_gcs-data Removed 
+ Network gcs-mimic-bucket-amd64-41081_default Removed 
+PASS: linux/amd64 build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Created 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removing 
+ Network gcs-mimic-seed-amd64-41081_default Removed 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removing 
+ Network gcs-mimic-seed-amd64-41081_default Removed 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removing 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Removing 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removed 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Creating 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Creating 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Network gcs-mimic-seed-amd64-41081_default Creating 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Created 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Network gcs-mimic-seed-amd64-41081_default Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Creating 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Created 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Starting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Started 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Waiting 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Healthy 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopping 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Stopped 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removing 
+ Container gcs-mimic-seed-amd64-41081-gcs-1 Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removing 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Removing 
+ Volume gcs-mimic-seed-amd64-41081_gcs-data Removed 
+ Network gcs-mimic-seed-amd64-41081_default Removed 
+PASS: linux/amd64 read-only seed then ready, mutation/deletion persistence across stop/start and recreate, fresh-volume reseeding
+
+COMMAND: cargo +1.99.1 build --release --locked --offline --bin gcs-mimic --example onboarding-state-benchmark
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `release` profile [optimized] target(s) in 9.15s
+
+COMMAND: Example tests and source-pinned measurement shell self-check
+   Compiling gcs-mimic v0.1.0 (<checkout>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.63s
+     Running unittests examples/onboarding-state-benchmark.rs (target/debug/examples/onboarding_state_benchmark-091c8f0012d4880b)
+
+running 3 tests
+test tests::benchmark_rejects_reused_overwrite_generation - should panic ... ok
+test tests::benchmark_rejects_unframed_response - should panic ... ok
+test tests::benchmark_checks_lengths_percentiles_and_hashes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+server did not become ready before the bounded deadline
+scripts/measure-onboarding-state.sh: line 9: 96787 Terminated: 15          "$driver" hold-catalog "$work/catalog" > "$work/server.log" 2> "$work/server.err"
+scripts/measure-onboarding-state.sh: line 9: 96931 Terminated: 15          "$driver" hold-catalog "$work/catalog" > "$work/server.log" 2> "$work/server.err"
+scripts/measure-onboarding-state.sh: line 88: 96943 Terminated: 15          ( while kill -0 "$pid" 2> /dev/null; do
+    ps -p "$pid" -o rss= >> "$work/rss"; sleep 0.05;
+done )
+scripts/measure-onboarding-state.sh: line 88: 96963 Terminated: 15          ( while kill -0 "$pid" 2> /dev/null; do
+    ps -p "$pid" -o rss= >> "$work/rss"; sleep 0.05;
+done )
+jq: error (at <stdin>:1): expected all six available workloads with five distinct repetitions
+PASS: pre-ready timeout/interruption releases child/catalog ownership, directional CPU intervals stay separate, filesystem types and five-run calibration are validated.
+

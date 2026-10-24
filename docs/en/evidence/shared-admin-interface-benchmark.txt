@@ -1,0 +1,79 @@
+Local path prefixes are redacted where present; other preparation, measurement and background-resource output is unchanged.
+
+PREPARATION (excluded from measured intervals)
+{"fixture_objects":10000,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":100000,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":0,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":0,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":0,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":0,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":0,"publication":"Catalog::put_object","result":"PASS"}
+
+MEASUREMENT STDOUT
+source=f74a55709d74cfe239297117c451c29cec0fb70c profile=native-macos-http-permissive-native-wal-full concurrency=1 repetitions=5
+cache=not-evicted CPU=server-ps-0.01s RSS=server-50ms cgroup=UNMEASURED disk=phase-end-not-high-water startup=observed-ready-poll-10ms-plus-command-overhead
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+binary: rustc
+commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+commit-date: 2026-10-13
+host: aarch64-apple-darwin
+release: 1.99.1
+LLVM version: 23.1.1
+cargo 1.99.1 (5f94df478 2026-08-27)
+Darwin arm64
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+Apple M4 Pro
+68719476736
+14
+filesystem_type=apfs
+3f28530144451ae5c13721b3b0a45ec4f5e150d755f67fe68155e26589b61dad  Cargo.lock
+d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33  rust-toolchain.toml
+5986e0fa6ca2f35559a8139b556bb64f1edcb59842b1f8bc9a2907e0f5f842c7  target/release/gcs-mimic
+709483c19e480263a72bd1e442d663b211df7040f117c18195e680e13a6d7b40  target/release/examples/onboarding-state-benchmark
+{"bytes":10240000,"errors":0,"first_generation":1792854672109129,"last_generation":1792854782250003,"mib_per_second":0.08865120696608508,"p50_seconds":0.010717833,"p95_seconds":0.015891,"p99_seconds":0.018088167,"requests":10000,"requests_per_second":90.77883593327113,"wall_seconds":110.157834667,"workload":"small-publish","round":1,"server_cpu_seconds":17.63,"server_cpu_seconds_per_gib":1848.6394879999998,"sampled_RSS_KiB":11520,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792854782324754,"last_generation":1792854940783198,"mib_per_second":0.06162256532997974,"p50_seconds":0.015193084,"p95_seconds":0.020953042,"p99_seconds":0.023165083,"requests":10000,"requests_per_second":63.101506897899256,"wall_seconds":158.474820834,"workload":"small-overwrite","round":1,"server_cpu_seconds":23.61,"server_cpu_seconds_per_gib":2475.687936,"sampled_RSS_KiB":11536,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":405.6398597413036,"p50_seconds":2.52440675,"p95_seconds":2.52440675,"p99_seconds":2.52440675,"requests":1,"requests_per_second":0.3961326755286168,"wall_seconds":2.52440675,"workload":"upload-1gib","round":1,"server_cpu_seconds":2.5700000000000003,"server_cpu_seconds_per_gib":2.5700000000000003,"sampled_RSS_KiB":11664,"allocated_disk_KiB":1103008,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":3348.8612354346774,"p50_seconds":0.305775584,"p95_seconds":0.305775584,"p99_seconds":0.305775584,"requests":1,"requests_per_second":3.270372300229177,"wall_seconds":0.305775584,"workload":"download-1gib","round":1,"server_cpu_seconds":0.5499999999999972,"server_cpu_seconds_per_gib":0.5499999999999972,"sampled_RSS_KiB":12128,"allocated_disk_KiB":1103008,"cgroup_memory":null}
+{"round":1,"workload":"startup-10000","objects":10000,"wall_seconds":0.178226,"server_cpu_seconds":0.1,"ready_RSS_KiB":10960,"allocated_disk_KiB":43992,"errors":0,"cgroup_memory":null}
+{"round":1,"workload":"startup-100000","objects":100000,"wall_seconds":1.200823,"server_cpu_seconds":0.98,"ready_RSS_KiB":11024,"allocated_disk_KiB":432852,"errors":0,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792854947130222,"last_generation":1792855060303936,"mib_per_second":0.08627814117678005,"p50_seconds":0.010817583,"p95_seconds":0.015427584,"p99_seconds":0.018059042,"requests":10000,"requests_per_second":88.34881656502277,"wall_seconds":113.187707417,"workload":"small-publish","round":2,"server_cpu_seconds":18.08,"server_cpu_seconds_per_gib":1895.825408,"sampled_RSS_KiB":11600,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855060366861,"last_generation":1792855229456668,"mib_per_second":0.05774906035582054,"p50_seconds":0.015882209,"p95_seconds":0.022071791,"p99_seconds":0.031242916,"requests":10000,"requests_per_second":59.13503780436023,"wall_seconds":169.104483083,"workload":"small-overwrite","round":2,"server_cpu_seconds":24.889999999999997,"server_cpu_seconds_per_gib":2609.905664,"sampled_RSS_KiB":11616,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":396.32179317033825,"p50_seconds":2.583759,"p95_seconds":2.583759,"p99_seconds":2.583759,"requests":1,"requests_per_second":0.38703300114290845,"wall_seconds":2.583759,"workload":"upload-1gib","round":2,"server_cpu_seconds":2.520000000000003,"server_cpu_seconds_per_gib":2.520000000000003,"sampled_RSS_KiB":10288,"allocated_disk_KiB":1099136,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":3528.0305958530835,"p50_seconds":0.290246916,"p95_seconds":0.290246916,"p99_seconds":0.290246916,"requests":1,"requests_per_second":3.445342378762777,"wall_seconds":0.290246916,"workload":"download-1gib","round":2,"server_cpu_seconds":0.5300000000000011,"server_cpu_seconds_per_gib":0.5300000000000011,"sampled_RSS_KiB":11008,"allocated_disk_KiB":1099136,"cgroup_memory":null}
+{"round":2,"workload":"startup-10000","objects":10000,"wall_seconds":0.175554,"server_cpu_seconds":0.1,"ready_RSS_KiB":10912,"allocated_disk_KiB":43992,"errors":0,"cgroup_memory":null}
+{"round":2,"workload":"startup-100000","objects":100000,"wall_seconds":1.256472,"server_cpu_seconds":0.86,"ready_RSS_KiB":11024,"allocated_disk_KiB":432852,"errors":0,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855235915540,"last_generation":1792855352797432,"mib_per_second":0.08354031424165315,"p50_seconds":0.010941292,"p95_seconds":0.0157705,"p99_seconds":0.019427834,"requests":10000,"requests_per_second":85.54528178345282,"wall_seconds":116.89715425,"workload":"small-publish","round":3,"server_cpu_seconds":19.08,"server_cpu_seconds_per_gib":2000.6830079999997,"sampled_RSS_KiB":11600,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855352876364,"last_generation":1792855524754216,"mib_per_second":0.05681189941373254,"p50_seconds":0.015986292,"p95_seconds":0.022041208,"p99_seconds":0.029257167,"requests":10000,"requests_per_second":58.17538499966212,"wall_seconds":171.894006375,"workload":"small-overwrite","round":3,"server_cpu_seconds":26.56,"server_cpu_seconds_per_gib":2785.017856,"sampled_RSS_KiB":11616,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":289.11077605142236,"p50_seconds":3.541894958,"p95_seconds":3.541894958,"p99_seconds":3.541894958,"requests":1,"requests_per_second":0.28233474223771715,"wall_seconds":3.541894958,"workload":"upload-1gib","round":3,"server_cpu_seconds":2.6499999999999986,"server_cpu_seconds_per_gib":2.6499999999999986,"sampled_RSS_KiB":11808,"allocated_disk_KiB":1109392,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":3515.9255927001614,"p50_seconds":0.291246209,"p95_seconds":0.291246209,"p99_seconds":0.291246209,"requests":1,"requests_per_second":3.4335210866212513,"wall_seconds":0.291246209,"workload":"download-1gib","round":3,"server_cpu_seconds":0.5200000000000031,"server_cpu_seconds_per_gib":0.5200000000000031,"sampled_RSS_KiB":12144,"allocated_disk_KiB":1109392,"cgroup_memory":null}
+{"round":3,"workload":"startup-10000","objects":10000,"wall_seconds":0.120773,"server_cpu_seconds":0.08,"ready_RSS_KiB":10928,"allocated_disk_KiB":43992,"errors":0,"cgroup_memory":null}
+{"round":3,"workload":"startup-100000","objects":100000,"wall_seconds":0.994649,"server_cpu_seconds":0.77,"ready_RSS_KiB":11040,"allocated_disk_KiB":432852,"errors":0,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855531728082,"last_generation":1792855652799576,"mib_per_second":0.08065123797410287,"p50_seconds":0.011006,"p95_seconds":0.016987583,"p99_seconds":0.023471417,"requests":10000,"requests_per_second":82.58686768548134,"wall_seconds":121.084626167,"workload":"small-publish","round":4,"server_cpu_seconds":18.439999999999998,"server_cpu_seconds_per_gib":1933.5741439999997,"sampled_RSS_KiB":10608,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855652876003,"last_generation":1792855831704332,"mib_per_second":0.05460207283635938,"p50_seconds":0.016359833,"p95_seconds":0.02483925,"p99_seconds":0.033628708,"requests":10000,"requests_per_second":55.912522584432004,"wall_seconds":178.850810834,"workload":"small-overwrite","round":4,"server_cpu_seconds":24.919999999999998,"server_cpu_seconds_per_gib":2613.051392,"sampled_RSS_KiB":9984,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":314.3213791065376,"p50_seconds":3.257812125,"p95_seconds":3.257812125,"p99_seconds":3.257812125,"requests":1,"requests_per_second":0.30695447178372814,"wall_seconds":3.257812125,"workload":"upload-1gib","round":4,"server_cpu_seconds":2.6200000000000045,"server_cpu_seconds_per_gib":2.6200000000000045,"sampled_RSS_KiB":10160,"allocated_disk_KiB":1103008,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":2082.079832487568,"p50_seconds":0.491815916,"p95_seconds":0.491815916,"p99_seconds":0.491815916,"requests":1,"requests_per_second":2.033281086413641,"wall_seconds":0.491815916,"workload":"download-1gib","round":4,"server_cpu_seconds":0.6999999999999957,"server_cpu_seconds_per_gib":0.6999999999999957,"sampled_RSS_KiB":10800,"allocated_disk_KiB":1103008,"cgroup_memory":null}
+{"round":4,"workload":"startup-10000","objects":10000,"wall_seconds":0.203866,"server_cpu_seconds":0.08,"ready_RSS_KiB":10976,"allocated_disk_KiB":43992,"errors":0,"cgroup_memory":null}
+{"round":4,"workload":"startup-100000","objects":100000,"wall_seconds":1.381657,"server_cpu_seconds":0.78,"ready_RSS_KiB":10832,"allocated_disk_KiB":432852,"errors":0,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855839159213,"last_generation":1792855958228427,"mib_per_second":0.08200244728843888,"p50_seconds":0.010927458,"p95_seconds":0.017276167,"p99_seconds":0.025012042,"requests":10000,"requests_per_second":83.97050602336141,"wall_seconds":119.089433583,"workload":"small-publish","round":5,"server_cpu_seconds":18.08,"server_cpu_seconds_per_gib":1895.825408,"sampled_RSS_KiB":11744,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":10240000,"errors":0,"first_generation":1792855958304251,"last_generation":1792856121820218,"mib_per_second":0.05971609620312183,"p50_seconds":0.015759583,"p95_seconds":0.021281041,"p99_seconds":0.026812875,"requests":10000,"requests_per_second":61.14928251199675,"wall_seconds":163.534216416,"workload":"small-overwrite","round":5,"server_cpu_seconds":22.8,"server_cpu_seconds_per_gib":2390.75328,"sampled_RSS_KiB":10160,"allocated_disk_KiB":46224,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":339.93134790317026,"p50_seconds":3.012372958,"p95_seconds":3.012372958,"p99_seconds":3.012372958,"requests":1,"requests_per_second":0.3319642069366897,"wall_seconds":3.012372958,"workload":"upload-1gib","round":5,"server_cpu_seconds":2.490000000000002,"server_cpu_seconds_per_gib":2.490000000000002,"sampled_RSS_KiB":10288,"allocated_disk_KiB":1094816,"cgroup_memory":null}
+{"bytes":1073741824,"errors":0,"mib_per_second":3794.444717273089,"p50_seconds":0.269868209,"p95_seconds":0.269868209,"p99_seconds":0.269868209,"requests":1,"requests_per_second":3.705512419212001,"wall_seconds":0.269868209,"workload":"download-1gib","round":5,"server_cpu_seconds":0.4799999999999969,"server_cpu_seconds_per_gib":0.4799999999999969,"sampled_RSS_KiB":11040,"allocated_disk_KiB":1094816,"cgroup_memory":null}
+{"round":5,"workload":"startup-10000","objects":10000,"wall_seconds":0.122287,"server_cpu_seconds":0.08,"ready_RSS_KiB":10784,"allocated_disk_KiB":43992,"errors":0,"cgroup_memory":null}
+{"round":5,"workload":"startup-100000","objects":100000,"wall_seconds":0.964736,"server_cpu_seconds":0.75,"ready_RSS_KiB":10912,"allocated_disk_KiB":432852,"errors":0,"cgroup_memory":null}
+PASS: five repetitions, checked response counts, checksums, exact streamed bytes and readiness; sync/cgroups unmeasured.
+
+BACKGROUND CONTAINERS/HOST IMMEDIATELY BEFORE RUNNER START (anonymous CPU, memory, percent; uptime)
+0.00% 221.4MiB / 15.6GiB 1.39%
+0.00% 37.58MiB / 15.6GiB 0.24%
+0.00% 44.68MiB / 15.6GiB 0.28%
+2.04% 1.419GiB / 15.6GiB 9.10%
+ 0:11  34 users, load averages: 3.99 4.84 5.16
+
+BACKGROUND CONTAINERS/HOST IMMEDIATELY AFTER RUNNER EXIT (same format)
+5.18% 221.4MiB / 15.6GiB 1.39%
+0.08% 37.91MiB / 15.6GiB 0.24%
+0.00% 42.55MiB / 15.6GiB 0.27%
+2.66% 1.421GiB / 15.6GiB 9.11%
+ 0:35  34 users, load averages: 4.93 6.36 6.02

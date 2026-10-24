@@ -1,6 +1,9 @@
 use bytes::Bytes;
+use gcs_mimic::storage::admin::{
+    BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
+};
 use gcs_mimic::{
-    object::{ExpectedHashes, ObjectConditions, UploadChunk},
+    object::{ExpectedHashes, UploadChunk},
     storage::Catalog,
 };
 use md5::{Digest, Md5};
@@ -221,7 +224,11 @@ fn prepare(path: &Path, count: usize) {
                 SystemTime::now(),
             )
             .unwrap();
-            catalog.insert_bucket(record).await.unwrap();
+            catalog
+                .admin(Origin::Seed)
+                .ensure_bucket(BucketDefinition::new(record).unwrap())
+                .await
+                .unwrap();
             let mut uploads = tokio::task::JoinSet::new();
             for index in 0..count {
                 if uploads.len() == 8 {
@@ -237,13 +244,18 @@ fn prepare(path: &Path, count: usize) {
                     sender.send(Ok(UploadChunk::End)).await.unwrap();
                     drop(sender);
                     let record = catalog
-                        .put_object(
-                            "benchmark-bucket",
-                            &format!("object-{index:06}"),
-                            "application/octet-stream".into(),
-                            ExpectedHashes::default(),
-                            ObjectConditions::default(),
-                            1024,
+                        .admin(Origin::Seed)
+                        .publish_object(
+                            &BucketName::new("benchmark-bucket").unwrap(),
+                            &ObjectName::new(format!("object-{index:06}")).unwrap(),
+                            Publication {
+                                content_type: "application/octet-stream".into(),
+                                expected: ExpectedHashes::default(),
+                                condition: None,
+                                metadata: Default::default(),
+                                max_bytes: 1024,
+                                mode: PublishMode::Replace,
+                            },
                             receiver,
                         )
                         .await

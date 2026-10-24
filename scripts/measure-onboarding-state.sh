@@ -100,17 +100,23 @@ filesystem_type() {
   [[ $filesystem =~ ^[[:alnum:]_-]+$ && $filesystem != Directory ]] || return 1
   printf '%s\n' "$filesystem"
 }
+verify_source() {
+  local revision
+  revision=$(git rev-parse --verify --end-of-options "${1}^{commit}") || return 1
+  git diff --quiet "$revision" -- src Cargo.toml Cargo.lock rust-toolchain.toml examples/onboarding-state-benchmark.rs || return 1
+  [[ -z $(git ls-files --others --exclude-standard src examples/onboarding-state-benchmark.rs) ]] || return 1
+  printf '%s\n' "$revision"
+}
 main() {
   [[ $(uname -s) == Darwin ]] || { echo 'native macOS is required' >&2; exit 2; }
-  [[ $# == 2 && ( $1 == prepare || $1 == measure ) ]] || {
-    echo 'usage: bash scripts/measure-onboarding-state.sh prepare|measure WORK_DIR' >&2
+  [[ $# == 3 && ( $1 == prepare || $1 == measure ) ]] || {
+    echo 'usage: bash scripts/measure-onboarding-state.sh prepare|measure WORK_DIR SOURCE' >&2
     exit 2
   }
   work=$2
   [[ -x $driver && -x $server && -d $work ]]
   local source_digest
-  source_digest=$(git rev-parse 60a4f03)
-  git diff --quiet 60a4f03 -- src Cargo.toml Cargo.lock rust-toolchain.toml
+  source_digest=$(verify_source "$3")
   if [[ $1 == prepare ]]; then
     [[ ! -e $work/prepared ]]
     "$driver" prepare "$work/startup-10000" 10000

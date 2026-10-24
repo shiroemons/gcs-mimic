@@ -1,6 +1,6 @@
-#[allow(dead_code)]
-mod common;
-use common::TestDir;
+use crate as gcs_mimic;
+use crate::test_support::TestDir;
+use gcs_mimic::storage::admin::{BucketDefinition, BucketName, Origin};
 use gcs_mimic::{
     bucket::BucketRecord,
     clock::Clock,
@@ -21,21 +21,25 @@ impl Clock for TestClock {
 async fn setup(dir: &TestDir, clock: Arc<TestClock>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
-        .insert_bucket(BucketRecord {
-            name: "bucket".into(),
-            project: "project".into(),
-            location: "US".into(),
-            location_type: "multi-region".into(),
-            storage_class: "STANDARD".into(),
-            labels: Default::default(),
-            versioning_enabled: false,
-            default_event_based_hold: false,
-            public_access_prevention_enforced: false,
-            cors: Vec::new(),
-            metageneration: 1,
-            time_created: UNIX_EPOCH,
-            updated: UNIX_EPOCH,
-        })
+        .admin(Origin::Seed)
+        .ensure_bucket(
+            BucketDefinition::new(BucketRecord {
+                name: "bucket".into(),
+                project: "project".into(),
+                location: "US".into(),
+                location_type: "multi-region".into(),
+                storage_class: "STANDARD".into(),
+                labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
+                public_access_prevention_enforced: false,
+                cors: Vec::new(),
+                metageneration: 1,
+                time_created: UNIX_EPOCH,
+                updated: UNIX_EPOCH,
+            })
+            .unwrap(),
+        )
         .await
         .unwrap();
     catalog
@@ -59,7 +63,7 @@ async fn sessions_persist_options_offsets_deadline_and_exclusive_admission() {
             metadata: Some(None),
             ..Default::default()
         },
-        ..Default::default()
+        ..gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive)
     };
     let session = catalog
         .create_resumable_session("bucket", "../name/日本%", options.clone(), Some(9))
@@ -119,13 +123,30 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
     for _ in 0..127 {
         catalog
-            .create_resumable_session("bucket", "name", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "name",
+                gcs_mimic::storage::ResumableOptions::new(
+                    gcs_mimic::bucket::BucketAccess::Permissive,
+                ),
+                None,
+            )
             .await
             .unwrap();
     }
     let (a, b) = tokio::join!(
-        catalog.create_resumable_session("bucket", "a", Default::default(), None),
-        catalog.create_resumable_session("bucket", "b", Default::default(), None)
+        catalog.create_resumable_session(
+            "bucket",
+            "a",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None
+        ),
+        catalog.create_resumable_session(
+            "bucket",
+            "b",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None
+        )
     );
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
     assert!(matches!(
@@ -138,7 +159,14 @@ async fn retained_session_cap_is_atomic_and_rejection_creates_no_file() {
     );
     assert!(
         catalog
-            .create_resumable_session("bucket", "rejected", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "rejected",
+                gcs_mimic::storage::ResumableOptions::new(
+                    gcs_mimic::bucket::BucketAccess::Permissive
+                ),
+                None
+            )
             .await
             .is_err()
     );
@@ -155,7 +183,12 @@ async fn checkpoints_reject_backward_offsets_changed_totals_terminal_and_expired
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), Some(4))
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            Some(4),
+        )
         .await
         .unwrap();
     let mut lease = catalog
@@ -210,13 +243,25 @@ async fn previous_schema_migrates_and_invalid_session_options_are_rejected_read_
     catalog.close().await.unwrap();
     let path = dir.0.join("catalog.sqlite3");
     let legacy = rusqlite::Connection::open(&path).unwrap();
-    common::downgrade_object_schema(&legacy);
+    super::catalog::test_support::downgrade_object_schema(&legacy);
     legacy.execute_batch("ALTER TABLE buckets DROP COLUMN versioning_enabled; ALTER TABLE buckets DROP COLUMN default_event_based_hold; DROP TABLE resumable_sessions; DROP TABLE bucket_incarnations; PRAGMA user_version = 6;").unwrap();
     drop(legacy);
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
-    assert!(catalog.get_bucket("bucket").await.unwrap().is_some());
+    assert!(
+        catalog
+            .admin(Origin::Seed)
+            .get_bucket(&BucketName::new("bucket").unwrap())
+            .await
+            .unwrap()
+            .is_some()
+    );
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     catalog.close().await.unwrap();

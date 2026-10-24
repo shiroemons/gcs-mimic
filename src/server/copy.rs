@@ -210,7 +210,7 @@ mod tests {
                     if_generation_match: Some(record.generation),
                     ..Default::default()
                 },
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap()
@@ -226,7 +226,7 @@ mod tests {
             metadata,
             storage_class,
             expected,
-            ..Default::default()
+            ..DerivedDestination::new(BucketAccess::Permissive)
         }
     }
 
@@ -291,7 +291,7 @@ mod tests {
         let (request, progress, resume) = start(
             &catalog,
             source,
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
             target,
             BYTE_BUDGET,
             250,
@@ -330,7 +330,7 @@ mod tests {
         let mut target = destination(&source, "copy", b"");
         target.conditions.if_generation_match = Some(0);
         let (request, observed, _resume) =
-            start(&catalog, source, BucketAccess::Unchecked, target, 0, 5000);
+            start(&catalog, source, BucketAccess::Permissive, target, 0, 5000);
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(5), request)
                 .await
@@ -358,7 +358,7 @@ mod tests {
             let source = source(&catalog).await;
             let target = destination(&source, "copy", b"");
             let (request, progress, resume) =
-                start(&catalog, source, BucketAccess::Unchecked, target, 0, 5000);
+                start(&catalog, source, BucketAccess::Permissive, target, 0, 5000);
             let progress = progress.await.unwrap();
             if drop_handler {
                 request.abort();
@@ -398,7 +398,7 @@ mod tests {
             let (request, progress, resume) = start(
                 &catalog,
                 source,
-                BucketAccess::Unchecked,
+                BucketAccess::Permissive,
                 target,
                 BYTE_BUDGET,
                 5000,
@@ -445,7 +445,7 @@ mod tests {
                     }],
                     etag: None,
                 },
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -469,7 +469,7 @@ mod tests {
                     bindings: vec![],
                     etag: None,
                 },
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -509,7 +509,7 @@ mod tests {
         let (request, progress, resume) = start(
             &catalog,
             source,
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
             target,
             BYTE_BUDGET,
             5000,
@@ -539,7 +539,7 @@ mod tests {
         let (request, progress, resume) = start(
             &catalog,
             source,
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
             target,
             BYTE_BUDGET,
             5000,
@@ -570,7 +570,7 @@ mod tests {
         let (request, progress, resume) = start(
             &catalog,
             source,
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
             target,
             length,
             100,
@@ -627,7 +627,7 @@ mod tests {
         let (request, progress, _resume) = start(
             &catalog,
             source,
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
             target,
             BYTE_BUDGET,
             5000,

@@ -1,16 +1,20 @@
 //! Local administrative fixture import, completed before the listener binds.
 
 use crate::{
-    bucket::CatalogError,
     clock::Clock,
     config::Config,
-    json::{parse_insert, validate_object_name},
-    object::{ExpectedHashes, ObjectConditions, UploadChunk},
-    storage::Catalog,
+    json::validate_object_name,
+    object::{ExpectedHashes, UploadChunk},
+    storage::{
+        Catalog,
+        admin::{
+            Admin, AdminError, BucketDefinition, BucketName, EnsureBucket, GenerationCondition,
+            ObjectName, Origin, Publication, PublishMode,
+        },
+    },
 };
 use bytes::Bytes;
 use serde::Serialize;
-use serde_json::json;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -37,15 +41,16 @@ pub async fn import(
     config: &Config,
     clock: &dyn Clock,
 ) -> io::Result<SeedOutcome> {
-    if catalog.seed_complete().await.map_err(io::Error::other)? {
+    let admin = catalog.admin(Origin::Seed);
+    if admin.seed_complete().await.map_err(io::Error::other)? {
         return Ok(SeedOutcome::Skipped);
     }
     let Some(root) = &config.seed_dir else {
-        catalog.finish_seed().await.map_err(io::Error::other)?;
+        admin.finish_seed().await.map_err(io::Error::other)?;
         return Ok(SeedOutcome::Disabled);
     };
     eprintln!("{{\"event\":\"seeding\"}}");
-    let result = import_directory(catalog, config, clock, root).await;
+    let result = import_directory(&admin, config, clock, root).await;
     result.map_err(|error| io::Error::other(format!("seed import: {error}")))
 }
 
@@ -64,7 +69,7 @@ async fn entries(path: &Path, count: &mut usize) -> io::Result<Vec<PathBuf>> {
 }
 
 async fn import_directory(
-    catalog: &Catalog,
+    catalog: &Admin,
     config: &Config,
     clock: &dyn Clock,
     root: &Path,
@@ -118,20 +123,12 @@ async fn import_directory(
                         "top-level entries must be bucket directories",
                     ));
                 }
-                let record = parse_insert(
-                    json!({"name":leaf}).to_string().as_bytes(),
-                    &config.seed_project,
-                    clock.now(),
-                )
-                .map_err(|error| io::Error::other(error.message))?;
-                match catalog.insert_bucket(record).await {
-                    Ok(_) => buckets += 1,
-                    Err(CatalogError::AlreadyExists) => {
-                        let existing = catalog
-                            .get_bucket(leaf)
-                            .await
-                            .map_err(io::Error::other)?
-                            .ok_or_else(|| io::Error::other("seed bucket disappeared"))?;
+                let name = BucketName::new(leaf).map_err(io::Error::other)?;
+                let record = BucketDefinition::default_for(&name, &config.seed_project, clock)
+                    .map_err(io::Error::other)?;
+                match catalog.ensure_bucket(record).await {
+                    Ok(EnsureBucket::Created(_)) => buckets += 1,
+                    Ok(EnsureBucket::Existing(existing)) => {
                         if existing.project != config.seed_project {
                             return Err(io::Error::other(
                                 "existing seed bucket belongs to another project",
@@ -152,16 +149,14 @@ async fn import_directory(
                     pending.push((child, Some(bucket.clone()), name.clone(), depth + 1));
                 }
             } else {
-                let conditions = ObjectConditions {
-                    if_generation_match: Some(0),
-                    ..ObjectConditions::default()
-                };
+                let bucket = BucketName::new(bucket).map_err(io::Error::other)?;
+                let name = ObjectName::new(name).map_err(io::Error::other)?;
                 match catalog
-                    .check_object_upload(&bucket, &name, conditions)
+                    .check_upload(&bucket, &name, Some(GenerationCondition::Absent))
                     .await
                 {
                     Ok(()) => {}
-                    Err(crate::object::ObjectError::PreconditionFailed) => {
+                    Err(AdminError::Precondition) => {
                         existing_objects += 1;
                         return Ok(());
                     }
@@ -189,13 +184,17 @@ async fn import_directory(
                         }
                     }
                 };
-                let publish = catalog.put_object(
+                let publish = catalog.publish_object(
                     &bucket,
                     &name,
-                    "application/octet-stream".into(),
-                    ExpectedHashes::default(),
-                    conditions,
-                    config.max_object_bytes,
+                    Publication {
+                        content_type: "application/octet-stream".into(),
+                        expected: ExpectedHashes::default(),
+                        condition: Some(GenerationCondition::Absent),
+                        metadata: Default::default(),
+                        max_bytes: config.max_object_bytes,
+                        mode: PublishMode::Replace,
+                    },
                     body,
                 );
                 let (produced, published) = tokio::join!(produce, publish);

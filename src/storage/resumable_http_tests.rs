@@ -1,6 +1,6 @@
-#[allow(dead_code)]
-mod common;
-use common::TestDir;
+use crate as gcs_mimic;
+use crate::test_support::TestDir;
+use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};
 use gcs_mimic::{
     auth::{Auth, Registry},
     bucket::BucketRecord,
@@ -77,21 +77,25 @@ impl Harness {
             .await
             .unwrap();
         catalog
-            .insert_bucket(BucketRecord {
-                name: "bucket".into(),
-                project: "project".into(),
-                location: "US".into(),
-                location_type: "multi-region".into(),
-                storage_class: "STANDARD".into(),
-                labels: Default::default(),
-                versioning_enabled: false,
-                default_event_based_hold: false,
-                public_access_prevention_enforced: false,
-                cors: Vec::new(),
-                metageneration: 1,
-                time_created: UNIX_EPOCH,
-                updated: UNIX_EPOCH,
-            })
+            .admin(Origin::Seed)
+            .ensure_bucket(
+                BucketDefinition::new(BucketRecord {
+                    name: "bucket".into(),
+                    project: "project".into(),
+                    location: "US".into(),
+                    location_type: "multi-region".into(),
+                    storage_class: "STANDARD".into(),
+                    labels: Default::default(),
+                    versioning_enabled: false,
+                    default_event_based_hold: false,
+                    public_access_prevention_enforced: false,
+                    cors: Vec::new(),
+                    metageneration: 1,
+                    time_created: UNIX_EPOCH,
+                    updated: UNIX_EPOCH,
+                })
+                .unwrap(),
+            )
             .await
             .unwrap();
         let auth = if strict {
@@ -738,7 +742,12 @@ async fn sequential_binary_chunks_publish_exact_bytes_hashes_and_metadata_only_a
     let record = h
         .state
         .catalog
-        .get_object("bucket", "object", None, Default::default())
+        .admin(Origin::Seed)
+        .get_object(
+            &BucketName::new("bucket").unwrap(),
+            &ObjectName::new("object").unwrap(),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(record.md5, <[u8; 16]>::from(Md5::digest(&expected)));
@@ -1500,7 +1509,12 @@ async fn host_follows_returned_location_and_streams_large_body_in_small_buffers(
     let (_, mut reader) = h
         .state
         .catalog
-        .open_object("bucket", "streamed", None, Default::default())
+        .admin(Origin::Seed)
+        .open_object(
+            &BucketName::new("bucket").unwrap(),
+            &ObjectName::new("streamed").unwrap(),
+            None,
+        )
         .await
         .unwrap();
     let mut count = 0;
@@ -1599,7 +1613,12 @@ async fn final_metadata_and_completion_snapshot_survive_catalog_restart() {
     let session = catalog.resumable_session(id, "bucket").await.unwrap();
     assert_eq!(session.completion, Some(resource));
     let record = catalog
-        .get_object("bucket", "object", None, Default::default())
+        .admin(Origin::Seed)
+        .get_object(
+            &BucketName::new("bucket").unwrap(),
+            &ObjectName::new("object").unwrap(),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(

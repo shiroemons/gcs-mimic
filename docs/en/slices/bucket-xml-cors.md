@@ -108,9 +108,9 @@ cursor boundaries. The Google listing allowance above was checked on
 
 - `cargo test --lib xml::cors::tests`
 - `cargo test --test bucket_http bucket_cors`
-- `cargo test --test catalog`
+- `cargo test --lib storage::catalog_tests`
 - `cargo test --test bucket_http bucket_cors_large_metadata_lists_page_without_loss`
-- `cargo test --test catalog bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries`
+- `cargo test --lib storage::catalog_tests::bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries`
 
 The bucket HTTP tests cover both native and legacy-emulator resource profiles,
 create/get, ignored unknown rule fields, PATCH preservation/replacement/null and

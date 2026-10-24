@@ -1,0 +1,399 @@
+{
+  "baseline_source": "60a4f03",
+  "candidate_source": "f74a55709d74cfe239297117c451c29cec0fb70c",
+  "profile": "native-macos-http-permissive-native-wal-full",
+  "repetitions": 5,
+  "correctness": {
+    "samples": 30,
+    "errors": 0
+  },
+  "gates": [
+    {
+      "workload": "download-1gib",
+      "metric": "wall_seconds",
+      "baseline_median": 0.267560458,
+      "baseline_median_upper_bound": 0.5399295399999999,
+      "candidate_median": 0.291246209,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 0.4799999999999969,
+      "baseline_median_upper_bound": 0.759999999999998,
+      "candidate_median": 0.5300000000000011,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 1103008,
+      "baseline_median_upper_bound": 1213308.8,
+      "candidate_median": 1103008,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "p50_seconds",
+      "baseline_median": 0.267560458,
+      "baseline_median_upper_bound": 0.5399295399999999,
+      "candidate_median": 0.291246209,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "p95_seconds",
+      "baseline_median": 0.267560458,
+      "baseline_median_upper_bound": 0.5399295399999999,
+      "candidate_median": 0.291246209,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "p99_seconds",
+      "baseline_median": 0.267560458,
+      "baseline_median_upper_bound": 0.5399295399999999,
+      "candidate_median": 0.291246209,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "server_cpu_seconds_per_gib",
+      "baseline_median": 0.4799999999999969,
+      "baseline_median_upper_bound": 0.759999999999998,
+      "candidate_median": 0.5300000000000011,
+      "result": "PASS"
+    },
+    {
+      "workload": "download-1gib",
+      "metric": "sampled_RSS_KiB",
+      "baseline_median": 10784,
+      "baseline_median_upper_bound": 12480,
+      "candidate_median": 11040,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "wall_seconds",
+      "baseline_median": 182.831691542,
+      "baseline_median_upper_bound": 209.27224020799997,
+      "candidate_median": 169.104483083,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 33.400000000000006,
+      "baseline_median_upper_bound": 41.76000000000002,
+      "candidate_median": 24.889999999999997,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 46224,
+      "baseline_median_upper_bound": 50846.4,
+      "candidate_median": 46224,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "p50_seconds",
+      "baseline_median": 0.017330583,
+      "baseline_median_upper_bound": 0.019063641300000003,
+      "candidate_median": 0.015882209,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "p95_seconds",
+      "baseline_median": 0.024480125,
+      "baseline_median_upper_bound": 0.029529543000000002,
+      "candidate_median": 0.022041208,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "p99_seconds",
+      "baseline_median": 0.032706333,
+      "baseline_median_upper_bound": 0.048008750999999995,
+      "candidate_median": 0.029257167,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "server_cpu_seconds_per_gib",
+      "baseline_median": 3502.2438400000005,
+      "baseline_median_upper_bound": 4378.853376000002,
+      "candidate_median": 2609.905664,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-overwrite",
+      "metric": "sampled_RSS_KiB",
+      "baseline_median": 10832,
+      "baseline_median_upper_bound": 11915.2,
+      "candidate_median": 11536,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "wall_seconds",
+      "baseline_median": 126.530006042,
+      "baseline_median_upper_bound": 150.593643292,
+      "candidate_median": 116.89715425,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 25.08,
+      "baseline_median_upper_bound": 36.059999999999995,
+      "candidate_median": 18.08,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 46224,
+      "baseline_median_upper_bound": 50846.4,
+      "candidate_median": 46224,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "p50_seconds",
+      "baseline_median": 0.011879333,
+      "baseline_median_upper_bound": 0.013067266300000002,
+      "candidate_median": 0.010927458,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "p95_seconds",
+      "baseline_median": 0.017243208,
+      "baseline_median_upper_bound": 0.02106196,
+      "candidate_median": 0.015891,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "p99_seconds",
+      "baseline_median": 0.021299667,
+      "baseline_median_upper_bound": 0.034168665,
+      "candidate_median": 0.019427834,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "server_cpu_seconds_per_gib",
+      "baseline_median": 2629.828608,
+      "baseline_median_upper_bound": 3781.165056,
+      "candidate_median": 1895.825408,
+      "result": "PASS"
+    },
+    {
+      "workload": "small-publish",
+      "metric": "sampled_RSS_KiB",
+      "baseline_median": 10832,
+      "baseline_median_upper_bound": 11915.2,
+      "candidate_median": 11600,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-10000",
+      "metric": "wall_seconds",
+      "baseline_median": 0.190218,
+      "baseline_median_upper_bound": 0.654544,
+      "candidate_median": 0.175554,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-10000",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 0.08,
+      "baseline_median_upper_bound": null,
+      "candidate_median": 0.08,
+      "result": "PENDING",
+      "reason": "Baseline PENDING: a zero sample or missing/quantized raw server CPU repetition prevents calibration"
+    },
+    {
+      "workload": "startup-10000",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 44180,
+      "baseline_median_upper_bound": 48598.00000000001,
+      "candidate_median": 43992,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-10000",
+      "metric": "ready_RSS_KiB",
+      "baseline_median": 10128,
+      "baseline_median_upper_bound": 11140.800000000001,
+      "candidate_median": 10928,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-100000",
+      "metric": "wall_seconds",
+      "baseline_median": 0.969047,
+      "baseline_median_upper_bound": 3.561013,
+      "candidate_median": 1.200823,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-100000",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 0.75,
+      "baseline_median_upper_bound": 1.6899999999999997,
+      "candidate_median": 0.78,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-100000",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 432852,
+      "baseline_median_upper_bound": 476137.2,
+      "candidate_median": 432852,
+      "result": "PASS"
+    },
+    {
+      "workload": "startup-100000",
+      "metric": "ready_RSS_KiB",
+      "baseline_median": 10144,
+      "baseline_median_upper_bound": 11158.400000000001,
+      "candidate_median": 11024,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "wall_seconds",
+      "baseline_median": 2.41678125,
+      "baseline_median_upper_bound": 3.1712174160000006,
+      "candidate_median": 3.012372958,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "server_cpu_seconds",
+      "baseline_median": 2.450000000000003,
+      "baseline_median_upper_bound": 2.830000000000013,
+      "candidate_median": 2.5700000000000003,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "allocated_disk_KiB",
+      "baseline_median": 1103008,
+      "baseline_median_upper_bound": 1213308.8,
+      "candidate_median": 1103008,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "p50_seconds",
+      "baseline_median": 2.41678125,
+      "baseline_median_upper_bound": 3.1712174160000006,
+      "candidate_median": 3.012372958,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "p95_seconds",
+      "baseline_median": 2.41678125,
+      "baseline_median_upper_bound": 3.1712174160000006,
+      "candidate_median": 3.012372958,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "p99_seconds",
+      "baseline_median": 2.41678125,
+      "baseline_median_upper_bound": 3.1712174160000006,
+      "candidate_median": 3.012372958,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "server_cpu_seconds_per_gib",
+      "baseline_median": 2.450000000000003,
+      "baseline_median_upper_bound": 2.830000000000013,
+      "candidate_median": 2.5700000000000003,
+      "result": "PASS"
+    },
+    {
+      "workload": "upload-1gib",
+      "metric": "sampled_RSS_KiB",
+      "baseline_median": 10032,
+      "baseline_median_upper_bound": 12144,
+      "candidate_median": 10288,
+      "result": "PASS"
+    }
+  ],
+  "not_applicable": [
+    {
+      "workload": "download-1gib",
+      "metrics": [
+        "ready_RSS_KiB"
+      ]
+    },
+    {
+      "workload": "small-overwrite",
+      "metrics": [
+        "ready_RSS_KiB"
+      ]
+    },
+    {
+      "workload": "small-publish",
+      "metrics": [
+        "ready_RSS_KiB"
+      ]
+    },
+    {
+      "workload": "startup-10000",
+      "metrics": [
+        "p50_seconds",
+        "p95_seconds",
+        "p99_seconds",
+        "server_cpu_seconds_per_gib",
+        "sampled_RSS_KiB"
+      ]
+    },
+    {
+      "workload": "startup-100000",
+      "metrics": [
+        "p50_seconds",
+        "p95_seconds",
+        "p99_seconds",
+        "server_cpu_seconds_per_gib",
+        "sampled_RSS_KiB"
+      ]
+    },
+    {
+      "workload": "upload-1gib",
+      "metrics": [
+        "ready_RSS_KiB"
+      ]
+    }
+  ],
+  "pending_workloads": [
+    "sync-full-rescan",
+    "api-with-sync",
+    "import-overlap",
+    "import-resume",
+    "cgroup-memory",
+    "temporary-disk-high-water",
+    "cold-cache"
+  ],
+  "limits": [
+    "Native macOS process measurements, no server cgroups or cold-cache eviction",
+    "Observed readiness and 50ms RSS sampling do not establish full lifetime or temporary-disk peaks",
+    "Candidate integration source contains other tracks; differences cannot be attributed solely to administrative operations",
+    "Four pre-existing user containers were left running; before/after resource observations are supplementary and cannot exclude intervening background load"
+  ],
+  "counts": {
+    "pass": 39,
+    "fail": 0,
+    "pending": 1
+  }
+}

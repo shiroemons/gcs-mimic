@@ -31,35 +31,14 @@ pub fn load_http_config(
 #[path = "../../src/storage/test_support.rs"]
 pub mod timestamp_support;
 
-pub use timestamp_support::downgrade_timestamp_precision;
+#[allow(dead_code)]
+pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
+    timestamp_support::downgrade_timestamp_precision(connection);
+}
 
 #[allow(dead_code)]
 pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
-    downgrade_timestamp_precision(connection);
-    connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; DROP TABLE rewrite_sessions; DROP TABLE derived_deletions; DROP TABLE derived_inputs; DROP TABLE derived_transfers;
-        ALTER TABLE objects RENAME TO objects_with_versions;
-        CREATE TABLE objects (
-            bucket TEXT NOT NULL COLLATE BINARY,
-            name TEXT NOT NULL COLLATE BINARY,
-            generation INTEGER NOT NULL CHECK(generation > 0),
-            metageneration INTEGER NOT NULL CHECK(metageneration > 0),
-            content_type TEXT NOT NULL,
-            size INTEGER NOT NULL CHECK(size >= 0),
-            md5 BLOB NOT NULL CHECK(length(md5) = 16),
-            crc32c INTEGER NOT NULL CHECK(crc32c BETWEEN 0 AND 4294967295),
-            storage_class TEXT NOT NULL,
-            time_created INTEGER NOT NULL,
-            updated INTEGER NOT NULL,
-            blob_id TEXT NOT NULL UNIQUE,
-            PRIMARY KEY(bucket, name)
-        ) WITHOUT ROWID;
-        ALTER TABLE objects ADD COLUMN content_encoding TEXT;
-        ALTER TABLE objects ADD COLUMN content_disposition TEXT;
-        ALTER TABLE objects ADD COLUMN content_language TEXT;
-        ALTER TABLE objects ADD COLUMN cache_control TEXT;
-        ALTER TABLE objects ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
-        INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata) SELECT bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata FROM objects_with_versions;
-        DROP TABLE objects_with_versions;").unwrap();
+    timestamp_support::downgrade_object_schema(connection);
 }
 
 pub fn server_command() -> Command {

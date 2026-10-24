@@ -8,6 +8,8 @@ Contract: [shared onboarding state](../slices/onboarding-state-contract.md). The
 
 Prepare outside the exclusive measurement window. A new disposable work directory holds separate catalogs for startup at 10,000/100,000 objects and five empty small-object catalogs. Creation uses current `Catalog::put_object`, at most eight concurrent preparations, ordinary checksums/fsync/WAL FULL and a read-only count assertion. It does not populate SQLite directly. The fixture preparation cost is excluded from samples.
 
+The following historical reproduction uses server sources `60a4f03` and the original dedicated example/scripts from `10d8651f016def7e639f416cad48c76d463f7015` in an isolated checkout. That original runner has two arguments and guards only the server tree. The current administrative fixture helper requires the later storage interface, and its runner takes an explicit third SOURCE argument and also guards the example. Current candidate commands and provenance are recorded in [administrative verification](shared-admin-interface.md); the old baseline numbers and raw output remain unchanged.
+
 ```sh
 cargo build --release --locked --offline --bin gcs-mimic --example onboarding-state-benchmark
 cargo test --locked --offline --example onboarding-state-benchmark

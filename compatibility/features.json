@@ -39030,7 +39030,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Typed bounded initializer parsing, native validation and count/byte-bounded shared diagnostics pass in docs/en/slices/bucket-initialization.md; selectors remain rejected until startup application exists. Shared initialization authority/create-missing remains unimplemented in docs/en/slices/onboarding-state-contract.md. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Typed bounded initializer parsing, native validation and count/byte-bounded shared diagnostics pass in docs/en/slices/bucket-initialization.md; selectors remain rejected until startup application exists. Shared typed administrative authority/create-missing operations are implemented under docs/en/slices/onboarding-state-contract.md; initializer startup application remains pending. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; schema remains 14 and later publication modes/journals remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39197,9 +39197,14 @@
         },
         {
           "id": "onboarding-state-authority",
-          "description": "Implement typed bounded administrative initialization in both auth profiles without changing API permissions; contract: docs/en/slices/onboarding-state-contract.md; owner shared-admin-interface.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Typed bounded local administration passes validated names/generations, ordered atomic batches up to 1000, Replace metadata/conditions/holds/checksums, reads up to 256, independent saturated-API admission, actual 30-second timeout, shutdown ownership, cancellation cleanup and typed DiskFull/Corrupt. Native seed thirteen-case and Linux fourteen-case regressions plus permissive/strict SDK/container checks pass; initializer startup and later publication modes remain separate. Contract: docs/en/slices/onboarding-state-contract.md; evidence: docs/en/evidence/shared-admin-interface.md.",
+          "result": "PASS",
+          "test_ids": [
+            "admin_names_generations_and_permissions_are_validated",
+            "admin_ensure_batches_preserve_identity_order_and_rollback",
+            "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
         },
         {
           "id": "onboarding-state-create-missing",
@@ -39214,6 +39219,17 @@
           "test_ids": [
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "probes_cannot_succeed_while_seed_publication_is_blocked",
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
+        },
+        {
+          "id": "administrative-create-missing",
+          "description": "Typed local authority, validated names/generations/permissions and create-missing batches up to 1000 preserve order, stored projects/settings and restart identity; later SQL failures roll back and competing callers serialize. Strict seed/API separation remains unchanged. Initializer startup integration remains pending.",
+          "result": "PASS",
+          "test_ids": [
+            "admin_names_generations_and_permissions_are_validated",
+            "admin_ensure_batches_preserve_identity_order_and_rollback",
+            "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
             "seeded_http_metadata_bytes_and_strict_administrative_import"
           ]
         }
@@ -39251,7 +39267,10 @@
         "first_error_summaries_cover_all_entries_with_bounded_ranges",
         "generalized_detail_groups_preserve_fields_after_rule_and_member_noise",
         "shortened_first_errors_and_root_typo_advice_remain_visible",
-        "failed_retention_never_evicts_an_existing_diagnostic"
+        "failed_retention_never_evicts_an_existing_diagnostic",
+        "admin_names_generations_and_permissions_are_validated",
+        "admin_ensure_batches_preserve_identity_order_and_rollback",
+        "admin_ensure_full_batch_and_concurrent_creates_are_atomic"
       ],
       "verification": [
         {
@@ -39345,6 +39364,48 @@
           "test_ids": [
             "container-seed-lifecycle"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface.md",
+          "test_ids": [
+            "admin_names_generations_and_permissions_are_validated",
+            "admin_ensure_batches_preserve_identity_order_and_rollback",
+            "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "admin_names_generations_and_permissions_are_validated",
+            "admin_ensure_batches_preserve_identity_order_and_rollback",
+            "admin_ensure_full_batch_and_concurrent_creates_are_atomic"
+          ]
+        },
+        {
+          "command": "Linux ARM64, network none, Rust 1.99.1, read-only tests/config mounts: cargo +1.99.1 test --locked --offline --test seed",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "probes_cannot_succeed_while_seed_publication_is_blocked",
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "container-seed-lifecycle"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -39352,7 +39413,7 @@
         "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED.",
         "Directory synchronization settings and activation are specified only in docs/en/slices/directory-synchronization.md; no watcher, bidirectional ingestion or write-back is implemented."
       ],
-      "implemented_in": null,
+      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
       "last_verified": "2026-10-24"
     },
     {
@@ -40503,7 +40564,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership, bounded import observations and the native benchmark profile are defined in docs/en/slices/onboarding-state-contract.md; publication, sync, journal and cgroup measurements remain pending.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership, bounded import observations and the native benchmark profile are defined in docs/en/slices/onboarding-state-contract.md; publication, sync, journal and cgroup measurements remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; schema remains 14 and later publication modes/journals remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40723,6 +40784,26 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "id": "administrative-bounded-operations",
+          "description": "Independent two-upload/32-read management admission and a bounded 32-waiter queue progress under full API slots; the public 30-second deadline returns Busy. Replace and bounded reads retain shared conditions, checksums, metadata, generations, holds and versioning. Transactional adapter state and later publication modes remain pending. Fixed metadata controls/length and empty custom keys are validated in the shared core, preserving the old readable generation on rejection.",
+          "result": "PASS",
+          "test_ids": [
+            "admin_admission_is_independent_of_saturated_api_slots",
+            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_replace_preserves_conditions_checksums_metadata_and_versions",
+            "admin_invalid_metadata_cannot_replace_a_readable_generation"
+          ]
+        },
+        {
+          "id": "administrative-regression-benchmark",
+          "description": "Six equivalent-profile candidate workloads each complete five repetitions with zero errors: 10000 small publish/overwrite, exact 1 GiB upload/download and startup at 10000/100000 objects. All 39 calibrated historical-baseline metric gates pass; startup-10000 CPU remains separately PENDING for measurement precision. Preserve source/build/lock/binary digests, all samples and background-load observations; graph differences prevent admin-only causal attribution. Sync/import/cgroups remain separate pending scopes. Evidence: docs/en/evidence/shared-admin-interface.md.",
+          "result": "PASS",
+          "test_ids": [
+            "shared-admin-native-regression"
+          ]
         }
       ],
       "test_ids": [
@@ -40770,7 +40851,13 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
-        "rejects_future_schema_unversioned_data_and_corruption"
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "admin_admission_is_independent_of_saturated_api_slots",
+        "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
+        "admin_publication_times_out_at_the_public_admission_deadline",
+        "admin_replace_preserves_conditions_checksums_metadata_and_versions",
+        "admin_invalid_metadata_cannot_replace_a_readable_generation",
+        "shared-admin-native-regression"
       ],
       "verification": [
         {
@@ -40849,6 +40936,41 @@
             "exact_times_offsets_zero_and_negative_epoch",
             "checkpoint_resumes_both_digests"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface.md",
+          "test_ids": [
+            "admin_admission_is_independent_of_saturated_api_slots",
+            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_replace_preserves_conditions_checksums_metadata_and_versions",
+            "admin_invalid_metadata_cannot_replace_a_readable_generation"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "admin_admission_is_independent_of_saturated_api_slots",
+            "admin_wait_deadlines_queue_limit_and_closed_state_are_typed",
+            "admin_publication_times_out_at_the_public_admission_deadline",
+            "admin_replace_preserves_conditions_checksums_metadata_and_versions",
+            "admin_invalid_metadata_cannot_replace_a_readable_generation"
+          ]
+        },
+        {
+          "command": "bash scripts/measure-onboarding-state.sh measure \"$bench_work\" f74a55709d74cfe239297117c451c29cec0fb70c; compare all five-run medians with the frozen shared baseline",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-comparison.json",
+          "test_ids": [
+            "shared-admin-native-regression"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -40862,7 +40984,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
+      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
       "last_verified": "2026-10-24"
     },
     {
@@ -41062,7 +41184,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader administrative cancellation, protected staging/publication and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader administrative cancellation, protected staging/publication and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; schema remains 14 and later publication modes/journals remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -41160,6 +41282,20 @@
           "test_ids": [
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "id": "administrative-cancellation-and-errors",
+          "description": "Cancelled streaming publication cleans staging before unlock, accepted SQLite work drains, and cancellation after immutable rename retains ownership through commit and preserves committed bytes. Streamed StorageFull and actual SQLITE_FULL remain DiskFull and failed bucket batches roll back. Later staged-handle/batch publication and every crash window remain pending. SQLite corruption and stored-value decoding retain Corrupt; I/O failure during retirement preserves the same resumable session/derived transfer and received bytes for retry.",
+          "result": "PASS",
+          "test_ids": [
+            "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
+            "admin_holds_and_disk_full_keep_their_error_types",
+            "admin_cancelled_body_cleans_staging_before_unlock",
+            "admin_shutdown_holds_lock_through_renamed_publication",
+            "admin_corrupt_sqlite_and_stored_values_remain_typed",
+            "disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes",
+            "disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes"
+          ]
         }
       ],
       "test_ids": [
@@ -41181,7 +41317,14 @@
         "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
         "sigterm_during_seed_drains_writes_releases_lock_and_retries",
         "interrupted_import_retries_without_overwrite_and_releases_lock",
-        "process_restarts_on_same_port_without_allowing_a_second_live_listener"
+        "process_restarts_on_same_port_without_allowing_a_second_live_listener",
+        "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
+        "admin_holds_and_disk_full_keep_their_error_types",
+        "admin_cancelled_body_cleans_staging_before_unlock",
+        "admin_shutdown_holds_lock_through_renamed_publication",
+        "admin_corrupt_sqlite_and_stored_values_remain_typed",
+        "disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes",
+        "disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes"
       ],
       "verification": [
         {
@@ -41218,6 +41361,36 @@
             "recovery_ignores_os_metadata_and_names_other_stray_entries",
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
           ]
+        },
+        {
+          "command": "cargo test --workspace --locked --offline; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface.md",
+          "test_ids": [
+            "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
+            "admin_holds_and_disk_full_keep_their_error_types",
+            "admin_cancelled_body_cleans_staging_before_unlock",
+            "admin_shutdown_holds_lock_through_renamed_publication",
+            "admin_corrupt_sqlite_and_stored_values_remain_typed",
+            "disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes",
+            "disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
+            "admin_holds_and_disk_full_keep_their_error_types",
+            "admin_cancelled_body_cleans_staging_before_unlock",
+            "admin_shutdown_holds_lock_through_renamed_publication",
+            "admin_corrupt_sqlite_and_stored_values_remain_typed",
+            "disk_full_during_resumable_retirement_preserves_the_same_session_and_bytes",
+            "disk_full_during_derived_retirement_preserves_the_same_transfer_and_bytes"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -41230,7 +41403,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
+      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
       "last_verified": "2026-10-24"
     },
     {
@@ -43154,6 +43327,56 @@
             "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
             "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
             "probes_cannot_succeed_while_seed_publication_is_blocked"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "seed_configuration_precedence_and_validation",
+            "seeded_http_metadata_bytes_and_strict_administrative_import",
+            "explicit_project_and_empty_seed_directory_are_supported",
+            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
+            "disabled_startup_never_replays_fixtures_later",
+            "interrupted_import_retries_without_overwrite_and_releases_lock",
+            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
+            "fixture_depth_and_entry_count_are_bounded",
+            "symlinks_and_special_files_fail_closed",
+            "populated_v4_catalog_migrates_without_seeding",
+            "v1_migration_is_transactional_and_current_schema_reopens_idempotently",
+            "metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog",
+            "probes_cannot_succeed_while_seed_publication_is_blocked"
+          ]
+        },
+        {
+          "command": "Linux ARM64, network none, Rust 1.99.1, read-only tests/config mounts: cargo +1.99.1 test --locked --offline --test seed",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "disabled_startup_never_replays_fixtures_later",
+            "explicit_project_and_empty_seed_directory_are_supported",
+            "interrupted_import_retries_without_overwrite_and_releases_lock",
+            "invalid_fixtures_fail_before_ready_and_size_limit_is_inclusive",
+            "non_utf8_fixture_names_fail_closed",
+            "populated_v4_catalog_migrates_without_seeding",
+            "fixture_depth_and_entry_count_are_bounded",
+            "probes_cannot_succeed_while_seed_publication_is_blocked",
+            "seed_configuration_precedence_and_validation",
+            "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
+            "seeded_http_metadata_bytes_and_strict_administrative_import",
+            "symlinks_and_special_files_fail_closed"
+          ]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "container-seed-lifecycle"
           ]
         }
       ],
@@ -45951,6 +46174,21 @@
           "verified_at": "2026-10-24",
           "artifact": "docs/en/slices/catalog-timestamp-precision.md",
           "test_ids": [
+            "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
+            "timestamp_migration_preserves_versioned_json_get_and_xml_head"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/shared-admin-interface-checks.txt",
+          "test_ids": [
+            "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
+            "timestamp_migration_rejects_overflow_without_changing_version_or_values",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
             "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
             "timestamp_migration_preserves_versioned_json_get_and_xml_head"
           ]

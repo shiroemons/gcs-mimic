@@ -21,15 +21,16 @@ mod timestamp_tests;
 
 #[cfg(test)]
 #[path = "test_support.rs"]
-mod test_support;
+pub(super) mod test_support;
 
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
 #[path = "resumable_transfer.rs"]
 mod resumable_transfer;
-pub use resumable::{
-    ResumableError, ResumableOptions, ResumableSession, SessionLease, SessionState,
-};
+pub use resumable::ResumableError;
+#[cfg(test)]
+pub(crate) use resumable::ResumableSession;
+pub(crate) use resumable::{ResumableOptions, SessionState};
 pub(crate) use resumable_transfer::ResumableChunk;
 
 #[path = "resumable_maintenance.rs"]
@@ -53,11 +54,14 @@ pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReade
 
 #[path = "derived.rs"]
 mod derived;
-pub use derived::{
-    DerivedDestination, DerivedRequestGuard, DerivedSegment, DerivedSource, DerivedSourceSpec,
-    DerivedTransfer,
+#[cfg(test)]
+pub(crate) use derived::DerivedTransfer;
+pub(crate) use derived::{
+    DerivedDestination, DerivedRequestGuard, DerivedSource, DerivedSourceSpec,
 };
 
+#[path = "admin.rs"]
+pub mod admin;
 #[path = "policies.rs"]
 mod policies;
 use policies::{check_access, insert_policy};
@@ -275,6 +279,10 @@ struct Inner {
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
     uploads: Arc<Semaphore>,
+    admin_uploads: Arc<Semaphore>,
+    admin_reads: Arc<Semaphore>,
+    admin_waiters: Arc<Semaphore>,
+    admin_shutdown: Notify,
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
@@ -472,6 +480,10 @@ impl Catalog {
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
                 uploads: Arc::new(Semaphore::new(MAX_UPLOADS)),
+                admin_uploads: Arc::new(Semaphore::new(2)),
+                admin_reads: Arc::new(Semaphore::new(32)),
+                admin_waiters: Arc::new(Semaphore::new(32)),
+                admin_shutdown: Notify::new(),
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
@@ -490,40 +502,31 @@ impl Catalog {
         !self.0.resources.is_poisoned()
             && !self.0.session_writers.is_poisoned()
             && !self.0.admission.is_closed()
-    }
-
-    pub(crate) async fn seed_complete(&self) -> Result<bool, CatalogError> {
-        self.run(|connection| {
-            connection
-                .query_row(
-                    "SELECT complete FROM startup_seed WHERE singleton = 1",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(unavailable)
-        })
-        .await
-    }
-
-    pub(crate) async fn finish_seed(&self) -> Result<(), CatalogError> {
-        self.run(|connection| {
-            let transaction = connection.transaction().map_err(unavailable)?;
-            transaction
-                .execute(
-                    "UPDATE startup_seed SET complete = 1 WHERE singleton = 1",
-                    [],
-                )
-                .map_err(unavailable)?;
-            transaction.commit().map_err(unavailable)
-        })
-        .await
+            && !self.0.admin_uploads.is_closed()
+            && !self.0.admin_reads.is_closed()
+            && !self.0.admin_waiters.is_closed()
     }
 
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
         self.0.admission.close();
+        self.0.admin_shutdown.notify_waiters();
         self.0.maintenance_wake.notify_one();
+        let _admin_uploads = self
+            .0
+            .admin_uploads
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .map_err(unavailable)?;
+        let _admin_reads = self
+            .0
+            .admin_reads
+            .clone()
+            .acquire_many_owned(32)
+            .await
+            .map_err(unavailable)?;
         let _uploads = self
             .0
             .uploads
@@ -583,7 +586,7 @@ impl Catalog {
                     Some(resources) => operation(&mut resources.connection),
                     None => Err(CatalogError::Unavailable("catalog is closed".into())),
                 },
-                Err(error) => Err(unavailable(error)),
+                Err(error) => Err(unavailable(error.to_string())),
             };
             // Release ownership before Tokio publishes completion to an immediate reopen.
             drop(inner);
@@ -593,7 +596,7 @@ impl Catalog {
         .map_err(unavailable)?
     }
 
-    pub async fn insert_bucket(
+    pub(crate) async fn insert_bucket(
         &self,
         mut record: BucketRecord,
     ) -> Result<BucketRecord, CatalogError> {
@@ -602,54 +605,18 @@ impl Catalog {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
-            let created = unix_micros(record.time_created)?;
-            let updated = unix_micros(record.updated)?;
-            record.time_created = system_time_micros(created).map_err(unavailable)?;
-            record.updated = system_time_micros(updated).map_err(unavailable)?;
-            let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
-            let changed = transaction
-                .execute(
-                    &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-                 ON CONFLICT(name) DO NOTHING"),
-                    params![
-                        record.name,
-                        record.project,
-                        record.location,
-                        record.location_type,
-                        record.storage_class,
-                        labels,
-                        record.metageneration,
-                        created,
-                        updated,
-                        record.versioning_enabled,
-                        record.default_event_based_hold,
-                        cors_value(&record.cors).to_string(),
-                        record.public_access_prevention_enforced,
-                    ],
-                )
-                .map_err(unavailable)?;
-            if changed == 0 {
-                return Err(CatalogError::AlreadyExists);
-            }
-            insert_policy(
-                &transaction,
-                &record.name,
-                &Policy::default_for(&record.project),
-            )?;
-            transaction
-                .execute(
-                    "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
-                    [&record.name],
-                )
-                .map_err(unavailable)?;
+            insert_bucket_in_transaction(&transaction, &mut record)?;
             transaction.commit().map_err(unavailable)?;
             Ok(record)
         })
         .await
     }
 
-    pub async fn get_bucket(&self, name: &str) -> Result<Option<BucketRecord>, CatalogError> {
-        self.get_bucket_authorized(name, &BucketAccess::Unchecked)
+    pub(crate) async fn get_bucket(
+        &self,
+        name: &str,
+    ) -> Result<Option<BucketRecord>, CatalogError> {
+        self.get_bucket_authorized(name, &BucketAccess::Permissive)
             .await
     }
 
@@ -722,7 +689,7 @@ impl Catalog {
                 && let BucketAccess::Policy { identity, project, .. } = &access
             {
                 check_access(&transaction, &name, &record.project, &BucketAccess::Policy {
-                    identity: identity.clone(), project: project.clone(), permission: crate::auth::BUCKETS_SET_IAM.into(),
+                    identity: identity.clone(), project: project.clone(), permission: crate::auth::Permission::BucketsSetIam,
                 })?;
             }
             if if_metageneration_match.is_some_and(|value| value != record.metageneration)
@@ -822,7 +789,7 @@ impl Catalog {
     }
 
     /// Reads (versioning, default event-based hold) in the caller's mutation transaction.
-    pub fn bucket_settings_in_transaction(
+    pub(crate) fn bucket_settings_in_transaction(
         transaction: &rusqlite::Transaction<'_>,
         name: &str,
     ) -> Result<(bool, bool), CatalogError> {
@@ -865,7 +832,8 @@ impl Catalog {
 
     /// Returns at most `limit` rows within the expanded metadata budget (or one large row).
     /// Use `list_buckets_page` when a continuation indicator is needed.
-    pub async fn list_buckets(
+    #[cfg(test)]
+    pub(crate) async fn list_buckets(
         &self,
         project: &str,
         prefix: Option<&str>,
@@ -879,7 +847,7 @@ impl Catalog {
     }
 
     /// Bounds expansion before decoding, including lookahead; a single large row still advances.
-    pub async fn list_buckets_page(
+    pub(crate) async fn list_buckets_page(
         &self,
         project: &str,
         prefix: Option<&str>,
@@ -895,68 +863,13 @@ impl Catalog {
         let prefix = prefix.unwrap_or("").to_owned();
         let start_after = start_after.map(str::to_owned);
         self.run(move |connection| {
-            let mut upper = prefix.as_bytes().to_vec();
-            let upper = upper
-                .iter()
-                .rposition(|byte| *byte != u8::MAX)
-                .map(|index| {
-                    upper[index] += 1;
-                    upper.truncate(index + 1);
-                    upper
-                });
-            // Both bounds remain indexable, including when a page starts beyond the prefix.
-            let (lower, comparison) = match start_after {
-                Some(start) if start >= prefix => (start, ">"),
-                _ => (prefix, ">="),
-            };
-            let upper_clause = if upper.is_some() {
-                "AND name < CAST(?4 AS TEXT)"
-            } else {
-                ""
-            };
-            let sql = format!(
-                "SELECT {COLUMNS} FROM buckets
-                WHERE project = ?1 AND name {comparison} ?2 {upper_clause} ORDER BY name LIMIT ?3"
-            );
-            let mut statement = connection.prepare(&sql).map_err(unavailable)?;
-            let mut rows = match upper {
-                Some(upper) => statement.query(params![project, lower, limit as i64 + 1, upper]),
-                None => statement.query(params![project, lower, limit as i64 + 1]),
-            }
-            .map_err(unavailable)?;
-            let mut records = Vec::new();
-            let mut remaining = BUCKET_LIST_METADATA_BUDGET;
-            let mut has_more = false;
-            while let Some(row) = rows.next().map_err(unavailable)? {
-                // Charge typed rules, JSON values and serialization before allocating any of them.
-                let mut charge = 4096usize;
-                for (column, multiplier) in
-                    [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)]
-                {
-                    let bytes = row
-                        .get_ref(column)
-                        .map_err(unavailable)?
-                        .as_str()
-                        .map_err(unavailable)?
-                        .len();
-                    charge = charge.saturating_add(bytes.saturating_mul(multiplier));
-                }
-                if records.len() == limit || (!records.is_empty() && charge > remaining) {
-                    has_more = !records.is_empty();
-                    break;
-                }
-                records.push(read_bucket(row).map_err(unavailable)?);
-                remaining = remaining.saturating_sub(charge);
-            }
-            Ok(BucketListPage {
-                items: records,
-                has_more,
-            })
+            bucket_list_page(connection, project, prefix, start_after, limit)
         })
         .await
     }
 
-    pub async fn delete_bucket(
+    #[cfg(test)]
+    pub(crate) async fn delete_bucket(
         &self,
         name: &str,
         if_metageneration_match: Option<i64>,
@@ -966,7 +879,7 @@ impl Catalog {
             name,
             if_metageneration_match,
             if_metageneration_not_match,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
     }
@@ -1025,8 +938,125 @@ impl Catalog {
     }
 }
 
-fn unavailable(error: impl std::fmt::Display) -> CatalogError {
-    CatalogError::Unavailable(error.to_string())
+fn bucket_list_page(
+    connection: &Connection,
+    project: String,
+    prefix: String,
+    start_after: Option<String>,
+    limit: usize,
+) -> Result<BucketListPage, CatalogError> {
+    let mut upper = prefix.as_bytes().to_vec();
+    let upper = upper
+        .iter()
+        .rposition(|byte| *byte != u8::MAX)
+        .map(|index| {
+            upper[index] += 1;
+            upper.truncate(index + 1);
+            upper
+        });
+    // Both bounds remain indexable, including when a page starts beyond the prefix.
+    let (lower, comparison) = match start_after {
+        Some(start) if start >= prefix => (start, ">"),
+        _ => (prefix, ">="),
+    };
+    let upper_clause = if upper.is_some() {
+        "AND name < CAST(?4 AS TEXT)"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT {COLUMNS} FROM buckets
+        WHERE project = ?1 AND name {comparison} ?2 {upper_clause} ORDER BY name LIMIT ?3"
+    );
+    let mut statement = connection.prepare(&sql).map_err(unavailable)?;
+    let mut rows = match upper {
+        Some(upper) => statement.query(params![project, lower, limit as i64 + 1, upper]),
+        None => statement.query(params![project, lower, limit as i64 + 1]),
+    }
+    .map_err(unavailable)?;
+    let mut records = Vec::new();
+    let mut remaining = BUCKET_LIST_METADATA_BUDGET;
+    let mut has_more = false;
+    while let Some(row) = rows.next().map_err(unavailable)? {
+        // Charge typed rules, JSON values and serialization before allocating any of them.
+        let mut charge = 4096usize;
+        for (column, multiplier) in [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)] {
+            let bytes = row
+                .get_ref(column)
+                .map_err(unavailable)?
+                .as_str()
+                .map_err(unavailable)?
+                .len();
+            charge = charge.saturating_add(bytes.saturating_mul(multiplier));
+        }
+        if records.len() == limit || (!records.is_empty() && charge > remaining) {
+            has_more = !records.is_empty();
+            break;
+        }
+        records.push(read_bucket(row).map_err(unavailable)?);
+        remaining = remaining.saturating_sub(charge);
+    }
+    Ok(BucketListPage {
+        items: records,
+        has_more,
+    })
+}
+
+fn insert_bucket_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    record: &mut BucketRecord,
+) -> Result<(), CatalogError> {
+    let created = unix_micros(record.time_created)?;
+    let updated = unix_micros(record.updated)?;
+    record.time_created = system_time_micros(created).map_err(unavailable)?;
+    record.updated = system_time_micros(updated).map_err(unavailable)?;
+    let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
+    let changed = transaction
+        .execute(
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+         ON CONFLICT(name) DO NOTHING"),
+            params![
+                record.name,
+                record.project,
+                record.location,
+                record.location_type,
+                record.storage_class,
+                labels,
+                record.metageneration,
+                created,
+                updated,
+                record.versioning_enabled,
+                record.default_event_based_hold,
+                cors_value(&record.cors).to_string(),
+                record.public_access_prevention_enforced,
+            ],
+        )
+        .map_err(unavailable)?;
+    if changed == 0 {
+        return Err(CatalogError::AlreadyExists);
+    }
+    insert_policy(
+        transaction,
+        &record.name,
+        &Policy::default_for(&record.project),
+    )?;
+    transaction
+        .execute(
+            "INSERT INTO bucket_incarnations VALUES (?1, lower(hex(randomblob(16))))",
+            [&record.name],
+        )
+        .map_err(unavailable)?;
+    Ok(())
+}
+
+fn unavailable(error: impl std::fmt::Display + std::any::Any) -> CatalogError {
+    if let Some(reason) = admin::corrupt_reason(&error) {
+        return CatalogError::Corrupt(reason);
+    }
+    match admin::io_kind(&error) {
+        Some(kind) => CatalogError::Io(kind),
+        None => CatalogError::Unavailable(error.to_string()),
+    }
 }
 
 fn unix_millis(time: SystemTime) -> Result<i64, CatalogError> {
@@ -1127,7 +1157,7 @@ mod tests {
                     }],
                     etag: None,
                 },
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -1142,7 +1172,7 @@ mod tests {
                     bindings: vec![],
                     etag: None,
                 },
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();

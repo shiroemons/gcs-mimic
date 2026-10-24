@@ -48,7 +48,33 @@ pub struct ObjectMetadataUpdate {
 }
 
 impl ObjectMetadataUpdate {
+    pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        for (field, value) in [
+            ("contentType", &self.content_type),
+            ("contentEncoding", &self.content_encoding),
+            ("contentDisposition", &self.content_disposition),
+            ("contentLanguage", &self.content_language),
+            ("cacheControl", &self.cache_control),
+        ] {
+            if let Some(Some(value)) = value {
+                validate_fixed_metadata(field, value)?;
+            }
+        }
+        if self
+            .metadata
+            .as_ref()
+            .and_then(Option::as_ref)
+            .is_some_and(|entries| entries.keys().any(String::is_empty))
+        {
+            return Err(ObjectError::UnsupportedMetadata(
+                "empty custom metadata key".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
+        self.validate()?;
         if let Some(hold) = self.event_based_hold {
             record.event_based_hold = hold;
         }
@@ -101,6 +127,17 @@ impl ObjectMetadataUpdate {
         {
             return Err(ObjectError::InvalidMetadata);
         }
+        for (field, value) in [
+            ("contentType", Some(record.content_type.as_str())),
+            ("contentEncoding", record.content_encoding.as_deref()),
+            ("contentDisposition", record.content_disposition.as_deref()),
+            ("contentLanguage", record.content_language.as_deref()),
+            ("cacheControl", record.cache_control.as_deref()),
+        ] {
+            if let Some(value) = value {
+                validate_fixed_metadata(field, value)?;
+            }
+        }
         Ok(())
     }
 }
@@ -141,6 +178,7 @@ pub enum ObjectError {
     ChecksumMismatch,
     TooLarge,
     InvalidMetadata,
+    InvalidFixedMetadata(String),
     InvalidDerivedArgument(String),
     DerivedTransferNotFound,
     DerivedTransferExpired,
@@ -149,6 +187,8 @@ pub enum ObjectError {
     UnsupportedMetadata(String),
     /// The request body ended early or failed while streaming.
     BodyAborted(String),
+    Io(std::io::ErrorKind),
+    Corrupt(String),
     Unavailable(String),
 }
 
@@ -165,6 +205,7 @@ impl fmt::Display for ObjectError {
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),
             Self::TooLarge => formatter.write_str("object too large"),
             Self::InvalidMetadata => formatter.write_str("custom metadata exceeds 8 KiB"),
+            Self::InvalidFixedMetadata(reason) => formatter.write_str(reason),
             Self::InvalidDerivedArgument(reason) => formatter.write_str(reason),
             Self::DerivedTransferNotFound => formatter.write_str("derived transfer not found"),
             Self::DerivedTransferExpired => formatter.write_str("derived transfer expired"),
@@ -176,9 +217,54 @@ impl fmt::Display for ObjectError {
                 write!(formatter, "unsupported metadata change: {field}")
             }
             Self::BodyAborted(reason) => write!(formatter, "request body aborted: {reason}"),
+            Self::Io(kind) => write!(formatter, "object I/O: {kind}"),
+            Self::Corrupt(reason) => write!(formatter, "object storage corrupt: {reason}"),
             Self::Unavailable(reason) => write!(formatter, "catalog unavailable: {reason}"),
         }
     }
 }
 
 impl std::error::Error for ObjectError {}
+
+impl ObjectError {
+    pub(crate) fn is_backend_failure(&self) -> bool {
+        matches!(self, Self::Unavailable(_) | Self::Io(_) | Self::Corrupt(_))
+    }
+}
+
+impl From<crate::bucket::CatalogError> for ObjectError {
+    fn from(error: crate::bucket::CatalogError) -> Self {
+        match error {
+            crate::bucket::CatalogError::Io(kind) => Self::Io(kind),
+            crate::bucket::CatalogError::Corrupt(reason) => Self::Corrupt(reason),
+            error => Self::Unavailable(error.to_string()),
+        }
+    }
+}
+
+pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), ObjectError> {
+    if key == "contentLanguage" {
+        if value.is_empty() {
+            return Err(ObjectError::InvalidFixedMetadata(
+                "contentLanguage must not be empty; use null to clear it".into(),
+            ));
+        }
+        if value.chars().count() > 100 {
+            return Err(ObjectError::InvalidFixedMetadata(
+                "contentLanguage exceeds 100 characters".into(),
+            ));
+        }
+    }
+    if !value.is_ascii() {
+        return Err(ObjectError::UnsupportedMetadata(
+            "non-ASCII fixed metadata".into(),
+        ));
+    }
+    // Fixed metadata becomes response headers; reject controls in every storage caller.
+    if value.bytes().any(|byte| byte < 32 || byte == 127) {
+        return Err(ObjectError::InvalidFixedMetadata(format!(
+            "Invalid {key} header value"
+        )));
+    }
+    Ok(())
+}

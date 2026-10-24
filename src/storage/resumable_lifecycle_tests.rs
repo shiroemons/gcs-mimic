@@ -1,7 +1,8 @@
-#[allow(dead_code)]
-mod common;
-
-use common::TestDir;
+use crate as gcs_mimic;
+use crate::test_support::TestDir;
+use gcs_mimic::storage::admin::{
+    BucketDefinition, BucketName, ObjectName, Origin, Publication, PublishMode,
+};
 use gcs_mimic::{
     bucket::BucketRecord,
     clock::Clock,
@@ -35,21 +36,25 @@ impl Clock for TestClock {
 async fn setup(dir: &TestDir, clock: Arc<impl Clock + 'static>) -> Catalog {
     let catalog = Catalog::open_with_clock(&dir.0, clock).await.unwrap();
     catalog
-        .insert_bucket(BucketRecord {
-            name: "bucket".into(),
-            project: "project".into(),
-            location: "US".into(),
-            location_type: "multi-region".into(),
-            storage_class: "STANDARD".into(),
-            labels: Default::default(),
-            versioning_enabled: false,
-            default_event_based_hold: false,
-            public_access_prevention_enforced: false,
-            cors: Vec::new(),
-            metageneration: 1,
-            time_created: UNIX_EPOCH,
-            updated: UNIX_EPOCH,
-        })
+        .admin(Origin::Seed)
+        .ensure_bucket(
+            BucketDefinition::new(BucketRecord {
+                name: "bucket".into(),
+                project: "project".into(),
+                location: "US".into(),
+                location_type: "multi-region".into(),
+                storage_class: "STANDARD".into(),
+                labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
+                public_access_prevention_enforced: false,
+                cors: Vec::new(),
+                metageneration: 1,
+                time_created: UNIX_EPOCH,
+                updated: UNIX_EPOCH,
+            })
+            .unwrap(),
+        )
         .await
         .unwrap();
     catalog
@@ -115,19 +120,29 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
     sender.send(Ok(UploadChunk::End)).await.unwrap();
     drop(sender);
     let old = catalog
-        .put_object(
-            "bucket",
-            "name",
-            "text/plain".into(),
-            Default::default(),
-            Default::default(),
-            1024,
+        .admin(Origin::Seed)
+        .publish_object(
+            &BucketName::new("bucket").unwrap(),
+            &ObjectName::new("name").unwrap(),
+            Publication {
+                content_type: "text/plain".into(),
+                expected: Default::default(),
+                condition: None,
+                metadata: Default::default(),
+                max_bytes: 1024,
+                mode: PublishMode::Replace,
+            },
             body,
         )
         .await
         .unwrap();
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let stage = dir.0.join("staging").join(&session.blob_id);
@@ -137,7 +152,12 @@ async fn anonymous_cancel_removes_staging_and_terminal_errors_follow_original_de
     assert!(!stage.exists());
     assert_eq!(
         catalog
-            .get_object("bucket", "name", None, Default::default())
+            .admin(Origin::Seed)
+            .get_object(
+                &BucketName::new("bucket").unwrap(),
+                &ObjectName::new("name").unwrap(),
+                None
+            )
             .await
             .unwrap(),
         old
@@ -161,7 +181,12 @@ async fn completed_session_cannot_be_cancelled_or_have_its_bytes_removed() {
     let dir = TestDir::new();
     let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), Some(0))
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            Some(0),
+        )
         .await
         .unwrap();
     let stage = dir.0.join("staging").join(&session.blob_id);
@@ -208,7 +233,14 @@ async fn cancel_reloads_terminal_state_when_transition_no_longer_matches() {
         });
         let catalog = setup(&dir, clock.clone()).await;
         let session = catalog
-            .create_resumable_session("bucket", "name", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "name",
+                gcs_mimic::storage::ResumableOptions::new(
+                    gcs_mimic::bucket::BucketAccess::Permissive,
+                ),
+                None,
+            )
             .await
             .unwrap();
         clock.armed.store(true, Ordering::SeqCst);
@@ -235,7 +267,12 @@ async fn cancel_obeys_writer_lease_and_only_one_cancellation_wins() {
     let dir = TestDir::new();
     let catalog = setup(&dir, Arc::new(TestClock(Mutex::new(UNIX_EPOCH)))).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let lease = catalog
@@ -264,7 +301,12 @@ async fn expiry_is_fixed_at_seven_days_and_checkpoint_never_renews_it() {
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(session.deadline, UNIX_EPOCH + Duration::from_secs(604800));
@@ -321,7 +363,14 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
     let catalog = setup(&dir, clock.clone()).await;
     for _ in 0..128 {
         catalog
-            .create_resumable_session("bucket", "name", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "name",
+                gcs_mimic::storage::ResumableOptions::new(
+                    gcs_mimic::bucket::BucketAccess::Permissive,
+                ),
+                None,
+            )
             .await
             .unwrap();
     }
@@ -331,7 +380,12 @@ async fn expiry_cleanup_runs_before_reopen_returns_and_releases_retained_slots()
     assert_eq!(std::fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
     assert_eq!(catalog.maintain_resumable_sessions().await.unwrap(), None);
     catalog
-        .create_resumable_session("bucket", "new", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "new",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     catalog.close().await.unwrap();
@@ -343,7 +397,12 @@ async fn cleanup_failure_is_visible_durable_and_retryable_without_losing_the_slo
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let stage = dir.0.join("staging").join(&session.blob_id);
@@ -392,7 +451,12 @@ async fn expiry_waits_for_writer_and_retries_after_lease_release() {
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock.clone()).await;
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let lease = catalog
@@ -440,30 +504,44 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
     tokio::time::sleep(Duration::from_millis(30)).await;
     assert_eq!(clock.calls.load(Ordering::SeqCst), calls);
     catalog
-        .insert_bucket(BucketRecord {
-            name: "bucket".into(),
-            project: "project".into(),
-            location: "US".into(),
-            location_type: "multi-region".into(),
-            storage_class: "STANDARD".into(),
-            labels: Default::default(),
-            versioning_enabled: false,
-            default_event_based_hold: false,
-            public_access_prevention_enforced: false,
-            cors: Vec::new(),
-            metageneration: 1,
-            time_created: UNIX_EPOCH,
-            updated: UNIX_EPOCH,
-        })
+        .admin(Origin::Seed)
+        .ensure_bucket(
+            BucketDefinition::new(BucketRecord {
+                name: "bucket".into(),
+                project: "project".into(),
+                location: "US".into(),
+                location_type: "multi-region".into(),
+                storage_class: "STANDARD".into(),
+                labels: Default::default(),
+                versioning_enabled: false,
+                default_event_based_hold: false,
+                public_access_prevention_enforced: false,
+                cors: Vec::new(),
+                metageneration: 1,
+                time_created: UNIX_EPOCH,
+                updated: UNIX_EPOCH,
+            })
+            .unwrap(),
+        )
         .await
         .unwrap();
     let first = catalog
-        .create_resumable_session("bucket", "first", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "first",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     *clock.now.lock().unwrap() = first.deadline;
     catalog
-        .create_resumable_session("bucket", "second", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "second",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {
@@ -480,7 +558,12 @@ async fn idle_scheduler_sleeps_and_new_sessions_rearm_due_cleanup() {
 
 async fn prefix(catalog: &Catalog, data: &[u8]) -> gcs_mimic::storage::ResumableSession {
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let mut lease = catalog
@@ -601,13 +684,18 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     sender.send(Ok(UploadChunk::End)).await.unwrap();
     drop(sender);
     let object = catalog
-        .put_object(
-            "bucket",
-            "name",
-            "text/plain".into(),
-            Default::default(),
-            Default::default(),
-            1024,
+        .admin(Origin::Seed)
+        .publish_object(
+            &BucketName::new("bucket").unwrap(),
+            &ObjectName::new("name").unwrap(),
+            Publication {
+                content_type: "text/plain".into(),
+                expected: Default::default(),
+                condition: None,
+                metadata: Default::default(),
+                max_bytes: 1024,
+                mode: PublishMode::Replace,
+            },
             body,
         )
         .await
@@ -654,7 +742,12 @@ async fn restart_after_commit_preserves_completed_snapshot_and_live_bytes_past_s
     assert_eq!(std::fs::read(&blob).unwrap(), b"published");
     assert_eq!(
         catalog
-            .get_object("bucket", "name", None, Default::default())
+            .admin(Origin::Seed)
+            .get_object(
+                &BucketName::new("bucket").unwrap(),
+                &ObjectName::new("name").unwrap(),
+                None
+            )
             .await
             .unwrap(),
         object
@@ -823,7 +916,12 @@ async fn scheduler_retries_failed_cleanup_and_clears_its_error_after_repair() {
     let catalog = setup(&dir, clock.clone()).await;
     catalog.start_resumable_maintenance();
     let session = catalog
-        .create_resumable_session("bucket", "name", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "name",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     let stage = dir.0.join("staging").join(&session.blob_id);
@@ -859,7 +957,12 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
     let clock = Arc::new(TestClock(Mutex::new(UNIX_EPOCH)));
     let catalog = setup(&dir, clock).await;
     let session = catalog
-        .create_resumable_session("bucket", "cancelled", Default::default(), None)
+        .create_resumable_session(
+            "bucket",
+            "cancelled",
+            gcs_mimic::storage::ResumableOptions::new(gcs_mimic::bucket::BucketAccess::Permissive),
+            None,
+        )
         .await
         .unwrap();
     catalog
@@ -882,7 +985,14 @@ async fn cleaned_cancelled_sessions_are_not_reclaimed_again_before_their_deadlin
     std::fs::create_dir(&stage).unwrap();
     for _ in 0..3 {
         catalog
-            .create_resumable_session("bucket", "new", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "new",
+                gcs_mimic::storage::ResumableOptions::new(
+                    gcs_mimic::bucket::BucketAccess::Permissive,
+                ),
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(

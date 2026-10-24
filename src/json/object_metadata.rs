@@ -1,6 +1,6 @@
 use super::JsonError;
 use crate::object::{ObjectError, ObjectMetadataUpdate, ObjectRecord};
-use hyper::{StatusCode, header::HeaderValue};
+use hyper::StatusCode;
 use serde_json::{Map, Value};
 
 pub struct ObjectMetadataRequest {
@@ -182,19 +182,5 @@ fn string(body: &Map<String, Value>, key: &str) -> Result<Option<Option<String>>
 }
 
 pub(crate) fn validate_fixed_metadata(key: &str, value: &str) -> Result<(), JsonError> {
-    if key == "contentLanguage" && value.chars().count() > 100 {
-        return Err(JsonError::invalid_argument(
-            "contentLanguage exceeds 100 characters",
-        ));
-    }
-    if !value.is_ascii() {
-        return Err(JsonError::unsupported_object("non-ASCII fixed metadata"));
-    }
-    // These fields become HTTP headers; reject controls before either publication path.
-    if value.bytes().any(|byte| byte < 32 || byte == 127) || HeaderValue::from_str(value).is_err() {
-        return Err(JsonError::invalid_argument(format!(
-            "Invalid {key} header value"
-        )));
-    }
-    Ok(())
+    crate::object::validate_fixed_metadata(key, value).map_err(JsonError::from)
 }

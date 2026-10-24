@@ -1,5 +1,5 @@
-#[allow(dead_code)]
-mod common;
+use super::catalog::test_support as common;
+use crate as gcs_mimic;
 use gcs_mimic::{
     bucket::{BucketAccess, BucketMetadataUpdate, BucketRecord, CatalogError},
     storage::Catalog,
@@ -108,7 +108,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
             },
             Some(original.metageneration),
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -172,7 +172,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             },
             Some(original.metageneration),
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -187,7 +187,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
             },
             None,
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await;
     assert!(matches!(result, Err(CatalogError::InvalidMetadata(_))));
@@ -264,7 +264,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             update.clone(),
             Some(3),
             Some(2),
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -295,7 +295,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             },
             None,
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -330,14 +330,14 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                     invalid.clone(),
                     Some(3),
                     None,
-                    &BucketAccess::Unchecked
+                    &BucketAccess::Permissive
                 )
                 .await,
             Err(CatalogError::PreconditionFailed)
         );
         assert!(matches!(
             catalog
-                .replace_bucket("put-clock", invalid, None, None, &BucketAccess::Unchecked)
+                .replace_bucket("put-clock", invalid, None, None, &BucketAccess::Permissive)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -356,7 +356,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                 },
                 None,
                 None,
-                &BucketAccess::Unchecked
+                &BucketAccess::Permissive
             )
             .await,
         Err(CatalogError::UnsupportedMetadata(_))
@@ -371,7 +371,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
             Default::default(),
             Some(5),
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -389,7 +389,7 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
                 update,
                 None,
                 None,
-                &BucketAccess::Unchecked
+                &BucketAccess::Permissive
             )
             .await,
         Err(CatalogError::Unavailable(_))
@@ -429,7 +429,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
             update.clone(),
             Some(3),
             Some(2),
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -445,7 +445,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
             Default::default(),
             Some(4),
             None,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
         .unwrap();
@@ -466,7 +466,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
                 too_many.clone(),
                 None,
                 None,
-                &BucketAccess::Unchecked
+                &BucketAccess::Permissive
             )
             .await,
         Err(CatalogError::InvalidMetadata(_))
@@ -478,7 +478,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
                 too_many,
                 Some(3),
                 None,
-                &BucketAccess::Unchecked
+                &BucketAccess::Permissive
             )
             .await,
         Err(CatalogError::PreconditionFailed)
@@ -495,7 +495,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     ] {
         assert!(matches!(
             catalog
-                .patch_bucket("patch-clock", update, None, None, &BucketAccess::Unchecked)
+                .patch_bucket("patch-clock", update, None, None, &BucketAccess::Permissive)
                 .await,
             Err(CatalogError::InvalidMetadata(_))
         ));
@@ -506,7 +506,7 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
     let exhausted = catalog.insert_bucket(exhausted).await.unwrap();
     assert!(matches!(
         catalog
-            .patch_bucket("exhausted", update, None, None, &BucketAccess::Unchecked)
+            .patch_bucket("exhausted", update, None, None, &BucketAccess::Permissive)
             .await,
         Err(CatalogError::Unavailable(_))
     ));
@@ -752,7 +752,11 @@ async fn directory_lock_lives_until_the_last_handle_drops() {
     let error = Catalog::open(&dir.0).await.err().unwrap();
     assert!(error.to_string().contains("already in use"), "{error}");
     let output = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "catalog_child_process", "--nocapture"])
+        .args([
+            "--exact",
+            "storage::catalog_tests::catalog_child_process",
+            "--nocapture",
+        ])
         .env("GCS_MIMIC_TEST_LOCK_DIR", &dir.0)
         .output()
         .unwrap();
@@ -816,7 +820,7 @@ async fn drop_releases_lock_while_a_forked_child_has_not_execed() {
         .unwrap();
     let process = std::thread::spawn(move || {
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", "catalog_child_process"]);
+        command.args(["--exact", "storage::catalog_tests::catalog_child_process"]);
         // SAFETY: Only fixed-size socket I/O runs after fork; no allocation or locks are used.
         #[allow(unsafe_code)]
         unsafe {
@@ -1047,10 +1051,17 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         };
         let mode = (fixture != "corrupt").then(journal_mode);
         let error = Catalog::open(&dir.0).await.err().unwrap();
-        assert!(
-            matches!(error, CatalogError::Unavailable(_)),
-            "{fixture}: {error}"
-        );
+        if fixture == "corrupt" {
+            assert!(
+                matches!(error, CatalogError::Corrupt(_)),
+                "{fixture}: {error}"
+            );
+        } else {
+            assert!(
+                matches!(error, CatalogError::Unavailable(_)),
+                "{fixture}: {error}"
+            );
+        }
         if fixture == "future" {
             assert!(error.to_string().contains("schema version 15"));
         }
@@ -1313,7 +1324,11 @@ async fn rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes() {
         let catalog = Catalog::open(&dir.0).await.unwrap();
         catalog.close().await.unwrap();
         let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "catalog_child_process", "--nocapture"])
+            .args([
+                "--exact",
+                "storage::catalog_tests::catalog_child_process",
+                "--nocapture",
+            ])
             .env("GCS_MIMIC_TEST_REJECTED_WAL_DIR", &dir.0)
             .env("GCS_MIMIC_TEST_REJECTED_WAL_FIXTURE", fixture)
             .output()
@@ -1349,7 +1364,11 @@ async fn rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes() {
 async fn recovers_committed_wal_after_process_exit_without_drop() {
     let dir = TestDir::new();
     let output = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "catalog_child_process", "--nocapture"])
+        .args([
+            "--exact",
+            "storage::catalog_tests::catalog_child_process",
+            "--nocapture",
+        ])
         .env("GCS_MIMIC_TEST_RECOVERY_DIR", &dir.0)
         .output()
         .unwrap();

@@ -530,7 +530,7 @@ pub(crate) async fn authorize_bucket(
     bucket: &str,
 ) -> Result<BucketAccess, JsonError> {
     let Some(caller) = caller else {
-        return Ok(BucketAccess::Unchecked);
+        return Ok(BucketAccess::Permissive);
     };
     let identity = match caller {
         Caller::Anonymous => None,
@@ -718,7 +718,10 @@ async fn object_response(
                         conditions,
                         access,
                         metadata: body.destination,
-                        ..Default::default()
+                        content_type: String::new(),
+                        storage_class: None,
+                        expected: Default::default(),
+                        component_count: None,
                     },
                     body.sources,
                     body.delete_sources,
@@ -1253,11 +1256,11 @@ async fn bucket_response(
     let access = match &operation {
         BucketRequest::Insert(params) => {
             authorize_project(caller, auth::BUCKETS_CREATE, &params.project)?;
-            BucketAccess::Unchecked
+            BucketAccess::Permissive
         }
         BucketRequest::List(params) => {
             authorize_project(caller, auth::BUCKETS_LIST, &params.project)?;
-            BucketAccess::Unchecked
+            BucketAccess::Permissive
         }
         BucketRequest::Get { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?

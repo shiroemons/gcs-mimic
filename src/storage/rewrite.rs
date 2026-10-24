@@ -113,7 +113,7 @@ fn encode(start: &RewriteStart, source: &str, destination: &str) -> Value {
         metadata: start.destination.metadata.clone(),
         expected: start.destination.expected,
         conditions: start.destination.conditions,
-        ..Default::default()
+        ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
     };
     let conditions = start.source_conditions;
     json!({"path":[binding.source_bucket,binding.source_object,binding.destination_bucket,binding.destination_object],
@@ -174,7 +174,7 @@ fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<RewriteSession> {
                     .map_err(|e| e.to_string())?,
                 expected: options.expected,
                 conditions: options.conditions,
-                access: BucketAccess::Unchecked,
+                access: BucketAccess::Permissive,
             },
             source_conditions: ObjectConditions {
                 if_generation_match: values[0],
@@ -572,7 +572,11 @@ impl Catalog {
                 after = id.clone();
                 let key = format!("rewrite:{id}");
                 let _guard = {
-                    let mut writers = self.0.session_writers.lock().map_err(super::unavailable)?;
+                    let mut writers = self
+                        .0
+                        .session_writers
+                        .lock()
+                        .map_err(|error| super::unavailable(error.to_string()))?;
                     if writers.contains(&key) || writers.len() >= 128 {
                         continue;
                     }
@@ -692,7 +696,7 @@ mod tests {
                 "source",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -710,11 +714,11 @@ mod tests {
                 bucket: "bucket".into(),
                 name: "destination".into(),
                 content_type: "text/plain".into(),
-                ..Default::default()
+                ..crate::storage::DerivedDestination::new(crate::bucket::BucketAccess::Permissive)
             },
             source_conditions: ObjectConditions::default(),
             source_metageneration: source.object.metageneration,
-            source_access: BucketAccess::Unchecked,
+            source_access: BucketAccess::Permissive,
             budget: 1048576,
         };
         catalog
@@ -809,8 +813,8 @@ mod tests {
         let result = catalog
             .continue_rewrite(
                 &token,
-                BucketAccess::Unchecked,
-                BucketAccess::Unchecked,
+                BucketAccess::Permissive,
+                BucketAccess::Permissive,
                 move |record| {
                     expiry_clock.0.store(604801000, Ordering::SeqCst);
                     Ok(json!({"generation":record.generation}))

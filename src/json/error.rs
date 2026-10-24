@@ -132,11 +132,13 @@ impl From<CatalogError> for JsonError {
             ),
             CatalogError::InvalidMetadata(reason) => Self::invalid_argument(reason),
             CatalogError::UnsupportedMetadata(field) => Self::unsupported(&field),
-            CatalogError::Unavailable(_) => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "Bucket catalog is unavailable",
-            ),
+            CatalogError::Unavailable(_) | CatalogError::Io(_) | CatalogError::Corrupt(_) => {
+                Self::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Bucket catalog is unavailable",
+                )
+            }
         }
     }
 }
@@ -218,11 +220,14 @@ impl From<ObjectError> for JsonError {
                 "badRequest",
                 "The upload request body did not complete",
             ),
-            ObjectError::Unavailable(_) => Self::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "backendError",
-                "Object storage is unavailable",
-            ),
+            ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
+            ObjectError::Unavailable(_) | ObjectError::Io(_) | ObjectError::Corrupt(_) => {
+                Self::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "backendError",
+                    "Object storage is unavailable",
+                )
+            }
         }
     }
 }

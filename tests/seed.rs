@@ -1,7 +1,8 @@
 mod common;
 
 use common::TestDir;
-use gcs_mimic::{object::ObjectConditions, storage::Catalog};
+use gcs_mimic::storage::Catalog;
+use gcs_mimic::storage::admin::{BucketName, ObjectName, Origin};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -377,7 +378,12 @@ async fn interrupted_import_retries_without_overwrite_and_releases_lock() {
         .await
         .expect("failed seed releases data directory lock");
     let original = catalog
-        .get_object("local-bucket", "a-valid", None, ObjectConditions::default())
+        .admin(Origin::Seed)
+        .get_object(
+            &BucketName::new("local-bucket").unwrap(),
+            &ObjectName::new("a-valid").unwrap(),
+            None,
+        )
         .await
         .unwrap();
     catalog.close().await.unwrap();

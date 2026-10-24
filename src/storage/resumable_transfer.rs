@@ -153,7 +153,7 @@ impl Catalog {
         {
             return Ok(session.completion);
         }
-        if matches!(error, ResumableError::Object(ObjectError::Unavailable(_))) {
+        if matches!(&error, ResumableError::Object(error) if error.is_backend_failure()) {
             let data_dir = self.0.data_dir.clone();
             let blob_id = lease.session.blob_id.clone();
             let offset = lease.session.offset;

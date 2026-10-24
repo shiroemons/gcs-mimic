@@ -205,7 +205,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                 BucketMetadataUpdate::default(),
                 None,
                 None,
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -245,7 +245,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
                 "media",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -262,7 +262,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
             bucket: "timestamp-bucket".into(),
             name: name.into(),
             content_type: "text/plain".into(),
-            ..Default::default()
+            ..crate::storage::DerivedDestination::new(crate::bucket::BucketAccess::Permissive)
         };
         let derived = catalog
             .publish_derived(&transfer.id, destination("derived"), |_, _| Ok(()))
@@ -285,7 +285,7 @@ async fn timestamp_writes_floor_microseconds_across_publication_routes() {
         assert_eq!(composed.updated, expected);
         let options = ResumableOptions {
             content_type: "text/plain".into(),
-            ..Default::default()
+            ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
         };
         let session = catalog
             .create_resumable_session("timestamp-bucket", "resumable", options.clone(), Some(1))
@@ -415,7 +415,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                 "source",
                 None,
                 ObjectConditions::default(),
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -426,7 +426,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         catalog.advance_derived(&transfer.id, 1).await.unwrap();
         let options = ResumableOptions {
             content_type: "text/plain".into(),
-            ..Default::default()
+            ..crate::storage::ResumableOptions::new(crate::bucket::BucketAccess::Permissive)
         };
         let session = catalog
             .create_resumable_session("timestamp-bucket", "resumable", options.clone(), Some(1))
@@ -459,7 +459,9 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                         bucket: "timestamp-bucket".into(),
                         name: "derived".into(),
                         content_type: "text/plain".into(),
-                        ..Default::default()
+                        ..crate::storage::DerivedDestination::new(
+                            crate::bucket::BucketAccess::Permissive
+                        )
                     },
                     |_, _| Ok(())
                 )
@@ -492,7 +494,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
                 BucketMetadataUpdate::default(),
                 None,
                 None,
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap();
@@ -580,13 +582,13 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         .create_resumable_session(
             "timestamp-0",
             "pending",
-            ResumableOptions::default(),
+            ResumableOptions::new(crate::bucket::BucketAccess::Permissive),
             Some(1),
         )
         .await
         .unwrap();
     let policy = catalog
-        .get_policy("timestamp-0", &BucketAccess::Unchecked)
+        .get_policy("timestamp-0", &BucketAccess::Permissive)
         .await
         .unwrap();
     let before = resources(&catalog).await;
@@ -646,7 +648,7 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
     assert_eq!(resources(&catalog).await, before);
     assert_eq!(
         catalog
-            .get_policy("timestamp-0", &BucketAccess::Unchecked)
+            .get_policy("timestamp-0", &BucketAccess::Permissive)
             .await
             .unwrap(),
         policy

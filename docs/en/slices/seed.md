@@ -53,11 +53,23 @@ Test identifiers below are the exact integration test function names in
 | seed-walk | Accept 32 nested directories below a bucket; reject deeper trees and more than 10000 entries | `fixture_depth_and_entry_count_are_bounded` | PASS |
 | seed-links | Reject a symlink root, symlink entry and Unix socket without readiness | `symlinks_and_special_files_fail_closed` | PASS on macOS and Linux ARM64; Unix-only test |
 | seed-utf8 | Reject non-UTF-8 filesystem names on a filesystem that permits their creation | `non_utf8_fixture_names_fail_closed` | PASS on Linux ARM64; macOS rejects fixture creation |
-| seed-migration | Populated v4 catalog migrates to v5 without replay or overwrite; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_without_seeding`; `tests/object_storage.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `tests/object_storage.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
+| seed-migration | Populated v4 catalog migrates to v5 without replay or overwrite; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_without_seeding`; `src/storage/object_tests.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `src/storage/object_tests.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
 | seed-readiness | After recovery and the seeding event, blocked publication prevents any listener/probe success; successful import precedes health and readiness | `probes_cannot_succeed_while_seed_publication_is_blocked` | PASS |
 | seed-compose | Read-only fixture mount; up --wait; stop/start, recreate and all-bucket deletion preserve mutations; deliberate new volume reseeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PASS on Linux ARM64/native and AMD64/emulated |
 
 ## Supported subset and local rules
+
+Seed uses the typed
+[shared administrative interface](onboarding-state-contract.md#administrative-interface-acceptance),
+with a Seed origin and explicit local authority in both authentication profiles.
+API grants remain unchanged. Bucket creation returns the actual stored record
+without overwriting it; publication preserves the existing create-if-absent
+condition and checksums. Its two management upload slots and bounded 30-second
+admission waits are independent of the API's 32-call/eight-upload limits.
+Accepted publication and cancellation cleanup retain their permits until
+completion, and catalog close drains them before releasing directory ownership.
+Local file staging remains the existing streaming route; dedicated file
+publication belongs to shared-publication-modes.
 
 ### Configuration
 

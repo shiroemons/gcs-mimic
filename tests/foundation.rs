@@ -1,3 +1,4 @@
+use gcs_mimic::storage::admin::{BucketName, Origin};
 use gcs_mimic::{
     clock::Clock,
     config::Config,
@@ -413,7 +414,14 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
     stop.send(()).unwrap();
     task.await.unwrap().unwrap();
     assert!(!state.is_ready());
-    assert!(state.catalog.get_bucket("missing").await.is_err());
+    assert!(
+        state
+            .catalog
+            .admin(Origin::Seed)
+            .get_bucket(&BucketName::new("missing").unwrap())
+            .await
+            .is_err()
+    );
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = common::http_config();

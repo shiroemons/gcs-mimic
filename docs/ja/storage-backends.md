@@ -34,6 +34,8 @@ fake-gcs-serverの公式イメージは`/data`を初期入力として使い、
 fake-gcs-serverは空のバケットも読み込み、拡張子からContent-Typeを求めます。
 gcs-mimicの初期読込は`application/octet-stream`です。
 gcs-mimicはカタログに初期化済みの印を保存し、APIで変更したデータを再読込で戻しません。
+初期読込は両認証モードでローカル管理操作として行います。strictモードでは、読込後のAPIアクセスに通常の権限が必要です。
+読込中に停止した場合も、公開処理と一時ファイルの片付けが終わるまで保存先のロックを維持します。
 設定とマウントの例は[Dockerでの使い方](container-usage.md#初期ファイルを読み込む)にあります。
 
 ## fake-gcs-serverの実ファイルはどう動くか

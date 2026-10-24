@@ -33,6 +33,64 @@ pub const OBJECTS_GET: &str = "storage.objects.get";
 pub const OBJECTS_LIST: &str = "storage.objects.list";
 pub const OBJECTS_UPDATE: &str = "storage.objects.update";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Permission {
+    BucketsCreate,
+    BucketsDelete,
+    BucketsGet,
+    BucketsUpdate,
+    BucketsList,
+    BucketsGetIam,
+    BucketsSetIam,
+    ObjectsCreate,
+    ObjectsDelete,
+    ObjectsGet,
+    ObjectsList,
+    ObjectsUpdate,
+}
+
+impl Permission {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BucketsCreate => BUCKETS_CREATE,
+            Self::BucketsDelete => BUCKETS_DELETE,
+            Self::BucketsGet => BUCKETS_GET,
+            Self::BucketsUpdate => BUCKETS_UPDATE,
+            Self::BucketsList => BUCKETS_LIST,
+            Self::BucketsGetIam => BUCKETS_GET_IAM,
+            Self::BucketsSetIam => BUCKETS_SET_IAM,
+            Self::ObjectsCreate => OBJECTS_CREATE,
+            Self::ObjectsDelete => OBJECTS_DELETE,
+            Self::ObjectsGet => OBJECTS_GET,
+            Self::ObjectsList => OBJECTS_LIST,
+            Self::ObjectsUpdate => OBJECTS_UPDATE,
+        }
+    }
+}
+
+impl TryFrom<&str> for Permission {
+    type Error = &'static str;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        [
+            Self::BucketsCreate,
+            Self::BucketsDelete,
+            Self::BucketsGet,
+            Self::BucketsUpdate,
+            Self::BucketsList,
+            Self::BucketsGetIam,
+            Self::BucketsSetIam,
+            Self::ObjectsCreate,
+            Self::ObjectsDelete,
+            Self::ObjectsGet,
+            Self::ObjectsList,
+            Self::ObjectsUpdate,
+        ]
+        .into_iter()
+        .find(|permission| permission.as_str() == value)
+        .ok_or("unsupported permission")
+    }
+}
+
 const MAX_REGISTRY_BYTES: u64 = 64 * 1024;
 const MAX_IDENTITIES: usize = 256;
 const MAX_ID_BYTES: usize = 254;
@@ -577,7 +635,7 @@ mod tests {
         };
         let access = BucketAccess::Policy {
             identity: Some(identity),
-            permission: BUCKETS_UPDATE.into(),
+            permission: crate::auth::Permission::BucketsUpdate,
             project: Some("project".into()),
         };
         for replace in [false, true] {
@@ -610,7 +668,7 @@ mod tests {
                     },
                     None,
                     None,
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )
                 .await
                 .unwrap();

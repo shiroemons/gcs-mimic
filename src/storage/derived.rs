@@ -67,7 +67,7 @@ fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
 
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
 /// Unconsumed handles clean their staging link; `begin_derived` transfers ownership to SQLite.
-pub struct DerivedSource {
+pub(crate) struct DerivedSource {
     pub object: ObjectRecord,
     path: Option<PathBuf>,
     id: String,
@@ -83,14 +83,14 @@ impl Drop for DerivedSource {
     }
 }
 
-pub struct DerivedSegment {
+pub(crate) struct DerivedSegment {
     pub source: DerivedSource,
     pub offset: u64,
     pub length: u64,
 }
 
 #[derive(Clone, Debug)]
-pub struct DerivedSourceSpec {
+pub(crate) struct DerivedSourceSpec {
     pub bucket: String,
     pub name: String,
     pub generation: Option<i64>,
@@ -99,7 +99,7 @@ pub struct DerivedSourceSpec {
 }
 
 impl DerivedSource {
-    pub fn whole(self) -> DerivedSegment {
+    pub(crate) fn whole(self) -> DerivedSegment {
         let length = self.object.size;
         DerivedSegment {
             source: self,
@@ -110,7 +110,7 @@ impl DerivedSource {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DerivedTransfer {
+pub(crate) struct DerivedTransfer {
     pub id: String,
     pub total: u64,
     pub offset: u64,
@@ -118,13 +118,13 @@ pub struct DerivedTransfer {
     pub deadline: std::time::SystemTime,
 }
 
-pub struct DerivedRequestGuard {
+pub(crate) struct DerivedRequestGuard {
     catalog: Catalog,
     id: Option<String>,
 }
 
 impl DerivedRequestGuard {
-    pub fn disarm(&mut self) {
+    pub(crate) fn disarm(&mut self) {
         self.id = None;
     }
 }
@@ -165,8 +165,8 @@ impl Drop for DerivedRequestGuard {
 /// Adapters supply inherited or replacement metadata explicitly; bytes and destination defaults
 /// are transport independent. Adapters pass the inherited source class for an absent/null body;
 /// `None` selects the destination bucket default for an explicit resource without storageClass.
-#[derive(Clone, Debug, Default)]
-pub struct DerivedDestination {
+#[derive(Clone, Debug)]
+pub(crate) struct DerivedDestination {
     pub bucket: String,
     pub name: String,
     pub content_type: String,
@@ -176,6 +176,23 @@ pub struct DerivedDestination {
     pub conditions: ObjectConditions,
     pub access: BucketAccess,
     pub component_count: Option<i64>,
+}
+
+impl DerivedDestination {
+    #[cfg(test)]
+    pub(crate) fn new(access: BucketAccess) -> Self {
+        Self {
+            bucket: String::new(),
+            name: String::new(),
+            content_type: String::new(),
+            metadata: Default::default(),
+            storage_class: None,
+            expected: Default::default(),
+            conditions: Default::default(),
+            access,
+            component_count: None,
+        }
+    }
 }
 
 struct Input {
@@ -233,14 +250,14 @@ impl Catalog {
         objects::authorized_bucket(connection, bucket, access).map(|_| ())
     }
 
-    pub fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
+    pub(crate) fn guard_derived_request(&self, id: &str) -> DerivedRequestGuard {
         DerivedRequestGuard {
             catalog: self.clone(),
             id: Some(id.into()),
         }
     }
     /// Call only from a publication callback: the caller's transaction owns all checks/mutations.
-    pub fn check_derived_source_in_transaction(
+    pub(crate) fn check_derived_source_in_transaction(
         connection: &Connection,
         bucket: &str,
         name: &str,
@@ -256,7 +273,7 @@ impl Catalog {
 
     /// Hard deletion is intentionally separate from versioning retirement. Any later callback
     /// failure rolls this deletion back together with the destination and deletion journal.
-    pub fn delete_derived_source_in_transaction(
+    pub(crate) fn delete_derived_source_in_transaction(
         connection: &Connection,
         bucket: &str,
         name: &str,
@@ -287,7 +304,7 @@ impl Catalog {
     }
 
     /// Source NotMatch conditions are mutation conditions (412), not conditional GETs (304).
-    pub async fn resolve_derived_source(
+    pub(crate) async fn resolve_derived_source(
         &self,
         bucket: &str,
         name: &str,
@@ -307,7 +324,7 @@ impl Catalog {
     }
 
     /// A compose request observes one catalog snapshot for all source generations and metadata.
-    pub async fn resolve_derived_sources(
+    pub(crate) async fn resolve_derived_sources(
         &self,
         sources: Vec<DerivedSourceSpec>,
     ) -> Result<Vec<DerivedSource>, ObjectError> {
@@ -348,7 +365,8 @@ impl Catalog {
 
     /// Input handles are consumed only after durable ownership commits. No source catalog row
     /// is needed on later calls, so a token can safely outlive source overwrite or deletion.
-    pub async fn begin_derived(
+    #[cfg(test)]
+    pub(crate) async fn begin_derived(
         &self,
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
@@ -358,7 +376,7 @@ impl Catalog {
     }
 
     /// Single-call requests have no continuation owner after a process crash.
-    pub async fn begin_derived_ephemeral(
+    pub(crate) async fn begin_derived_ephemeral(
         &self,
         segments: Vec<DerivedSegment>,
         max_bytes: u64,
@@ -378,7 +396,7 @@ impl Catalog {
     }
 
     /// Request/session bindings commit with transfer ownership, preventing untracked tokens.
-    pub async fn begin_derived_with_binding(
+    pub(crate) async fn begin_derived_with_binding(
         &self,
         mut segments: Vec<DerivedSegment>,
         max_bytes: u64,
@@ -535,7 +553,7 @@ impl Catalog {
         })
     }
 
-    pub async fn get_derived(&self, id: &str) -> Result<DerivedTransfer, ObjectError> {
+    pub(crate) async fn get_derived(&self, id: &str) -> Result<DerivedTransfer, ObjectError> {
         let id = id.to_owned();
         let now = unix_millis(self.0.clock.now()).map_err(unavailable)?;
         self.run_object(move |connection| transfer(connection, &id, now).map(|value| value.0))
@@ -544,7 +562,7 @@ impl Catalog {
 
     /// Every durable offset includes the matching incremental hash state. File fsync precedes
     /// SQLite commit; an interrupted tail is discarded before retry, never counted twice.
-    pub async fn advance_derived(
+    pub(crate) async fn advance_derived(
         &self,
         id: &str,
         budget: u64,
@@ -598,7 +616,8 @@ impl Catalog {
     }
 
     /// The callback joins protocol-specific completion state to the same destination commit.
-    pub async fn publish_derived(
+    #[cfg(test)]
+    pub(crate) async fn publish_derived(
         &self,
         id: &str,
         destination: DerivedDestination,
@@ -609,7 +628,7 @@ impl Catalog {
     }
 
     /// Validation precedes retirement so same-name sources remain visible in unversioned buckets.
-    pub async fn publish_derived_with_validation(
+    pub(crate) async fn publish_derived_with_validation(
         &self,
         id: &str,
         destination: DerivedDestination,
@@ -706,7 +725,7 @@ impl Catalog {
             }).await;
             catalog.0.maintenance_wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
-            if matches!(&result, Err(error) if !matches!(error, ObjectError::Unavailable(_) | ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
+            if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
                 && let Err(error) = catalog.cleanup_derived(&id).await {
                 eprintln!("deferred derived cleanup: {error}");
             }
@@ -721,13 +740,14 @@ impl Catalog {
             .await
     }
 
-    pub async fn cancel_derived(&self, id: &str) -> Result<(), ObjectError> {
+    pub(crate) async fn cancel_derived(&self, id: &str) -> Result<(), ObjectError> {
         let _guard = self.derived_guard(id)?;
         self.cleanup_derived(id).await
     }
 
     /// The existing maintenance scheduler includes these deadlines and sleeps until work is due.
-    pub async fn maintain_derived_transfers(
+    #[cfg(test)]
+    pub(crate) async fn maintain_derived_transfers(
         &self,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
         let now = unix_millis(self.0.clock.now())?;
@@ -1015,7 +1035,7 @@ mod tests {
                 name,
                 None,
                 Default::default(),
-                &BucketAccess::Unchecked,
+                &BucketAccess::Permissive,
             )
             .await
             .unwrap()
@@ -1026,7 +1046,7 @@ mod tests {
             bucket: "bucket".into(),
             name: name.into(),
             content_type: "text/plain".into(),
-            ..Default::default()
+            ..DerivedDestination::new(BucketAccess::Permissive)
         }
     }
 
@@ -1200,7 +1220,7 @@ mod tests {
                     "source",
                     generation,
                     Default::default(),
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )?;
                 Err(ObjectError::PreconditionFailed)
             })
@@ -1231,7 +1251,7 @@ mod tests {
                     "source",
                     generation,
                     Default::default(),
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )
             })
             .await;
@@ -1270,7 +1290,7 @@ mod tests {
                         "source",
                         None,
                         conditions,
-                        &BucketAccess::Unchecked
+                        &BucketAccess::Permissive
                     )
                     .await,
                 Err(ObjectError::PreconditionFailed)
@@ -1278,7 +1298,7 @@ mod tests {
         }
         let denied = BucketAccess::Policy {
             identity: None,
-            permission: crate::auth::OBJECTS_GET.into(),
+            permission: crate::auth::Permission::ObjectsGet,
             project: None,
         };
         assert!(matches!(
@@ -1330,7 +1350,7 @@ mod tests {
                         "same",
                         Some(generation),
                         Default::default(),
-                        &BucketAccess::Unchecked,
+                        &BucketAccess::Permissive,
                     )?;
                     assert_eq!(source.generation, generation);
                     assert_ne!(source.generation, destination.generation);
@@ -1343,7 +1363,7 @@ mod tests {
                         "same",
                         None,
                         Default::default(),
-                        &BucketAccess::Unchecked,
+                        &BucketAccess::Permissive,
                     )?;
                     assert_eq!(live, *destination);
                     Ok(())
@@ -1479,7 +1499,7 @@ mod tests {
             name: "source".into(),
             generation: Some(original.generation),
             conditions: Default::default(),
-            access: BucketAccess::Unchecked,
+            access: BucketAccess::Permissive,
         };
         let mut missing = spec.clone();
         missing.name = "missing".into();
@@ -1595,7 +1615,13 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ObjectError::PreconditionFailed));
-        assert!(!catalog.seed_complete().await.unwrap());
+        assert!(
+            !catalog
+                .admin(super::super::admin::Origin::Seed)
+                .seed_complete()
+                .await
+                .unwrap()
+        );
         assert_eq!(fs::read_dir(path.join("staging")).unwrap().count(), 0);
         let transfer = catalog
             .begin_derived_with_binding(
@@ -1612,7 +1638,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(catalog.seed_complete().await.unwrap());
+        assert!(
+            catalog
+                .admin(super::super::admin::Origin::Seed)
+                .seed_complete()
+                .await
+                .unwrap()
+        );
         catalog.cancel_derived(&transfer.id).await.unwrap();
         catalog.close().await.unwrap();
         fs::remove_dir_all(path).unwrap();
@@ -1678,7 +1710,12 @@ mod tests {
             Some(UNIX_EPOCH + std::time::Duration::from_secs(604800))
         );
         let session = catalog
-            .create_resumable_session("bucket", "upload", Default::default(), None)
+            .create_resumable_session(
+                "bucket",
+                "upload",
+                crate::storage::ResumableOptions::new(BucketAccess::Permissive),
+                None,
+            )
             .await
             .unwrap();
         let writer = catalog.derived_guard(&transfer.id).unwrap();
@@ -1796,7 +1833,7 @@ mod tests {
                     "source",
                     original.generation,
                     Default::default(),
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )
             })
             .await
@@ -1840,7 +1877,7 @@ mod tests {
                     "source",
                     original.generation,
                     Default::default(),
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )?;
                 fs::remove_file(&failed_blob).map_err(unavailable)?;
                 fs::create_dir(&failed_blob).map_err(unavailable)?;

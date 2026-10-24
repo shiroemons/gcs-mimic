@@ -601,7 +601,14 @@ mod tests {
                 .unwrap();
             blocker.await.unwrap();
             let reopened = Catalog::open(&config.data_dir).await.unwrap();
-            assert!(reopened.get_bucket("seed-bucket").await.unwrap().is_none());
+            assert!(
+                reopened
+                    .admin(gcs_mimic::storage::admin::Origin::Seed)
+                    .get_bucket(&gcs_mimic::storage::admin::BucketName::new("seed-bucket").unwrap())
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
             reopened.close().await.unwrap();
             let connection =
                 rusqlite::Connection::open(config.data_dir.join("catalog.sqlite3")).unwrap();

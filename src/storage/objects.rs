@@ -420,12 +420,13 @@ impl ObjectReader {
 
 impl Catalog {
     /// Each emitted entry requires one indexed seek, independent of a grouped prefix's size.
-    pub async fn list_objects(
+    #[cfg(test)]
+    pub(crate) async fn list_objects(
         &self,
         query: ObjectListQuery,
         limit: usize,
     ) -> Result<ObjectListPage, ObjectError> {
-        self.list_objects_authorized(query, limit, &BucketAccess::Unchecked)
+        self.list_objects_authorized(query, limit, &BucketAccess::Permissive)
             .await
     }
 
@@ -471,7 +472,10 @@ impl Catalog {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || {
             let _execution = execution;
-            let mut resources = inner.resources.lock().map_err(object_unavailable)?;
+            let mut resources = inner
+                .resources
+                .lock()
+                .map_err(|error| object_unavailable(error.to_string()))?;
             let resources = resources
                 .as_mut()
                 .ok_or_else(|| object_unavailable("catalog is closed"))?;
@@ -488,17 +492,6 @@ impl Catalog {
         self.run(move |connection| Ok(operation(connection)))
             .await
             .map_err(object_unavailable)?
-    }
-
-    /// Advisory only: publication rechecks inside its transaction after the body completes.
-    pub async fn check_object_upload(
-        &self,
-        bucket: &str,
-        name: &str,
-        conditions: ObjectConditions,
-    ) -> Result<(), ObjectError> {
-        self.check_upload(bucket, name, conditions, &BucketAccess::Unchecked)
-            .await
     }
 
     /// Advisory check that also rejects a bucket or an overwrite the caller is not authorized
@@ -528,7 +521,8 @@ impl Catalog {
         clippy::too_many_arguments,
         reason = "The shared storage contract fixes this signature"
     )]
-    pub async fn put_object(
+    #[cfg(test)]
+    pub(crate) async fn put_object(
         &self,
         bucket: &str,
         name: &str,
@@ -539,7 +533,7 @@ impl Catalog {
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, ObjectError> {
         let permit = self
-            .prepare_object_upload(bucket, name, conditions, &BucketAccess::Unchecked)
+            .prepare_object_upload(bucket, name, conditions, &BucketAccess::Permissive)
             .await?;
         self.put_object_prechecked(
             bucket,
@@ -551,7 +545,7 @@ impl Catalog {
             body,
             permit,
             ObjectMetadataUpdate::default(),
-            BucketAccess::Unchecked,
+            BucketAccess::Permissive,
         )
         .await
     }
@@ -598,6 +592,8 @@ impl Catalog {
         // while the body streamed, and overwriting needs storage.objects.delete there.
         access: BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
+        crate::object::validate_fixed_metadata("contentType", &content_type)?;
+        metadata.validate()?;
         let catalog = self.clone();
         let bucket = bucket.to_owned();
         let name = name.to_owned();
@@ -689,7 +685,8 @@ impl Catalog {
         }).await.map_err(object_unavailable)?
     }
 
-    pub async fn get_object(
+    #[cfg(test)]
+    pub(crate) async fn get_object(
         &self,
         bucket: &str,
         name: &str,
@@ -701,7 +698,7 @@ impl Catalog {
             name,
             generation,
             conditions,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
     }
@@ -733,7 +730,8 @@ impl Catalog {
         .await
     }
 
-    pub async fn open_object(
+    #[cfg(test)]
+    pub(crate) async fn open_object(
         &self,
         bucket: &str,
         name: &str,
@@ -745,7 +743,7 @@ impl Catalog {
             name,
             generation,
             conditions,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
     }
@@ -765,40 +763,15 @@ impl Catalog {
         let data_dir = self.0.data_dir.clone();
         let access = access.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
-            let (record, id) = selected(
-                &transaction,
-                &bucket,
-                &name,
-                generation,
-                conditions,
-                true,
-                &access,
-            )?;
-            // Open under the same execution permit that serializes deletes and overwrites.
-            let file = File::open(blob_path(&data_dir, &id)?).map_err(object_unavailable)?;
-            let remaining = record.size;
-            let publicly_readable = super::policies::read_policy(&transaction, &bucket)
-                .map_err(object_unavailable)?
-                .allows(
-                    None,
-                    crate::auth::OBJECTS_GET,
-                    super::policies::public_access_prevention(&transaction, &bucket)
-                        .map_err(object_unavailable)?,
-                );
-            Ok((
-                record,
-                ObjectReader {
-                    file: tokio::fs::File::from_std(file),
-                    remaining,
-                    publicly_readable,
-                },
-            ))
+            open_selected(
+                connection, &data_dir, &bucket, &name, generation, conditions, &access,
+            )
         })
         .await
     }
 
-    pub async fn update_object_metadata(
+    #[cfg(test)]
+    pub(crate) async fn update_object_metadata(
         &self,
         bucket: &str,
         name: &str,
@@ -814,7 +787,7 @@ impl Catalog {
             conditions,
             update,
             validate,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
     }
@@ -887,7 +860,8 @@ impl Catalog {
         .await
     }
 
-    pub async fn delete_object(
+    #[cfg(test)]
+    pub(crate) async fn delete_object(
         &self,
         bucket: &str,
         name: &str,
@@ -899,7 +873,7 @@ impl Catalog {
             name,
             generation,
             conditions,
-            &BucketAccess::Unchecked,
+            &BucketAccess::Permissive,
         )
         .await
     }
@@ -918,39 +892,109 @@ impl Catalog {
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run_object(move |connection| {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(object_unavailable)?;
-            let (record, id) = selected(
-                &transaction,
+            delete_selected(
+                connection,
+                &data_dir,
+                clock.as_ref(),
                 &bucket,
                 &name,
                 generation,
                 conditions,
-                false,
                 &access,
-            )?;
-            if record.event_based_hold {
-                return Err(ObjectError::ActiveHold);
-            }
-            let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, &bucket)
-                .map_err(object_unavailable)?;
-            let retired = retire_previous(
-                &transaction,
-                Some(&(record, id)),
-                versioning && generation.is_none(),
-                unix_micros(clock.now()).map_err(object_unavailable)?,
-            )?;
-            transaction.commit().map_err(object_unavailable)?;
-            if let Some(id) = retired
-                && let Err(error) = reclaim(connection, &data_dir, &id)
-            {
-                eprintln!("deferred blob reclaim {id}: {error}");
-            }
-            Ok(())
+            )
         })
         .await
     }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Shared selection preserves protocol conditions and access"
+)]
+pub(super) fn open_selected(
+    connection: &mut Connection,
+    data_dir: &Path,
+    bucket: &str,
+    name: &str,
+    generation: Option<i64>,
+    conditions: ObjectConditions,
+    access: &BucketAccess,
+) -> Result<(ObjectRecord, ObjectReader), ObjectError> {
+    let transaction = connection.transaction().map_err(object_unavailable)?;
+    let (record, id) = selected(
+        &transaction,
+        bucket,
+        name,
+        generation,
+        conditions,
+        true,
+        access,
+    )?;
+    // Open under the same execution permit that serializes deletes and overwrites.
+    let file = File::open(blob_path(data_dir, &id)?).map_err(object_unavailable)?;
+    let remaining = record.size;
+    let publicly_readable = super::policies::read_policy(&transaction, bucket)
+        .map_err(object_unavailable)?
+        .allows(
+            None,
+            crate::auth::OBJECTS_GET,
+            super::policies::public_access_prevention(&transaction, bucket)
+                .map_err(object_unavailable)?,
+        );
+    Ok((
+        record,
+        ObjectReader {
+            file: tokio::fs::File::from_std(file),
+            remaining,
+            publicly_readable,
+        },
+    ))
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Shared selection preserves protocol conditions and access"
+)]
+pub(super) fn delete_selected(
+    connection: &mut Connection,
+    data_dir: &Path,
+    clock: &dyn crate::clock::Clock,
+    bucket: &str,
+    name: &str,
+    generation: Option<i64>,
+    conditions: ObjectConditions,
+    access: &BucketAccess,
+) -> Result<(), ObjectError> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(object_unavailable)?;
+    let (record, id) = selected(
+        &transaction,
+        bucket,
+        name,
+        generation,
+        conditions,
+        false,
+        access,
+    )?;
+    if record.event_based_hold {
+        return Err(ObjectError::ActiveHold);
+    }
+    let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
+        .map_err(object_unavailable)?;
+    let retired = retire_previous(
+        &transaction,
+        Some(&(record, id)),
+        versioning && generation.is_none(),
+        unix_micros(clock.now()).map_err(object_unavailable)?,
+    )?;
+    transaction.commit().map_err(object_unavailable)?;
+    if let Some(id) = retired
+        && let Err(error) = reclaim(connection, data_dir, &id)
+    {
+        eprintln!("deferred blob reclaim {id}: {error}");
+    }
+    Ok(())
 }
 
 async fn write_body(
@@ -971,7 +1015,13 @@ async fn write_body(
         };
         let chunk = chunk
             .ok_or_else(|| ObjectError::BodyAborted("missing body EOF".into()))?
-            .map_err(|error| ObjectError::BodyAborted(error.to_string()))?;
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::StorageFull {
+                    ObjectError::Io(error.kind())
+                } else {
+                    ObjectError::BodyAborted(error.to_string())
+                }
+            })?;
         let chunk = match chunk {
             UploadChunk::End => break,
             UploadChunk::EndWithHashes(hashes) => {
@@ -1009,8 +1059,14 @@ async fn write_body(
     Ok((size, md5, crc32c))
 }
 
-fn object_unavailable(error: impl std::fmt::Display) -> ObjectError {
-    ObjectError::Unavailable(error.to_string())
+fn object_unavailable(error: impl std::fmt::Display + std::any::Any) -> ObjectError {
+    if let Some(reason) = super::admin::corrupt_reason(&error) {
+        return ObjectError::Corrupt(reason);
+    }
+    match super::admin::io_kind(&error) {
+        Some(kind) => ObjectError::Io(kind),
+        None => ObjectError::Unavailable(error.to_string()),
+    }
 }
 
 fn prefix_end(prefix: &str) -> Option<Vec<u8>> {
@@ -1043,7 +1099,7 @@ fn list_seek_sql(versions: bool, after: bool, bounded: bool) -> String {
     )
 }
 
-fn list_page(
+pub(super) fn list_page(
     connection: &Connection,
     query: &ObjectListQuery,
     limit: usize,
@@ -1734,7 +1790,7 @@ mod tests {
                 .unwrap();
             let conditions = ObjectConditions::default();
             let permit = catalog
-                .prepare_object_upload("bucket", "object", conditions, &BucketAccess::Unchecked)
+                .prepare_object_upload("bucket", "object", conditions, &BucketAccess::Permissive)
                 .await
                 .unwrap();
             catalog.delete_bucket("bucket", None, None).await.unwrap();
@@ -1760,7 +1816,7 @@ mod tests {
                     body,
                     permit,
                     ObjectMetadataUpdate::default(),
-                    BucketAccess::Unchecked,
+                    BucketAccess::Permissive,
                 )
                 .await
                 .unwrap_err();
@@ -1897,7 +1953,7 @@ mod tests {
     }
 
     fn policy_access(project: &str, observed: Option<&str>, overwrite: bool) -> BucketAccess {
-        use crate::auth::{Auth, OBJECTS_CREATE, Registry};
+        use crate::auth::{Auth, Registry};
         let roles = if overwrite {
             vec!["roles/storage.admin"]
         } else {
@@ -1923,7 +1979,7 @@ mod tests {
             .unwrap();
         BucketAccess::Policy {
             identity: Some(identity.clone()),
-            permission: OBJECTS_CREATE.into(),
+            permission: crate::auth::Permission::ObjectsCreate,
             project: observed.map(str::to_owned),
         }
     }
@@ -2116,7 +2172,7 @@ mod tests {
                 etag: None,
             };
             let stored = catalog
-                .set_policy("bucket", policy, &BucketAccess::Unchecked)
+                .set_policy("bucket", policy, &BucketAccess::Permissive)
                 .await
                 .unwrap();
             let read = catalog
@@ -2146,7 +2202,7 @@ mod tests {
                         },
                         None,
                         None,
-                        &BucketAccess::Unchecked,
+                        &BucketAccess::Permissive,
                     )
                     .await
                     .unwrap();
@@ -2158,7 +2214,7 @@ mod tests {
             );
             assert_eq!(
                 catalog
-                    .get_policy("bucket", &BucketAccess::Unchecked)
+                    .get_policy("bucket", &BucketAccess::Permissive)
                     .await
                     .unwrap(),
                 stored
@@ -2200,7 +2256,7 @@ mod tests {
                 etag: None,
             };
             catalog
-                .set_policy("bucket", granted, &BucketAccess::Unchecked)
+                .set_policy("bucket", granted, &BucketAccess::Permissive)
                 .await
                 .unwrap();
             let read = catalog
@@ -2232,7 +2288,7 @@ mod tests {
                         bindings: vec![],
                         etag: None,
                     },
-                    &BucketAccess::Unchecked,
+                    &BucketAccess::Permissive,
                 )
                 .await
                 .unwrap();
@@ -2324,7 +2380,7 @@ mod tests {
             unreachable!()
         };
         let access = catalog
-            .bucket_access("bucket", identity.as_ref(), &permission)
+            .bucket_access("bucket", identity.as_ref(), permission.as_str())
             .await
             .unwrap();
         let conditions = ObjectConditions::default();

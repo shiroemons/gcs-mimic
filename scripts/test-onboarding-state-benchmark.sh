@@ -6,6 +6,26 @@ if [[ ${1:-} == upload || ${1:-} == download ]]; then
 fi
 source "$(dirname "$0")/measure-onboarding-state.sh"
 test_script="$PWD/scripts/test-onboarding-state-benchmark.sh"
+source_check=$(mktemp -d "${TMPDIR:?}/gcs-mimic-source-check.XXXXXX")
+trap 'rm -rf "$source_check"' EXIT
+(
+  cd "$source_check"
+  git init --quiet
+  git config user.name 'Benchmark self-check'
+  git config user.email 'benchmark@example.invalid'
+  mkdir src examples
+  printf 'fn main() {}\n' >src/main.rs
+  git add src/main.rs
+  git commit --quiet -m 'test: create source fixture'
+  [[ $(verify_source HEAD) == $(git rev-parse HEAD) ]]
+  if verify_source missing-revision 2>/dev/null; then exit 1; fi
+  printf 'changed\n' >>src/main.rs
+  if verify_source HEAD; then exit 1; fi
+  git restore src/main.rs
+  printf 'untracked\n' >src/new.rs
+  if verify_source HEAD; then exit 1; fi
+)
+rm -rf "$source_check"
 testwork=$(mktemp -d "${TMPDIR:?}/gcs-mimic-benchmark-check.XXXXXX")
 trap 'rm -rf "$testwork"' EXIT
 for mode in timeout interrupt; do

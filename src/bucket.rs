@@ -192,6 +192,8 @@ pub enum CatalogError {
     Forbidden,
     InvalidMetadata(String),
     UnsupportedMetadata(String),
+    Io(std::io::ErrorKind),
+    Corrupt(String),
     Unavailable(String),
 }
 
@@ -206,6 +208,8 @@ impl fmt::Display for CatalogError {
                 formatter.write_str("public access prevention is enforced")
             }
             Self::Forbidden => formatter.write_str("forbidden"),
+            Self::Io(kind) => write!(formatter, "catalog I/O: {kind}"),
+            Self::Corrupt(reason) => write!(formatter, "catalog corrupt: {reason}"),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {
                 formatter.write_str(reason)
             }
@@ -222,15 +226,15 @@ impl std::error::Error for CatalogError {}
 /// Authorization resolves the owning project in an earlier catalog call. The bucket can be
 /// deleted and recreated under another project before the operation runs, so the operation
 /// itself must confirm that the project it observes is one the caller was authorized for.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BucketAccess {
     /// Permissive profile: no authorization applies and overwrites are allowed.
-    #[default]
-    Unchecked,
+    Permissive,
+    Admin(crate::storage::admin::AdminGrant),
     /// Re-evaluate effective grants against the policy selected by the operation transaction.
     Policy {
         identity: Option<crate::auth::Identity>,
-        permission: String,
+        permission: crate::auth::Permission,
         project: Option<String>,
     },
 }

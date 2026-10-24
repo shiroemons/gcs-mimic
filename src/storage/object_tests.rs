@@ -1,3 +1,4 @@
+use crate as gcs_mimic;
 use bytes::Bytes;
 use gcs_mimic::{
     bucket::{BucketRecord, CatalogError},

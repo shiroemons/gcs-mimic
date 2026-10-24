@@ -38,14 +38,14 @@ CREATE INDEX resumable_sessions_deadline ON resumable_sessions(deadline, id);
 PRAGMA user_version = 7;";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SessionState {
+pub(crate) enum SessionState {
     Active,
     Complete,
     Cancelled,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ResumableOptions {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResumableOptions {
     pub content_type: String,
     pub metadata: ObjectMetadataUpdate,
     pub expected: ExpectedHashes,
@@ -56,8 +56,23 @@ pub struct ResumableOptions {
     pub response_fields: Option<String>,
 }
 
+impl ResumableOptions {
+    pub(crate) fn new(access: BucketAccess) -> Self {
+        Self {
+            content_type: String::new(),
+            metadata: Default::default(),
+            expected: Default::default(),
+            conditions: Default::default(),
+            access,
+            origin: None,
+            projection_full: false,
+            response_fields: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResumableSession {
+pub(crate) struct ResumableSession {
     pub id: String,
     pub blob_id: String,
     pub bucket: String,
@@ -98,12 +113,12 @@ impl From<ObjectError> for ResumableError {
 }
 impl From<CatalogError> for ResumableError {
     fn from(error: CatalogError) -> Self {
-        Self::Object(ObjectError::Unavailable(error.to_string()))
+        Self::Object(ObjectError::from(error))
     }
 }
 
 /// A nonqueued exclusive operation on one session; dropping always releases admission.
-pub struct SessionLease {
+pub(crate) struct SessionLease {
     pub session: ResumableSession,
     guard: WriterGuard,
 }
@@ -128,7 +143,7 @@ impl Drop for WriterGuard {
     }
 }
 impl SessionLease {
-    pub fn staging_path(&self) -> PathBuf {
+    pub(crate) fn staging_path(&self) -> PathBuf {
         self.guard
             .catalog
             .0
@@ -172,7 +187,7 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 }
 
 impl Catalog {
-    pub async fn create_resumable_session(
+    pub(crate) async fn create_resumable_session(
         &self,
         bucket: &str,
         name: &str,
@@ -215,7 +230,7 @@ impl Catalog {
         Ok(session)
     }
 
-    pub async fn resumable_session(
+    pub(crate) async fn resumable_session(
         &self,
         id: &str,
         bucket: &str,
@@ -247,7 +262,7 @@ impl Catalog {
         Ok(session)
     }
 
-    pub async fn lock_resumable_session(
+    pub(crate) async fn lock_resumable_session(
         &self,
         id: &str,
         bucket: &str,
@@ -258,7 +273,11 @@ impl Catalog {
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {
-        let mut writers = self.0.session_writers.lock().map_err(unavailable)?;
+        let mut writers = self
+            .0
+            .session_writers
+            .lock()
+            .map_err(|error| unavailable(error.to_string()))?;
         if writers.len() >= MAX_SESSIONS || !writers.insert(id.to_owned()) {
             return Err(unavailable("upload session is busy"));
         }
@@ -269,7 +288,7 @@ impl Catalog {
     }
 
     /// Called only with an exclusive lease after file sync; it never transfers body bytes.
-    pub async fn checkpoint_resumable_session(
+    pub(crate) async fn checkpoint_resumable_session(
         &self,
         lease: &mut SessionLease,
         offset: u64,
@@ -312,13 +331,16 @@ impl Catalog {
 pub(super) fn encode_options(o: &ResumableOptions) -> Value {
     let m = &o.metadata;
     let access = match &o.access {
-        BucketAccess::Unchecked => Value::Null,
+        BucketAccess::Permissive => Value::Null,
+        BucketAccess::Admin(_) => {
+            unreachable!("administrative grants cannot be persisted as resumable credentials")
+        }
         BucketAccess::Policy {
             identity,
             permission,
             project,
         } => {
-            json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission, "project": project})
+            json!({"identity": identity.as_ref().map(Identity::upload_snapshot), "permission": permission.as_str(), "project": project})
         }
     };
     json!({"version":2,"content_type":o.content_type,"metadata":{"replace":m.replace,"eventBasedHold":m.event_based_hold,"contentType":m.content_type.as_ref().map(|v|json!({"value":v})),"contentEncoding":m.content_encoding.as_ref().map(|v|json!({"value":v})),"contentDisposition":m.content_disposition.as_ref().map(|v|json!({"value":v})),"contentLanguage":m.content_language.as_ref().map(|v|json!({"value":v})),"cacheControl":m.cache_control.as_ref().map(|v|json!({"value":v})),"metadata":m.metadata.as_ref().map(|v|json!({"value":v}))},"md5":o.expected.md5.map(|v| v.to_vec()),"crc32c":o.expected.crc32c,"conditions":[o.conditions.if_generation_match,o.conditions.if_generation_not_match,o.conditions.if_metageneration_match,o.conditions.if_metageneration_not_match],"access":access,"origin":o.origin,"full":o.projection_full,"response_fields":o.response_fields})
@@ -375,7 +397,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
         serde_json::from_value(v["metadata"]["metadata"].clone()).map_err(|_| invalid())?
     };
     let access = if v["access"].is_null() {
-        BucketAccess::Unchecked
+        BucketAccess::Permissive
     } else {
         let a = &v["access"];
         if a["permission"] != OBJECTS_CREATE {
@@ -387,7 +409,7 @@ pub(super) fn decode_options(v: &Value) -> Result<ResumableOptions, String> {
             } else {
                 Some(Identity::from_upload_snapshot(&a["identity"])?)
             },
-            permission: OBJECTS_CREATE.into(),
+            permission: crate::auth::Permission::ObjectsCreate,
             project: serde_json::from_value(a["project"].clone()).map_err(|_| invalid())?,
         }
     };

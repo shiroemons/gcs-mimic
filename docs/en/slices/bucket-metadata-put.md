@@ -164,7 +164,7 @@ Same-profile full-resource round trips are covered explicitly.
 The [final integration evidence](../evidence/bucket-metadata-put.md) records
 the verified source, pinned inputs, commands, results and raw logs for Rust,
 official Go SDK, reference comparison, containers and native/Docker guide checks.
-HTTP cases are in tests/bucket_http.rs; clock/rollback cases in tests/catalog.rs;
+HTTP cases are in tests/bucket_http.rs; clock/rollback cases in src/storage/catalog_tests.rs;
 transaction-time authorization cases in src/storage/catalog.rs.
 No real-cloud differential run or complete-method compatibility claim belongs
 to this slice.

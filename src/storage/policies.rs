@@ -73,7 +73,8 @@ pub(super) fn read_policy(connection: &Connection, bucket: &str) -> Result<Polic
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(unavailable)?;
-    Policy::from_stored(&bindings, crate::json::policy_etag(revision)).map_err(unavailable)
+    Policy::from_stored(&bindings, crate::json::policy_etag(revision))
+        .map_err(|reason| CatalogError::Corrupt(reason.into()))
 }
 
 pub(super) fn check_access(
@@ -95,8 +96,8 @@ pub(super) fn check_access(
         let pap = public_access_prevention(connection, bucket)?;
         if !identity
             .as_ref()
-            .is_some_and(|identity| identity.allows(permission, project))
-            && !policy.allows(identity.as_ref(), permission, pap)
+            .is_some_and(|identity| identity.allows(permission.as_str(), project))
+            && !policy.allows(identity.as_ref(), permission.as_str(), pap)
         {
             return Err(CatalogError::Forbidden);
         }
@@ -149,7 +150,8 @@ impl Catalog {
     ) -> Result<BucketAccess, CatalogError> {
         let bucket = bucket.to_owned();
         let identity = identity.into().cloned();
-        let permission = permission.to_owned();
+        let permission = crate::auth::Permission::try_from(permission)
+            .map_err(|error| CatalogError::InvalidMetadata(error.into()))?;
         self.run(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             let project: Option<String> = transaction
@@ -163,7 +165,7 @@ impl Catalog {
             if project.is_none()
                 && !identity
                     .as_ref()
-                    .is_some_and(|identity| identity.allows_anywhere(&permission))
+                    .is_some_and(|identity| identity.allows_anywhere(permission.as_str()))
             {
                 return Err(CatalogError::Forbidden);
             }
