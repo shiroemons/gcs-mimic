@@ -198,7 +198,8 @@ pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> 
         };
         let source = wide(&source)?;
         let destination = wide(&destination)?;
-        // Both terminated UTF-16 buffers remain alive for this synchronous call.
+        // SAFETY: Both terminated UTF-16 buffers remain alive for this synchronous call.
+        #[allow(unsafe_code)]
         let moved = unsafe {
             MoveFileExW(
                 source.as_ptr(),
@@ -1375,6 +1376,16 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// # Safety
+    /// `counter` must point to a live, aligned AtomicUsize whenever SQLite can invoke this callback.
+    #[allow(unsafe_code)]
+    unsafe extern "C" fn count_progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
+        // SAFETY: The caller guarantees a live, aligned AtomicUsize whenever SQLite can call us.
+        let counter = unsafe { &*counter.cast::<AtomicUsize>() };
+        i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
+    }
 
     #[test]
     fn versioning_migration_copies_named_columns_from_permuted_legacy_table() {
@@ -1468,12 +1479,6 @@ mod tests {
 
     #[test]
     fn object_list_seeks_past_large_prefixes_with_bounded_sql_work() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        unsafe extern "C" fn progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
-            // The counter outlives the connection's registered callback on this thread.
-            let counter = unsafe { &*counter.cast::<AtomicUsize>() };
-            i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
-        }
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
@@ -1486,11 +1491,13 @@ mod tests {
             .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
+        // SAFETY: This live connection invokes the callback synchronously with the live counter.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
                 100,
-                Some(progress),
+                Some(count_progress),
                 std::ptr::from_ref(&counter).cast_mut().cast(),
             );
         }
@@ -1514,6 +1521,8 @@ mod tests {
         let page = list_page(&connection, &query, 1).unwrap();
         assert_eq!(page.items[0].name, "z");
         assert!(page.next.is_none());
+        // SAFETY: Unregister on the live connection before the callback's counter is dropped.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
@@ -1527,12 +1536,6 @@ mod tests {
 
     #[test]
     fn object_list_skips_noncurrent_rows_with_bounded_sql_work() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        unsafe extern "C" fn progress(counter: *mut std::ffi::c_void) -> std::ffi::c_int {
-            // The counter outlives the connection's registered callback on this thread.
-            let counter = unsafe { &*counter.cast::<AtomicUsize>() };
-            i32::from(counter.fetch_add(1, Ordering::Relaxed) >= 100)
-        }
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch(METADATA_SCHEMA).unwrap();
@@ -1589,11 +1592,13 @@ mod tests {
         }
         let counter = AtomicUsize::new(0);
         // One budget covers multiple pages and history-only prefixes, independent of history size.
+        // SAFETY: This live connection invokes the callback synchronously with the live counter.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),
                 100,
-                Some(progress),
+                Some(count_progress),
                 std::ptr::from_ref(&counter).cast_mut().cast(),
             );
         }
@@ -1643,6 +1648,8 @@ mod tests {
         let page = list_page(&connection, &query, 1).unwrap();
         assert_eq!(page.items[0].generation, 10000);
         assert!(page.next.is_none());
+        // SAFETY: Unregister on the live connection before the callback's counter is dropped.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_progress_handler(
                 connection.handle(),

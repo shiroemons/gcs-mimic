@@ -1163,6 +1163,8 @@ mod tests {
         connection.execute_batch(BUCKET_SCHEMA).unwrap();
         connection.pragma_update(None, "user_version", 7).unwrap();
         // The first added column fits; the second exceeds this connection-local limit.
+        // SAFETY: The connection owns the SQLite handle throughout this synchronous call.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_limit(
                 connection.handle(),
@@ -1190,6 +1192,8 @@ mod tests {
                 .iter()
                 .any(|name| name == "versioning_enabled" || name == "default_event_based_hold")
         );
+        // SAFETY: Restore the limit on the same live connection before retrying the migration.
+        #[allow(unsafe_code)]
         unsafe {
             rusqlite::ffi::sqlite3_limit(
                 connection.handle(),

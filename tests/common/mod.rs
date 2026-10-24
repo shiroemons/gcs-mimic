@@ -89,13 +89,14 @@ pub fn server_command() -> Command {
         static CONSOLE: Once = Once::new();
         CONSOLE.call_once(|| {
             // CI may have no console; children must share one to receive control events.
-            if unsafe { GetConsoleCP() } == 0 {
-                assert_ne!(
-                    unsafe { AllocConsole() },
-                    0,
-                    "{}",
-                    std::io::Error::last_os_error()
-                );
+            // SAFETY: Reading the current console code page takes no pointers or handles.
+            #[allow(unsafe_code)]
+            let code_page = unsafe { GetConsoleCP() };
+            if code_page == 0 {
+                // SAFETY: This pointer-free call is serialized by Once when no console exists.
+                #[allow(unsafe_code)]
+                let allocated = unsafe { AllocConsole() };
+                assert_ne!(allocated, 0, "{}", std::io::Error::last_os_error());
             }
         });
         command.creation_flags(CREATE_NEW_PROCESS_GROUP);
@@ -116,13 +117,10 @@ pub fn stop_server(child: &mut Child, stdout: &mut impl BufRead) {
     {
         use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, GenerateConsoleCtrlEvent};
 
-        // A nonzero process group confines CTRL-BREAK to this child, unlike CTRL-C.
-        assert_ne!(
-            unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.id()) },
-            0,
-            "{}",
-            std::io::Error::last_os_error()
-        );
+        // SAFETY: The child's nonzero process group confines CTRL-BREAK to this child.
+        #[allow(unsafe_code)]
+        let signaled = unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.id()) };
+        assert_ne!(signaled, 0, "{}", std::io::Error::last_os_error());
     }
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = loop {

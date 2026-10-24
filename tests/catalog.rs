@@ -784,7 +784,8 @@ async fn drop_releases_lock_while_a_forked_child_has_not_execed() {
     let process = std::thread::spawn(move || {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.args(["--exact", "catalog_child_process"]);
-        // Only fixed-size socket I/O runs after fork; no allocation or locks are used.
+        // SAFETY: Only fixed-size socket I/O runs after fork; no allocation or locks are used.
+        #[allow(unsafe_code)]
         unsafe {
             command.pre_exec(move || {
                 child.write_all(&[1])?;

@@ -80,6 +80,63 @@ Freshness remains a separate gate because it checks changing upstream metadata,
 while `pre-push` validates the working tree and locked inputs. An update or a
 network failure must be reported; it is not a passing freshness result.
 
+## Rust lint policy
+
+The root `Cargo.toml` defines `unsafe_code = "deny"` in
+`[workspace.lints.rust]` and `undocumented_unsafe_blocks = "deny"` in
+`[workspace.lints.clippy]`. The application and `xtask` opt in with
+`[lints] workspace = true`; add that opt-in to every new workspace member.
+The policy covers each member's library, binaries and tests. `just check` runs
+workspace/all-target Clippy with `-D warnings` in addition to these manifest lints.
+
+Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
+with an adjacent `// SAFETY:` comment explaining why the operation is safe.
+Clippy rejects allowed unsafe blocks without these comments. Callbacks that
+convert raw pointer arguments to references must be `unsafe extern "C" fn` with
+a `# Safety` contract. Their item-level allow is needed for the unsafe declaration
+but also permits unsafe code throughout the body and nested items; it cannot be
+limited to the declaration. Keep body operations in explicit inner unsafe blocks
+with `// SAFETY:` comments. Edition 2024's `unsafe_op_in_unsafe_fn` and Clippy's
+`undocumented_unsafe_blocks` still check those bodies under `-D warnings`.
+Review every unsafe operation and nested item within that allowance for necessity
+and safety; these lints do not establish either.
+Existing exceptions cover Windows publication and console control, SQLite test
+hooks and the Unix pre-exec test. Do not allow unsafe for an entire crate or test
+module. Cross-target checks must include Windows: native Unix checks do not
+compile its `cfg(windows)` branches.
+
+`src/fsutil.rs` does not exist yet. The `shared-publication-io` slice creates it,
+moves the relevant platform calls there and removes their former exceptions.
+That slice must add narrow exceptions next to each unsafe operation, document
+pointer/handle ownership and platform preconditions, and verify all affected
+platforms. Do not add a placeholder module or an exception before it is needed.
+
+Every new input-parsing module must start with this inner attribute:
+
+```rust
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+```
+
+Alternatively, put `#[deny(clippy::unwrap_used, clippy::expect_used)]` on its
+`mod` declaration. Use fallible parsing and propagate errors. These restrictions
+are module scoped, not workspace-wide: existing unwrap/expect uses are outside
+this slice. Where a parsing module's tests need these assertion helpers, place
+an explicit local `#[allow(clippy::unwrap_used, clippy::expect_used)]` on its test
+module with a reason; do not relax the production parser.
+
+When reviewing every subsequent configuration, initializer or import slice,
+check that each new parsing module has the deny attribute on the module or its
+declaration, and that test exceptions do not cover production code. Run the
+unwrap/expect rejection probe when a module boundary or lint scope changes.
+This is a required review check: the current module structure does not enforce
+the opt-in automatically. A shared parser parent is deferred until real parser
+modules justify it; do not move legacy parsers solely to centralize the lint.
+
+The [repository lint contract](slices/repo-lints.md) defines acceptance and scope.
+Cargo's [lint manifest reference](https://doc.rust-lang.org/cargo/reference/manifest.html#the-lints-section)
+and the [Rust lint-level reference](https://doc.rust-lang.org/rustc/lints/levels.html)
+describe inheritance and local overrides.
+
 ## Direct verification commands
 
 Native archive preparation and the eight-target release CI are documented in the
