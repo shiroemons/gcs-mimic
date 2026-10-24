@@ -39145,7 +39145,7 @@
         },
         {
           "id": "BUCKET-INIT-RESOURCES",
-          "description": "Measure empty/1000-entry parser/apply duration, CPU-seconds, peak process RSS, cgroup memory and disk/sync work separately for equivalent backend/auth/durability profiles, using Shared state's measured regression gates when available. No exclusive resource window was available during parser implementation; all metrics remain PENDING with no timing values or comparison recorded, for coordinated measurement during init-create-missing.",
+          "description": "Record one apply duration for a 1000-entry initialization file as a fact, without a regression gate, during init-create-missing. No timing value is recorded yet.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -40741,12 +40741,6 @@
           ]
         },
         {
-          "id": "onboarding-state-startup-cpu-calibration",
-          "description": "Calibrate the startup-10000 CPU regression threshold with adequate precision in the equivalent profile. Observed raw CPU values 0.15, 0.09, 0.08, 0.07 and 0.08 seconds include four at/below the 0.1-second boundary; retain PENDING without a numeric CPU gate and never infer it from normalized units.",
-          "result": "PENDING",
-          "test_ids": []
-        },
-        {
           "id": "startup-phase-benchmark",
           "description": "Five equivalent-profile startup repetitions at 10000/100000 objects with CPU, readiness RSS, disk, correctness and frozen baseline comparison. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
           "result": "PASS",
@@ -40756,13 +40750,7 @@
         },
         {
           "id": "onboarding-state-sync-benchmark",
-          "description": "Measure full rescan and concurrent API/sync p50/p99, staged-batch overlap and repeated-resume revalidation after those interfaces exist; currently unimplemented and unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
-          "result": "PENDING",
-          "test_ids": []
-        },
-        {
-          "id": "onboarding-state-cgroup-benchmark",
-          "description": "Measure cgroup memory independently of process RSS under an equivalent pinned container profile; the native macOS baseline has no cgroup measurement. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "description": "Record one full-rescan timing at about 1,000 entries, unchanged and then with one changed file, as a fact without a regression gate after synchronization exists; currently unimplemented and unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
           "test_ids": []
         },

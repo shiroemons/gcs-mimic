@@ -662,11 +662,11 @@ This document changes no owner decision. It makes the specified non-exchange
 race window explicit rather than claiming an unattainable cross-filesystem/SQL
 atomic transaction. Runtime cases, process-kill/platform tests, official SDKs,
 containers and notification behavior have not been executed for this contract.
-Performance is **unmeasured**, including full rescan, unchanged-file stat path,
-1 GiB transfer, 10000-object publication, 10000/100000-object startup and mixed
-API/sync p50/p99. Use Shared state's eventual equivalent-profile benchmark
-baseline/thresholds; measure RSS and cgroup memory separately, CPU-seconds,
-latency, throughput, errors and disk use. No speed or memory improvement is claimed.
+Performance is **unmeasured**. Following the local-development scale policy in
+the Shared state contract, the runtime slice records one full-rescan timing at
+about 1,000 entries as a fact, without a regression gate. Bounded pages and the
+stat-first rescan remain design requirements enforced by tests and review. No
+speed or memory improvement is claimed.
 
 ### Document checks
 

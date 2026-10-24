@@ -54,7 +54,8 @@ gcs-mimic is an independent Google Cloud Storage emulator written in Rust. It ta
 - Exercise positive, negative, boundary, concurrency, recovery and resource cases that are relevant to the slice. Do not create redundant tests for cosmetic changes.
 - Default tests must not contact Google Cloud or the metadata server. Real-cloud differential tests require an explicitly opted-in test project/bucket, budget and cleanup policy.
 - Never run irreversible real-bucket retention locking against a user or production bucket as an incidental test. Emulator-local lock tests remain ordinary offline tests.
-- Measure process RSS and cgroup memory separately; measure CPU-seconds per unit of work, throughput, latency percentiles, errors and disk use. Compare only equivalent profiles and workloads.
+- gcs-mimic targets local-development scale (up to about a thousand objects per bucket); delivery speed takes priority over benchmarking. Do not build benchmark harnesses, repeated-sample baselines or regression gates for ordinary slices. Measure only when a slice's purpose is performance, with one short run at that scale, and record the result as a fact rather than a gate.
+- When measuring resources, keep process RSS and cgroup memory separate and compare only equivalent profiles and workloads. Bounded streaming and memory that does not grow with object count remain design requirements enforced by code and review.
 - Do not weaken checksums, authorization, synchronization or durability to improve a benchmark without an explicit documented profile and tradeoff.
 
 ## Language and delivery
