@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
-| project_requirement | 92 | 37 | 0 | 27 | 28 | 0 | 0 |
+| project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
 | behavior | 131 | 40 | 28 | 2 | 0 | 0 |
-| project_requirement | 37 | 0 | 0 | 0 | 0 | 55 |
+| project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
 
@@ -921,7 +921,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-076 | データディレクトリの単一プロセス制約 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-077 | 上限付きインメモリ動作 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-078 | ビジーループを避けたアイドルCPU低減 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-079 | RSS・cgroupメモリ測定 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
+| DESIGN-079 | RSS・cgroupメモリ測定 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-080 | CPU・レイテンシ・スループット測定表 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | DESIGN-081 | fake-gcs-serverとの同条件比較 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 

@@ -87,9 +87,12 @@ Upload advisory and post-EOF waits each use `catalog_wait_timeout_ms`, default 3
 503 `backendError`. Both settings use CLI > environment > JSON > default precedence.
 Bucket/probe/unknown routes retain their total connection deadline.
 Shutdown has its independent drain deadline. Compose additionally
-sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. These are inspected settings
-and functional bounds, not measured RSS/cgroup/CPU/latency or a verified 1 GiB transfer under
-the container limit. Resumable expiry uses one next-deadline scheduler, with no
+sets 128 MiB memory, one CPU, 64 PIDs and 1024 file descriptors. The
+[local ARM64 resource evidence](evidence/dist-resource-measurement.md) measures idle
+and 1 GiB media/resumable transfers for source bb8dd5c under those resource limits
+with HTTP, permissive/native defaults and swap disabled. This does not verify all
+Compose settings, other platforms, parallel transfers or a published release image.
+Resumable expiry uses one next-deadline scheduler, with no
 timer when idle; failed cleanup has a bounded retry delay.
 
 Startup validates config, supplied TLS files and registers signals, then opens/recovers the catalog before bind/readiness. Lock, schema, corruption or path failures stop startup with a diagnostic and no ready event. Shutdown marks not-ready, drops the listener and drains; deadline expiry aborts connections and returns an error. Every server exit path then closes the catalog before returning, including after connection cancellation. Catalog close waits for running blocking work, so the network drain deadline does not bound filesystem/SQLite shutdown. The process reports stopped only after successful catalog release. Initial seed import completes before bind/readiness; resumable expiry uses the injected clock and one explicit deadline scheduler before readiness; other lifecycle scheduling remains future work.

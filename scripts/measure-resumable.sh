@@ -6,6 +6,10 @@
 # stdout is the evidence log; no payload, capability URL or local path is printed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ ${1:-} == --container ]]; then
+  shift
+  exec bash scripts/measure-container-resources.sh "$@"
+fi
 [[ $(uname -s) == Darwin ]] || { echo 'macOS is required' >&2; exit 1; }
 server="$PWD/target/release/gcs-mimic"
 [[ -x $server ]]

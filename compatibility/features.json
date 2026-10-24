@@ -1327,7 +1327,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. Initial 0.1.0 notes and documentation consistency are prepared under docs/en/slices/dist-release-notes.md; manual/tag execution and publication remain pending.",
+      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. Initial 0.1.0 notes and documentation consistency are prepared under docs/en/slices/dist-release-notes.md; manual/tag execution and publication remain pending. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is now recorded in docs/en/evidence/dist-resource-measurement.md. It is not tag-pinned resource revalidation or approval of the release source, and does not close the failing Release-body/local gates.",
       "dependencies": [
         "DIST-001"
       ],
@@ -41414,23 +41414,32 @@
       "interface": "Emulator validation",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "IMPLEMENTED",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Proposed project requirement. Report process and container memory separately including page-cache effects.",
+      "notes": "Scoped local Linux ARM64 container benchmarks passed five idle/media/resumable repetitions for fixed application source bb8dd5cf9a2f9c61397981ef0591ed84b941c7ff, using frozen harness ecb1430eddedcd6b63276bebc94a5f3885ce0393. Independent process RSS/CPU and cgroup current/peak/cache/CPU, 128 MiB limit/no swap/one CPU, exact 1 GiB round trips and clean shutdown are recorded in docs/en/evidence/dist-resource-measurement.md and its single raw evidence set. Sampled RSS max was 9.78515625 MiB; cumulative cgroup peak max was 128.69921875 MiB with the configured 128 MiB maximum unchanged. Idle CPU calibration remains pending at the shared precision boundary. No native-baseline regression pass, other-platform/published-image result, broader benchmark matrix or release-source approval is claimed; those remain separate requirements.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "COMPLETE",
+      "acceptance_cases": [
+        {"id": "DESIGN-079-SELF-CHECK", "description": "Validate independent RSS/cgroup metrics, CPU arithmetic, phase filtering, non-atomic observations, malformed-counter/time failure, port/origin agreement and cleanup failure preservation with synthetic records and side-effect-free mocks.", "result": "PASS", "test_ids": ["container-resource-self-check"]},
+        {"id": "DESIGN-079-IDLE", "description": "Measure idle process RSS, cgroup memory/cache and separate process/cgroup CPU seconds over 60 seconds in five isolated containers.", "result": "PASS", "test_ids": ["container-resource-idle"]},
+        {"id": "DESIGN-079-TRANSFER", "description": "Measure five 1 GiB JSON media and resumable upload/download repetitions with exact size, Range and SHA-256 assertions, CPU/GiB, throughput, quantiles, errors and disk allocation.", "result": "PASS", "test_ids": ["container-resource-transfer"]},
+        {"id": "DESIGN-079-LIMIT", "description": "Verify 128 MiB memory, no swap, one CPU, 64 PIDs, no OOM events, post-transfer readiness and clean shutdown.", "result": "PASS", "test_ids": ["container-resource-limit"]},
+        {"id": "DESIGN-079-PROVENANCE", "description": "Pin measured source/image/build/harness and environment, retain all five values and disclose local-only/platform/freshness/publication limits.", "result": "PASS", "test_ids": ["container-resource-provenance"]}
+      ],
+      "test_ids": ["container-resource-self-check", "container-resource-idle", "container-resource-transfer", "container-resource-limit", "container-resource-provenance"],
+      "verification": [
+        {"command": "bash -n scripts/measure-container-resources.sh scripts/measure-resumable.sh; shellcheck scripts/measure-container-resources.sh scripts/measure-resumable.sh; bash scripts/measure-container-resources.sh --self-check", "result": "PASS", "verified_at": "2026-10-24", "artifact": "docs/en/evidence/dist-resource-measurement.md", "test_ids": ["container-resource-self-check"]},
+        {"command": "bash scripts/measure-resumable.sh --container gcs-mimic:resource-measurement bb8dd5cf9a2f9c61397981ef0591ed84b941c7ff", "result": "PASS", "verified_at": "2026-10-24", "artifact": "docs/en/evidence/dist-resource-measurement.txt", "test_ids": ["container-resource-idle", "container-resource-transfer", "container-resource-limit", "container-resource-provenance"]}
+      ],
       "sdk_evidence": [],
       "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "ecb1430eddedcd6b63276bebc94a5f3885ce0393",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-080",
@@ -42682,7 +42691,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push remains unverified for the rebased tree. See docs/en/evidence/dist-release-notes.md.",
+      "notes": "Foundation run 39995036204 at 9003939 passed pinned/current-stable Rust/generated-doc gates, native amd64/arm64 container checks and Go SDK checks; that run's protected inputs match historical preparation baseline 71883c0, not the rebased candidate. The 2026-10-24 pre-rebase preparation pre-push failed with exit 18 because PATH selected Ruby 3.4.1 rather than pinned 4.0.9; later separate SDK/container passes do not close the full local gate. After main 280a84c integration, one complete just check outside the sandbox passed with 665 tests; the initial sandboxed invocation had failed with exit 101. The complete pre-push remains unverified for the rebased tree. See docs/en/evidence/dist-release-notes.md. Resource measurement preparation also passed just check with 778 tests/38 groups on unchanged bb8dd5c Rust/build inputs; this separate pass does not replace full pre-push or remote CI. Evidence: docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DESIGN-092"
       ],
@@ -45215,7 +45224,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Historical slice-start checks passed. The 0.1.0 release preparation reran official-source freshness and found a distroless runtime digest update (exit 1); dist-tag-publication owns the actual refresh and revalidation before publication. Release and weekly-review procedures are documented but their full cycles remain unexecuted. See docs/en/evidence/dist-release-notes.md.",
+      "notes": "Historical slice-start checks passed. The 0.1.0 release preparation reran official-source freshness and found a distroless runtime digest update (exit 1); dist-tag-publication owns the actual refresh and revalidation before publication. Release and weekly-review procedures are documented but their full cycles remain unexecuted. See docs/en/evidence/dist-release-notes.md. The local resource-measurement check reconfirmed Rust/direct crates CURRENT and the same unresolved distroless UPDATE_AVAILABLE (exit 1), with no pin updates; its pinned-image resource success does not satisfy freshness. Evidence: docs/en/evidence/dist-resource-measurement.txt.",
       "dependencies": [
         "DEP-001"
       ],
