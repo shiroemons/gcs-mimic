@@ -949,9 +949,9 @@
         "depends_on": ["onboarding-state-contract", "bucket-xml-cors"],
         "feature_ids": ["JSON-BUCKETS-002", "JSON-BUCKETS-008", "BEHAVIOR-BUCKET-009", "DESIGN-062"],
         "completion_conditions": [
-          "Freeze the versioned file schema and native CLI entry point, then validate every entry, duplicate name, permission and unsupported setting before mutation.",
+          "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and fixed 1 MiB/1000-entry/64 KiB limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
           "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
-          "Removing an entry does not delete a bucket; interruption/retry completes missing buckets without resetting existing state."
+          "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime acceptance remains pending; contract review alone is not implementation."
         ],
         "deferred_scope": "Continuous file reconciliation of existing bucket policies is not the initializer contract. Directory synchronization and source-state import are independent tracks."
       },
@@ -2652,6 +2652,12 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "BUCKET-INIT-INDEPENDENT-SETTINGS",
+          "description": "Initialize two buckets with independent XML CORS allow/deny, version history, default holds and PAP; preserve native labels/location/class after legacy startup and native reopen without claiming legacy metageneration-1 rendering parity. Exercise strict/permissive subsequent API permission checks with no implicit grants. Contract: docs/en/slices/bucket-initialization.md; runtime owner init-create-missing, currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
         {
           "id": "BKT-GET-001",
           "description": "Persisted identity, labels, fixed selfLink, noAcl/full and missing-bucket errors.",
@@ -5132,6 +5138,12 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "BUCKET-INIT-PRESERVE-API-CHANGES",
+          "description": "After initialization, API PATCH settings/policies and object bytes/versions, conditions, microsecond timestamps and revisions survive restart and changed/removed file entries. Different-project recreation is Existing with warning and no mutation; explicit deletion can be recreated on next startup. Contract: docs/en/slices/bucket-initialization.md; runtime owner init-create-missing, currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
         {
           "id": "PATCH-LABELS",
           "description": "Merge/set/replace/remove labels, preserve omitted keys and empty values; empty map preserves and null map clears under the declared local PATCH interpretation.",
@@ -38933,6 +38945,60 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "BUCKET-INIT-CONTRACT",
+          "description": "Independent review with no major findings plus markdownlint and ledger validate/render/check verifies docs/en/slices/bucket-initialization.md: JSON v1, selectors/limits, project precedence, native closed schema, full diagnostics/ready, create-missing atomicity and Shared state requirements, local authority and API/profile differences. The integration owner runs just check after merge. Documentation or author checks alone do not pass independent review or runtime cases.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-INPUT",
+          "description": "Verify buckets-file CLI over env over config over unset, duplicate/empty/invalid selectors, working-directory relative paths, regular/symlink/nonregular/unreadable files; UTF-8/BOM/JSON/trailing content and required integer version 1/root/buckets shapes, including an empty list. Owner init-parser; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-BOUNDS",
+          "description": "Verify inclusive 1,048,576-byte file, 1000-entry and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting and bounded read/diagnostic retention with no truncation or partial success. Owner init-parser; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-VALIDATION",
+          "description": "Validate every supplied project and entry-over-file-over-effective-seed_project selection, global decoded duplicate bucket names, repeated JSON members at every depth and nested closed schema; reject typos/output-only/iam/policy/ACL, all lifecycle shapes and disabled UBLA no-ops. Reuse native value validation in both compatibility profiles without changing API behavior. Owner init-parser; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-DIAGNOSTICS",
+          "description": "Collect multiple independent structural/semantic errors within/across entries, including existing buckets; skip only dependent checks. Verify zero-based original field paths, nearest-name suggestions/ties, repeated-member diagnostics, shared initializer-source JSON warn/error sorting, escaping/redaction and no raw parser/value/secret leakage; errors prevent initializer mutation, seed, bind and ready. Owner init-parser with Configuration's shared renderer; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-ATOMICITY",
+          "description": "Require ensure_buckets to perform one batched existing lookup and one transaction for up to 1000 records, return input-ordered Created/Existing and actual existing project, preserve all existing state, and serialize competing callers. Verify all-or-none precommit/disk-full/kill recovery, ambiguous commit retry convergence, injected microsecond Clock and shutdown drain/lock cleanup without choosing Shared state internals. Owners shared-admin-interface and init-create-missing; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-STARTUP",
+          "description": "Verify local administrative initialization in strict/permissive modes before seed, fresh/existing catalog and same-project seed plus separate seed-mismatch failure; disabled/empty/applied ready counts, Existing project-mismatch warnings, all-existing restart and no ready after later seed/bind failure while committed buckets remain. Owners init-create-missing and shared-startup-phases; currently unimplemented.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-ONBOARDING",
+          "description": "Execute native and read-only mounted Compose initialization, independent CORS/versioning journey, restart and project warning; update runnable English/Japanese guides, migration and README only after implementation. Owner init-create-missing; no initializer SDK/container/guide run claimed by the contract slice.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-RESOURCES",
+          "description": "Measure empty/1000-entry parser/apply duration, CPU-seconds, peak process RSS, cgroup memory and disk/sync work separately for equivalent backend/auth/durability profiles, using Shared state's measured regression gates when available. Owners init-parser/init-create-missing with the shared benchmark owner; all initializer metrics remain unmeasured until runtime exists.",
+          "result": "PENDING",
+          "test_ids": []
+        },
         {
           "id": "fixture-directory",
           "description": "Import bucket-directory objects and empty buckets with the declared native seed defaults before readiness.",
