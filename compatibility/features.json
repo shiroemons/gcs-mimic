@@ -38954,7 +38954,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. This does not claim fake-gcs-server metadata/seed equivalence.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Shared initialization authority/create-missing acceptance is frozen but unimplemented in docs/en/slices/onboarding-state-contract.md. This does not claim fake-gcs-server metadata/seed equivalence.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39062,6 +39062,18 @@
         {
           "id": "fixture-manifest-metadata",
           "description": "Define and implement manifest metadata import without mutating the source; fixed octet-stream directory import does not satisfy this requirement.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-authority",
+          "description": "Implement typed bounded administrative initialization in both auth profiles without changing API permissions; contract: docs/en/slices/onboarding-state-contract.md; owner shared-admin-interface.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-create-missing",
+          "description": "Initialize before seed, preserve existing settings and objects, diagnose owning-project mismatch without reassignment and never delete removed entries; independent of sync and public URLs. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -40246,7 +40258,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only source reader and integrity-report acceptance are frozen, not implemented: docs/en/slices/source-storage-contract.md.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only source reader and integrity-report acceptance are frozen, not implemented: docs/en/slices/source-storage-contract.md. Shared ownership, bounded import observations and the native benchmark profile are defined in docs/en/slices/onboarding-state-contract.md; unimplemented sync, journal and cgroup measurements remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40365,6 +40377,44 @@
           "test_ids": []
         },
         {
+          "id": "onboarding-state-ownership",
+          "description": "Adapters use bounded typed administrative operations and transactional state hooks; Shared state alone owns SQL, conditions, hashes, generations and recovery. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-import-observations",
+          "description": "Persist paged per-element inode/ctime observations, atomically replace only verified drifted observations and validate repeated-resume/crash behavior without advancing progress. Import requests accepted in docs/en/slices/onboarding-state-contract.md; runtime owner shared-import-journal.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-benchmark",
+          "description": "Five exclusive native repetitions of main 60a4f03 HTTP publication/overwrite of 10000 small objects, exact 1 GiB upload/download and startup with 10000/100000 live objects pass count/hash/generation/byte/readiness assertions; record server resources, all values, variability and per-metric calibration states/thresholds. Startup CPU calibration remains a separate pending case. Contract: docs/en/slices/onboarding-state-contract.md; evidence: docs/en/evidence/onboarding-state-benchmark.md.",
+          "result": "PASS",
+          "test_ids": [
+            "onboarding-state-native-baseline"
+          ]
+        },
+        {
+          "id": "onboarding-state-startup-cpu-calibration",
+          "description": "Calibrate the startup-10000 CPU regression threshold with adequate precision in the equivalent profile. Observed raw CPU values 0.15, 0.09, 0.08, 0.07 and 0.08 seconds include four at/below the 0.1-second boundary; retain PENDING without a numeric CPU gate and never infer it from normalized units.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-sync-benchmark",
+          "description": "Measure full rescan and concurrent API/sync p50/p99, staged-batch overlap and repeated-resume revalidation after those interfaces exist; currently unimplemented and unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-cgroup-benchmark",
+          "description": "Measure cgroup memory independently of process RSS under an equivalent pinned container profile; the native macOS baseline has no cgroup measurement. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
           "id": "DESIGN-072-MEDIA-SAFETY",
           "description": "repeated startup journal failure names the blob ID once and blocks readiness until fixed; read-only preflight preserves rejected database and hot-WAL bytes",
           "result": "PASS",
@@ -40395,6 +40445,7 @@
         "unreleased_v2_catalog_is_rejected_without_changing_data",
         "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
+        "onboarding-state-native-baseline",
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
@@ -40424,18 +40475,27 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption"
           ]
+        },
+        {
+          "command": "bash scripts/measure-onboarding-state.sh measure \"$bench_work\"",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/onboarding-state-benchmark.txt",
+          "test_ids": [
+            "onboarding-state-native-baseline"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Recovery and lookup are indexed; object API listing remains unavailable and memory/CPU scaling has not been measured.",
+        "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
         "Directory synchronization name/state/control/conflict/approval/resource cases are contract-only and PENDING; no runtime support or measured performance is claimed. Required Shared state properties are requests, not a chosen internal schema.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-073",
@@ -40634,7 +40694,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Pending shared cancellation, protected staging/publication and imported hold cases are accepted in docs/en/slices/onboarding-state-contract.md; contract acceptance is not runtime evidence.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40680,6 +40740,24 @@
         {
           "id": "DESIGN-074-PENDING",
           "description": "Barrier-kill each file/directory fsync, deletion-journal insertion, unlink and journal-removal window; verify host power loss.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-cancellation",
+          "description": "Interrupt every pre-bind phase with no false readiness, drain owned administrative effects and cleanup before unlocking; preserve possibly committed readable bodies across commit cancellation and handle drop. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-publication",
+          "description": "Enforce per-element SAVEPOINT isolation, atomic successful-element state, 256-element/20ms closure, bounded staging overlap within the 650-ID route sum, typed disk-full stops and protected reclamation for all publication routes. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-publication-modes.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "onboarding-state-import-holds",
+          "description": "Preserve imported bucket default hold=true with existing imported object hold=false without synthesizing an object hold; later ordinary uploads inherit the default. Accepted in docs/en/slices/onboarding-state-contract.md; runtime owner shared-publication-modes with import-filesystem.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -45313,7 +45391,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Schema 14 timestamp migration atomically scales version-13 bucket/object times to microseconds, rejects overflow and preserves API resources, ETags, generations, permissions and session deadlines. Rollback/retry and unsupported newer versions are tested; backup/downgrade expectations are documented in docs/en/slices/catalog-timestamp-precision.md. Broader schema/cutover and separate memory-export acceptance remains pending in docs/en/slices/source-storage-contract.md.",
+      "notes": "Schema 14 timestamp migration atomically scales version-13 bucket/object times to microseconds, rejects overflow and preserves API resources, ETags, generations, permissions and session deadlines. Rollback/retry and unsupported newer versions are tested; backup/downgrade expectations are documented in docs/en/slices/catalog-timestamp-precision.md. Broader schema/cutover and separate memory-export acceptance remains pending in docs/en/slices/source-storage-contract.md. docs/en/slices/onboarding-state-contract.md accepts separate schema-owner migration/backup/downgrade obligations and the final replacement-validation gate without promoting pending migrations.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
@@ -45346,7 +45424,7 @@
         },
         {
           "id": "catalog-upgrade-policy",
-          "description": "Verify all supported schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and document downgrade/backup expectations. shared-timestamp-precision owns the initial schema 14 timestamp cases; later schema slices add migration cases and replacement-validation retains the final gate. Broader backup restoration, cutover and platform coverage remain pending.",
+          "description": "Verify all supported schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and test complete stopped-data backup restoration with matching executables. Accepted in docs/en/slices/onboarding-state-contract.md: each schema-owning slice uses its own atomic version and adds rollback/retry/downgrade cases; shared-timestamp-precision retains schema 14 evidence and replacement-validation retains the final gate. Broader restoration, cutover and platform coverage remain pending.",
           "result": "PENDING",
           "test_ids": []
         }
