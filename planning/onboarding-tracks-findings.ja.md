@@ -1,0 +1,267 @@
+# 導入・移行トラックの調査メモ
+
+<!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->
+
+[実装計画](onboarding-tracks-plan.ja.md)の前提にした調査の記録です。計画の決定と手順は計画書の側にあり、
+この文書は根拠を確かめたいときに読みます。調査日は **2026-10-24**、対象は `main` の `9003939` 時点のソースです。
+行番号は変わるので、関数名で探してください。
+
+## 1. Distribution
+
+| 項目 | 現状 | 根拠 |
+| --- | --- | --- |
+| リリースノート | `docs/en/releases/` が存在しない。タグ実行は `docs/en/releases/$version.md` を必須にしている | `.github/workflows/binaries.yaml` の `validate` ジョブ |
+| Release binaries workflow | 一度も実行されていない（手動 dispatch・タグとも履歴なし） | `gh run list --workflow binaries.yaml` が空 |
+| GitHub Release | なし | `gh release list` |
+| GHCR | 未公開。初回公開時はパッケージが private で作られ、オーナーが Public に変更して manifest ジョブを再実行する | `docs/en/container-distribution.md` の「First publication and access」 |
+| Foundation CI | `9003939` で成功。`containers` ジョブは `ubuntu-24.04`（native amd64）と `ubuntu-24.04-arm` で smoke を実行 | `.github/workflows/ci.yaml` |
+| ローカルイメージ | 2026-10-24 に arm64（native）と amd64（エミュレーション）で smoke・README 手順が成功 | `docs/en/evidence/container-onboarding.md` |
+| 利用者ガイド | README と `docs/en/container-usage.md` は `ghcr.io/shiroemons/gcs-mimic:0.1.0` を「予定」として記載 | 両ファイル冒頭 |
+| Ruby SDK | CI では実行していない（`just check-sdk` の `--with-ruby` はローカルのみ） | `Justfile`、`ci.yaml` |
+| 資源測定 | `DESIGN-079`（RSS / cgroup メモリ）は NOT_STARTED。`release-verification` の完了条件に resource evidence がある | 台帳 |
+
+`DESIGN-059` の注記は「通知ファイルを含む現行イメージの native amd64 実行が未確認」としているが、最新の
+Foundation run の `containers` ジョブは現行 Dockerfile で native amd64 smoke を実行している。
+
+## 2. 設定と起動
+
+### 設定の読み込み
+
+- 設定は `src/config.rs` の `Config::load(args, env)` に集約されている。優先順位は CLI > `GCS_MIMIC_*` 環境変数 >
+  JSON ファイル（`--config`、64 KiB、値は文字列か符号なし整数だけ）> 既定値。
+- 未知のキーは `unknown setting: <key>` で、**最初の 1 件で**失敗する。同じ CLI オプションを 2 回指定してもエラー。
+- CLI は `--name VALUE` の組だけを受け付ける。`-scheme` のような 1 本のハイフンは
+  `serve options require --name VALUE pairs` になり、正しい書き方は案内されない。先頭の引数が `serve` などの
+  既知のコマンドでなければ `invalid command` になる（`src/main.rs` の `run`）。
+- `src/main.rs` は `GCS_MIMIC_` で始まる環境変数**だけ**を集めて `Config::load` に渡す。`FAKE_GCS_*` は届かないので
+  黙って無視される。
+- `GCS_MIMIC_PORT` をサーバーに渡すと `unknown setting: port` になる（Compose のホストポート変数であることは出ない）。
+- イメージの `CMD` は `serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic` で、`seed_dir` を指定していない。
+  上流のイメージの `-data /data` に相当するものはなく、`/data` をマウントしても使われない。
+
+### 通知する URL
+
+- `api_base_url` は明示しない場合 `{scheme}://127.0.0.1:4443` で、`listen` のポートを反映しない。
+  `selfLink`・`mediaLink`・resumable の Location（`src/server/resumable.rs`）はすべてこの値から作られる。
+  Host や forwarded ヘッダーは使わない。
+- `compose.yaml` はホスト側のポートを `${GCS_MIMIC_PORT:-4443}` で変えられるが、`GCS_MIMIC_API_BASE_URL` の既定は
+  `https://localhost:4443` で固定。ポートを変えると通知 URL がずれる。
+- サーバーは公開 URL を生成しない。公開 URL は `url public` / `url sign` の `--base-url` でだけ指定でき、両ヘルパーの
+  ヘルプは「設定ファイル・環境変数・データディレクトリ・ネットワークを読まない」と約束している。
+- 結合テストの多くは `127.0.0.1:0` で起動し、`tests/common/mod.rs` の `http_config()` などで `api_base_url` を明示している。
+  既定値の変更で影響を受けるのは主に `src/config.rs` の単体テスト、`main.rs` のヘルプ文、利用ガイド。
+
+### Host とルーティング
+
+- path-style の XML（`xml::object_path`）は Host を照合しない。予約済みの名前空間（`/storage/v1`、`/upload/storage/v1`、
+  `/download/storage/v1`、`/batch/storage/v1`、`/_internal`）以外の `/{bucket}/{object}` を任意の Host で受け付ける。
+  対応メソッドは GET・HEAD・PUT だけ。
+- 仮想ホストは `xml_virtual_host_domains`（DNS 接尾辞、最大 32 個、長い順に照合、IP は `validate_dns_name` が拒否）。
+  `xml::authority_error` は、仮想ホストを使うときに Host とリクエスト先が一致するかだけを見る。`api_base_url` の
+  ホストが仮想ホストに該当すると起動を拒否する。
+- `json::route_with_profile` は `seed_project` を受け取り、`legacy-emulator` で `project` のないバケット作成の
+  既定プロジェクトに使う。
+
+### listener とログ
+
+- `server::serve_with_tls` は listener 1 本と TLS acceptor 1 つを受け取り、`max_connections` もその 1 本で数える。
+  `Config::load` は `scheme=http` で TLS 設定があると拒否する。ready event の `listen` も 1 つ。
+- ログの仕組みはない。stdout に JSON の `ready` / `stopped`、stderr に JSON の `seeding` / `bind_wait` と、
+  約 25 か所の自由書式の `eprintln!` がある。テストと smoke は stdout の ready event を解析している。
+
+### 起動とシャットダウン（`src/main.rs` の `serve`）
+
+1. `GCS_MIMIC_` 環境変数の収集 → `Config::load` → TLS 素材の読込 → ID レジストリの読込（ランタイムの外）。
+2. ランタイムを作り、シグナルを登録する。
+3. `Catalog::open_with_clock`: ロック取得 → 読み取り専用でのスキーマ検査 → WAL への切り替え → v0 からの新規作成
+   または段階的な移行 → `rewrite::recover_due`・`resumable_maintenance::recover_due`・`objects::recover`。
+   `objects::recover` は内部で `resumable_recovery::recover` と `derived::recover` を呼んだ後、staging・削除ジャーナル・
+   blob を確認し、参照されていない staging エントリと blob を削除し、`blobs/` の想定外のエントリでは失敗する。
+   新規カタログは `startup_seed` を未完了で作る。
+4. `configure_public_access_prevention` → `seed::import`（失敗時はカタログを閉じて終了）。
+5. シグナルと競わせながら bind → `start_resumable_maintenance` → `State { ready: true }` → ready event →
+   `serve_with_tls`（終了時に `ready=false`、listener を閉じ、drain し、カタログを閉じる）。
+
+問題点:
+
+- PAP 設定の失敗時と bind の失敗時は、カタログを明示的に閉じずに終了する。
+- shutdown と競わせているのは bind だけ。カタログの open・復旧・PAP・seed の間は SIGTERM を受けても終了しない。
+  `docker stop` は 10 秒後に SIGKILL。イメージと `compose.yaml` の healthcheck は start-period 2 秒・間隔 2 秒・15 回で、
+  約 32 秒しか待たない。
+
+## 3. カタログと公開経路
+
+### 受付枠
+
+| 枠 | 数 | 取り方 | 溢れたとき |
+| --- | --- | --- | --- |
+| `admission` | 32 | `Catalog::run` が `try_acquire` | `catalog operation limit reached` で即失敗 |
+| `execution` | 1 | 待機 | SQLite の接続は 1 本で、すべて直列 |
+| `uploads` | 8 | `admit_object_upload` が `try_acquire` | `upload limit of 8 reached` で即失敗 |
+
+公開の確定処理（`run_upload`）は `admission` を通らず `execution` を待つ。`get_object`・`open_object`・一覧などの
+読み取りは `run_object` → `Catalog::run` を通る。`Catalog::close` は `admission` を閉じ、`uploads` の 8 枠と
+`execution` を取ってから接続とロックを解放する。`is_healthy` も既存の枠だけを見る。
+
+### 管理用の書き込み経路
+
+- seed（`src/seed.rs`）は `Catalog::insert_bucket`、`get_bucket`、`check_object_upload`、`put_object` を
+  `BucketAccess::Unchecked` で使っている。
+- `put_object` は content type 以外のメタデータを受け取らない（`put_object_prechecked` は `pub(crate)` で受け取れる）。
+  世代は `max(現在時刻のマイクロ秒, last_generation + 1)`。
+- `open_object` は不変 blob を開いた `ObjectReader`（64 KiB 単位）を返す。非バージョニングの上書きは確定直後に古い blob を
+  削除するが、開いた後なら Unix では読み続けられる。
+- `insert_bucket` は `ON CONFLICT(name) DO NOTHING` で既存なら `AlreadyExists`。既定の IAM ポリシー
+  （`Policy::default_for(project)`: プロジェクトの owner / editor / viewer への legacy ロール）と `bucket_incarnations` を
+  同じトランザクションで作る。管理経路で作ったバケットにも strict の認可は API で作った場合と同じに効く。
+
+### 書き込み経路の重複
+
+`objects` への INSERT と世代の割り当ては 3 か所に別々に書かれている。
+
+| ファイル | 経路 |
+| --- | --- |
+| `src/storage/objects.rs` の `put_object_prechecked` | media・multipart・XML PUT・seed |
+| `src/storage/derived.rs` の公開処理 | copy・rewrite・compose |
+| `src/storage/resumable_transfer.rs` の確定処理 | resumable |
+
+ほかの書き込み経路: `update_object_metadata_authorized`・`delete_object_authorized`・`retire_previous`、compose の
+元オブジェクト削除（`delete_derived_source_in_transaction`）、`insert_bucket`・`update_bucket`・
+`delete_bucket_authorized`、`policies.rs` の `set_policy`（`bucket_policies` の 1 行を更新）。
+
+### 削除の制約
+
+- イベントベースの保留中のオブジェクトは削除できない（`ActiveHold`）。
+- バケットの削除は、非 current の世代も含めて行が 1 つでもあると `NotEmpty`。成功すると CORS・IAM も消える。
+
+### スキーマ
+
+- `user_version = 13`、テーブルと索引は 17 個（空のデータディレクトリでサーバーを起動して確認）。
+- `validate_schema` は版ごとの DDL 定数から組み立てた期待値と `sqlite_schema` の一覧を比べるが、一覧は `LIMIT 32`。
+- `validate_schema` は `object_generation.last_generation >= max(generation)` を検査している。
+- 変更ジャーナルに当たる仕組みはない。
+
+## 4. バケット作成の検証（Initializer の前提）
+
+- `src/json/buckets.rs` の `parse_insert_with_profile` が扱うのは `name`、`location`（`US` / `EU` / `ASIA`）、
+  `storageClass`、`labels`、`cors`、`versioning.enabled`、`defaultEventBasedHold`、`iamConfiguration.publicAccessPrevention`。
+- `UNSUPPORTED_FIELDS` の 17 個は 501 相当で拒否するが、**それ以外の未知フィールドは黙って無視する**。
+  `lifecycle: {"rule": []}` は pinned Go SDK のための例外として通す。
+- `legacy-emulator` では `labels` を捨て、`location` を `US`、`storageClass` を `STANDARD` に固定し、名前の検証を緩める。
+- API のバケット本文の上限は 64 KiB（`BUCKET_BODY_LIMIT`）。
+
+## 5. オブジェクト名（Sync の前提）
+
+`json::validate_object_name` が拒否するのは、空・1024 バイト超・CR / LF・`.` と `..` そのもの・
+`.well-known/acme-challenge/` で始まる名前だけ。NUL、`a//b`、先頭や末尾の `/`、`a/./b`、`a/../b`、バックスラッシュ、
+Windows の予約名、大文字小文字だけが違う名前は API で作れる。macOS（既定の APFS）と Windows は大文字小文字を
+区別せず、macOS は Unicode の正規化も区別しない。
+
+## 6. 上流 fake-gcs-server（v1.56.1、`896ece51e49eed0946089f3089f6343855c0d106`）
+
+### 設定とルーティング
+
+- 19 個の環境変数と既定値は [configuration reference](../docs/en/fake-gcs-server-configuration.md) にある。
+- 公式イメージのエントリーポイントは `-data /data` を自動で渡し、seed は起動のたびに走って同名オブジェクトを上書きする。
+- `-public-host` は `publicHostMatcher` で Host の照合に使われる。設定値にポートがなければ、リクエストの Host のポートを
+  除いて比べる。`/storage/v1` の JSON ルートは Host を問わない経路と publicHost 経路の両方にある。
+- `{bucket}.{publicHost}` の仮想ホスト、publicHost での path-style の取得・アップロード・削除に加え、
+  `Host("{bucketName:.+}")` という任意の Host をバケット名とみなす GET/HEAD/PUT のフォールバックがある。
+  XML の一覧、DELETE、フォームアップロードもある。
+- `URL()` は `-external-url` を優先し、`PublicURL()` は `{scheme}://{publicHost}`。
+- `-scheme both` は HTTP と HTTPS の 2 つの listener を作り、同じオプションを共有する。
+
+Host 照合の細部（ポートの扱い、フォールバックとの優先順位）はソースだけでは確定できない。
+`scripts/compare-reference-emulator.sh` は上流をソースからビルドして同じリクエストを流す仕組みだが、
+今あるのはバケット操作のケースだけ（実行には `GCS_MIMIC_REFERENCE_REPO` と Go が必要）。
+
+### seed ディレクトリ（`fakestorage/server.go` の `generateObjectsFromFiles`）
+
+- 最上位のディレクトリがバケット。最上位のファイルと読めないバケットは黙ってスキップする。
+- `filepath.Walk` の通常ファイルだけをオブジェクトにする。本文は全体をメモリに読む。空のバケットも作る。
+- Content-Type は Go の `mime.TypeByExtension`。`main.go` の `addMimeTypes` が `.yaml` / `.yml` を追加する。公式イメージは
+  `alpine:3.24.1` に `mailcap` を入れているので `/etc/mime.types` も使われ、結果が実行環境で変わる。
+- 各オブジェクトに ACL `projectOwner-test-project: OWNER` を付ける。
+
+### filesystem backend（`internal/backend/fs.go`、`object.go`、`bucket.go`、`metadata_xattr.go`、`metadata_file.go`）
+
+- バケットディレクトリ名は `url.PathEscape(bucket)`、オブジェクトは名前をそのままパスにする。
+- xattr とサイドカーはルート全体で 1 回選ぶ。xattr が使えれば `user.metadata`、使えなければ `<object>.metadata`。
+  Windows ではサイドカーになる。
+- `<bucket>.bucketMetadata` に入るのは `DefaultEventBasedHold`、`VersioningEnabled`、`ACL` だけ。作成時刻は
+  ディレクトリの stat から読むので、コピーすると失われる。
+- `ObjectAttrs`: `StorageClass`、content 系ヘッダー 5 つ、`Crc32c`・`Md5Hash`（base64）、`Etag`、`ACL`、`Metadata`、
+  `Created`・`Deleted`・`Updated`・`CustomTime`（文字列、形式は `2006-01-02T15:04:05.999999Z07:00`）、`Generation`、
+  `RetentionMode`・`RetentionRetainUntil`。
+- 世代は `time.Now().UnixNano() / 1000`（gcs-mimic と同じマイクロ秒）。filesystem backend はバージョニングを拒否する。
+- チェックサムは指定があればそのまま保存する（本文と一致する保証はない）。
+- 名前が `/` で終わるオブジェクトはディレクトリを作るだけで、本文も属性も残らない。
+- 外部での編集は反映されない。上書きしてもハッシュと世代は古いまま、新しい inode に置き換えると xattr が失われて
+  404 になる（[storage investigation](../docs/en/fake-gcs-server-storage.md)）。
+
+## 7. 依存の追加手順
+
+`compatibility/dependency-status.json` の `direct_dependencies` に、版、ライセンス、圧縮サイズ、最低 Rust 版、目的、
+feature、保守状況、出典 URL、SHA-256、解決の制約を書く。配布物の通知ファイルは `cargo xtask release notices` が
+依存グラフから集め、ライセンスファイルのないクレートでは失敗する（`xtask/src/release.rs`）。日次の更新検出の対象にも入る。
+
+## 8. 共通化の候補
+
+| 処理 | 重複している場所 | 補足 |
+| --- | --- | --- |
+| 世代の割り当てと `objects` への INSERT | `objects.rs` の `put_object_prechecked`、`derived.rs` の公開処理、`resumable_transfer.rs` の確定処理 | 3 か所とも `max(マイクロ秒, last_generation + 1)`、`retire_previous`、INSERT、確定後の `reclaim` を同じ順で行う |
+| MD5・CRC32C の計算 | `objects.rs` の `write_body`、`derived.rs`（転送中の計算と、再開時の検証の 2 か所）、`resumable_transfer.rs` の確定処理 | derived は MD5 の途中状態を `md5_state` に保存して再開する。resumable は確定時に staging 全体を読み直してハッシュを計算するので、大きなアップロードでは本文を 2 回読む |
+| 上限付きのファイル読み込み | `config.rs`（`take(65_537)`）、`auth/mod.rs`（`MAX_REGISTRY_BYTES + 1`）、`tls.rs`（`PEM_LIMIT + 1`）、`main.rs` の秘密鍵（`take(16385)`） | 同じ「上限 + 1 バイト読んで超過を検出」の書き方 |
+| 基底 URL の検証 | `config.rs` の `api_base_url` の分岐と `url::normalize_base_url` | 検査内容（scheme、資格情報、query、fragment、末尾の `/`）が同じ |
+| JSON の event | `main.rs` の `ready` / `stopped` / `bind_wait`、`seed.rs` の `seeding` | それぞれ手書きの `println!` / `eprintln!` |
+| ディレクトリ走査と OS のメタデータの判定 | `seed.rs` の `entries` と走査、`objects.rs` の `os_metadata` | 走査の上限（10000 件、32 階層）と `.DS_Store`・`._*` の判定 |
+| HTTP クライアント | `main.rs` の `healthcheck` と `probe_response` | TLS・CA・2 秒の期限・16 KiB の応答上限を持つ最小の GET クライアント |
+| 16 進数への変換 | `objects.rs`（blob ID の生成）、`derived.rs`、`rewrite_token.rs` | いずれも 1 バイトごとに `format!("{byte:02x}")` |
+
+性能と堅牢性に関わる点:
+
+- 公開 1 件あたりの fsync: 本文の `sync_all` → `publish_blob` の `sync_dir(blobs)`（シャードが既にあっても毎回）→ rename →
+  `sync_dir(shard)` → WAL のコミット（`synchronous = FULL`）。上書き時は、コミット後の `reclaim` が `run_upload` の中、つまり
+  `execution` を握ったまま、unlink → ディレクトリの fsync → `DELETE FROM pending_blob_deletions` を行う。
+- 起動時の `objects::recover` は、参照されているすべての blob を stat し、`blobs/` のすべてのファイルについて参照を 1 件ずつ問い合わせる。
+  件数に比例し、bind 前に走る。
+- `std::fs::copy` は書き先を fsync しない。
+- seed（`src/seed.rs`）は `os_metadata` を使わない。`docs/en/slices/seed.md` は「`.DS_Store`・`._*` もバケット内では普通の
+  オブジェクト、最上位にあれば失敗」と意図して決めている。
+- seed は `Vec` のバッファに読んでから 64 KiB ごとに `Bytes::copy_from_slice` する。`server.rs` の本文の受信も、大きなフレームを
+  保持し続けないため、常に 64 KiB ごとにコピーしている。
+
+型とエラー:
+
+- `BucketAccess` は `#[derive(Default)]` で既定値が `Unchecked`。`Unchecked` は permissive の API と、seed の管理操作の両方を表す。
+  `Policy` の `permission` は `String`。`Catalog::put_object`・`open_object`・`check_object_upload` は `pub` で `Unchecked` を使う。
+- `CatalogError::Unavailable(String)` と `ObjectError::Unavailable(String)` に、I/O・枠の不足・クローズ・破損が文字列で入る。
+  `io::ErrorKind::StorageFull` を区別する箇所はない。`src/` で `Result<_, String>` は 20 か所。
+- バケット名・オブジェクト名は `String`、世代は `i64`、blob ID は `String`（`blob_path` が毎回検証する）。
+- `serde` と `serde_derive`（1.0.229）、`libc`（0.2.191）は既に依存グラフにある（`Cargo.lock`）。`rustix` と `proptest` はない。
+- `Cargo.toml` に `[lints]` はなく、`scripts/check.sh` の `cargo clippy -- -D warnings` が lint の唯一の設定。unsafe は
+  Windows の `MoveFileExW` とテストの箇所にある。
+
+ほかの性能に関わる点:
+
+- `max_blocking_threads` の既定は 2。`Catalog` の処理（`run`、`run_upload`）は `spawn_blocking` で、`tokio::fs` も同じプールを使う。
+- resumable の確定は staging 全体を読み直してハッシュを計算する（上の表）。共通のハッシュ計算に途中状態の保存を持たせれば
+  読み直しをなくせるが、resumable は今回のトラックの対象外なので、提案に留める。
+
+## 9. 調べた範囲と未確認の点
+
+| 深さ | 対象 |
+| --- | --- |
+| 全体を読んだ | `src/main.rs`、`src/seed.rs`、`src/config.rs` の `Config::load`、`src/server.rs` の `State`・`serve_with_tls`・`serve_connection`・`respond`・`respond_routed`、`src/xml/mod.rs` の認証・パス解釈・`route`、`src/storage/catalog.rs` の `validate_schema`・`open_with_clock`・`close`・`run`・`insert_bucket`・`update_bucket`・`delete_bucket_authorized`、`src/storage/objects.rs` の復旧・blob 公開・`put_object_prechecked`・取得・メタデータ更新・削除・実行枠 |
+| 該当部分を読んだ | `src/json/buckets.rs`、`src/json/query.rs` のバケット作成ルート、`src/json/objects.rs` の `validate_object_name`、`src/storage/derived.rs` の公開処理、`src/storage/resumable_transfer.rs` の確定処理、`src/storage/compose.rs` の元オブジェクト削除、`src/storage/policies.rs` の `set_policy`、`src/server/resumable.rs`、`src/auth/mod.rs`、`src/auth/policy.rs`、`src/url.rs`、`tests/common/mod.rs`、`xtask/src/main.rs`、`scripts/smoke-containers.sh`、`scripts/compare-reference-emulator.sh`、`Dockerfile`、`compose.yaml` |
+| 実際に動かした | 空のデータディレクトリで HTTP サーバーを起動・停止し、カタログのテーブル・索引と版を確認 |
+| 上流 | 上記の各ファイル、`main.go`、`Dockerfile`、`internal/config/config.go`、`internal/backend/memory.go` の時刻形式 |
+
+未確認:
+
+- 公開処理の共通化が `src/storage/derived.rs` の復旧と rewrite の継続トークンに与える影響。
+- PAP の親ポリシー（`configure_public_access_prevention` の一時テーブル）を変更ジャーナルに含めるか。
+- 上流の `-public-host` の Host 照合の実際の挙動。
+- Windows でのファイル監視（rename の原子性は、計画書で「Windows は競合の時間窓を契約に書く」と方針を決めた）。
+- memory backend の内部構造（稼働中の状態のエクスポートで必要。このトラック群の対象外）。
+- `cargo test` は計画の作成とレビューの過程で実行していない。
