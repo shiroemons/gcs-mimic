@@ -1,0 +1,75 @@
+{
+  "checked_at": "2026-10-24",
+  "scope": "Read-only source inspection for docs/en/slices/source-storage-contract.md; no upstream runtime test or import implementation claim.",
+  "reference": {
+    "product": "fake-gcs-server",
+    "version": "v1.56.1",
+    "repository": "https://github.com/fsouza/fake-gcs-server",
+    "commit": "896ece51e49eed0946089f3089f6343855c0d106",
+    "tree_url": "https://api.github.com/repos/fsouza/fake-gcs-server/git/trees/896ece51e49eed0946089f3089f6343855c0d106?recursive=1",
+    "git_blobs": [
+      { "path": "Dockerfile", "blob": "eae4233c02a17c4572e5cb528beb60428d46f307" },
+      { "path": "main.go", "blob": "bc613844dc408291127e685a85a98ef233e3a34e" },
+      { "path": "fakestorage/server.go", "blob": "da158fa063131002fa06dc43d4a26c4f250f6681" },
+      { "path": "fakestorage/object.go", "blob": "4dbe7e768b452a2b23d5407d4d2d660c8c7583ed" },
+      { "path": "internal/backend/bucket.go", "blob": "4e340aec5ce8ebfca5e50c64b60b4988bf361487" },
+      { "path": "internal/backend/object.go", "blob": "76e36f9ce337cfa1d6e2569bf6293ac0b3f38145" },
+      { "path": "internal/backend/fs.go", "blob": "bcf071e37237b05cdbf1f11f1e3af24fcfb63304" },
+      { "path": "internal/backend/memory.go", "blob": "dc54cef73a6a6d6bf1ab27f4faae304301943e00" },
+      { "path": "internal/backend/metadata_xattr.go", "blob": "9d40580120be6a31c0a01b0a8b3cf777b3ec46cd" },
+      { "path": "internal/backend/metadata_file.go", "blob": "94cce654a8c6936583155ac0535f8c8605a1fe87" },
+      { "path": "internal/backend/time_linux.go", "blob": "0f959e9b74c6c648ae12dc2f58e8d420127c1897" },
+      { "path": "internal/backend/time_bsd.go", "blob": "516364fce769089e72d19e11bc25d5c9f0980976" },
+      { "path": "internal/backend/time_openbsd.go", "blob": "15076c2d7dae2acbfff4bcc63d5c71e956df2261" },
+      { "path": "internal/backend/time_windows.go", "blob": "54c7bc9b0baddfe53d093be97a0d9d68caf6b38d" }
+    ]
+  },
+  "mime_profile": {
+    "note": "Deterministic selected profile, not a reconstruction of every published reference image. Materialize the merged table with notices in import-seed-adapter; do not read host MIME databases at runtime.",
+    "go": {
+      "version": "go1.27.3",
+      "commit": "2aae1000ea1d4b28923b96db28acf4e3b99d6aff",
+      "repository": "https://github.com/golang/go",
+      "license": "BSD-3-Clause",
+      "sources": [
+        {
+          "path": "src/mime/type.go",
+          "blob": "9c84546b2a453e662e0ce8f1897a634fb59b3b3b",
+          "sha256": "e3d0b689c0f303a88c14844d4f7ac961030abe8d1e721f8889961ee1c2e277c8"
+        },
+        {
+          "path": "src/mime/type_unix.go",
+          "blob": "90414c1a18d06fa745be402f66b731a61923e4a1",
+          "sha256": "ecf9e4a99edf73edd2e9088ca0ba0c8ec99a094188474536e59dc0a921a850ca"
+        }
+      ]
+    },
+    "mailcap": {
+      "distribution": "Alpine v3.24",
+      "package": "mailcap",
+      "version": "2.1.54-r0",
+      "architecture": "aarch64",
+      "aports_commit": "0c8e332694755cf1b57465c56ae1f3664d341ab6",
+      "apkbuild_url": "https://raw.githubusercontent.com/alpinelinux/aports/0c8e332694755cf1b57465c56ae1f3664d341ab6/main/mailcap/APKBUILD",
+      "source_url": "https://releases.pagure.org/mailcap/mailcap-2.1.54.tar.xz",
+      "source_mirror_url": "https://distfiles.alpinelinux.org/distfiles/v3.24/mailcap-2.1.54.tar.xz",
+      "source_sha512": "a80caba013b644111f163d8ef74fe801d7266cf4edd38ca723f98fb12a103a24e84a8fca0c569beb05ca0f407437ed1282306b30303c38327b744194c6fe80b2",
+      "source_member": "mailcap-2.1.54/mime.types",
+      "verification_note": "The pinned APKBUILD source tarball and SHA-512 are an independent route when the APK CDN retires revisions; source_member must match member_sha256. The source URL returned HTTP 404 on 2026-10-24; the mirror passed. import-seed-adapter must add the generated table path and SHA-256 here.",
+      "license_declared_by_package": "Public Domain",
+      "package_url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/mailcap-2.1.54-r0.apk",
+      "package_bytes": 21404,
+      "package_sha256": "d48e5f43c52905e344d6fc31c3fba4d1d3abd55594d94af2347e63fd13a9b528",
+      "member": "etc/mime.types",
+      "member_sha256": "6d89583307fd2941a32039b9d8f392195c6e9a2fc89c681e693a06a714b3a23d"
+    },
+    "yaml": {
+      "reference_path": "main.go",
+      "source_sha256": "9d742f32505386a344cdddc0b740b73be1eb96b6d3ed905878c15200db7c0fb6",
+      "extensions": [".yaml", ".yml"],
+      "content_type": "application/x-yaml"
+    },
+    "precedence": ["go-builtins", "mailcap-file-order", "source-yaml-additions"],
+    "unknown_extension": "application/octet-stream"
+  }
+}
