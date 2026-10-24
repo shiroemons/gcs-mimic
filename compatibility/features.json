@@ -962,11 +962,11 @@
         "depends_on": ["onboarding-state-contract", "json-object-media", "json-list-and-metadata"],
         "feature_ids": ["DESIGN-062", "DESIGN-072", "DESIGN-074", "DESIGN-076"],
         "completion_conditions": [
-          "Freeze API/file conflict policy, synchronization delay, metadata ownership, portable name mapping, file/directory collisions and symlink behavior before implementation.",
+          "Freeze the settings, API-priority conflict preservation, metadata ownership, reversible name mapping, marker safety, strict controls and fixed-target approval contract in docs/en/slices/directory-synchronization.md before implementation; its documentation alone is not runtime evidence.",
           "Verify API/external create, overwrite, deletion and rename with multiple buckets while preserving checksums, immutable generations and bucket settings.",
           "Handle partial writes, editor replacement, duplicate/self/missed events and bounded rescans; verify interruption, restart, disk-full and visible conflict handling without silent data loss."
         ],
-        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites."
+        "deferred_scope": "One-time seed or import does not satisfy bidirectional synchronization. Initializer completion and full public-host configuration are not prerequisites. All sync runtime cases remain PENDING; file-notification library selection and Windows watcher support require sync-watcher review and owner dependency approval. Shared state owns its internals; required properties and acceptance handoffs are in the directory synchronization contract."
       },
       {
         "id": "source-storage-contract",
@@ -1017,7 +1017,7 @@
       },
       "filesystem_sync_contract": {
         "requirement": "Provide a configured, inspectable bucket/object directory with bidirectional synchronization: external additions, edits and deletions reach the API, and API mutations appear in the same directory. A one-time seed import or migration converter does not satisfy this requirement.",
-        "current_boundary": "The current implementation has one-time read-only seeding and opaque immutable internal blobs, without directory watching or write-back. This planning entry adds no implementation or passing-evidence claim.",
+        "current_boundary": "The current implementation has one-time read-only seeding and opaque immutable internal blobs, without directory watching or write-back. docs/en/slices/directory-synchronization.md freezes the local contract and settings; every new runtime case remains PENDING and DESIGN-062, DESIGN-072 and DESIGN-074 remain PARTIAL. DESIGN-076 is unchanged.",
         "catalog_boundary": "SQLite may remain the metadata/index catalog. External changes must use shared bounded ingestion, checksum, generation and atomic-publication logic; do not mutate committed internal blobs in place or update only catalog size/path fields.",
         "acceptance_targets": [
           "Verify API/external create, overwrite, delete and rename in both directions, including multiple buckets and persistence of independent bucket settings.",
@@ -1027,10 +1027,10 @@
           "Verify bounded rescan and restart/recovery across the visible directory, immutable blobs and SQLite before claiming compatibility."
         ],
         "open_decisions": [
-          "Conflict policy and synchronization delay",
-          "Representation of unusual object names and metadata ownership"
+          "sync-watcher must obtain owner approval before selecting a file-notification dependency and verify Windows/native/bind-mount notification support; no library is selected by sync-contract.",
+          "Shared state chooses its internal identity/state/journal/admission/recovery mechanisms and benchmark thresholds; the directory synchronization contract requests properties and acceptance cases only."
         ],
-        "reference": "docs/en/fake-gcs-server-storage.md"
+        "reference": "docs/en/slices/directory-synchronization.md"
       },
       "full_superset_gate": [
         "Inventory all public source flags/settings, routes, helper/event behavior, backend modes, Go APIs and Storage v1 gRPC; do not silently drop surfaces missing from the current GCS inventory.",
@@ -38966,6 +38966,12 @@
           "test_ids": []
         },
         {
+          "id": "sync-configuration",
+          "description": "Implement the reserved directory-sync settings in docs/en/slices/directory-synchronization.md: one required root, exact defaults/precedence/numeric bounds/boolean parsing, empty/unknown/tuning-without-root errors, path overlap and root substitution checks, startup-only catalog-bound reinitialization; owners sync-mirror and sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
           "id": "BUCKET-INIT-INPUT",
           "description": "Verify buckets-file CLI over env over config over unset, duplicate/empty/invalid selectors, working-directory relative paths, regular/symlink/nonregular/unreadable files; UTF-8/BOM/JSON/trailing content and required integer version 1/root/buckets shapes, including an empty list. Owner init-parser; currently unimplemented.",
           "result": "PENDING",
@@ -39010,6 +39016,12 @@
         {
           "id": "BUCKET-INIT-RESOURCES",
           "description": "Measure empty/1000-entry parser/apply duration, CPU-seconds, peak process RSS, cgroup memory and disk/sync work separately for equivalent backend/auth/durability profiles, using Shared state's measured regression gates when available. Owners init-parser/init-create-missing with the shared benchmark owner; all initializer metrics remain unmeasured until runtime exists.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-initial-activation",
+          "description": "Merge empty/nonempty catalogs after ready in bounded pages: preserve empty buckets and existing owners/settings, API-first identical/different/absent-name behavior, exact result counts and interruption-safe baseline without implicit deletions or replay; owners sync-mirror and sync-ingest.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -39080,7 +39092,8 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED."
+        "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED.",
+        "Directory synchronization settings and activation are specified only in docs/en/slices/directory-synchronization.md; no watcher, bidirectional ingestion or write-back is implemented."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-22"
@@ -40239,6 +40252,54 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "sync-name-mapping",
+          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent/Unix backslash versus Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-bidirectional-mutations",
+          "description": "Verify multiple buckets and API create/overwrite/delete/copy/compose plus external create/edit/delete/rename, zero-byte/binary bodies, independent bucket settings and version history; external bucket-directory removal deletes tracked objects only and recreates the empty directory; owners sync-mirror and sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-metadata-and-loops",
+          "description": "Use shared atomic InheritFromReplaced with concurrent metadata PATCH, seed MIME/default-hold behavior for new files, same-hash no-generation publication, live-hash crash convergence and precise origin/fingerprint suppression without masking later API edits; owner sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-conflict-preservation",
+          "description": "Preserve known divergent bytes before API-priority replacement; after a last-check displacement race protect the actual body in workspace until durable conflict registration or explicitly authorized recovery discard, even at/exceeding byte/entry quotas or ENOSPC, fully account retained bytes/entries and stop ingestion/destructive write-back without automatic cleanup or blind exchange-back; verify kill/restart while stopped, operator retrieval/resumption, zero-byte entries, cancellation/ambiguous commit and revision/generation-bound restore/discard without retargeting or overwriting newer API state; a 1 TiB + 1 byte sparse displaced body must have a pre-registration discard path bound to original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, while foreign-project/stale/unconfirmed requests retain bytes/quota and only durable authorized completion permits root resumption; owners sync-mirror, sync-control and sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-deletion-approval",
+          "description": "Test inclusive count/strict percentage thresholds, zero denominator and disabled guard; inspect complete-scan-only candidates using GET /_internal/sync?view=deletions with fixed revision/limit/cursor, verifying all pages match the exact approved set and denominator/fence/incarnations/generations; API/tree/root/incarnation changes or restart reject stale cursors and stale/replayed/foreign approvals with 409; preserve recreated external files across final absence-check races, restore protected deletions and retain version history; owners sync-control and sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-management-authorization",
+          "description": "Every sync route/CLI requires explicit registered project storage.admin authority for seed_project, all existing synchronized owners and original owner projects retained by unresolved conflicts/recovery in strict mode; retain original project/incarnation through last-bucket deletion, restart and cross-project same-name recreation; list and restore/discard return 403 to a seed admin missing that original project's grant before/after each transition, and authorized restore still rejects stale incarnations; include reads/waits and queued-operation authority/target rechecks, reject missing/invalid/insufficient identities before disclosure and deny public/signed/bucket-only grants; pre-registration recovery discard requires that same original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, rejects foreign-project/stale/unconfirmed requests without changing retained bytes and rechecks authority on execution/restart retry before any unlink or stop release; permissive controls are explicitly unauthenticated; owner sync-control.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-status-and-wait",
+          "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-bounded-observation",
+          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and measure actual resource/latency behavior without inferred performance claims; owners sync-watcher and sync-ingest, dependency selection requires owner approval.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
           "id": "CATALOG-INDEX",
           "description": "Indexed filtering/order/paging and at most 1001 rows.",
           "result": "PASS",
@@ -40368,6 +40429,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Recovery and lookup are indexed; object API listing remains unavailable and memory/CPU scaling has not been measured.",
+        "Directory synchronization name/state/control/conflict/approval/resource cases are contract-only and PENDING; no runtime support or measured performance is claimed. Required Shared state properties are requests, not a chosen internal schema.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
@@ -40578,6 +40640,24 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "sync-marker-recovery",
+          "description": "Missing/foreign/malformed markers or wrong mounts stop before bind; verify root/catalog identity, safe missing-marker reinitialization, activation interruption/restart and marker/state durability without interpreting an unobserved tree as deletion; owners sync-mirror and sync-recovery; contract docs/en/slices/directory-synchronization.md.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-writeback-recovery",
+          "description": "Barrier-kill copy/file-sync/exchange-or-replace/parent-sync/state-commit and conflict-registration windows; Linux validates actual displaced inode/no-replace races including last-check replacement at/exceeding byte/entry quota and ENOSPC before preservation/registration, then kill/restart with workspace-resident bodies must retain original bytes/owner, full quota accounting, inspectable stops and operator retrieval/resumption without automatic cleanup or blind exchange-back; include a 1 TiB + 1 byte sparse body and authorized confirmed pre-registration discard, ENOSPC before durable discard intent retains bytes, kill/restart before/after intent/unlink/parent-sync/completion resumes only that exact operation, idempotent retry never targets another entry and quota/root stop remain until durable completion; foreign-project/stale-revision/identity/unconfirmed requests retain bytes; other OS reports checked-replace limitations and detects observable races; disk-full/ambiguous-commit recovery preserves immutable blobs and catalog microseconds; owners sync-mirror and sync-recovery.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-shutdown-lock",
+          "description": "Drain scans/staging/publication/resolution/write-back on shutdown, clean safe temporary files, and retain exclusive catalog/root ownership until accepted jobs complete; second server cannot acquire the active root even with another catalog, preserving DESIGN-076; owner sync-recovery with Shared state.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
           "id": "DESIGN-074-MEDIA",
           "description": "Actual SIGKILL at incomplete staging, rename-before-commit and after success; recovery-state fixtures cover deletions/orphans/live corruption across pages.",
           "result": "PASS",
@@ -40641,6 +40721,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
+        "Directory sync marker/write-back/shutdown recovery remains PENDING under docs/en/slices/directory-synchronization.md. Non-exchange replacement retains an explicit concurrent-writer loss window; Windows power-loss namespace durability is not claimed.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
