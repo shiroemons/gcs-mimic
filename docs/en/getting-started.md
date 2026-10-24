@@ -1380,9 +1380,10 @@ references describe the policy fields and required permissions.
 
 ### Public and private object reads
 
-`gcs-mimic url public` prints the XML-style path URL of an object. It reads no
-configuration, environment, data directory or network and never changes a
-permission. Every byte except RFC 3986 unreserved characters and `/` is
+`gcs-mimic url public` prints the XML-style path URL of an object. It reads a
+configuration file only when `--config PATH` is explicit, using `public_base_url`
+as the default base; `--base-url` wins. It reads no environment, data directory
+or network and never changes a permission. Every byte except RFC 3986 unreserved characters and `/` is
 percent-encoded; if a segment is `.` or `..`, every `/` is encoded as `%2F`.
 The private object uploaded above has no stored Cache-Control. Construct host
 and peer URLs, then prove that anonymous reads are still denied before any grant:

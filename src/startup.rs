@@ -56,6 +56,8 @@ pub(crate) struct ReadyEvent {
     seed: SeedOutcome,
     scheme: &'static str,
     tls_handshake_timeout_ms: u64,
+    public_base_url: Option<String>,
+    public_virtual_host_enabled: bool,
 }
 
 impl ReadyEvent {
@@ -78,6 +80,11 @@ impl ReadyEvent {
             seed,
             scheme: config.scheme.as_str(),
             tls_handshake_timeout_ms: config.tls_handshake_timeout_ms,
+            public_base_url: config
+                .public_base_url
+                .as_ref()
+                .map(|origin| origin.as_str().to_owned()),
+            public_virtual_host_enabled: config.public_virtual_host_enabled(),
         }
     }
 }

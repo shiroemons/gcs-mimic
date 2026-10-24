@@ -241,6 +241,8 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "seed",
                 "scheme",
                 "tls_handshake_timeout_ms",
+                "public_base_url",
+                "public_virtual_host_enabled",
             ])
         );
         assert_eq!(ready["event"], "ready");

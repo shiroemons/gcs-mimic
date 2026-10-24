@@ -88,7 +88,7 @@ generally mean “use the default.” See the
 | Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_SEED_PROJECT` | One-time import; MIME and metadata differ |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
-| Public-host behavior | URL helper plus `GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS` | No single equivalent setting or identical Host filtering |
+| Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
 | Bucket CORS | JSON bucket API | Per-bucket XML rules; separate fixed JSON defaults |
 | Bucket location | JSON bucket API | Native `US`, `EU`, `ASIA`; no global location setting |
 | Memory backend, event publisher, log-level selection | No current equivalent | Missing capabilities remain on the roadmap |
@@ -118,7 +118,9 @@ they do not hide independent CLI or material errors.
 
 For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
 `GCS_MIMIC_LISTEN=127.0.0.2:8080`. A safe external URL retains its proxy prefix.
-Unsupported dual listeners, public-host routing, global location/log settings,
+Public-host advice supplies `GCS_MIMIC_PUBLIC_BASE_URL` and the opt-in legacy
+profile; native path-style Host acceptance stays unrestricted.
+Unsupported dual listeners, global location/log settings,
 memory backend and event delivery are identified as unsupported; future names
 are not working replacements. JSON CORS callers can remove the old global
 header setting; XML/public callers configure bucket CORS `responseHeader`.
@@ -144,6 +146,27 @@ and keys at most 256 UTF-8 bytes; duplicate JSON keys count as occurrences.
 The JSON file retains its 64 KiB limit. See the
 [workflow contract](slices/configuration-workflows.md#shared-diagnostics-contract)
 and [execution evidence](evidence/configuration-diagnostics.md).
+
+## Public origin
+
+`--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL` / JSON `public_base_url`
+accepts an HTTP(S) origin with optional port and root path only. DNS is
+lowercased, trailing root slashes and scheme-default ports are removed; IPv6
+stays bracketed. The DNS hostname joins the XML base-domain list, merging an
+existing entry within a total limit of 32; duplicates within the explicit list
+remain errors. IP origins warn and disable only public-derived virtual hosts.
+
+With `compat_profile=legacy-emulator`, this origin enables the measured public
+Host matching and complete-hostname fallback. Native path-style accepts any
+Host. Keep API/public authorities equal for SDK XML reads in legacy mode.
+The [Host contract](slices/configuration-workflows.md#host-matching-measured-reference-and-normative-rules)
+defines port, namespace, explicit-domain and signature boundaries.
+URL helpers read the file's public origin only with explicit `--config PATH`;
+`--base-url` overrides it. They ignore implicit environment/config selection and
+server-only semantics, while validating the explicit file's syntax, flat types,
+64 KiB size and public origin even when overridden. No URL grants permissions.
+DESIGN-055 and UX-003 remain PARTIAL. See the
+[public-origin evidence](evidence/configuration-public-origin.md).
 
 ## Evidence and sources
 

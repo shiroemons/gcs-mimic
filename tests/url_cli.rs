@@ -86,6 +86,7 @@ fn prints_usage_for_help() {
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.starts_with("Usage: gcs-mimic url public --base-url URL"));
+    assert!(stdout.contains("unless --config PATH is explicit"));
     assert!(output.stderr.is_empty());
     let general = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
         .arg("--help")

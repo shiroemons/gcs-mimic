@@ -1,3 +1,6 @@
+#[allow(dead_code)]
+mod common;
+
 use gcs_mimic::{
     auth::{Auth, Registry},
     clock::Clock,
@@ -168,6 +171,45 @@ fn signing_cli_virtual_host_url_binds_final_bucket_host_and_port() {
             .is_err()
     );
     assert!(!run(&["--style", "invalid"]).status.success());
+}
+
+#[test]
+fn signing_cli_explicit_config_binds_normalized_final_host() {
+    let dir = common::TestDir::new();
+    let config = dir.0.join("config.json");
+    std::fs::write(
+        &config,
+        r#"{"public_base_url":"https://Storage.Invalid:443/","auth_mode":"strict"}"#,
+    )
+    .unwrap();
+    let mut args = options();
+    args.drain(2..4);
+    let output = run_options(
+        &args,
+        &[
+            "--config",
+            config.to_str().unwrap(),
+            "--style",
+            "virtual-hosted",
+        ],
+    );
+    assert!(output.status.success(), "{output:?}");
+    let url = String::from_utf8(output.stdout).unwrap();
+    assert!(url.starts_with("https://example-bucket.storage.invalid/%C3%A9/a%20b?"));
+    let uri: Uri = url.trim().parse().unwrap();
+    let auth =
+        Auth::strict(Registry::load(std::path::Path::new("config/identities.json")).unwrap());
+    let mut headers = HeaderMap::new();
+    headers.insert("host", "example-bucket.storage.invalid".parse().unwrap());
+    assert!(
+        auth.authenticate_signed(&Method::GET, &uri, &headers, &Fixed)
+            .is_ok()
+    );
+    headers.insert("host", "storage.invalid".parse().unwrap());
+    assert!(
+        auth.authenticate_signed(&Method::GET, &uri, &headers, &Fixed)
+            .is_err()
+    );
 }
 
 #[test]

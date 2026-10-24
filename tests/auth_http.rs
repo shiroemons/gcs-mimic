@@ -61,6 +61,10 @@ struct Server {
 
 impl Server {
     fn start(dir: &TestDir, auth: &[&str]) -> (Self, Value) {
+        Self::start_with_stderr(dir, auth, Stdio::inherit())
+    }
+
+    fn start_with_stderr(dir: &TestDir, auth: &[&str], stderr: Stdio) -> (Self, Value) {
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -74,6 +78,7 @@ impl Server {
             .args(["--connection-timeout-ms", "2000"])
             .args(auth)
             .stdout(Stdio::piped())
+            .stderr(stderr)
             .spawn()
             .unwrap();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());

@@ -4,6 +4,7 @@ use crate::{
     auth::AuthMode,
     config_input::{Input, InputError, Inputs, NATIVE_KEYS},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
+    url::PublicOrigin,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -12,6 +13,9 @@ use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
 };
+
+const CONFIG_VALUE_FIX: &str =
+    "Expected a string or unsigned integer; use the documented flat JSON setting type.";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CompatProfile {
@@ -71,6 +75,7 @@ pub struct Config {
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
     pub api_base_url: String,
+    pub public_base_url: Option<PublicOrigin>,
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
     pub max_object_bytes: u64,
@@ -98,6 +103,7 @@ impl Default for Config {
             seed_dir: None,
             seed_project: "local-project".into(),
             api_base_url: "https://127.0.0.1:4443".into(),
+            public_base_url: None,
             xml_virtual_host_domains: Vec::new(),
             max_connections: 32,
             max_object_bytes: 1024 * 1024 * 1024,
@@ -115,6 +121,12 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn public_virtual_host_enabled(&self) -> bool {
+        self.public_base_url
+            .as_ref()
+            .is_some_and(|origin| origin.dns_name().is_some())
+    }
+
     pub fn load(args: &[String], env: &BTreeMap<String, String>) -> Result<Self, Diagnostics> {
         let report = Self::preflight(args, env);
         if report.diagnostics.is_err() {
@@ -165,10 +177,7 @@ impl Config {
             match read_config(&selector.value) {
                 Ok(values) => {
                     for (key, value) in values {
-                        let text = value
-                            .as_str()
-                            .map(str::to_owned)
-                            .or_else(|| value.as_u64().map(|v| v.to_string()));
+                        let text = setting_text(&value);
                         if !inputs.push(Input {
                             source: DiagnosticSource::Config,
                             key: key.clone(),
@@ -181,16 +190,23 @@ impl Config {
                         }
                         if text.is_none() {
                             invalid_file_fields.insert(key.clone());
-                            inputs.diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Config,
-                                key, "Expected a string or unsigned integer; use the documented flat JSON setting type."));
+                            inputs.diagnostics.errors.push(Diagnostic::new(
+                                DiagnosticSource::Config,
+                                key,
+                                CONFIG_VALUE_FIX,
+                            ));
                             inputs.entries.pop();
                         }
                     }
                 }
-                Err(fix) => inputs.diagnostics.errors.push(Diagnostic::new(
+                Err(error) => inputs.diagnostics.errors.push(Diagnostic::new(
                     selector.source,
                     selector.key,
-                    fix,
+                    error.fix(if selector.source == DiagnosticSource::Environment {
+                        "GCS_MIMIC_CONFIG=config.json"
+                    } else {
+                        "--config PATH"
+                    }),
                 )),
             }
         }
@@ -289,15 +305,14 @@ impl Config {
                         config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
                     }
                     "api_base_url" => {
-                        let uri: hyper::Uri = value.parse().map_err(|_| "invalid api_base_url")?;
-                        if !matches!(uri.scheme_str(), Some("http" | "https"))
-                            || uri.authority().is_none_or(|a| a.as_str().contains('@'))
-                            || uri.query().is_some()
-                            || value.contains('#')
-                        {
-                            return Err("api_base_url must be an absolute HTTP(S) URL without credentials, query or fragment".into());
-                        }
-                        config.api_base_url = value.trim_end_matches('/').to_owned();
+                        config.api_base_url = crate::url::normalize_base_url(&value)
+                            .map_err(|error| format!("api_base_url: {error}"))?;
+                    }
+                    "public_base_url" => {
+                        config.public_base_url = Some(
+                            PublicOrigin::parse(&value)
+                                .map_err(|error| format!("public_base_url: {error}"))?,
+                        );
                     }
                     "xml_virtual_host_domains" => {
                         if !value.is_empty() {
@@ -431,6 +446,29 @@ impl Config {
         if !explicit_api_base_url {
             config.api_base_url = format!("{}://127.0.0.1:4443", config.scheme.as_str());
         }
+        if !report.invalid.contains("public_base_url")
+            && let Some(input) = settings.get("public_base_url")
+            && let Some(origin) = config.public_base_url.as_ref()
+        {
+            if let Some(domain) = origin.dns_name() {
+                let domain = domain.to_owned();
+                if !config.xml_virtual_host_domains.contains(&domain) {
+                    if config.xml_virtual_host_domains.len() == 32 {
+                        report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                            "public_base_url and xml_virtual_host_domains must contain at most 32 distinct DNS names; remove a domain or reuse one already configured."));
+                        report.invalid.insert("public_base_url".into());
+                    } else {
+                        config.xml_virtual_host_domains.push(domain);
+                        config
+                            .xml_virtual_host_domains
+                            .sort_by_key(|d| std::cmp::Reverse(d.len()));
+                    }
+                }
+            } else {
+                report.diagnostics.warnings.push(Diagnostic::new(input.source, &input.key,
+                    "public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid."));
+            }
+        }
         if !["api_base_url", "xml_virtual_host_domains"]
             .iter()
             .any(|k| report.invalid.contains(*k))
@@ -446,7 +484,8 @@ impl Config {
         {
             let input = settings
                 .get("api_base_url")
-                .or_else(|| settings.get("xml_virtual_host_domains"));
+                .or_else(|| settings.get("xml_virtual_host_domains"))
+                .or_else(|| settings.get("public_base_url"));
             if let Some(input) = input {
                 report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key, "api_base_url host selects an XML virtual bucket; use a host outside xml_virtual_host_domains or configure that host itself as a base domain."));
             }
@@ -515,20 +554,84 @@ impl<'de> serde::Deserialize<'de> for ConfigEntries {
     }
 }
 
-fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, &'static str> {
-    let mut bytes = Vec::new();
-    File::open(Path::new(path)).and_then(|f| f.take(65_537).read_to_end(&mut bytes))
-        .map_err(|_| "Cannot read config; select a readable JSON file with --config PATH or GCS_MIMIC_CONFIG.")?;
-    if bytes.len() > 65_536 {
-        return Err("Config exceeds 64 KiB; reduce the file size.");
-    }
-    serde_json::from_slice::<ConfigEntries>(&bytes).map(|entries| entries.0).map_err(|error| {
-        if error.to_string().starts_with("configuration input limit exceeded") {
-            "Configuration input limit exceeded; supply at most 1024 settings across inputs and keys at most 256 UTF-8 bytes."
-        } else {
-            "Malformed config; provide a valid flat JSON object with string or unsigned integer values."
+/// Read only an explicitly selected helper config, without server-side validation or resources.
+pub fn read_public_base_url(path: &str) -> Result<Option<String>, Diagnostic> {
+    let entries = read_config(path).map_err(|error| {
+        Diagnostic::new(
+            DiagnosticSource::Cli,
+            "--config",
+            error.fix("--config PATH"),
+        )
+    })?;
+    let mut public_base = None;
+    for (key, value) in entries {
+        if setting_text(&value).is_none() {
+            return Err(Diagnostic::new(
+                DiagnosticSource::Config,
+                key,
+                CONFIG_VALUE_FIX,
+            ));
         }
-    })
+        if key == "public_base_url" {
+            public_base = Some(
+                crate::url::normalize_public_base_url(
+                    value
+                        .as_str()
+                        .ok_or_else(|| Diagnostic::new(DiagnosticSource::Config, &key,
+                            "public_base_url must be a string HTTP(S) origin, for example http://localhost:4443."))?,
+                )
+                .map_err(|error| Diagnostic::new(DiagnosticSource::Config, key, format!("public_base_url: {error}")))?,
+            );
+        }
+    }
+    Ok(public_base)
+}
+
+fn setting_text(value: &serde_json::Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| value.as_u64().map(|v| v.to_string()))
+}
+
+enum ConfigReadError {
+    Unreadable,
+    TooLarge,
+    InputLimit,
+    Malformed,
+}
+
+impl ConfigReadError {
+    fn fix(&self, selector: &str) -> String {
+        match self {
+            Self::Unreadable => format!("Cannot read config; select a readable JSON file with {selector}."),
+            Self::TooLarge => "Config exceeds 64 KiB; reduce the file size.".into(),
+            Self::InputLimit => "Configuration input limit exceeded; supply at most 1024 settings across inputs and keys at most 256 UTF-8 bytes.".into(),
+            Self::Malformed => "Malformed config; provide a valid flat JSON object with string or unsigned integer values.".into(),
+        }
+    }
+}
+
+fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigReadError> {
+    let mut bytes = Vec::new();
+    File::open(Path::new(path))
+        .and_then(|f| f.take(65_537).read_to_end(&mut bytes))
+        .map_err(|_| ConfigReadError::Unreadable)?;
+    if bytes.len() > 65_536 {
+        return Err(ConfigReadError::TooLarge);
+    }
+    serde_json::from_slice::<ConfigEntries>(&bytes)
+        .map(|entries| entries.0)
+        .map_err(|error| {
+            if error
+                .to_string()
+                .starts_with("configuration input limit exceeded")
+            {
+                ConfigReadError::InputLimit
+            } else {
+                ConfigReadError::Malformed
+            }
+        })
 }
 
 pub(crate) fn validate_dns_name(value: &str) -> Result<(), String> {
@@ -565,6 +668,28 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    struct PublicConfigDir(PathBuf);
+
+    impl PublicConfigDir {
+        fn new() -> Self {
+            let mut suffix = [0u8; 8];
+            getrandom::fill(&mut suffix).unwrap();
+            let path = std::env::temp_dir().join(format!(
+                "gcs-mimic-public-config-{}-{:x}",
+                std::process::id(),
+                u64::from_ne_bytes(suffix)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for PublicConfigDir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
 
     #[test]
     fn effective_validation_aggregates_without_cascades_and_keeps_native_precedence() {
@@ -675,6 +800,166 @@ mod tests {
         let report = Config::preflight(&["--auth-mode=strict".into()], &env);
         assert_eq!(report.diagnostics.errors.len(), 1);
         assert!(!report.valid(&["auth_mode"]));
+    }
+
+    #[test]
+    fn config_file_diagnostics_keep_the_selected_source_and_field() {
+        let dir = PublicConfigDir::new();
+        let missing = dir.0.join("missing.json");
+        let report = Config::preflight(
+            &[],
+            &BTreeMap::from([("GCS_MIMIC_CONFIG".into(), missing.to_str().unwrap().into())]),
+        );
+        assert_eq!(report.diagnostics.errors.len(), 1);
+        let diagnostic = &report.diagnostics.errors[0];
+        assert_eq!(diagnostic.key, "GCS_MIMIC_CONFIG");
+        assert!(diagnostic.fix.contains("GCS_MIMIC_CONFIG=config.json"));
+        assert!(!diagnostic.fix.contains("--config"));
+        let diagnostic = read_public_base_url(missing.to_str().unwrap()).unwrap_err();
+        assert_eq!(diagnostic.key, "--config");
+        assert!(diagnostic.fix.contains("--config PATH"));
+        assert!(!diagnostic.fix.contains("GCS_MIMIC_CONFIG"));
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"named_bad_field":true}"#).unwrap();
+        let diagnostic = read_public_base_url(file.to_str().unwrap()).unwrap_err();
+        assert_eq!(diagnostic.source, DiagnosticSource::Config);
+        assert_eq!(diagnostic.key, "named_bad_field");
+        assert_eq!(diagnostic.fix, CONFIG_VALUE_FIX);
+    }
+
+    #[test]
+    fn public_origin_merges_bounded_domains_and_preserves_input_precedence() {
+        let dir = PublicConfigDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"public_base_url":"http://file.invalid"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([(
+            "GCS_MIMIC_PUBLIC_BASE_URL".into(),
+            "https://Env.Invalid:443/".into(),
+        )]);
+        assert_eq!(
+            Config::load(&args, &BTreeMap::new())
+                .unwrap()
+                .public_base_url
+                .as_ref()
+                .map(PublicOrigin::as_str),
+            Some("http://file.invalid")
+        );
+        assert_eq!(
+            Config::load(&args, &env)
+                .unwrap()
+                .public_base_url
+                .as_ref()
+                .map(PublicOrigin::as_str),
+            Some("https://env.invalid")
+        );
+        args.extend([
+            "--public-base-url".into(),
+            "http://Storage.Invalid:80/".into(),
+            "--xml-virtual-host-domains".into(),
+            "invalid,storage.invalid".into(),
+        ]);
+        let config = Config::load(&args, &env).unwrap();
+        assert_eq!(
+            config.public_base_url.as_ref().map(PublicOrigin::as_str),
+            Some("http://storage.invalid")
+        );
+        assert!(config.public_virtual_host_enabled());
+        assert_eq!(
+            config.xml_virtual_host_domains,
+            ["storage.invalid", "invalid"]
+        );
+        args[5] = "storage.invalid,STORAGE.invalid".into();
+        assert!(
+            Config::load(&args, &env)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate")
+        );
+        args[5] = (0..32)
+            .map(|i| format!("host{i}.invalid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            Config::load(&args, &env)
+                .unwrap_err()
+                .to_string()
+                .contains("at most 32")
+        );
+        args[3] = "http://host0.invalid".into();
+        assert_eq!(
+            Config::load(&args, &env)
+                .unwrap()
+                .xml_virtual_host_domains
+                .len(),
+            32
+        );
+        args[3] = "http://storage.invalid".into();
+        args[5] = "invalid".into();
+        args.extend(["--api-base-url".into(), "http://api.storage.invalid".into()]);
+        assert!(
+            Config::load(&args, &env)
+                .unwrap_err()
+                .to_string()
+                .contains("api_base_url host selects")
+        );
+    }
+
+    #[test]
+    fn public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls() {
+        for base in ["http://127.0.0.1:80", "https://[::1]:443"] {
+            let report = Config::preflight(
+                &[
+                    "--public-base-url".into(),
+                    base.into(),
+                    "--xml-virtual-host-domains".into(),
+                    "storage.invalid".into(),
+                ],
+                &BTreeMap::new(),
+            );
+            assert!(!report.diagnostics.is_err(), "{}", report.diagnostics);
+            assert_eq!(report.diagnostics.warnings.len(), 1);
+            assert!(
+                report.diagnostics.warnings[0]
+                    .fix
+                    .contains("virtual-host routing is disabled")
+            );
+            assert!(!report.config.public_virtual_host_enabled());
+            assert_eq!(report.config.xml_virtual_host_domains, ["storage.invalid"]);
+        }
+        for base in [
+            "http://storage.invalid/path",
+            "http://storage.invalid?secret",
+            "",
+        ] {
+            let report =
+                Config::preflight(&["--public-base-url".into(), base.into()], &BTreeMap::new());
+            assert_eq!(report.diagnostics.errors.len(), 1);
+            assert!(report.diagnostics.warnings.is_empty());
+        }
+        let report = Config::preflight(
+            &[
+                "--public-base-url".into(),
+                "http://127.0.0.1".into(),
+                "--xml-virtual-host-domains".into(),
+                "bad_domain".into(),
+            ],
+            &BTreeMap::new(),
+        );
+        assert_eq!(report.diagnostics.errors.len(), 1);
+        assert_eq!(report.diagnostics.warnings.len(), 1);
+        let report = Config::preflight(
+            &[
+                "--public-base-url".into(),
+                "invalid".into(),
+                "--xml-virtual-host-domains".into(),
+                "storage.invalid".into(),
+                "--api-base-url".into(),
+                "http://api.storage.invalid".into(),
+            ],
+            &BTreeMap::new(),
+        );
+        assert_eq!(report.diagnostics.errors.len(), 2);
     }
 
     #[test]

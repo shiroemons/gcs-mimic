@@ -28,6 +28,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
   --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
@@ -53,13 +54,16 @@ Authentication is permissive by default; strict mode checks local bearer tokens 
 
 const URL_PUBLIC_HELP: &str =
     "Usage: gcs-mimic url public --base-url URL --bucket NAME --object NAME [--style path|virtual-hosted]
+       gcs-mimic url public --config PATH --bucket NAME --object NAME [--style path|virtual-hosted]
 
-Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Base URL, bucket
-and object are required exactly once, in any order. The name is percent-encoded except for RFC 3986
+Prints <base-url>/<bucket>/<encoded object> for the XML-style path endpoint. Bucket and object
+are required exactly once, in any order. The name is percent-encoded except for RFC 3986
 unreserved characters and '/'; if any '/'-separated segment is '.' or '..', '/' is encoded as %2F.
 Style defaults to path; virtual-hosted uses <bucket>.<base-domain>/<object>, without a base path.
 Enable the DNS base in --xml-virtual-host-domains; HTTPS needs a matching supplied certificate.
-No config file, environment, data directory or network is read, and no permission is changed.";
+No config file is read unless --config PATH is explicit; its public_base_url supplies the default
+base, overridden by --base-url. No environment, data directory or network is read, and no permission
+is changed.";
 
 const URL_SIGN_HELP: &str =
     "Usage: gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET|HEAD|PUT
@@ -67,6 +71,7 @@ const URL_SIGN_HELP: &str =
        [--query NAME=VALUE]... [--timestamp YYYYMMDDTHHMMSSZ] [--style path|virtual-hosted]
 
 Prints a V4 RSA signed URL for the final HTTP(S) endpoint, retaining non-default ports.
+The base may come from --base-url URL or an explicit --config PATH containing public_base_url.
 Default HTTP port 80 and HTTPS port 443 are omitted before signing, as browsers send Host.
 Duration is integer seconds, or an integer with s/m/h/d suffix, from 1 second through 7 days.
 Private keys must be local RSA PKCS#8 or PKCS#1 PEM files (at most 16 KiB).
@@ -74,7 +79,8 @@ Headers may repeat; Host is derived from the final URL and cannot be overridden.
 Query names and values are literal, encoded before signing; duplicate names are rejected.
 Style defaults to path; virtual-hosted prepends the bucket to a DNS base with no path prefix.
 Enable that base in --xml-virtual-host-domains; HTTPS requires a matching supplied certificate.
-No Google IAM call, server configuration read or permission change occurs.";
+No config file is read unless --config PATH is explicit; its public_base_url supplies the default
+base, overridden by --base-url. No environment, Google IAM call or permission change occurs.";
 
 fn main() -> ExitCode {
     match run() {
@@ -155,9 +161,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "public" => {
+            let configured = helper_public_base(rest)?;
             println!(
                 "{}",
-                url_public(rest).map_err(|fix| Diagnostics::error(
+                url_public(rest, configured).map_err(|fix| Diagnostics::error(
                     DiagnosticSource::Cli,
                     "url",
                     fix
@@ -170,9 +177,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, kind, rest @ ..] if command == "url" && kind == "sign" => {
+            let configured = helper_public_base(rest)?;
             println!(
                 "{}",
-                url_sign(rest).map_err(|fix| Diagnostics::error(
+                url_sign(rest, configured).map_err(|fix| Diagnostics::error(
                     DiagnosticSource::Cli,
                     "url",
                     fix
@@ -249,7 +257,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn url_public(args: &[String]) -> Result<String, String> {
+fn helper_public_base(args: &[String]) -> Result<Option<String>, Diagnostics> {
+    let file = args
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .find(|pair| pair[0] == "--config");
+    match file {
+        Some(pair) => {
+            gcs_mimic::config::read_public_base_url(&pair[1]).map_err(|error| Diagnostics {
+                errors: vec![error],
+                ..Default::default()
+            })
+        }
+        None => Ok(None),
+    }
+}
+
+fn url_public(args: &[String], configured: Option<String>) -> Result<String, String> {
     let mut options = BTreeMap::new();
     for pair in args.chunks(2) {
         let [name, value] = pair else {
@@ -259,7 +284,7 @@ fn url_public(args: &[String]) -> Result<String, String> {
         };
         if !matches!(
             name.as_str(),
-            "--base-url" | "--bucket" | "--object" | "--style"
+            "--base-url" | "--config" | "--bucket" | "--object" | "--style"
         ) {
             return Err(format!(
                 "unknown url public option: {name}\n{URL_PUBLIC_HELP}"
@@ -281,13 +306,18 @@ fn url_public(args: &[String]) -> Result<String, String> {
         _ => return Err("style must be path or virtual-hosted".into()),
     };
     build(
-        required("--base-url")?,
+        &url_base(&options, configured)?,
         required("--bucket")?,
         required("--object")?,
     )
 }
 
-fn url_sign(args: &[String]) -> Result<String, String> {
+fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Result<String, String> {
+    options.get("--base-url").map(|base| (*base).to_owned()).or(configured)
+        .ok_or_else(|| "missing required option: --base-url; provide --base-url URL or --config PATH containing public_base_url.".into())
+}
+
+fn url_sign(args: &[String], configured: Option<String>) -> Result<String, String> {
     use std::io::Read;
     let mut options = BTreeMap::new();
     let mut headers = hyper::HeaderMap::new();
@@ -317,6 +347,7 @@ fn url_sign(args: &[String]) -> Result<String, String> {
             if !matches!(
                 name.as_str(),
                 "--base-url"
+                    | "--config"
                     | "--bucket"
                     | "--object"
                     | "--method"
@@ -345,7 +376,7 @@ fn url_sign(args: &[String]) -> Result<String, String> {
         _ => return Err("style must be path or virtual-hosted".into()),
     };
     let mut url = build(
-        required("--base-url")?,
+        &url_base(&options, configured)?,
         required("--bucket")?,
         required("--object")?,
     )?;

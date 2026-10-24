@@ -6,6 +6,10 @@ Scope: DESIGN-062, DESIGN-072 and DESIGN-074, following the [shared onboarding c
 
 ## Order and phase results
 
+The `config-public-origin` slice appends `public_base_url` and
+`public_virtual_host_enabled` to `ReadyEvent`; API-origin reporting remains
+owned by `config-api-origin-default`.
+
 Synchronous configuration, TLS and registry validation still precede runtime/signal registration. The runtime delegates to `startup::serve`; the phase bodies and their tests live in `src/startup.rs`. `open_catalog` drains recovery before `prepare_startup` calls PAP configuration, seed import and bind in one visible sequence, followed by maintenance startup and readiness. `PhaseResult` contains only Complete(value) or Stopped; signal failures use the outer io::Result. `BoundStartup` carries the bound listener and typed `SeedOutcome`. `ReadyEvent` serializes the existing ready fields, omitting `identities` in permissive mode. JSON keys now follow struct declaration order rather than alphabetical order; their names and values are preserved. Additional initializer/import/sync phases remain unimplemented; create-missing initialization must be inserted before seed with its own reviewed cancellation contract.
 
 The private `startup::race` accepts only futures explicitly wrapped in the private `CancelSafe` marker and gives an observed shutdown signal priority. One pinned shutdown future covers the entire asynchronous startup and subsequent serving. An arbitrary compound startup future cannot be passed directly to race. No per-file tasks, polling scheduler, new setting or dependency is introduced.

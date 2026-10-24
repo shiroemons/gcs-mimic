@@ -232,12 +232,11 @@ async fn respond(
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
 ) -> Response<ResponseBody> {
-    if let Some(error) = xml::authority_error(request.uri(), request.headers(), config) {
-        return boxed(error.response(request.method() == Method::HEAD));
-    }
-    if xml::virtual_bucket(request.headers(), &config.xml_virtual_host_domains).is_none()
-        && json::cors::is_route(request.uri())
-    {
+    let selected = match xml::select_object(request.uri(), request.headers(), config) {
+        Ok(selected) => selected,
+        Err(error) => return boxed(error.response(request.method() == Method::HEAD)),
+    };
+    if selected.is_none() && json::cors::is_route(request.uri()) {
         let preflight = json::cors::is_preflight(request.method(), request.headers());
         let mut headers = match json::cors::response_headers(request.headers(), preflight) {
             Ok(headers) => headers,
@@ -259,7 +258,7 @@ async fn respond(
                 boxed(Response::new(Full::new(Bytes::new())))
             }
         } else {
-            respond_routed(request, state, config, activity).await
+            respond_routed(request, state, config, activity, selected).await
         };
         response.headers_mut().extend(headers);
         response
@@ -268,16 +267,14 @@ async fn respond(
         return response;
     }
     // CORS must also wrap invalid object names and signed queries without authorizing them.
-    if let Some((bucket, _)) =
-        xml::object_path(request.uri(), request.headers(), config).filter(|(bucket, name)| {
-            !name.is_empty()
-                && json::validate_bucket_name_for_profile(bucket, config.compat_profile).is_ok()
-        })
-    {
+    if let Some(object) = selected.as_ref().filter(|object| {
+        !object.name().is_empty()
+            && json::validate_bucket_name_for_profile(&object.bucket, config.compat_profile).is_ok()
+    }) {
         let has_origin = request.headers().contains_key("origin");
         let preflight = request.method() == Method::OPTIONS && has_origin;
         let cors = if has_origin {
-            match state.catalog.get_bucket(&bucket).await {
+            match state.catalog.get_bucket(&object.bucket).await {
                 Ok(Some(bucket)) => {
                     xml::cors(request.headers(), request.method(), &bucket.cors, preflight)
                 }
@@ -295,7 +292,7 @@ async fn respond(
         let mut response = if preflight {
             boxed(Response::new(Full::new(Bytes::new())))
         } else {
-            respond_routed(request, state, config, activity).await
+            respond_routed(request, state, config, activity, selected).await
         };
         response.headers_mut().extend(cors);
         if !response.headers().contains_key("vary") {
@@ -315,7 +312,7 @@ async fn respond(
             .insert("connection", "close".parse().unwrap());
         return response;
     }
-    respond_routed(request, state, config, activity).await
+    respond_routed(request, state, config, activity, selected).await
 }
 
 async fn respond_routed(
@@ -323,6 +320,7 @@ async fn respond_routed(
     state: &State,
     config: &Config,
     activity: &watch::Sender<ObjectActivity>,
+    selected: Option<xml::ObjectPath>,
 ) -> Response<ResponseBody> {
     // Preflight and CORS metadata do not authorize access; actual API dispatch authenticates
     // before operation validation, body reads and authorized catalog operations.
@@ -332,7 +330,7 @@ async fn respond_routed(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
-    if let Some(parsed) = xml::route(request.method(), request.uri(), request.headers(), config) {
+    if let Some(parsed) = xml::route(request.method(), config, selected) {
         let head = request.method() == Method::HEAD;
         let put = request.method() == Method::PUT;
         let deadline =

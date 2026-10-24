@@ -71,6 +71,7 @@ pub(crate) struct ReadRequest {
     pub response_overrides: HeaderMap,
 }
 
+#[derive(Debug)]
 pub(crate) struct Error {
     pub status: StatusCode,
     code: &'static str,
@@ -187,67 +188,178 @@ pub(crate) fn bucket_for_authority(host: &str, domains: &[String]) -> Option<Str
     None
 }
 
-pub(crate) fn authority_error(uri: &Uri, headers: &HeaderMap, config: &Config) -> Option<Error> {
-    let authority = uri.authority()?;
-    if virtual_bucket(headers, &config.xml_virtual_host_domains).is_none()
-        && bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains).is_none()
-    {
+fn legacy_public_authority(config: &Config) -> Option<&hyper::http::uri::Authority> {
+    if config.compat_profile != crate::config::CompatProfile::LegacyEmulator {
         return None;
     }
-    let mut hosts = headers.get_all("host").iter();
-    if hosts
-        .next()
-        .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
-        && hosts.next().is_none()
-    {
-        return None;
-    }
-    Some(if crate::auth::signature::is_signed(uri.query()) {
-        Error::new(
-            StatusCode::FORBIDDEN,
-            "SignatureDoesNotMatch",
-            "The request authority does not match Host.",
-        )
-    } else {
-        Error::new(
-            StatusCode::BAD_REQUEST,
-            "InvalidArgument",
-            "The request authority does not match Host.",
-        )
-    })
+    config
+        .public_base_url
+        .as_ref()
+        .map(crate::url::PublicOrigin::authority)
 }
 
-/// Virtual hosts are XML-only; path-style reserves the JSON and emulator namespaces.
-pub(crate) fn object_path<'a>(
-    uri: &'a Uri,
-    headers: &HeaderMap,
-    config: &Config,
-) -> Option<(String, &'a str)> {
-    let path = uri.path();
-    let virtual_bucket = virtual_bucket(headers, &config.xml_virtual_host_domains);
-    if virtual_bucket.is_none() && reserved_path(path) {
-        return None;
-    }
-    let path = path.strip_prefix('/')?;
-    let (bucket, name) = match &virtual_bucket {
-        Some(bucket) => (bucket.as_str(), path),
-        None => path.split_once('/').unwrap_or((path, "")),
-    };
-    if virtual_bucket.is_none()
-        && json::validate_bucket_name_for_profile(bucket, config.compat_profile).is_err()
+fn request_authority(headers: &HeaderMap) -> Option<hyper::http::uri::Authority> {
+    let mut hosts = headers.get_all("host").iter();
+    let authority: hyper::http::uri::Authority = hosts.next()?.to_str().ok()?.parse().ok()?;
+    if hosts.next().is_some()
+        || authority.as_str().contains('@')
+        || (authority.as_str() != authority.host() && authority.port_u16().is_none())
     {
         return None;
     }
-    Some((bucket.to_owned(), name))
+    Some(authority)
+}
+
+fn public_authority_matches(request: &str, public: &str) -> bool {
+    if public.contains(':') {
+        request == public
+    } else {
+        request.split(':').next() == Some(public)
+    }
+}
+
+/// Classify once so a failed public suffix cannot fall through to a shorter native suffix.
+fn legacy_virtual_bucket(
+    authority: &hyper::http::uri::Authority,
+    public: &hyper::http::uri::Authority,
+    config: &Config,
+) -> (Option<String>, bool) {
+    let host = authority.host().to_ascii_lowercase();
+    let host = host.strip_suffix('.').unwrap_or(&host);
+    let domain = config.xml_virtual_host_domains.iter().find(|domain| {
+        host == domain.as_str()
+            || host
+                .strip_suffix(domain.as_str())
+                .is_some_and(|s| s.ends_with('.'))
+    });
+    if domain.is_some_and(|domain| domain == public.host()) {
+        let bucket = authority
+            .host()
+            .strip_suffix(public.host())
+            .and_then(|s| s.strip_suffix('.'))
+            .filter(|bucket| !bucket.is_empty() && !bucket.contains('.'))
+            .filter(|_| {
+                public.port_u16().is_none()
+                    || authority.as_str().strip_prefix(authority.host())
+                        == public.as_str().strip_prefix(public.host())
+            })
+            .map(str::to_owned);
+        (bucket, true)
+    } else {
+        (
+            bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains),
+            false,
+        )
+    }
+}
+
+pub(crate) struct ObjectPath {
+    pub bucket: String,
+    uri: Uri,
+    name_start: usize,
+}
+
+impl ObjectPath {
+    pub fn name(&self) -> &str {
+        &self.uri.path()[self.name_start..]
+    }
+}
+
+/// Preserve the raw object path and reuse one routing decision for CORS and dispatch.
+pub(crate) fn select_object(
+    uri: &Uri,
+    headers: &HeaderMap,
+    config: &Config,
+) -> Result<Option<ObjectPath>, Error> {
+    let public = legacy_public_authority(config);
+    let legacy_authority = if public.is_some() {
+        Some(request_authority(headers).ok_or_else(|| {
+            Error::new(
+                StatusCode::BAD_REQUEST,
+                "InvalidArgument",
+                "Require one valid Host authority.",
+            )
+        })?)
+    } else {
+        None
+    };
+    let (virtual_bucket, public_domain) = match (&legacy_authority, public) {
+        (Some(authority), Some(public)) => legacy_virtual_bucket(authority, public, config),
+        _ => (
+            virtual_bucket(headers, &config.xml_virtual_host_domains),
+            false,
+        ),
+    };
+    if let Some(authority) = uri.authority()
+        && (public.is_some()
+            || virtual_bucket.is_some()
+            || bucket_for_authority(authority.as_str(), &config.xml_virtual_host_domains).is_some())
+    {
+        let mut hosts = headers.get_all("host").iter();
+        if !hosts
+            .next()
+            .is_some_and(|host| host.as_bytes() == authority.as_str().as_bytes())
+            || hosts.next().is_some()
+        {
+            return Err(if crate::auth::signature::is_signed(uri.query()) {
+                Error::new(
+                    StatusCode::FORBIDDEN,
+                    "SignatureDoesNotMatch",
+                    "The request authority does not match Host.",
+                )
+            } else {
+                Error::new(
+                    StatusCode::BAD_REQUEST,
+                    "InvalidArgument",
+                    "The request authority does not match Host.",
+                )
+            });
+        }
+    }
+    let path = uri.path();
+    if reserved_path(path) && (public_domain || virtual_bucket.is_none()) {
+        return Ok(None);
+    }
+    let Some(path) = path.strip_prefix('/') else {
+        return Ok(None);
+    };
+    let is_virtual = virtual_bucket.is_some();
+    let (bucket, name) = match (virtual_bucket, legacy_authority, public) {
+        (Some(bucket), _, _) => (bucket, path),
+        (None, Some(authority), Some(public))
+            if !public_authority_matches(authority.as_str(), public.as_str()) =>
+        {
+            (authority.host().to_owned(), path)
+        }
+        _ => {
+            let (bucket, name) = path.split_once('/').unwrap_or((path, ""));
+            (bucket.to_owned(), name)
+        }
+    };
+    if public.is_none()
+        && !is_virtual
+        && json::validate_bucket_name_for_profile(&bucket, config.compat_profile).is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(ObjectPath {
+        bucket,
+        uri: uri.clone(),
+        name_start: uri.path().len() - name.len(),
+    }))
 }
 
 pub(crate) fn route(
     method: &Method,
-    uri: &Uri,
-    headers: &HeaderMap,
     config: &Config,
+    selected: Option<ObjectPath>,
 ) -> Option<Result<ReadRequest, Error>> {
-    let (bucket, name) = object_path(uri, headers, config)?;
+    let ObjectPath {
+        bucket,
+        uri,
+        name_start,
+    } = selected?;
+    let name = &uri.path()[name_start..];
     Some((|| {
         json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
         if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {

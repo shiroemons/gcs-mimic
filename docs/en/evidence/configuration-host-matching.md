@@ -2,6 +2,12 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+This record covers the pinned upstream execution. The separate
+[public-origin implementation evidence](configuration-public-origin.md) records
+gcs-mimic's native wire/process checks against these observations, including
+its documented signature, IP and namespace boundaries. Upstream results alone
+do not establish runtime support in the emulator.
+
 Executed on **2026-10-24** with the existing Go **1.27.3 darwin/arm64** toolchain.
 The comparison target is fake-gcs-server **v1.56.1**, commit
 `896ece51e49eed0946089f3089f6343855c0d106`, source archive SHA-256

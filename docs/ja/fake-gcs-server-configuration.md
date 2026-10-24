@@ -102,6 +102,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | HTTP・HTTPS | `GCS_MIMIC_SCHEME` | 同時待受は未対応 |
 | 待受ホスト・ポート | `GCS_MIMIC_LISTEN` | `IP:port`を1つ指定 |
 | API応答に載せる接続先 | `GCS_MIMIC_API_BASE_URL` | 公開URLの生成とは別 |
+| 公開origin | `GCS_MIMIC_PUBLIC_BASE_URL` | DNS名のXML仮想ホストと、任意指定のlegacy Host照合に使用 |
 | 初期ファイル | `GCS_MIMIC_SEED_DIR` | 初回読込のみ |
 | 初期バケットのproject | `GCS_MIMIC_SEED_PROJECT` | 所有projectを指定 |
 | 永続データ保存先 | `GCS_MIMIC_DATA_DIR` | 旧保存先の直接流用は不可 |
@@ -125,9 +126,34 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 初期ファイルの読込では、元のMIME・メタデータをそのまま保持するわけではありません。
 詳細は[初期ファイルの読み込み](container-usage.md#初期ファイルを読み込む)を参照してください。
 
-`-public-host`に相当する単一設定はありません。
-URLヘルパー、API応答用URL、仮想ホストルート、権限を分けて扱います。
+`--public-base-url`はHTTP(S)のoriginです。パスはルートだけを許可し、DNS名を小文字に、
+HTTPの80番・HTTPSの443番を省略した形へ正規化します。
+公開originにはポート0を指定できません。`:4443`など、接続できるポートを使ってください。
+DNS名はXML仮想ホストの基底ドメインへ加え、明示リストとの合計を32個までに制限します。
+同じ名前は統合しますが、明示リスト内の重複はエラーです。
+IPも使えますが、そのIPからの仮想ホスト生成だけを無効にし、警告します。
+ready通知の`public_base_url`は正規化した文字列、未指定時はnullです。
+`public_virtual_host_enabled`はDNS名ならtrue、IPまたは未指定ならfalseを返します。
+`127.1`・`0x7f.0.0.1`・`2130706433`など、ブラウザがIPv4として解釈する別表記は拒否します。
+`127.0.0.1`のような正規のIPv4表記を指定してください。
+
+nativeのpath-styleは任意のHostを受け付けます。
+`--compat-profile legacy-emulator`と公開originを併用すると、上流に合わせたHost照合を有効にします。
+公開authorityに一致すればパスからバケットを選び、一致しなければHost全体をバケットとして扱います。
+Go SDKなどXMLで取得するクライアントではAPI接続先と公開authorityを揃えてください。
+JSON・probeの予約パスは引き続き使え、明示した別のXML基底ドメインは既存のXML優先を保ちます。
+Hostの入口では構文だけを検査するため、`fake_gcs`などのCompose名もJSON・probeで使えます。
+XMLでは既存のlegacyバケット名規則に従い、Host全体をバケット名に使います。
+[Host照合の詳細](../en/slices/configuration-workflows.md#host-matching-measured-reference-and-normative-rules)を参照してください。
+
+`url public`と`url sign`は`--config PATH`を明示した場合だけ、そのJSONの`public_base_url`を既定に使います。
+`--base-url`が優先します。環境変数や暗黙の設定ファイルは読みません。
+明示したファイルの構文・64KiB上限・平坦な文字列または非負整数の型・公開originを検証し、
+サーバー専用設定の意味は検証しません。TLS・identity・保存先も開きません。
+ホスト・コンテナ間・ブラウザのそれぞれで到達できる接続先を指定します。
+URLヘルパー、API応答用URL、権限は引き続き別です。
 strict署名は最終的にクライアントが使うURLへ署名し、後からホストを書き換えません。
+DESIGN-055・UX-003はPARTIALのままです。trusted proxy由来のoriginはDESIGN-056の範囲外作業です。
 `legacy-emulator`の固定`US-CENTRAL1`応答も、locationの自由な設定を意味しません。
 
 リポジトリのComposeで使う`GCS_MIMIC_PORT`はホスト側の公開ポート用です。

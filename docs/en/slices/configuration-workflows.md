@@ -3,8 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract established on **2026-10-24** for `configuration-workflows`; independent
-review results remain in the ledger. The legacy-input diagnostics slice now
-implements the input/preflight and shared diagnostic contracts below; reserved
+review results remain in the ledger. The legacy-input diagnostics and public-origin slices now
+implement the input/preflight, shared diagnostic and public Host/helper contracts below; reserved
 settings remain unavailable until their named slices deliver effective behavior.
 DESIGN-055 and UX-003 remain PARTIAL; DESIGN-064 and DESIGN-065 retain their
 implemented precedence and single-listener TLS scopes. The
@@ -20,7 +20,8 @@ were checked against `src/config.rs`, `src/main.rs`, `src/url.rs`,
 `src/xml/mod.rs`, `src/server.rs` and the Compose files. They still describe the
 baseline implementation: first-error validation, ignored `FAKE_GCS_*`, one
 listener, a fixed default advertised port, no stored public origin and no log
-level. The diagnostics implementation replaces the first two limitations while
+level. The diagnostics implementation replaces the first two limitations and
+public-origin configuration adds the separately stored public origin, while
 preserving the catalog and config → material → catalog → bind startup order.
 
 This contract follows the decisions in
@@ -145,11 +146,29 @@ instances. Proxy-derived origins/allowed-host policy remain DESIGN-056 work.
    Validate `--base-url` with the helper's existing path/virtual-style rules.
    Update helper help text to state this explicit-file exception.
 
-Ready keys are fixed: `api_base_url` is the effective string,
-`public_base_url` is a normalized string or JSON null, and
-`public_virtual_host_enabled` is a boolean (false when absent or IP). These keys
-are owned respectively by `config-api-origin-default` and `config-public-origin`;
-Shared state's `ReadyEvent` must retain them. No setting creates DNS/certificates, grants IAM/ACL access or changes
+Public origins are retained as a validated `PublicOrigin` with private fields;
+requests reuse its parsed authority and host kind rather than parsing a string
+and silently disabling routing on failure. One selected bucket/raw object path
+is tied to its URI and reused for CORS and XML dispatch. Public-origin port zero
+is rejected with a reachable-port example such as `:4443`; listener port zero
+and API-base port policy belong to their separate contracts.
+Public-origin DNS validation rejects
+noncanonical numeric host spellings such as `127.1`, `0x7f.0.0.1` and
+`2130706433`: use canonical `127.0.0.1` instead. More generally, a final DNS label
+containing only digits or `0x`/`0X` followed by hex digits is rejected unless the
+whole host is already canonical IPv4. This follows the
+[WHATWG numeric-host boundary](https://url.spec.whatwg.org/commit-snapshots/845bafca22fb0c5a42c4bf384a9bdea525a2f10d/#concept-ends-in-a-number).
+It prevents browsers from interpreting a configured DNS suffix as IPv4 and
+changing the final authority after URL construction or signing. This is an
+explicit validation refinement, not a change to native arbitrary-Host routing
+or existing explicit XML-domain validation.
+
+Ready currently always includes `public_base_url` as a normalized string or
+JSON null, and `public_virtual_host_enabled` as a boolean (false when absent or
+IP). `config-public-origin` owns these two keys. `api_base_url` is not yet a
+ready key: `config-api-origin-default` will add its effective string after
+implementing bound-address resolution. Shared state's `ReadyEvent` retains the
+implemented keys. No setting creates DNS/certificates, grants IAM/ACL access or changes
 PAP. Helpers encode/sign the final host, port, path, query and required headers;
 there is no post-signing Host replacement. An IP public base supports path-style
 helpers only; virtual style still requires DNS. Supplied HTTPS certificates must
@@ -160,8 +179,11 @@ Ready reports URL roles, not a guarantee of SDK XML-read reachability. With
 legacy matching enabled, XML path-style requests to the API authority also
 fall back to a hostname bucket when that authority does not match the public
 authority. For SDKs that read XML (including the Go SDK's default), configure
-the public base with the same authority as the SDK's API endpoint; compare the
-two ready URL fields rather than assuming `api_base_url` bypasses legacy routing.
+the public base with the same authority as the SDK's API endpoint. Compare the
+configured API endpoint (or an object's JSON `selfLink`/`mediaLink` authority)
+with `public_base_url` in ready; do not assume the API authority bypasses legacy
+routing. Comparing two ready URL fields becomes possible only after
+`config-api-origin-default` adds the API key.
 
 ## Disposition of all 19 source environment variables
 
@@ -200,7 +222,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_SCHEME` | `GCS_MIMIC_SCHEME=https` or `http`; `both` only after dual listeners | `config-dual-listener` |
 | `FAKE_GCS_PORT_HTTP` | Unsupported today; future `GCS_MIMIC_SCHEME=both` with `GCS_MIMIC_LISTEN_HTTP=0.0.0.0:8000` | `config-dual-listener` |
 | `FAKE_GCS_EXTERNAL_URL` | Use its supplied safe URL as `GCS_MIMIC_API_BASE_URL`, preserving the client-reachable prefix; redact credential-bearing URLs | Diagnostics |
-| `FAKE_GCS_PUBLIC_HOST` | Unsupported combined role today; future `GCS_MIMIC_PUBLIC_BASE_URL=https://storage.example.invalid:4443` includes scheme. For legacy SDK XML reads, use the API endpoint's authority too: a different public authority makes API-host XML path-style reads fall back to a hostname bucket | `config-public-origin` |
+| `FAKE_GCS_PUBLIC_HOST` | Use `GCS_MIMIC_PUBLIC_BASE_URL=https://storage.example.invalid:4443` including the scheme; legacy Host matching also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. Native path-style accepts any Host. For legacy SDK XML reads, use the API endpoint's authority too: a different public authority makes API-host XML reads fall back to a hostname bucket | `config-public-origin` |
 | `FAKE_GCS_DATA` | `GCS_MIMIC_SEED_DIR=fixtures`; native seed is one-time and does not overwrite on restart | Diagnostics; Import owns richer seed fidelity |
 | `FAKE_GCS_FILESYSTEM_ROOT` | Native destination `GCS_MIMIC_DATA_DIR=data` has a different format; retain the source and use the separately delivered Import conversion, never mount the old root as native data | Diagnostics; Import |
 | `FAKE_GCS_BACKEND` | Unsupported selector; disk-backed native catalog remains default. Bounded memory mode needs a separate DESIGN-077 slice; no claim that `memory` works | Separate plan |
@@ -402,7 +424,12 @@ validator rejects that mixed-case selected name with XML 400 either way.
 with the following complete dispatch boundary:
 
 1. Require one syntactically valid Host. Reject malformed/missing/duplicate Host
-   with 400. Before routing, reject a conflicting absolute-form target authority
+   with 400. Syntax means one parseable authority, no userinfo and a numeric
+   port when present; do not apply configured DNS-domain length/label rules to
+   incoming Host. Compose names such as `fake_gcs` remain usable for JSON and
+   probes. XML fallback uses the existing legacy bucket-name validator, which
+   accepts underscores: an absent `fake_gcs` bucket yields XML `NoSuchBucket`,
+   and a created one is routable. Before routing, reject a conflicting absolute-form target authority
    with existing XML 400 `InvalidArgument` (unsigned/bearer) or 403
    `SignatureDoesNotMatch` (signed); HEAD errors are bodyless. Never replace the
    signed Host with the target authority. This deliberate difference from Go's
@@ -451,11 +478,40 @@ normalization drops scheme-default public ports so browser/helper canonical
 Hosts remain usable. The raw upstream explicit-default-port behavior is recorded
 separately. Native routing and unset-public-base legacy routing keep their
 existing dotted-prefix, longest-suffix and reserved-namespace behavior unchanged.
-The later implementation must compare its native/legacy wire results with this
-recorded contract; it does not inherit the reference's missing signature checks,
-plaintext errors or extra methods. DESIGN-055/UX-003 runtime cases stay PENDING.
+The public-origin implementation compares its native/legacy wire results with
+this recorded contract; it does not inherit the reference's missing signature
+checks, plaintext errors or extra methods. See the
+[implementation evidence](../evidence/configuration-public-origin.md) for
+verified cases and remaining integration work. Parent DESIGN-055/UX-003 rows
+remain PARTIAL.
 
 ## Acceptance and delivery ownership
+
+### Public origin implementation acceptance
+
+The `config-public-origin` slice implements DESIGN-055-PENDING,
+DESIGN-055-LEGACY-HOST and UX-003-PUBLIC-ORIGIN without completing their parent
+rows. Acceptance covers DNS/IPv4/IPv6 origin validation, root-only paths,
+default-port removal and normalization idempotence through property tests;
+CLI/environment/file precedence; a 32-domain union with public/explicit merging,
+explicit duplicate rejection, longest suffixes and API-host conflicts; and IP
+warnings with the fixed ready fields. Shared startup's `ReadyEvent` emits the
+fields from `Config.public_base_url` and `Config::public_virtual_host_enabled`,
+preserving startup ordering. DNS/IP/unset ready values, the complete ready key
+set, and invalid-origin rejection before catalog creation have process tests.
+
+Wire tests identify the selected resource for the measured legacy authority,
+port, case, trailing-dot, single-label and hostname-fallback rules above. They
+also cover native/unset-public behavior, explicit/public overlapping suffixes,
+reserved namespaces, malformed/duplicate/missing Host, absolute-form conflicts,
+GET/HEAD/PUT boundaries and selected-resource errors. Strict tests retain IAM,
+PAP, final-host signatures and tampered-Host rejection. Helper process tests
+exercise explicit files, no implicit file/environment reads, overridden invalid
+file origins, flat value types/size/syntax, server-only/unknown-key isolation,
+base overrides and host/peer/browser receiver choices. No catalog, TLS material
+or registry is opened by a URL helper. Existing SDK/container evidence remains
+separate from these native wire/process checks; no proxy-derived origin or
+performance improvement is claimed.
 
 ### Legacy diagnostics implementation acceptance
 
@@ -489,6 +545,7 @@ or the runtime cases.
 | `DESIGN-055-API-DEFAULT` | Port 0, IPv4/IPv6 wildcard and explicit binds, explicit base precedence, proxy prefix; HTTPS primary for `scheme=both`; Host/Forwarded/untrusted origins ignored; preflight collision validation using explicit base or substituted listen host, including numeric DNS suffixes, with no catalog access/bind/ready on failure; fixed ready keys; host-published Compose port and resumable Location traversal | `config-api-origin-default` |
 | `DESIGN-055-PENDING` | DNS/IP public origins, 32-domain union/dedup/overflow/API conflict, normalization idempotence proptest, non-root path/userinfo/query/fragment rejection, default-port normalization; explicit-config helpers (syntax/size/value types/public base only), override/no implicit reads/no TLS/identity/catalog access; final-host signature/tampering, host/peer/browser receiver choices and fixed ready fields; proxy derivation remains separate | `config-public-origin`; DESIGN-056 separately |
 | `DESIGN-055-LEGACY-HOST` | Implement against the recorded reference authority/DNS/route/request-form matrix; verify selected buckets, status and deliberate local boundaries including explicit overlapping domains and explicit-domain reserved paths (XML) versus public-derived/path-style JSON precedence, same-domain explicit/public deduplication, unequal API/public authorities with API-host XML fallback and equal-authority SDK XML reads, absolute conflict/signature rejection, existing XML errors/methods and IP virtual disabling; native/unset-public reserved-path and arbitrary-Host regressions and strict IAM/PAP isolation | `config-public-origin` |
+| `UX-003-PUBLIC-ORIGIN` | Explicit public origin for host/peer/browser receiver choices, independent API/listener roles, DNS/IP domain behavior and diagnostics, explicit-config helper defaults/overrides, final-host signature/PAP isolation and fixed ready keys | `config-public-origin` |
 | `UX-003-DUAL-LISTENER` | HTTP and HTTPS simultaneously, one advertised base, aggregate connection cap, second-bind failure cleanup, retained ready key plus both addresses, shutdown of both; reject equal nonzero endpoints including primary port 8000 colliding with the default secondary; reject listen_http unless scheme=both; both port-0 listeners bind independently and report distinct actual ports; existing TLS trust/handshake tests | `config-dual-listener` |
 | `UX-003-LOG-LEVEL` | Shared stderr JSON/levels; real filtering for each accepted level, invalid-level failure, fatal diagnostics and stdout ready/stopped always visible | `config-log-level` |
 | `UX-003-REMAINING-SETTINGS` | Native location absent/explicit/default/restart, invalid regions and explicit legacy-setting rejection; retain case-insensitive legacy `US-CENTRAL1` acceptance, including `us-central1`, without storing it | `config-remaining-settings` |

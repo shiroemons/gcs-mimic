@@ -123,7 +123,7 @@ assume that changing the image name is sufficient.
 | `-scheme http` / `https` | `--scheme`, `GCS_MIMIC_SCHEME` | One listener; `both` is unavailable |
 | `-host`, `-port` | `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | Combined listener setting; container port publication remains separate |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
-| `-public-host` | `url public --base-url` and `--xml-virtual-host-domains` | Separate URL construction and virtual-host routing; no single public-host option or equivalent path-style Host filter |
+| `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR` | Initial import into a fresh catalog, not startup replay or live synchronization |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
@@ -136,6 +136,12 @@ participates in its matching. `-external-url` separately controls API-generated
 URLs. Native virtual-host domains are DNS suffixes without a port; the actual
 request authority still includes the port for strict signature checks.
 Neither product's public-host/URL setting grants bucket permissions.
+Public-origin normalization removes HTTP 80/HTTPS 443 and lowercases DNS;
+non-default ports remain significant. IPs support path-style only. With legacy
+matching, use equal API/public authorities for SDK XML reads: a different API
+authority falls back to a hostname bucket. URL helpers use the file's
+`public_base_url` only when `--config PATH` is explicit;
+`--base-url` overrides it.
 
 For example, native `url public --base-url http://localhost:4443 --bucket assets
 --object hello.txt` generates a path-style URL. For `assets.storage.test`, enable

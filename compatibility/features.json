@@ -38272,11 +38272,13 @@
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/authentication/canonical-requests",
         "https://docs.cloud.google.com/storage/docs/xml-api/put-object-upload",
-        "https://github.com/fsouza/fake-gcs-server/blob/main/fakestorage/server.go"
+        "https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go",
+        "https://docs.cloud.google.com/storage/docs/request-endpoints",
+        "https://url.spec.whatwg.org/commit-snapshots/845bafca22fb0c5a42c4bf384a9bdea525a2f10d/"
       ],
-      "source_checked_at": "2026-10-23",
+      "source_checked_at": "2026-10-24",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener, fixed API base and explicit public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; separately stored public origin and proxy-derived policy remain pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT now uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port; standard namespace dispatch remains path-style only. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract: docs/en/slices/xml-virtual-host.md; evidence: docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that would select a virtual bucket; an explicitly configured base domain itself stays path-style. Legacy input diagnostics now distinguish bind, advertised API, future public origin and Compose publication roles, with safe effective host/port/URL advice and explicit unsupported-capability guidance. Evidence: docs/en/evidence/configuration-diagnostics.md; public/default-origin runtime cases remain pending.",
+      "notes": "Listener, fixed API base and public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; proxy-derived policy remains pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract/evidence: docs/en/slices/xml-virtual-host.md and docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that select a virtual bucket. Legacy migration diagnostics distinguish endpoint roles with safe URL advice (docs/en/evidence/configuration-diagnostics.md). Public origin validation/normalization, bounded domain merging, IP warnings, explicit-file helper defaults, measured opt-in legacy Host routing and normalized DNS/IP/unset ready fields are verified in docs/en/evidence/configuration-public-origin.md. Public-origin acceptance cases pass; parent status stays PARTIAL for independent contract review, API-default-origin and separate proxy-origin work.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -38302,8 +38304,24 @@
         {
           "id": "DESIGN-055-PENDING",
           "description": "config-public-origin: implement public_base_url DNS/IP effects, bounded domain union/dedup/overflow/API conflicts, normalization idempotence proptest and default-port normalization; reject non-root paths/userinfo/query/fragment. Helpers read only explicit config syntax/size/flat value types/public_base_url (including invalid overridden file bases), ignoring unknown/server-only fields without TLS/identity/catalog access; verify overrides/no implicit reads, final-host signing/tampering, host/peer/browser receiver choices and fixed ready keys. Trusted proxy-derived origins remain separate DESIGN-056 work. Contract: docs/en/slices/configuration-workflows.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence",
+            "config::tests::public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls",
+            "config::tests::config_file_diagnostics_keep_the_selected_source_and_field",
+            "url::tests::public_origins_normalize_dns_ips_ports_and_root_paths",
+            "url::tests::normalized_public_origins_are_idempotent",
+            "url::tests::arbitrary_base_normalization_is_idempotent",
+            "url::tests::prefixed_public_origins_normalize_idempotently",
+            "url::tests::public_origins_reject_port_zero",
+            "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+            "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+            "signing_cli_explicit_config_binds_normalized_final_host",
+            "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+            "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+            "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
         },
         {
           "id": "DESIGN-055-HTTPS",
@@ -38355,8 +38373,16 @@
         {
           "id": "DESIGN-055-LEGACY-HOST",
           "description": "config-public-origin: implement the normative authority/port/case/trailing-dot/single-label/fallback/reserved-route rules against the executed pinned reference matrix in docs/en/evidence/configuration-host-matching.md; verify selected buckets and errors, explicit overlapping-domain extension, explicit-domain reserved paths as XML objects versus public-derived/path-style JSON precedence, same-domain explicit/public deduplication, normalized default ports, IP virtual disabling and local absolute-authority conflict rejection. Cover unequal API/public authorities with API-host XML fallback and equal-authority SDK XML reads, including ready/migration advice. Preserve native/unset-public reserved paths and arbitrary-Host routing, current XML methods/errors and strict authorization/PAP/signature checks. Reference execution alone does not pass gcs-mimic runtime acceptance.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": [
+            "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+            "virtual_host::public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_routes",
+            "virtual_host::public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts",
+            "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+            "virtual_host::public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation",
+            "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+            "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver"
+          ]
         }
       ],
       "test_ids": [
@@ -38373,9 +38399,59 @@
         "signing::put::signed_put_rejects_credentials_permissions_and_resource_tampering_before_body",
         "tls_native_container_journeys",
         "tls_trust_versions_streaming_urls_and_restart",
-        "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch"
+        "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
+        "config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence",
+        "config::tests::public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls",
+        "config::tests::config_file_diagnostics_keep_the_selected_source_and_field",
+        "url::tests::public_origins_normalize_dns_ips_ports_and_root_paths",
+        "url::tests::normalized_public_origins_are_idempotent",
+        "url::tests::arbitrary_base_normalization_is_idempotent",
+        "url::tests::prefixed_public_origins_normalize_idempotently",
+        "url::tests::public_origins_reject_port_zero",
+        "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+        "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+        "signing_cli_explicit_config_binds_normalized_final_host",
+        "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+        "virtual_host::public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_routes",
+        "virtual_host::public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts",
+        "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+        "virtual_host::public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation",
+        "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+        "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+        "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+        "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/configuration-public-origin-checks.txt",
+          "test_ids": [
+            "config::tests::public_origin_merges_bounded_domains_and_preserves_input_precedence",
+            "config::tests::public_ip_origins_warn_without_disabling_explicit_domains_or_path_urls",
+            "config::tests::config_file_diagnostics_keep_the_selected_source_and_field",
+            "url::tests::public_origins_normalize_dns_ips_ports_and_root_paths",
+            "url::tests::normalized_public_origins_are_idempotent",
+            "url::tests::arbitrary_base_normalization_is_idempotent",
+            "url::tests::prefixed_public_origins_normalize_idempotently",
+            "url::tests::public_origins_reject_port_zero",
+            "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+            "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+            "signing_cli_explicit_config_binds_normalized_final_host",
+            "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+            "virtual_host::public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_routes",
+            "virtual_host::public_origin_ip_legacy_matching_disables_only_derived_virtual_hosts",
+            "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+            "virtual_host::public_origin_legacy_accepts_host_syntax_before_namespace_and_bucket_validation",
+            "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+            "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+            "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+            "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
         {
           "command": "cargo test --lib config --locked --offline; cargo test --test foundation --locked --offline",
           "result": "PASS",
@@ -38479,10 +38555,10 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Fixed API and explicit public/signing helper bases work; separately stored public endpoint and trusted proxy-derived origins remain pending."
+        "Public origin routing, helpers and ready fields are verified. Automatic API-origin defaults retain their separate pending case; trusted proxy-derived origins remain DESIGN-056 work."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-056",
@@ -42840,7 +42916,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are implemented and verified in docs/en/evidence/configuration-diagnostics.md. Parent status remains PARTIAL; independent contract review and the endpoint, public-host, dual-listener, log-level and remaining-setting runtime slices retain their pending cases in docs/en/slices/configuration-workflows.md.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Parent status remains PARTIAL; independent contract review, automatic API-origin defaults, dual listeners, log levels and remaining settings retain pending cases in docs/en/slices/configuration-workflows.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -42928,6 +43004,23 @@
           ]
         },
         {
+          "id": "UX-003-PUBLIC-ORIGIN",
+          "description": "Explicit public_base_url selects host, peer or browser receiver without changing listener/API URLs or permissions. Verify native and legacy Host routing, strict final-host signatures and tampering/PAP, explicit-only helper config reads and overrides, DNS/IP diagnostics and ready fields, bounded domain merging and idempotent normalization. Container/SDK journeys remain separately evidenced; trusted-proxy origin derivation is outside this scope.",
+          "result": "PASS",
+          "test_ids": [
+            "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+            "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+            "signing_cli_explicit_config_binds_normalized_final_host",
+            "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+            "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+            "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+            "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+            "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+            "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
+        {
           "id": "UX-003-DUAL-LISTENER",
           "description": "config-dual-listener: HTTP and HTTPS share one catalog and aggregate connection limit, one advertised API base, existing ready listen plus both actual listeners, all-or-nothing bind readiness and shutdown. Reject duplicate nonzero endpoints including primary port 8000 colliding with default listen_http, and reject listen_http unless scheme=both; both port-zero listeners bind independently to distinct actual ports. Preserve TLS trust and handshake bounds.",
           "result": "PENDING",
@@ -42957,6 +43050,16 @@
         "guide-host-peer-object-media",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "ruby-basic-api",
+        "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+        "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+        "signing_cli_explicit_config_binds_normalized_final_host",
+        "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+        "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+        "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+        "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+        "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+        "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
         "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls",
         "config_input::tests::option_positions_preserve_native_values_and_equals_do_not_shift_tokens",
@@ -42977,6 +43080,24 @@
         "config_input::tests::native_environment_encoding_follows_effective_precedence"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/configuration-public-origin-checks.txt",
+          "test_ids": [
+            "helpers_read_only_explicit_public_origin_and_keep_base_overrides",
+            "helpers_validate_explicit_file_even_when_the_base_is_overridden",
+            "signing_cli_explicit_config_binds_normalized_final_host",
+            "virtual_host::public_origin_native_and_unset_legacy_keep_path_style_host_acceptance",
+            "virtual_host::public_origin_legacy_preserves_strict_signatures_permissions_pap_and_authority_errors",
+            "virtual_host::public_origin_legacy_cors_uses_the_selected_public_or_fallback_bucket",
+            "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
+            "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
+            "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+          ]
+        },
         {
           "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
           "result": "PASS",

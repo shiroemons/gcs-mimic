@@ -17,6 +17,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "seed_dir",
     "seed_project",
     "api_base_url",
+    "public_base_url",
     "xml_virtual_host_domains",
     "max_connections",
     "max_object_bytes",
@@ -344,9 +345,9 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "public_host" => {
             let scheme = if matches!(scheme, "https" | "both") { "https" } else if scheme == "http" { "http" } else { "<SCHEME>" };
             let url = format!("{scheme}://{value}");
-            let example = if safe_url(&url) && url.parse::<hyper::Uri>().is_ok_and(|u| u.path() == "/" || u.path().is_empty()) { url }
-                else { "https://storage.example.invalid:4443".into() };
-            format!("combined public-host routing is unsupported today; remove this setting; future GCS_MIMIC_PUBLIC_BASE_URL={example} includes a scheme. For SDK XML reads the public authority must match the API endpoint authority; unequal authorities fall back to a hostname bucket")
+            let example = crate::url::normalize_public_base_url(&url)
+                .unwrap_or_else(|_| "https://storage.example.invalid:4443".into());
+            format!("Use GCS_MIMIC_PUBLIC_BASE_URL={example} including the scheme; legacy Host matching also requires GCS_MIMIC_COMPAT_PROFILE=legacy-emulator. Native path-style accepts any Host. For SDK XML reads in legacy mode the public authority must match the API endpoint authority; unequal authorities fall back to a hostname bucket")
         }
         "data" => "use GCS_MIMIC_SEED_DIR=fixtures; seed runs once for a fresh native data directory and never overwrites changes on restart".into(),
         "filesystem_root" => "use GCS_MIMIC_DATA_DIR=data only for native storage; the source format differs. Retain the old root for the separately delivered Import conversion; never mount it as native data".into(),
@@ -548,7 +549,8 @@ mod tests {
         for expected in [
             "GCS_MIMIC_LISTEN=[::1]:9001",
             "GCS_MIMIC_API_BASE_URL=http://gcs:8080/proxy",
-            "future GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid:9000",
+            "GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid:9000",
+            "GCS_MIMIC_COMPAT_PROFILE=legacy-emulator",
             "GCS_MIMIC_LOG_LEVEL=warn",
             "GCS_MIMIC_DEFAULT_LOCATION=EU",
             "SDK XML reads",
@@ -560,6 +562,13 @@ mod tests {
             &BTreeMap::from([("FAKE_GCS_PORT".into(), "8080".into())]),
         );
         assert!(report.diagnostics.to_string().contains("0.0.0.0:8080"));
+        let report = crate::config::Config::preflight(
+            &strings(&["-scheme", "http", "-public-host", "Storage.Invalid:80"]),
+            &BTreeMap::new(),
+        );
+        let advice = report.diagnostics.to_string();
+        assert!(advice.contains("GCS_MIMIC_PUBLIC_BASE_URL=http://storage.invalid including"));
+        assert!(!advice.contains("Storage.Invalid:80"));
         for url in [
             "http://user:secret@host/path",
             "http://host/?X-Goog-Signature=secret",
