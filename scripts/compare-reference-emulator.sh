@@ -8,7 +8,7 @@ archive_sha256=13fa1ed9cff0216baedaedb162b3cf37575bba955fb55fd4b76acb9b818494dc
 go_toolchain=$(awk '$1 == "toolchain" {print $2}' sdk-tests/go/go.mod)
 reference_only=${GCS_MIMIC_REFERENCE_ONLY:-0}
 [[ $reference_only == 0 || $reference_only == 1 ]]
-for command in curl jq go cargo tar shasum git; do
+for command in curl jq go cargo tar shasum git nc; do
   if ! command -v "$command" >/dev/null; then echo "Missing command: $command" >&2; exit 1; fi
 done
 [[ $go_toolchain =~ ^go[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -74,7 +74,8 @@ start_target() {
     # Empty environment prevents inherited event hooks or seeding from contacting other services.
     env -i PATH="$PATH" "$work/reference-emulator" -scheme http -host 127.0.0.1 \
       -port "${address##*:}" -external-url "$origin" -backend "$1" \
-      -filesystem-root "$work/$target-data" -data "$work/no-seed" \
+      -filesystem-root "$work/$target-data" -data "${3:-$work/no-seed}" \
+      -public-host "${2:-storage.googleapis.com}" \
       >"$work/$target.log" 2>&1 &
   else
     env -i PATH="$PATH" "$server" serve --scheme http --listen "$address" --api-base-url "$origin" \
@@ -93,9 +94,21 @@ start_target() {
   origins+=("$origin")
 }
 
+stop_last_target() {
+  local index=$((${#pids[@]} - 1)) pid server_status
+  pid=${pids[$index]}
+  kill -TERM "$pid"
+  if wait "$pid"; then :; else
+    server_status=$?
+    [[ $server_status == 143 ]] || return "$server_status"
+  fi
+  unset 'pids[index]'
+}
+
 printf 'pinned reference emulator v1.56.1 commit %s\narchive SHA256 %s\n' "$revision" "$archive_sha256"
 go version
 printf 'checkout source commit %s (reference-only=%s)\n' "$(git rev-parse HEAD)" "$reference_only"
+printf 'comparison script blob %s\n' "$(git hash-object scripts/compare-reference-emulator.sh)"
 printf '%s\n' \
   'Raw records preserve status, selected header values, and the exact response body as a JSON string.' \
   'Selected headers: content-type, content-length, etag, location, x-goog-*, www-authenticate.' \
@@ -191,6 +204,148 @@ create both-settings compare-both '{"versioning":{"enabled":true},"defaultEventB
 for name in aa goog-compare google-compare 192.168.0.1 a..b aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; do
   create "source-valid-$name" "$name"
 done
+
+# Keep reference routing observations separate from native conformance assertions.
+reference_host_cases() {
+local host_index=0
+host_seed="$work/host-seed"
+for bucket in probe-bucket dotted.probe-bucket fallback.invalid \
+  storage.example.invalid probe-bucket.storage.example.invalid \
+  dotted.probe-bucket.storage.example.invalid probe-bucket.deep.storage.example.invalid \
+  storage.example.invalid. storage.example.invalid.evil \
+  127.0.0.1 '[::1]' '[::1]:8443'; do
+  mkdir -p "$host_seed/$bucket/probe-bucket" "$host_seed/$bucket/storage/v1"
+  printf 'bucket=%s;object=object' "$bucket" >"$host_seed/$bucket/object"
+  printf 'bucket=%s;object=probe-bucket/object' "$bucket" >"$host_seed/$bucket/probe-bucket/object"
+  printf 'bucket=%s;object=storage/v1/b' "$bucket" >"$host_seed/$bucket/storage/v1/b"
+done
+
+host_request() {
+  local label=$1 host=$2 path=$3 method=${4:-GET} target=${5:-$3} status
+  local args=()
+  if [[ $method == PUT ]]; then args=(--data-binary host-put); fi
+  if [[ $method == HEAD ]]; then
+    # Inspect wire bytes so an invalid HEAD body cannot be hidden by curl's HEAD handling.
+    printf 'HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n' "$target" "$host" \
+      | nc -w 2 127.0.0.1 "${host_origin##*:}" >"$work/host-head-wire"
+    jq -ejrRs 'index("\r\n\r\n") as $end | if $end == null then error("missing HEAD headers") else .[:$end] end' \
+      "$work/host-head-wire" >"$work/host-headers"
+    jq -jrRs 'index("\r\n\r\n") as $end | .[$end + 4:]' "$work/host-head-wire" >"$work/host-body"
+    status=$(awk 'NR == 1 {print $2}' "$work/host-headers")
+  else
+    status=$(curl --noproxy '*' --proxy '' --globoff --path-as-is --silent --show-error \
+      --connect-timeout 2 --max-time 15 --request "$method" --request-target "$target" \
+      --header "Host: $host" ${args[@]+"${args[@]}"} --dump-header "$work/host-headers" \
+      --output "$work/host-body" --write-out '%{http_code}' "$host_origin$path")
+  fi
+  jq -ncS --arg case "$label" --arg public_host "$public_host" --arg host "$host" \
+    --arg target "$target" --arg method "$method" --argjson status "$status" \
+    --rawfile headers "$work/host-headers" --rawfile body "$work/host-body" \
+    '{case:$case,public_host:$public_host,request:{method:$method,host:$host,target:$target},
+      status:$status,headers:($headers | split("\n") | map(select(test("^(Content-Type|Content-Length|Location):";"i")) | rtrimstr("\r"))),body:$body}' \
+    | tee -a "$work/host-results.jsonl" | sed 's/^/HOST /'
+}
+
+for public_host in storage.example.invalid storage.example.invalid:80 storage.example.invalid:8443 \
+  127.0.0.1 '[::1]' '[::1]:8443'; do
+  host_index=$((host_index + 1))
+  start_target "reference-host-$host_index" memory "$public_host" "$host_seed"
+  host_origin=${origins[${#origins[@]}-1]}
+  for request_host in storage.example.invalid storage.example.invalid:80 \
+    storage.example.invalid:443 storage.example.invalid:8443 Storage.Example.Invalid \
+    storage.example.invalid. storage.example.invalid.evil 127.0.0.1 127.0.0.1:8443 \
+    '[::1]' '[::1]:8443'; do
+    host_request authority "$request_host" /probe-bucket/object
+  done
+  host_request public-root "$public_host" /probe-bucket
+  host_request virtual-simple "probe-bucket.$public_host" /object
+  host_request virtual-portless probe-bucket.storage.example.invalid /object
+  host_request virtual-port-80 probe-bucket.storage.example.invalid:80 /object
+  host_request virtual-port-8443 probe-bucket.storage.example.invalid:8443 /object
+  host_request virtual-case Probe-Bucket.Storage.Example.Invalid /object
+  host_request virtual-trailing-dot probe-bucket.storage.example.invalid. /object
+  host_request virtual-dotted "dotted.probe-bucket.$public_host" /object
+  host_request overlapping-suffix "probe-bucket.deep.$public_host" /object
+  host_request virtual-root "probe-bucket.$public_host" /
+  host_request json-precedence "probe-bucket.$public_host" '/storage/v1/b?project=compare-project'
+  host_request arbitrary-fallback fallback.invalid /object
+  host_request arbitrary-root fallback.invalid /
+  host_request missing-bucket "$public_host" /missing-bucket/object
+  host_request missing-object "$public_host" /probe-bucket/missing-object
+  host_request head "$public_host" /probe-bucket/object HEAD
+  host_request put "$public_host" '/probe-bucket/new-object?X-Goog-Algorithm=probe' PUT
+  host_request put-read "$public_host" /probe-bucket/new-object
+  host_request absolute-target fallback.invalid /probe-bucket/object GET "http://$public_host/probe-bucket/object"
+  host_request absolute-conflict "$public_host" /object GET 'http://fallback.invalid/object'
+  if [[ $host_index != 6 ]]; then stop_last_target; fi
+done
+
+for raw_case in duplicate-host malformed-host missing-host; do
+  case $raw_case in
+    duplicate-host) host_lines=$'Host: storage.example.invalid\r\nHost: fallback.invalid' ;;
+    malformed-host) host_lines='Host: bad host' ;;
+    missing-host) host_lines='' ;;
+  esac
+  printf 'GET /object HTTP/1.1\r\n%s\r\nConnection: close\r\n\r\n' "$host_lines" \
+    | nc -w 2 127.0.0.1 "${host_origin##*:}" >"$work/host-raw"
+  jq -ncS --arg case "$raw_case" --arg public_host "$public_host" --arg headers "$host_lines" \
+    --rawfile response "$work/host-raw" \
+    '{case:$case,public_host:$public_host,request:{method:"GET",target:"/object",headers:$headers},response:$response}' \
+    | tee -a "$work/host-results.jsonl" | sed 's/^/HOST /'
+done
+stop_last_target
+jq -es '
+  def public_match($public; $host):
+    $host == $public or (($public | contains(":" ) | not) and ($host | startswith($public + ":")));
+  def marker($bucket; $object): .status == 200 and .body == ("bucket=" + $bucket + ";object=" + $object);
+  def not_found: .status == 404 and .body == "Not Found\n";
+  def fallback($host; $object):
+    ($host | split(":")[0]) as $bucket
+    | if (["storage.example.invalid", "storage.example.invalid.", "storage.example.invalid.evil",
+           "probe-bucket.storage.example.invalid", "dotted.probe-bucket.storage.example.invalid",
+           "probe-bucket.deep.storage.example.invalid", "127.0.0.1", "fallback.invalid"] | index($bucket)) != null
+      then marker($bucket; $object) else not_found end;
+  ["public-root", "virtual-simple", "virtual-portless", "virtual-port-80", "virtual-port-8443",
+   "virtual-case", "virtual-trailing-dot", "virtual-dotted", "overlapping-suffix", "virtual-root",
+   "json-precedence", "arbitrary-fallback", "arbitrary-root", "missing-bucket", "missing-object",
+   "head", "put", "put-read", "absolute-target", "absolute-conflict"] as $cases
+  | length == 189
+  and (map(select(has("status"))) | group_by(.public_host) | length == 6 and all(
+    length == 31 and (map(.case) | sort) == (($cases + [range(11) | "authority"]) | sort)))
+  and (map(select(.case == "authority")) | group_by(.public_host) | all(
+    (map(.request.host) | sort) == (["storage.example.invalid", "storage.example.invalid:80",
+      "storage.example.invalid:443", "storage.example.invalid:8443", "Storage.Example.Invalid",
+      "storage.example.invalid.", "storage.example.invalid.evil", "127.0.0.1", "127.0.0.1:8443",
+      "[::1]", "[::1]:8443"] | sort)))
+  and all(.[];
+    if .case == "authority" then
+      if public_match(.public_host; .request.host) then marker("probe-bucket"; "object")
+      else fallback(.request.host; "probe-bucket/object") end
+    elif .case == "virtual-simple" or .case == "absolute-target" then marker("probe-bucket"; "object")
+    elif (.case == "virtual-portless" or .case == "virtual-port-80" or .case == "virtual-port-8443") then
+      if public_match(.public_host; (.request.host | ltrimstr("probe-bucket.")))
+      then marker("probe-bucket"; "object") else marker("probe-bucket.storage.example.invalid"; "object") end
+    elif .case == "virtual-dotted" or .case == "overlapping-suffix" then fallback(.request.host; "object")
+    elif .case == "virtual-case" or .case == "virtual-trailing-dot" or .case == "missing-bucket"
+      or .case == "missing-object" then not_found
+    elif .case == "public-root" or .case == "virtual-root" then
+      .status == 200 and (.headers | index("Content-Type: application/xml")) != null
+      and (.body | contains("<ListBucketResult><Name>probe-bucket</Name>") and contains("<Key>object</Key>"))
+    elif .case == "json-precedence" then
+      .status == 200 and (.body | fromjson | .kind == "storage#buckets" and (.items | any(.name == "probe-bucket")))
+    elif .case == "arbitrary-fallback" or .case == "absolute-conflict" then marker("fallback.invalid"; "object")
+    elif .case == "arbitrary-root" then .status == 404 and .body == "404 page not found\n"
+    elif .case == "head" then .status == 200 and .body == "" and (.headers | index("Content-Length: 33")) != null
+    elif .case == "put" then
+      .status == 200 and (.body | fromjson | .bucket == "probe-bucket" and .name == "new-object" and .size == "8")
+    elif .case == "put-read" then .status == 200 and .body == "host-put"
+    elif .case == "duplicate-host" or .case == "malformed-host" or .case == "missing-host"
+      then .response | startswith("HTTP/1.1 400 ")
+    else error("unasserted Host case: " + .case) end)
+  and (map(select(has("response")) | .case) | sort) == ["duplicate-host", "malformed-host", "missing-host"]
+' "$work/host-results.jsonl" >/dev/null
+echo 'HOST-ASSERT all 189 records: authority/ports/IPv6, virtual/fallback/DNS, JSON, absolute targets, roots, HEAD, errors and PUT: PASS'
+}
 for name in a Uppercase -bad bad- 'bad!' ''; do create "source-invalid-$name" "$name"; done
 request malformed-json POST '/storage/v1/b?project=compare-project' '{"name":"compare-malformed",'
 state malformed-json compare-malformed
@@ -507,3 +662,5 @@ for target in "${targets[@]}"; do
     | "RESOURCE-COMPARE \($target) create/get normalized bodies equal: \($created == $fetched)"
   ' "$work/results.jsonl"
 done
+
+reference_host_cases

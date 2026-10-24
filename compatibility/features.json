@@ -921,11 +921,11 @@
         "depends_on": ["runtime-foundation"],
         "feature_ids": ["DESIGN-055", "DESIGN-064", "DESIGN-065", "UX-003"],
         "completion_conditions": [
-          "Freeze roles, defaults and validation for all 19 pinned source environment variables and corresponding CLI settings; document native mappings instead of requiring identical spelling.",
+          "Use docs/en/slices/configuration-workflows.md for the frozen 19-variable dispositions, native defaults/validation/precedence, reserved settings and shared Diagnostic { source, key, fix } aggregation contract; this documentation alone does not implement runtime cases.",
           "Implement and verify listener, advertised API origin, public URL construction and Host routing as separate roles, including host/peer/browser access, resumable Locations and final-host signing.",
           "Deliver missing source configuration capabilities such as dual listeners, memory mode, notification settings, location and log selection as separate bounded slices with effective behavior; recognized but ignored settings cannot pass."
         ],
-        "deferred_scope": "Literal CLI/environment aliases are not required. This track does not gate independent distribution, initializer or storage adapters; broader API/event semantics retain their own acceptance cases."
+        "deferred_scope": "Literal CLI/environment aliases are not required. config-contract records the executed pinned Host matrix in docs/en/evidence/configuration-host-matching.md; config-public-origin implements its normative rules and explicit local boundaries before runtime parity claims, including explicit-domain XML reserved paths and API-authority XML fallback when public/API authorities differ. DESIGN-056 proxy derivation, DESIGN-077 memory mode and EXT-BEH-032 events retain separate delivery. Shared typed diagnostics and TLS/identity preflight aggregation are implemented by config-legacy-input-diagnostics, then reused by Initializer/Sync/Import; global CORS headers remain unsupported with protocol-specific JSON/XML migration advice. config-api-origin-default owns preflight host-collision validation and post-bind port resolution before State/ready without reordering startup phases. Distribution owns dependency freshness and release gates. This track does not gate independent distribution, initializer or storage adapters."
       },
       {
         "id": "onboarding-state-contract",
@@ -38132,7 +38132,7 @@
         },
         {
           "id": "DESIGN-055-PENDING",
-          "description": "Implement a separately configured public endpoint and trusted proxy-derived origin policy; explicit final-endpoint signing is delivered.",
+          "description": "config-public-origin: implement public_base_url DNS/IP effects, bounded domain union/dedup/overflow/API conflicts, normalization idempotence proptest and default-port normalization; reject non-root paths/userinfo/query/fragment. Helpers read only explicit config syntax/size/flat value types/public_base_url (including invalid overridden file bases), ignoring unknown/server-only fields without TLS/identity/catalog access; verify overrides/no implicit reads, final-host signing/tampering, host/peer/browser receiver choices and fixed ready keys. Trusted proxy-derived origins remain separate DESIGN-056 work. Contract: docs/en/slices/configuration-workflows.md.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -38170,6 +38170,24 @@
             "virtual_host::virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch",
             "config::tests::virtual_host_domains_are_opt_in_bounded_and_follow_precedence"
           ]
+        },
+        {
+          "id": "DESIGN-055-CONFIG-CONTRACT",
+          "description": "Independent review with zero major findings must verify listener/API/public roles, all 19 source-variable dispositions, defaults/validation/precedence, typed shared diagnostics and measured legacy Host rules/local boundaries in docs/en/slices/configuration-workflows.md. Command success or author review does not pass this case; documentation is not runtime completion.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-055-API-DEFAULT",
+          "description": "config-api-origin-default owns explicit/unset Config state: validate API-host conflicts during preflight using the explicit base host or wildcard-substituted listen IP, including numeric DNS suffixes, before catalog access/bind/ready; resolve only the actual port after bind before State/ready, including port zero, with IPv4/IPv6 loopback substitutions and HTTPS primary for scheme=both. Explicit base/prefix wins; Host/Forwarded/untrusted origins stay ignored, fixed ready keys are retained and Compose host-port changes preserve resumable Location reachability without startup-phase reordering.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "DESIGN-055-LEGACY-HOST",
+          "description": "config-public-origin: implement the normative authority/port/case/trailing-dot/single-label/fallback/reserved-route rules against the executed pinned reference matrix in docs/en/evidence/configuration-host-matching.md; verify selected buckets and errors, explicit overlapping-domain extension, explicit-domain reserved paths as XML objects versus public-derived/path-style JSON precedence, same-domain explicit/public deduplication, normalized default ports, IP virtual disabling and local absolute-authority conflict rejection. Cover unequal API/public authorities with API-host XML fallback and equal-authority SDK XML reads, including ready/migration advice. Preserve native/unset-public reserved paths and arbitrary-Host routing, current XML methods/errors and strict authorization/PAP/signature checks. Reference execution alone does not pass gcs-mimic runtime acceptance.",
+          "result": "PENDING",
+          "test_ids": []
         }
       ],
       "test_ids": [
@@ -38924,7 +38942,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (1 GiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Transfer timeout defaults are 900000/30000 ms, with request/call bounds of 1..86400000/1..60000 ms.",
+      "notes": "CLI > GCS_MIMIC_ environment > bounded JSON file > defaults, including max_object_bytes (1 GiB default, 1 byte..5 TiB). Scope/evidence: docs/en/slices/json-object-media.md and docs/en/evidence/object-media.md. Transfer timeout defaults are 900000/30000 ms, with request/call bounds of 1..86400000/1..60000 ms. docs/en/slices/configuration-workflows.md preserves this implemented scope; future aggregated migration diagnostics are acceptance cases on UX-003, not completed behavior here.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -39014,7 +39032,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "HTTPS-only by default with a built-in public development certificate/key, optional custom PEM pair and explicit HTTP-only. TLS 1.2/1.3 over HTTP/1.1, bounded handshake admission, tls ca export and verified client CA/SAN trust. Native, both container architectures, pinned Go/Ruby and actual Chromium pass. Scope: docs/en/slices/local-tls.md; evidence: docs/en/evidence/local-tls.md. Public issuance, system trust changes, mTLS, reload, dual listeners and HTTP/2/3 are separate work.",
+      "notes": "HTTPS-only by default with a built-in public development certificate/key, optional custom PEM pair and explicit HTTP-only. TLS 1.2/1.3 over HTTP/1.1, bounded handshake admission, tls ca export and verified client CA/SAN trust. Native, both container architectures, pinned Go/Ruby and actual Chromium pass. Scope: docs/en/slices/local-tls.md; evidence: docs/en/evidence/local-tls.md. Public issuance, system trust changes, mTLS, reload, dual listeners and HTTP/2/3 are separate work. docs/en/slices/configuration-workflows.md retains this scope and places future dual-listener acceptance on UX-003 without promoting it to implemented TLS behavior.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -42141,7 +42159,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. docs/en/slices/configuration-workflows.md specifies the 19-variable migration, shared diagnostics, endpoint and remaining-setting contracts; independent contract review and runtime acceptance remain pending below.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -42183,6 +42201,42 @@
           "test_ids": [
             "ruby-basic-api"
           ]
+        },
+        {
+          "id": "UX-003-CONFIG-CONTRACT",
+          "description": "Independent review with zero major findings must verify all 19 source env/CLI dispositions, native defaults/validation/precedence, typed DiagnosticSource and Diagnostic { source, key, fix } bounded JSON batches, independent TLS/identity preflight errors and the measured Host contract in docs/en/slices/configuration-workflows.md. Author review or passing commands alone cannot pass this case.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "UX-003-LEGACY-DIAGNOSTICS",
+          "description": "config-legacy-input-diagnostics: cover all 19 env/CLI names including empty input, one/two hyphens times separate/equals values, mixed tokens and no-subcommand argv; inspect option-name positions only, preserving native values --object -data/-port/-x in public/sign helpers and indistinguishable valid native --scheme/--log-level pairs. Derive safe host/port/scheme/URL/location/log fixes from supplied values/defaults; redact URL userinfo/queries and TLS/identity secrets. Explain JSON CORS removal versus XML/public bucket responseHeader configuration and unsupported global replacement; PUBLIC_HOST advice must cover SDK XML reads when API/public authorities differ. Diagnose all Compose-only PORT/IMAGE/TLS_DIR names and replaced CMD listen/data choices. Warn on unknown FAKE_GCS_* and disjoint nonempty /data; suppress harmful seed advice for native overlap/ancestry/symlinks/missing-path uncertainty and test inspection errors. Test 1024/1025 occurrences, 256/257-byte keys, fixed source/key/repeated-key ordering, warnings before errors, control-character JSON escaping, independent malformed config/TLS/identity errors, page batches and operational-source JSON; prevent panic and require nonzero/no ready/no data creation on preflight failure.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "UX-003-DUAL-LISTENER",
+          "description": "config-dual-listener: HTTP and HTTPS share one catalog and aggregate connection limit, one advertised API base, existing ready listen plus both actual listeners, all-or-nothing bind readiness and shutdown. Reject duplicate nonzero endpoints including primary port 8000 colliding with default listen_http, and reject listen_http unless scheme=both; both port-zero listeners bind independently to distinct actual ports. Preserve TLS trust and handshake bounds.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "UX-003-LOG-LEVEL",
+          "description": "config-log-level: structured stderr events have effective debug/info/warn/error filtering, warning alias and invalid-level rejection, while fatal diagnostics and stdout ready/stopped stay visible at all levels.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "UX-003-REMAINING-SETTINGS",
+          "description": "config-remaining-settings: effective native US/EU/ASIA default_location with explicit API/initializer precedence and existing-bucket preservation; reject explicit legacy use while that profile rejects create locations other than case-insensitive US-CENTRAL1 (including us-central1) and accepts that value without storing it, rendering a fixed regional value.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "UX-003-MEMORY-EVENTS",
+          "description": "Separate DESIGN-077 and EXT-BEH-032 slices must decompose and verify bounded memory backend and publisher/filter semantics before claiming source configuration parity; accepting ignored selectors is not completion.",
+          "result": "PENDING",
+          "test_ids": []
         }
       ],
       "test_ids": [
