@@ -16,8 +16,6 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
-    fs::File,
-    io::Read,
     path::Path,
     str::FromStr,
 };
@@ -213,15 +211,11 @@ pub struct Registry {
 
 impl Registry {
     pub fn load(path: &Path) -> Result<Self, String> {
-        let mut bytes = Vec::new();
-        File::open(path)
-            .map_err(|e| format!("identity_file: {e}"))?
-            .take(MAX_REGISTRY_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("identity_file: {e}"))?;
-        if bytes.len() as u64 > MAX_REGISTRY_BYTES {
-            return Err("identity_file exceeds 64 KiB".into());
-        }
+        let bytes =
+            crate::bounded_file::read(path, MAX_REGISTRY_BYTES).map_err(|error| match error {
+                crate::bounded_file::ReadError::Limit => "identity_file exceeds 64 KiB".into(),
+                crate::bounded_file::ReadError::Io(error) => format!("identity_file: {error}"),
+            })?;
         Self::parse(&bytes)
     }
 

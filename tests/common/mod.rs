@@ -1,13 +1,12 @@
 use std::{
-    fs,
     io::BufRead,
-    path::PathBuf,
     process::{Child, Command},
-    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
-pub struct TestDir(pub PathBuf);
+#[path = "../../src/test_support.rs"]
+pub(super) mod input_fixtures;
+pub type TestDir = input_fixtures::TestDir;
 
 #[allow(dead_code)]
 pub fn http_config() -> gcs_mimic::config::Config {
@@ -61,25 +60,6 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
         ALTER TABLE objects ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
         INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata) SELECT bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata FROM objects_with_versions;
         DROP TABLE objects_with_versions;").unwrap();
-}
-
-impl TestDir {
-    pub fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "gcs-mimic-wire-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.0).unwrap();
-    }
 }
 
 pub fn server_command() -> Command {

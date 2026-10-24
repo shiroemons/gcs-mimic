@@ -39030,7 +39030,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Shared initialization authority/create-missing acceptance is frozen but unimplemented in docs/en/slices/onboarding-state-contract.md. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Typed bounded initializer parsing, native validation and count/byte-bounded shared diagnostics pass in docs/en/slices/bucket-initialization.md; selectors remain rejected until startup application exists. Shared initialization authority/create-missing remains unimplemented in docs/en/slices/onboarding-state-contract.md. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39049,27 +39049,81 @@
         },
         {
           "id": "BUCKET-INIT-INPUT",
-          "description": "Verify buckets-file CLI over env over config over unset, duplicate/empty/invalid selectors, working-directory relative paths, regular/symlink/nonregular/unreadable files; UTF-8/BOM/JSON/trailing content and required integer version 1/root/buckets shapes, including an empty list. Owner init-parser; currently unimplemented.",
+          "description": "PENDING: selector parsing and CLI over env over config over unset, duplicate/empty/non-string paths and selected-path-only startup loading. Owner init-create-missing must deliver selectors with effective startup application; the current binary rejects all three surfaces as unknown settings.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "BUCKET-INIT-PARSER-INPUT",
+          "description": "Parser API verifies working-directory relative paths, regular/symlink/nonregular/unreadable files; Unix opened-descriptor validation is nonblocking for FIFOs. UTF-8/BOM/JSON/trailing content, required integer version 1/root/buckets shapes and empty list pass. Current CLI/env/config selectors are rejected pending startup integration. Owner init-parser.",
+          "result": "PASS",
+          "test_ids": [
+            "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
+            "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+            "regular_files_relative_paths_symlinks_and_read_failures"
+          ]
         },
         {
           "id": "BUCKET-INIT-BOUNDS",
-          "description": "Verify inclusive 1,048,576-byte file, 1000-entry and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting and bounded read/diagnostic retention with no truncation or partial success. Owner init-parser; currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Inclusive 1,048,576-byte file, 1000-entry and 65,536-byte raw-entry/encoded-resource limits and each one-over case, whitespace/escape/project accounting pass. At most 1000 entries are inspected and over-count explicitly reports the uninspected remainder; errors never return partial records. Diagnostics retain at most 256 records/64 KiB with an exact omitted-error summary. Owner init-parser.",
+          "result": "PASS",
+          "test_ids": [
+            "inclusive_limit_reads_only_one_extra_byte",
+            "inclusive_file_entry_and_count_limits_include_original_bytes",
+            "encoded_resource_cannot_expand_past_the_native_body_limit",
+            "entries_after_the_count_limit_are_not_interpreted",
+            "diagnostics_are_bounded_with_an_exact_omitted_count"
+          ]
         },
         {
           "id": "BUCKET-INIT-VALIDATION",
-          "description": "Validate every supplied project and entry-over-file-over-effective-seed_project selection, global decoded duplicate bucket names, repeated JSON members at every depth and nested closed schema; reject typos/output-only/iam/policy/ACL, all lifecycle shapes and disabled UBLA no-ops. Reuse native value validation in both compatibility profiles without changing API behavior. Owner init-parser; currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "All supplied/inherited projects and entry-over-file-over-seed_project precedence, decoded global duplicate names, repeated JSON members at every depth, nested closed schema, typo/output-only/iam/policy/ACL/lifecycle and disabled UBLA rejection pass. Native field/final parsing is reused independently of the active profile, with injected microsecond Clock and unchanged API acceptance. Owner init-parser.",
+          "result": "PASS",
+          "test_ids": [
+            "native_settings_project_precedence_and_injected_microseconds",
+            "invalid_projects_do_not_hide_independent_native_errors",
+            "closed_schema_rejects_unknown_unsupported_and_disabled_noops",
+            "repeated_members_at_every_depth_and_decoded_global_names_are_reported",
+            "existing_api_acceptance_and_legacy_profile_remain_separate",
+            "oversized_entries_keep_structural_and_duplicate_name_diagnostics"
+          ]
+        },
+        {
+          "id": "BUCKET-INIT-PARSER-LINT",
+          "description": "The new initializer parser module denies clippy::unwrap_used and clippy::expect_used at module scope, confines test conveniences to its test module and passes clippy without changing API validation. Owner init-parser.",
+          "result": "PASS",
+          "test_ids": ["initializer-parser-clippy"]
+        },
+        {
+          "id": "BUCKET-INIT-PROPERTY",
+          "description": "Arbitrary byte inputs and JSON values/shapes/depths do not panic; successful parses preserve input count, decoded names and order. Existing proptest is reused without adding a test framework.",
+          "result": "PASS",
+          "test_ids": ["arbitrary_bytes_never_panic", "arbitrary_json_shapes_and_depths_never_panic", "successful_parses_preserve_input_count_names_and_order", "schema_shaped_inputs_keep_native_and_typed_conversion_consistent"]
+        },
+        {
+          "id": "BUCKET-INIT-SHARED-READ",
+          "description": "Generic take(limit+1) inclusive/overflow behavior, FIFO input, the config loader and signing CLI are verified. CLI private keys succeed at exactly 16,384 bytes and fail explicitly at 16,385; initializer-only regular-file requirements do not affect the shared reader. This case covers the declared config/signing regressions.",
+          "result": "PASS",
+          "test_ids": ["inclusive_limit_reads_only_one_extra_byte", "bounded_reads_preserve_fifo_inputs", "bounded_config_reads_preserve_fifo_inputs", "signing_cli_preserves_fifo_private_key_inputs", "signing_cli_private_key_limit_is_inclusive"]
         },
         {
           "id": "BUCKET-INIT-DIAGNOSTICS",
-          "description": "Collect multiple independent structural/semantic errors within/across entries, including existing buckets; skip only dependent checks. Verify zero-based original field paths, nearest-name suggestions/ties, repeated-member diagnostics, shared initializer-source JSON warn/error sorting, escaping/redaction and no raw parser/value/secret leakage; errors prevent initializer mutation, seed, bind and ready. Owner init-parser with Configuration's shared renderer; currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Side-effect-free parser detects independent structural/semantic errors in up to 1000 entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Startup suppression awaits BUCKET-INIT-STARTUP integration.",
+          "result": "PASS",
+          "test_ids": [
+            "invalid_projects_do_not_hide_independent_native_errors",
+            "closed_schema_rejects_unknown_unsupported_and_disabled_noops",
+            "repeated_members_at_every_depth_and_decoded_global_names_are_reported",
+            "shared_renderer_preserves_complete_sorted_escaped_batches",
+            "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+            "diagnostics_are_bounded_with_an_exact_omitted_count",
+            "oversized_entries_keep_structural_and_duplicate_name_diagnostics",
+            "diagnostic_noise_preserves_other_entries_and_document_failures",
+            "first_error_summaries_cover_all_entries_with_bounded_ranges",
+            "generalized_detail_groups_preserve_fields_after_rule_and_member_noise",
+            "shortened_first_errors_and_root_typo_advice_remain_visible",
+            "failed_retention_never_evicts_an_existing_diagnostic"
+          ]
         },
         {
           "id": "BUCKET-INIT-ATOMICITY",
@@ -39091,7 +39145,7 @@
         },
         {
           "id": "BUCKET-INIT-RESOURCES",
-          "description": "Measure empty/1000-entry parser/apply duration, CPU-seconds, peak process RSS, cgroup memory and disk/sync work separately for equivalent backend/auth/durability profiles, using Shared state's measured regression gates when available. Owners init-parser/init-create-missing with the shared benchmark owner; all initializer metrics remain unmeasured until runtime exists.",
+          "description": "Measure empty/1000-entry parser/apply duration, CPU-seconds, peak process RSS, cgroup memory and disk/sync work separately for equivalent backend/auth/durability profiles, using Shared state's measured regression gates when available. No exclusive resource window was available during parser implementation; all metrics remain PENDING with no timing values or comparison recorded, for coordinated measurement during init-create-missing.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -39168,7 +39222,36 @@
         "seeded_http_metadata_bytes_and_strict_administrative_import",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "probes_cannot_succeed_while_seed_publication_is_blocked",
-        "container-seed-lifecycle"
+        "container-seed-lifecycle",
+        "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
+        "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+        "regular_files_relative_paths_symlinks_and_read_failures",
+        "inclusive_limit_reads_only_one_extra_byte",
+        "inclusive_file_entry_and_count_limits_include_original_bytes",
+        "encoded_resource_cannot_expand_past_the_native_body_limit",
+        "native_settings_project_precedence_and_injected_microseconds",
+        "invalid_projects_do_not_hide_independent_native_errors",
+        "closed_schema_rejects_unknown_unsupported_and_disabled_noops",
+        "repeated_members_at_every_depth_and_decoded_global_names_are_reported",
+        "existing_api_acceptance_and_legacy_profile_remain_separate",
+        "shared_renderer_preserves_complete_sorted_escaped_batches",
+        "initializer-parser-clippy",
+        "entries_after_the_count_limit_are_not_interpreted",
+        "diagnostics_are_bounded_with_an_exact_omitted_count",
+        "oversized_entries_keep_structural_and_duplicate_name_diagnostics",
+        "arbitrary_bytes_never_panic",
+        "arbitrary_json_shapes_and_depths_never_panic",
+        "successful_parses_preserve_input_count_names_and_order",
+        "bounded_reads_preserve_fifo_inputs",
+        "bounded_config_reads_preserve_fifo_inputs",
+        "signing_cli_preserves_fifo_private_key_inputs",
+        "signing_cli_private_key_limit_is_inclusive",
+        "schema_shaped_inputs_keep_native_and_typed_conversion_consistent",
+        "diagnostic_noise_preserves_other_entries_and_document_failures",
+        "first_error_summaries_cover_all_entries_with_bounded_ranges",
+        "generalized_detail_groups_preserve_fields_after_rule_and_member_noise",
+        "shortened_first_errors_and_root_typo_advice_remain_visible",
+        "failed_retention_never_evicts_an_existing_diagnostic"
       ],
       "verification": [
         {
@@ -39181,6 +39264,69 @@
             "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
             "probes_cannot_succeed_while_seed_publication_is_blocked"
           ]
+        },
+        {
+          "command": "cargo test --lib --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
+            "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
+            "regular_files_relative_paths_symlinks_and_read_failures",
+            "inclusive_limit_reads_only_one_extra_byte",
+            "inclusive_file_entry_and_count_limits_include_original_bytes",
+            "encoded_resource_cannot_expand_past_the_native_body_limit",
+            "native_settings_project_precedence_and_injected_microseconds",
+            "invalid_projects_do_not_hide_independent_native_errors",
+            "closed_schema_rejects_unknown_unsupported_and_disabled_noops",
+            "repeated_members_at_every_depth_and_decoded_global_names_are_reported",
+            "existing_api_acceptance_and_legacy_profile_remain_separate",
+            "shared_renderer_preserves_complete_sorted_escaped_batches",
+            "entries_after_the_count_limit_are_not_interpreted",
+            "diagnostics_are_bounded_with_an_exact_omitted_count",
+            "oversized_entries_keep_structural_and_duplicate_name_diagnostics",
+            "arbitrary_bytes_never_panic",
+            "arbitrary_json_shapes_and_depths_never_panic",
+            "successful_parses_preserve_input_count_names_and_order",
+            "bounded_reads_preserve_fifo_inputs",
+            "bounded_config_reads_preserve_fifo_inputs",
+            "schema_shaped_inputs_keep_native_and_typed_conversion_consistent",
+            "diagnostic_noise_preserves_other_entries_and_document_failures",
+            "first_error_summaries_cover_all_entries_with_bounded_ranges",
+            "generalized_detail_groups_preserve_fields_after_rule_and_member_noise",
+            "shortened_first_errors_and_root_typo_advice_remain_visible",
+            "failed_retention_never_evicts_an_existing_diagnostic"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": [
+            "generalized_detail_groups_preserve_fields_after_rule_and_member_noise",
+            "shortened_first_errors_and_root_typo_advice_remain_visible",
+            "failed_retention_never_evicts_an_existing_diagnostic",
+            "signing_cli_preserves_fifo_private_key_inputs",
+            "signing_cli_private_key_limit_is_inclusive",
+            "seeded_http_metadata_bytes_and_strict_administrative_import",
+            "initializer-parser-clippy"
+          ]
+        },
+        {
+          "command": "cargo test --offline --test sign_url_cli",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["signing_cli_preserves_fifo_private_key_inputs", "signing_cli_private_key_limit_is_inclusive"]
+        },
+        {
+          "command": "cargo clippy --workspace --all-targets --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["initializer-parser-clippy"]
         },
         {
           "command": "Docker Linux ARM64, network none, pinned Rust 1.99.1: cargo +1.99.1 test --locked --offline --test seed",

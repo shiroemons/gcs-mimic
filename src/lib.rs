@@ -1,5 +1,7 @@
 pub mod auth;
+pub mod bounded_file;
 pub mod bucket;
+pub mod bucket_init;
 pub mod clock;
 pub mod config;
 pub mod config_input;
@@ -16,6 +18,8 @@ pub mod seed;
 pub mod server;
 pub mod source_tree;
 pub mod storage;
+#[cfg(test)]
+mod test_support;
 pub mod tls;
 pub mod url;
 pub mod xml;

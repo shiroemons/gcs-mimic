@@ -8,8 +8,6 @@ use crate::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
-    io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
 };
@@ -613,13 +611,11 @@ impl ConfigReadError {
 }
 
 fn read_config(path: &str) -> Result<Vec<(String, serde_json::Value)>, ConfigReadError> {
-    let mut bytes = Vec::new();
-    File::open(Path::new(path))
-        .and_then(|f| f.take(65_537).read_to_end(&mut bytes))
-        .map_err(|_| ConfigReadError::Unreadable)?;
-    if bytes.len() > 65_536 {
-        return Err(ConfigReadError::TooLarge);
-    }
+    let bytes =
+        crate::bounded_file::read(Path::new(path), 65_536).map_err(|error| match error {
+            crate::bounded_file::ReadError::Limit => ConfigReadError::TooLarge,
+            crate::bounded_file::ReadError::Io(_) => ConfigReadError::Unreadable,
+        })?;
     serde_json::from_slice::<ConfigEntries>(&bytes)
         .map(|entries| entries.0)
         .map_err(|error| {
@@ -688,6 +684,64 @@ mod tests {
     impl Drop for PublicConfigDir {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_config_reads_preserve_fifo_inputs() {
+        use std::io::Write;
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config-input");
+        crate::test_support::fifo(&file);
+        let writer_file = file.clone();
+        let writer = std::thread::spawn(move || {
+            std::fs::File::create(writer_file)
+                .unwrap()
+                .write_all(br#"{"worker_threads":3}"#)
+                .unwrap()
+        });
+        let result = Config::load(
+            &["--config".into(), file.to_str().unwrap().into()],
+            &BTreeMap::new(),
+        );
+        writer.join().unwrap();
+        assert_eq!(result.unwrap().worker_threads, 3);
+    }
+
+    #[test]
+    fn bucket_initializer_selectors_remain_unsupported_until_startup_integration() {
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config.json");
+        std::fs::write(&file, r#"{"buckets_file":"file-buckets.json"}"#).unwrap();
+        for (source, key, args, env) in [
+            (
+                DiagnosticSource::Cli,
+                "--buckets-file",
+                vec!["--buckets-file".into(), "buckets.json".into()],
+                BTreeMap::new(),
+            ),
+            (
+                DiagnosticSource::Environment,
+                "GCS_MIMIC_BUCKETS_FILE",
+                vec![],
+                BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE".into(), "buckets.json".into())]),
+            ),
+            (
+                DiagnosticSource::Config,
+                "buckets_file",
+                vec!["--config".into(), file.to_str().unwrap().into()],
+                BTreeMap::new(),
+            ),
+        ] {
+            let errors = Config::load(&args, &env).unwrap_err();
+            assert_eq!(errors.errors.len(), 1);
+            assert_eq!(errors.errors[0].source, source);
+            assert_eq!(errors.errors[0].key, key);
+            assert_eq!(
+                errors.errors[0].fix,
+                "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
+            );
         }
     }
 

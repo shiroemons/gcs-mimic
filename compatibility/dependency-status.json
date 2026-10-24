@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-24T08:41:38Z",
-  "scope": "Configuration migration diagnostics: existing Rust/Go/Ruby, container and Action inputs plus promoted serde derive and development-only proptest. The locked production package versions are unchanged; eleven packages are added only to the test graph.",
+  "checked_at_utc": "2026-10-24T11:07:27Z",
+  "scope": "Initializer parsing: existing Rust/Go/Ruby/container/Action inputs, serde_json raw_value and reuse of the approved direct libc dependency for Unix O_NONBLOCK alongside fsutil xattr inspection. No package version or package count changes relative to the integrated source-import baseline.",
   "freshness_check": {
     "command": "cargo xtask dependencies check",
     "exit_code": 1,
     "result": "UPDATE_AVAILABLE",
-    "artifact": "docs/en/evidence/configuration-diagnostics-dependencies.txt",
-    "follow_up": "Rust, serde/proptest and the other direct Rust dependencies, SDK inputs and Actions are CURRENT. The existing distroless/cc-debian13:nonroot digest has an available update from 83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf to 3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e; Distribution owns its remediation and release gate. No container build, SDK execution or remote workflow was run in this slice."
+    "artifact": "docs/en/slices/bucket-initialization.md",
+    "follow_up": "Rust 1.99.1, libc 0.2.191, serde/proptest, SDK inputs, Actions and other checked inputs are current except for rusqlite 0.41.0 (locked 0.40.2), owned by Shared state/dependency updates, and distroless/cc-debian13:nonroot, owned by Distribution: locked sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf, latest sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e. Both unresolved updates require review by 2026-10-25 before integration/release; Distribution retains the container release gate. No freshness exception or parser-slice container build, SDK execution or remote workflow is claimed; source-import and startup evidence remains separate."
   },
   "toolchain": {
     "channel": "stable",
@@ -20,7 +20,7 @@
     {
       "name": "libc", "current": "0.2.191", "latest_non_yanked_stable": "0.2.191",
       "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 855401, "minimum_rust": "1.65",
-      "purpose": "Approved promotion of the existing locked libc package for descriptor-based, read-only, fixed-capacity source xattr inspection in fsutil; no shell subprocess or xattr crate.",
+      "purpose": "Approved promotion of the existing locked libc package for descriptor-based, read-only, fixed-capacity source xattr inspection in fsutil and Unix O_NONBLOCK initializer regular-file validation on the opened descriptor; no shell subprocess or xattr crate.",
       "features": ["std"],
       "maintenance": "Official rust-lang repository is not archived; last push 2026-10-24T07:26:51Z. Latest non-yanked stable independently checked in the official Cargo index on 2026-10-24; published 2026-10-16T22:56:46Z.",
       "source_urls": ["https://index.crates.io/li/bc/libc", "https://static.crates.io/crates/libc/libc-0.2.191.crate", "https://api.github.com/repos/rust-lang/libc"],
@@ -30,7 +30,7 @@
     {
       "name": "proptest", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
       "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 213842, "minimum_rust": "1.88",
-      "purpose": "Development-only property tests for arbitrary legacy/native CLI and environment input without parser panics or malformed diagnostic JSON.",
+      "purpose": "Development-only property tests for arbitrary legacy/native CLI/environment inputs and initializer bytes/JSON shapes/depths without parser panics or malformed diagnostics.",
       "features": ["std"],
       "maintenance": "Official repository is not archived; last push 2026-10-10T18:18:37Z. Latest non-yanked stable release independently verified from the official Cargo index on 2026-10-24.",
       "source_urls": ["https://index.crates.io/pr/op/proptest", "https://static.crates.io/crates/proptest/proptest-1.12.0.crate", "https://raw.githubusercontent.com/proptest-rs/proptest/v1.12.0/proptest/Cargo.toml", "https://api.github.com/repos/proptest-rs/proptest"],
@@ -64,8 +64,8 @@
       "license": "MIT OR Apache-2.0",
       "compressed_crate_bytes": 158079,
       "minimum_rust": "1.71",
-      "purpose": "Read ledger, bounded runtime configuration and official dependency metadata without a general schema engine.",
-      "features": ["std"],
+      "purpose": "Read ledger, bounded runtime configuration and official dependency metadata; raw_value preserves original initializer entry spans for byte limits and repeated-member diagnostics without a second JSON syntax parser.",
+      "features": ["std", "raw_value"],
       "maintenance": "Official publisher release v1.0.154 published 2026-10-11; actively maintained.",
       "source_urls": [
         "https://index.crates.io/se/rd/serde_json",
@@ -121,11 +121,11 @@
       "resolution_constraints": "Latest stable compatible with Hyper 1.12.0."
     },
     {
-      "name": "rusqlite", "current": "0.40.2", "latest_non_yanked_stable": "0.40.2",
+      "name": "rusqlite", "current": "0.40.2", "latest_non_yanked_stable": "0.41.0",
       "license": "MIT", "compressed_crate_bytes": 177215, "minimum_rust": null,
       "purpose": "Indexed transactional bucket/object catalog with bundled SQLite, durable generation allocation, WAL recovery and atomic mutation preconditions.",
       "features": ["bundled"],
-      "maintenance": "Official rusqlite publisher; latest non-yanked stable verified from the crates.io index on 2026-10-21.",
+      "maintenance": "Official Cargo-index check detected non-yanked stable 0.41.0; Shared state/dependency updates must review migration by 2026-10-25. This is unresolved drift, not an approved freshness exception.",
       "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.40.2.crate", "https://github.com/rusqlite/rusqlite"],
       "resolution_constraints": "Default features disabled; bundled SQLite only. Cargo.lock pins libsqlite3-sys 0.38.2 and the full graph; no cache, pooling or extension features. No rust-version is declared by the crate."
     },

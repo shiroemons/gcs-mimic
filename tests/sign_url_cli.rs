@@ -1,6 +1,7 @@
 #[allow(dead_code)]
 mod common;
 
+use common::input_fixtures;
 use gcs_mimic::{
     auth::{Auth, Registry},
     clock::Clock,
@@ -12,6 +13,50 @@ use std::{
 };
 
 const DATE: &str = "20261023T120000Z";
+
+#[test]
+fn signing_cli_private_key_limit_is_inclusive() {
+    let directory = input_fixtures::TestDir::new();
+    let file = directory.0.join("private.pem");
+    let mut key = std::fs::read("fixtures/signing/test-only-private.pem").unwrap();
+    key.resize(16_384, b' ');
+    std::fs::write(&file, &key).unwrap();
+    let mut args = options();
+    args[15] = file.to_str().unwrap();
+    assert!(run_options(&args, &[]).status.success());
+    key.push(b' ');
+    std::fs::write(&file, &key).unwrap();
+    let output = run_options(&args, &[]);
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("Private key exceeds 16 KiB")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn signing_cli_preserves_fifo_private_key_inputs() {
+    use std::io::Write;
+    let directory = input_fixtures::TestDir::new();
+    let file = directory.0.join("private-input");
+    input_fixtures::fifo(&file);
+    let writer_path = file.clone();
+    let writer = std::thread::spawn(move || {
+        let key = std::fs::read("fixtures/signing/test-only-private.pem").unwrap();
+        std::fs::File::create(writer_path)
+            .unwrap()
+            .write_all(&key)
+            .unwrap();
+    });
+    let mut args = options();
+    args[15] = file.to_str().unwrap();
+    let output = run_options(&args, &[]);
+    writer.join().unwrap();
+    assert!(output.status.success(), "{output:?}");
+}
 struct Fixed;
 impl Clock for Fixed {
     fn now(&self) -> SystemTime {

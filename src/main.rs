@@ -324,7 +324,6 @@ fn url_base(options: &BTreeMap<&str, &str>, configured: Option<String>) -> Resul
 }
 
 fn url_sign(args: &[String], configured: Option<String>) -> Result<String, String> {
-    use std::io::Read;
     let mut options = BTreeMap::new();
     let mut headers = hyper::HeaderMap::new();
     let mut query = Vec::new();
@@ -412,12 +411,16 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
         .map(|s| gcs_mimic::auth::signature::parse_timestamp(s))
         .transpose()?
         .unwrap_or_else(|| SystemClock.now());
-    let mut key = Vec::new();
-    std::fs::File::open(required("--private-key")?)
-        .map_err(|_| "Cannot read private key; provide a readable local RSA PEM file.")?
-        .take(16385)
-        .read_to_end(&mut key)
-        .map_err(|_| "Cannot read private key; provide a readable local RSA PEM file.")?;
+    let key =
+        gcs_mimic::bounded_file::read(std::path::Path::new(required("--private-key")?), 16_384)
+            .map_err(|error| match error {
+                gcs_mimic::bounded_file::ReadError::Limit => {
+                    "Private key exceeds 16 KiB; provide a bounded RSA PEM file."
+                }
+                gcs_mimic::bounded_file::ReadError::Io(_) => {
+                    "Cannot read private key; provide a readable local RSA PEM file."
+                }
+            })?;
     gcs_mimic::auth::signature::sign_url(
         &url,
         &method,

@@ -1,10 +1,5 @@
 use crate::config::{Config, Scheme};
-use std::{
-    fs::File,
-    io::{self, Read},
-    path::Path,
-    sync::Arc,
-};
+use std::{io, path::Path, sync::Arc};
 use tokio_rustls::{
     TlsAcceptor,
     rustls::{
@@ -21,17 +16,12 @@ const DEVELOPMENT_CERT_PEM: &[u8] = include_bytes!("tls/development-cert.pem");
 const DEVELOPMENT_KEY_PEM: &[u8] = include_bytes!("tls/development-key.pem");
 
 fn read_pem(path: &Path) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    File::open(path)?
-        .take(PEM_LIMIT + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > PEM_LIMIT {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "TLS PEM file exceeds 1 MiB",
-        ));
-    }
-    Ok(bytes)
+    crate::bounded_file::read(path, PEM_LIMIT).map_err(|error| match error {
+        crate::bounded_file::ReadError::Io(error) => error,
+        crate::bounded_file::ReadError::Limit => {
+            io::Error::new(io::ErrorKind::InvalidData, "TLS PEM file exceeds 1 MiB")
+        }
+    })
 }
 
 fn certificates(bytes: &[u8]) -> io::Result<Vec<CertificateDer<'static>>> {
