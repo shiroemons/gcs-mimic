@@ -14,7 +14,6 @@ use std::{
     net::SocketAddr,
     pin::Pin,
     sync::{Arc, atomic::AtomicBool},
-    time::Duration,
 };
 
 pub(crate) enum PhaseResult<T> {
@@ -312,6 +311,8 @@ async fn bind_after_time_wait(
     address: SocketAddr,
     original: io::Error,
 ) -> io::Result<()> {
+    use std::time::Duration;
+
     if original.kind() != io::ErrorKind::AddrInUse {
         return Err(original);
     }
