@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-24T13:05:59Z",
-  "scope": "Approved rusqlite 0.41.0 migration over the initializer baseline: only rusqlite and its required libsqlite3-sys package versions change. Existing Rust/Go/Ruby/container/Action inputs, serde_json raw_value, libc fsutil xattr inspection and Unix O_NONBLOCK initializer validation, and development-only proptest uses are preserved. Feature implementation status and catalog schema are unchanged by this dependency update.",
+  "checked_at_utc": "2026-10-24T16:13:40Z",
+  "scope": "Container base image refresh: the distroless/cc-debian13:nonroot index and its linux/amd64 and linux/arm64 manifests, and the rust:1.99.1-slim-trixie index digest whose linux/amd64 and linux/arm64 manifests are unchanged. Rust, Go, Ruby, Action and crate inputs, feature implementation status and catalog schema are unchanged.",
   "freshness_check": {
     "command": "just check-dependencies",
-    "exit_code": 1,
-    "result": "UPDATE_AVAILABLE",
-    "artifact": "docs/en/evidence/rusqlite-dependencies.txt",
-    "follow_up": "All direct Rust dependencies, including adopted rusqlite 0.41.0, Rust, SDK inputs and Actions are CURRENT. The existing distroless/cc-debian13:nonroot digest has an available update from 83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf to 3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e; Distribution owns remediation, review by 2026-10-25 before integration/release, and the container release gate. No freshness exception is claimed. Compatibility results and unexecuted checks are recorded in docs/en/evidence/rusqlite-update.md; source-import, initializer and startup evidence remains separate."
+    "exit_code": 0,
+    "result": "CURRENT",
+    "artifact": "docs/en/evidence/container-base-update-dependencies.txt",
+    "follow_up": "All checked inputs are CURRENT, including the refreshed distroless and Rust build image digests. Earlier rusqlite migration results remain in docs/en/evidence/rusqlite-update.md."
   },
   "toolchain": {
     "channel": "stable",
@@ -183,8 +183,8 @@
       {
         "repository": "library/rust", "reference": "rust:1.99.1-slim-trixie",
         "tag": "1.99.1-slim-trixie", "latest_tag": "slim-trixie",
-        "digest": "sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6",
-        "latest_verified_digest": "sha256:aab42391a986424e22d6a3ec14f37bc6dd3dacff4d457ca7cccd781e02297cc6",
+        "digest": "sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb",
+        "latest_verified_digest": "sha256:1a939748a7cbab172de91a014e3804a97af1394a8c844faa67fce9401c4e40fb",
         "verification_status": "ADOPTED",
         "update_scope": "Slice-end registry inspection found a new index for both 1.99.1-slim-trixie and slim-trixie. The linux/amd64 and linux/arm64 platform digests are unchanged. See docs/en/evidence/resumable-upload-freshness.txt for the native ARM64 image build and final freshness result; both-platform smoke checks are separate evidence.",
         "platforms": {
@@ -197,10 +197,10 @@
         "registry": "gcr.io",
         "repository": "distroless/cc-debian13", "reference": "gcr.io/distroless/cc-debian13:nonroot",
         "tag": "nonroot", "latest_tag": "nonroot", "stable_codename": "trixie",
-        "digest": "sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf",
+        "digest": "sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e",
         "platforms": {
-          "linux/amd64": "sha256:fe0b0247194032fa4c87259517e9686de4526f08caddbf169957264d06048a70",
-          "linux/arm64": "sha256:d9fa11a812eb4c61e3176222149a3030868b99be11fd7d197d9c4a4853db745c"
+          "linux/amd64": "sha256:732d2fe38bb1996cb47f8218b48dc840967684d73c5483894ff2ed638068c1b6",
+          "linux/arm64": "sha256:91e80685018de611a20450bed6b011c3d3242b3d9cc4452208121f342703ada0"
         },
         "source_url": "https://github.com/GoogleContainerTools/distroless",
         "stable_source_url": "https://deb.debian.org/debian/dists/stable/Release",
