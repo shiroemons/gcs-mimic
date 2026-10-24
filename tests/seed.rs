@@ -711,6 +711,9 @@ async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
         .recv_timeout(Duration::from_secs(5))
         .expect("seed must start");
     assert_eq!(event["event"], "seeding");
+    // "seeding" precedes the fixture scan; TERM before the first catalog write would test an
+    // idle shutdown instead. The blocked write waits up to the 5-second busy timeout.
+    tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(
         Command::new("kill")
             .args(["-TERM", &server.child.id().to_string()])
