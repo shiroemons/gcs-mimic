@@ -51,9 +51,34 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         public_access_prevention_enforced: false,
         cors: Vec::new(),
         metageneration: 3,
-        time_created: UNIX_EPOCH + Duration::from_micros(42_123_456),
-        updated: UNIX_EPOCH + Duration::from_micros(43_987_654),
+        time_created: UNIX_EPOCH + Duration::from_millis(42_123),
+        updated: UNIX_EPOCH + Duration::from_millis(43_987),
     }
+}
+
+#[tokio::test]
+async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let mut original = bucket("timestamp-reopen", "project");
+    original.time_created = UNIX_EPOCH + Duration::from_micros(42_123_456);
+    original.updated = UNIX_EPOCH + Duration::from_micros(43_987_654);
+    let original = catalog.insert_bucket(original).await.unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        14
+    );
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("timestamp-reopen").await.unwrap(),
+        Some(original)
+    );
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -66,6 +91,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         .unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    common::downgrade_timestamp_precision(&connection);
     connection.execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; PRAGMA user_version = 12;").unwrap();
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -92,7 +118,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     assert!(
         connection
@@ -121,6 +147,7 @@ async fn bucket_cors_migrates_version_eleven_and_rejects_invalid_library_updates
         .unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    common::downgrade_timestamp_precision(&connection);
     connection
         .execute_batch("ALTER TABLE buckets DROP COLUMN public_access_prevention_enforced; ALTER TABLE buckets DROP COLUMN cors; PRAGMA user_version = 11;")
         .unwrap();
@@ -248,7 +275,10 @@ async fn bucket_put_uses_clock_and_rolls_back_invalid_replacement() {
     assert_eq!(record.storage_class, "NEARLINE");
     assert!(!record.versioning_enabled);
     assert!(!record.default_event_based_hold);
-    assert_eq!(record.updated, UNIX_EPOCH + Duration::from_millis(123_456));
+    assert_eq!(
+        record.updated,
+        UNIX_EPOCH + Duration::from_micros(123_456_789)
+    );
     assert_eq!(record.time_created, original.time_created);
     assert_eq!(record.project, original.project);
     assert_eq!(record.location, original.location);
@@ -403,7 +433,10 @@ async fn bucket_patch_uses_clock_and_rolls_back_invalid_merge() {
         )
         .await
         .unwrap();
-    assert_eq!(record.updated, UNIX_EPOCH + Duration::from_millis(123_456));
+    assert_eq!(
+        record.updated,
+        UNIX_EPOCH + Duration::from_micros(123_456_789)
+    );
     assert_eq!(record.time_created, original.time_created);
     assert_eq!(record.metageneration, 4);
     let next = catalog
@@ -881,7 +914,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
         assert_eq!(
             connection
@@ -945,7 +978,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 14)
+                .pragma_update(None, "user_version", 15)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -1019,7 +1052,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             "{fixture}: {error}"
         );
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 14"));
+            assert!(error.to_string().contains("schema version 15"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1079,7 +1112,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -1184,7 +1217,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     assert_eq!(
         connection
@@ -1204,7 +1237,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 14)
+        .pragma_update(None, "user_version", 15)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
@@ -1216,7 +1249,7 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
                 .err()
                 .unwrap()
                 .to_string()
-                .contains("schema version 14")
+                .contains("schema version 15")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
@@ -1236,7 +1269,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 14;",
+            "future" => "PRAGMA user_version = 15;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

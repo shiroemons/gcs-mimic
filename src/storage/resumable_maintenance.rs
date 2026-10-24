@@ -219,7 +219,7 @@ impl Catalog {
                     })
                     .map_err(unavailable)?;
                 deadline
-                    .map(super::system_time)
+                    .map(super::system_time_millis)
                     .transpose()
                     .map_err(unavailable)
             })

@@ -27,7 +27,7 @@ pub struct ObjectRecord {
     pub crc32c: u32,
     pub component_count: Option<i64>,
     pub storage_class: String,
-    /// Millisecond precision, matching bucket timestamps.
+    /// Microsecond precision in the catalog; protocol adapters retain their wire precision.
     pub time_created: SystemTime,
     pub updated: SystemTime,
     pub time_deleted: Option<SystemTime>,

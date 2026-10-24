@@ -1,6 +1,9 @@
 //! Generation-pinned, resumable byte derivation shared by copy, rewrite and compose.
 
-use super::{Catalog, objects, resumable::WriterGuard, system_time, unix_millis};
+use super::{
+    Catalog, objects, resumable::WriterGuard, system_time_micros, system_time_millis, unix_micros,
+    unix_millis,
+};
 use crate::{
     bucket::BucketAccess,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord},
@@ -13,7 +16,6 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
@@ -213,8 +215,8 @@ fn transfer(
             id: id.into(),
             total: total as u64,
             offset: offset as u64,
-            created: system_time(created).map_err(unavailable)?,
-            deadline: system_time(deadline).map_err(unavailable)?,
+            created: system_time_millis(created).map_err(unavailable)?,
+            deadline: system_time_millis(deadline).map_err(unavailable)?,
         },
         md5,
         crc,
@@ -471,8 +473,8 @@ impl Catalog {
                         id: id.clone(),
                         total,
                         offset: 0,
-                        created: system_time(created).map_err(unavailable)?,
-                        deadline: system_time(deadline).map_err(unavailable)?,
+                        created: system_time_millis(created).map_err(unavailable)?,
+                        deadline: system_time_millis(deadline).map_err(unavailable)?,
                     };
                     bind(&transaction, &transfer)?;
                     if let Err(error) = transaction.commit() {
@@ -665,11 +667,11 @@ impl Catalog {
                 objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite)?;
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
                 let now = clock.now();
-                let micros = i64::try_from(now.duration_since(UNIX_EPOCH).map_err(unavailable)?.as_micros()).map_err(unavailable)?;
+                now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
+                let micros = unix_micros(now).map_err(unavailable)?;
                 let last: i64 = transaction.query_row("SELECT last_generation FROM object_generation WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
                 let generation = micros.max(last.checked_add(1).ok_or_else(|| unavailable("generation exhausted"))?);
-                let millis = unix_millis(now).map_err(unavailable)?;
-                let time = system_time(millis).map_err(unavailable)?;
+                let time = system_time_micros(micros).map_err(unavailable)?;
                 let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {
@@ -684,9 +686,9 @@ impl Catalog {
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
                 prepare(&transaction, &mut record)?;
                 let metadata = serde_json::to_string(&record.metadata).map_err(unavailable)?;
-                let retired = objects::retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
+                let retired = objects::retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
                 transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(unavailable)?;
-                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?9,?10,?11,?12,?13,?14,?15,?16,?17)", params![record.bucket, record.name, generation, record.content_type, record.size as i64, &md5[..], crc32c, record.storage_class, millis, query, record.content_encoding, record.content_disposition, record.content_language, record.cache_control, metadata, record.event_based_hold, record.component_count]).map_err(unavailable)?;
+                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?9,?10,?11,?12,?13,?14,?15,?16,?17)", params![record.bucket, record.name, generation, record.content_type, record.size as i64, &md5[..], crc32c, record.storage_class, micros, query, record.content_encoding, record.content_disposition, record.content_language, record.cache_control, metadata, record.event_based_hold, record.component_count]).map_err(unavailable)?;
                 complete(&transaction, &record)?;
                 transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(unavailable)?;
                 transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(unavailable)?;
@@ -784,7 +786,7 @@ impl Catalog {
                 deadline
             };
             deadline
-                .map(system_time)
+                .map(system_time_millis)
                 .transpose()
                 .map_err(super::unavailable)
         })
@@ -959,6 +961,7 @@ mod tests {
     use crate::{bucket::BucketRecord, object::UploadChunk};
     use bytes::Bytes;
     use std::io::Write;
+    use std::time::UNIX_EPOCH;
     use tokio::sync::mpsc;
 
     async fn setup() -> (Catalog, PathBuf) {
@@ -1947,10 +1950,14 @@ mod tests {
     #[tokio::test]
     async fn migrated_version_nine_catalog_has_no_foreign_key_violations_or_changed_object() {
         let (catalog, path) = setup().await;
-        let original = put(&catalog, "source", b"bytes").await;
+        let mut original = put(&catalog, "source", b"bytes").await;
+        original.time_created =
+            system_time_millis(unix_millis(original.time_created).unwrap()).unwrap();
+        original.updated = original.time_created;
         catalog.close().await.unwrap();
         drop(catalog);
         let connection = Connection::open(path.join("catalog.sqlite3")).unwrap();
+        super::super::test_support::downgrade_timestamp_precision(&connection);
         connection
             .execute_batch("DROP TABLE rewrite_sessions;")
             .unwrap();

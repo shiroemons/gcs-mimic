@@ -937,7 +937,8 @@
         "completion_conditions": [
           "Specify bucket/project identity, strict initialization authority, readiness ordering and the shared bounded mutation/publication interface before adapter implementation.",
           "Assign catalog/schema/publication changes to one integration owner; initializer, watcher and importer adapters must preserve conditions, hashes, generations and recovery.",
-          "Freeze the create-missing-only policy without coupling initializer completion to synchronization or public-host configuration."
+          "Freeze the create-missing-only policy without coupling initializer completion to synchronization or public-host configuration.",
+          "shared-timestamp-precision follows repo-lints and precedes shared-imported-identity: schema 14 stores bucket/object times in microseconds with an atomic version-13 migration and unchanged JSON/XML/ETags/internal deadlines; initial AUDIT-014 timestamp migration/backup/downgrade cases live in docs/en/slices/catalog-timestamp-precision.md."
         ],
         "deferred_scope": "A design contract is not implementation evidence. File schema, synchronization conflicts/names and source-format preservation require their own scoped decisions."
       },
@@ -976,7 +977,7 @@
         "completion_conditions": [
           "Freeze seed, durable filesystem and memory live-export boundaries in docs/en/slices/source-storage-contract.md, with upstream git blobs and MIME source digests in compatibility/upstream/source-storage-contract.json; preserve empty buckets and distinguish generated seed ACLs from stored runtime ACLs.",
           "Define read-only typed readers, explicit root-wide metadata mode, bounded reports, body verification, fingerprints and checkpoint/cutover recovery before implementing adapters; seed_content_type defaults to octet-stream with an explicit pinned extension profile.",
-          "Specify imported hold preservation, staging-only protected handles, per-element SAVEPOINT publication with atomic successful-element journal state, both cleanup invariants and paged inode/ctime observations; see Delivery boundaries in docs/en/slices/source-storage-contract.md and owning feature known_deviations for Shared state handoffs. Report generated ETags/bucket times and normalized-name limits, block unsupported ACL/history/retention and object precision by default, and permit only explicit reported lossy ms conversion. import-dry-run owns SourceMetadataBuffer and the typed single-call fsutil xattr reader accepting only that fixed-capacity type, plus importer-owned failures; it starts without Shared state and merges after repo-lints. Whichever of import-dry-run and shared-publication-io lands first creates fsutil, makes libc direct and updates the dependency ledger; the later slice extends it. Retain pending runtime cases on DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014. Contract completion alone does not implement an importer."
+          "Specify imported hold preservation, staging-only protected handles, per-element SAVEPOINT publication with atomic successful-element journal state, both cleanup invariants and paged inode/ctime observations; see Delivery boundaries in docs/en/slices/source-storage-contract.md and owning feature known_deviations for Shared state handoffs. Report generated ETags/bucket times and normalized-name limits, block unsupported ACL/history/retention, and preserve exact Created/Updated microseconds by default; block nonzero sub-microsecond digits without a lossy ms mode. shared-timestamp-precision owns schema 14 and precedes shared-imported-identity. import-dry-run owns SourceMetadataBuffer and the typed single-call fsutil xattr reader accepting only that fixed-capacity type, plus importer-owned failures; it starts without Shared state and merges after repo-lints. Whichever of import-dry-run and shared-publication-io lands first creates fsutil, makes libc direct and updates the dependency ledger; the later slice extends it. Retain pending runtime cases on DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014. Contract completion alone does not implement an importer."
         ],
         "deferred_scope": "The scoped format contract does not imply import implementation or complete source inventory. It removes unnecessary dependency on unrelated CLI/protocol inventory."
       }
@@ -1098,9 +1099,9 @@
           ],
           "completion_conditions": [
             "Implement source-filesystem-reader and source-integrity-report from docs/en/slices/source-storage-contract.md using explicit root-wide metadata mode and the pinned bucket/object git blobs; never mutate source, silently fall back between xattrs/sidecars or infer memory state from a directory.",
-            "Preflight metadata/stat only into a separate empty destination; preserve recoverable normalized disk names, bytes, fields and generations. Report generated ETags/bucket times/metageneration and unverifiable original names; block ACL/history/retention, ambiguity, corruption and sub-millisecond object times by default. Explicit timestamp-precision ms reports original values/counts and is never lossless.",
+            "Preflight metadata/stat only into a separate empty destination; preserve recoverable normalized disk names, bytes, fields, generations and exact Created/Updated microseconds. Report generated ETags/bucket times/metageneration and unverifiable original names; block ACL/history/retention, ambiguity, corruption and nonzero sub-microsecond digits without a lossy ms mode. shared-timestamp-precision provides schema 14 storage; imported publication remains in shared-imported-identity.",
             "Use staging-only verified publication, shared-imported-identity and shared-import-journal with imported hold preservation; see Delivery boundaries in docs/en/slices/source-storage-contract.md and owning feature known_deviations for unresolved Shared state handoffs. publish_objects uses per-element SAVEPOINTs and atomically records successful elements with digests, inode/ctime observations and journal state. Close count/time-bounded batches without rollback; element rejection is terminal and resumable progress is a contiguous prefix. A possibly committed blob survives caller cancellation during SQLite commit and handle drop; definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs are reclaimed before command exit. Cleanup failures stay visible off Tokio workers; handle budgeting remains unresolved. Verify bodies once while staging; retain inode/ctime in within-execution fingerprints and stop on stat-only change, then revalidate drifted committed elements on resume. This limited no-reread exception was coordinator-approved on 2026-10-24. Retry interruption/cancellation/Busy/disk-full or inode/ctime-only stops only for an unchanged export binding, including crashes before/after recording the stat-only stop. Changes to paths/size/mtime/metadata/body, corruption, checksum/blocking findings and element rejection remain terminal with safe abandonment guidance.",
-            "Pass source-name-scope, source-preserved-identity, source-import-authorization, source-import-recovery and source-cutover: AdminGrant in both profiles, no imported IAM/public grants, strict reads, old generation conditions, nonreused identities, shutdown cleanup, unfinished-import serve refusal, atomic completion/seed guard and source backup/rollback. See Delivery boundaries in docs/en/slices/source-storage-contract.md and AUDIT-014 known_deviations for the catalog-upgrade-policy assignment request; this Import slice imposes no Shared state schema-change gate."
+            "Pass source-name-scope, source-preserved-identity, source-import-authorization, source-import-recovery and source-cutover: AdminGrant in both profiles, no imported IAM/public grants, strict reads, old generation conditions, nonreused identities, shutdown cleanup, unfinished-import serve refusal, atomic completion/seed guard and source backup/rollback. See Delivery boundaries in docs/en/slices/source-storage-contract.md and AUDIT-014 for shared-timestamp-precision migration evidence and remaining catalog-upgrade-policy cases."
           ],
           "deferred_scope": "The contract adds no reader, importer or shared catalog changes. Memory export belongs to the Go adapter; a declared live-only subset is not lossless full migration, and unsupported histories, policy semantics and timestamp precision remain blocking findings."
         },
@@ -40316,6 +40317,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "catalog-timestamp-writes",
+          "description": "Persist bucket/object creation, update and retirement times as floor-to-microsecond signed Unix integers, including supported pre-epoch metadata and nanosecond inputs; media/resumable/derived publication retains 503 rejection of pre-epoch clocks and unchanged generation allocation. Preserve JSON millisecond rendering, XML supported range, ETags and internal deadlines. Scope: docs/en/slices/catalog-timestamp-precision.md.",
+          "result": "PASS",
+          "test_ids": [
+            "timestamp_writes_floor_microseconds_across_publication_routes",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+            "timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors"
+          ]
+        },
+        {
           "id": "DESIGN-073-MEDIA",
           "description": "Failed hashes/disconnects preserve old bytes; selected rename-before-commit SIGKILL recovers, readers remain pinned, EOF-barrier races cover both outcomes and post-commit reclaim failures defer cleanup.",
           "result": "PASS",
@@ -40341,7 +40352,7 @@
         },
         {
           "id": "source-preserved-identity",
-          "description": "Use shared publication/imported identity to preserve recoverable normalized disk names, bytes, metadata, generations and exact millisecond timestamps; block sub-millisecond object times by default, permit only explicit timestamp-precision ms with original values/counts and no lossless claim. Report generated ETags/metageneration/bucket times; verify generation reads/conditions and allocator bounds; block unsupported ACL/history/retention.",
+          "description": "Use shared publication/imported identity to preserve recoverable normalized disk names, bytes, metadata, generations and exact microsecond Created/Updated timestamps by default; block nonzero sub-microsecond digits without a lossy ms mode. Report generated ETags/metageneration/bucket times; verify generation reads/conditions and allocator bounds; block unsupported ACL/history/retention. Catalog storage is provided by shared-timestamp-precision; the imported-identity entry point and importer remain pending.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -40390,7 +40401,10 @@
         "producer_closure_without_eof_never_publishes_partial_bytes",
         "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
-        "obj_http_queued_precheck_waits_past_body_inactivity_deadline"
+        "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
+        "timestamp_writes_floor_microseconds_across_publication_routes",
+        "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+        "timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors"
       ],
       "verification": [
         {
@@ -40419,6 +40433,35 @@
           "test_ids": [
             "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic"
           ]
+        },
+        {
+          "command": "cargo +1.99.1 test --locked --offline timestamp --lib",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_writes_floor_microseconds_across_publication_routes",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_writes_floor_microseconds_across_publication_routes",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --locked --offline timestamp --lib --test object_versioning_http",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -40426,12 +40469,12 @@
         "SQLite and filesystem publication are separate operations; selected process crashes pass, full power-loss durability is unverified.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
-        "Shared state requests have not been accepted. Acceptance evidence, a single canonical receiving record, who verifies it and who updates the Import ledger before import-filesystem are unresolved. Candidate owners: coordinator and shared-contract. Filesystem publication requires accepted shared interfaces; see Delivery boundaries in docs/en/slices/source-storage-contract.md.",
+        "Schema 14 stores bucket/object times in exact microseconds while JSON retains millisecond rendering and XML retains HTTP-date. shared-imported-identity and Import parsing/publication remain pending; block nonzero sub-microsecond source digits with no lossy ms mode. Other Shared state requests have not been accepted: acceptance evidence, a single canonical receiving record, who verifies it and who updates the Import ledger before import-filesystem are unresolved. Candidate owners: coordinator and shared-contract. Filesystem publication requires accepted shared interfaces; see Delivery boundaries in docs/en/slices/source-storage-contract.md.",
         "The former one-call unresolved-handle bound is stricter than plan section 5's sum of publication-route limits, including management slots plus one publish_objects batch. It could prevent staging the next batch during commit; no performance effect has been measured. Budget, permitted overlap and benchmark coverage remain unresolved. Candidate owners: shared-contract and shared-publication-modes; see Delivery boundaries in docs/en/slices/source-storage-contract.md.",
         "Revalidated inode/ctime observations form the current execution's baseline; whether they are persisted, by whom and with what bounded journal operation remains unresolved. Without persistence, repeated resumes may reread every committed body after filesystem relocation. The existing approval covers revalidation of affected committed elements, not an agreed persistence mechanism or a measured repeated-resume budget. Candidate owners: shared-contract, shared-import-journal and import-filesystem; see Delivery boundaries in docs/en/slices/source-storage-contract.md."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-074",
@@ -45027,17 +45070,31 @@
       "interface": "Emulator implementation",
       "phase": "P3",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Project requirement: version the persistent metadata format. Test upgrade with existing generations, permissions and resumable sessions; fail clearly on unsupported newer formats and avoid destructive implicit resets. Document downgrade/backup expectations. Source format/cutover and separate memory-export boundaries are frozen in docs/en/slices/source-storage-contract.md; no importer or schema-upgrade completion is claimed.",
+      "notes": "Schema 14 timestamp migration atomically scales version-13 bucket/object times to microseconds, rejects overflow and preserves API resources, ETags, generations, permissions and session deadlines. Rollback/retry and unsupported newer versions are tested; backup/downgrade expectations are documented in docs/en/slices/catalog-timestamp-precision.md. Broader schema/cutover and separate memory-export acceptance remains pending in docs/en/slices/source-storage-contract.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "catalog-timestamp-migration",
+          "description": "Atomically migrate schema 13 bucket/object times to schema 14 by exact multiplication by 1000; cover pre-epoch, epoch, fractional seconds and representable extrema, versioned time_deleted rows, byte-identical JSON GET and XML HEAD Last-Modified/ETags, rollback on a full on-disk catalog after partial conversion and Catalog::open retry, overflow rejection, unknown-version rejection and unchanged internal deadlines/permissions/generations. Scope: docs/en/slices/catalog-timestamp-precision.md.",
+          "result": "PASS",
+          "test_ids": [
+            "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
+            "timestamp_migration_rejects_overflow_without_changing_version_or_values",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
+            "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
+            "timestamp_migration_preserves_versioned_json_get_and_xml_head"
+          ]
+        },
         {
           "id": "source-cutover",
           "description": "Import only into an empty separate destination; refuse serve while unfinished, complete import and seed state atomically, reject foreign or changed-source resumes and verify backup/rollback without source mutation; contract: docs/en/slices/source-storage-contract.md.",
@@ -45052,19 +45109,64 @@
         },
         {
           "id": "catalog-upgrade-policy",
-          "description": "Verify schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and document downgrade/backup expectations. Request assignment of initial cases before the first catalog-schema increase to that schema-changing slice; later schema slices add migration cases and replacement-validation retains the final gate. See Delivery boundaries in docs/en/slices/source-storage-contract.md and known_deviations for the unresolved assignment; this Import slice imposes no gate on Shared state schema changes and source contract research does not satisfy runtime cases.",
+          "description": "Verify all supported schema upgrades with existing generations, permissions and resumable sessions, reject newer formats without reset, and document downgrade/backup expectations. shared-timestamp-precision owns the initial schema 14 timestamp cases; later schema slices add migration cases and replacement-validation retains the final gate. Broader backup restoration, cutover and platform coverage remain pending.",
           "result": "PENDING",
           "test_ids": []
         }
       ],
-      "test_ids": [],
-      "verification": [],
+      "test_ids": [
+        "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
+        "timestamp_migration_rejects_overflow_without_changing_version_or_values",
+        "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+        "rejects_future_schema_unversioned_data_and_corruption",
+        "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
+        "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
+        "timestamp_migration_preserves_versioned_json_get_and_xml_head"
+      ],
+      "verification": [
+        {
+          "command": "cargo +1.99.1 test --workspace --locked --offline --test catalog --test object_storage --lib",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
+            "timestamp_migration_rejects_overflow_without_changing_version_or_values",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
+            "timestamp_migration_rejects_overflow_without_changing_version_or_values",
+            "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
+            "rejects_future_schema_unversioned_data_and_corruption",
+            "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes"
+          ]
+        },
+        {
+          "command": "cargo +1.99.1 test --locked --offline timestamp --lib --test object_versioning_http",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/slices/catalog-timestamp-precision.md",
+          "test_ids": [
+            "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
+            "timestamp_migration_preserves_versioned_json_get_and_xml_head"
+          ]
+        }
+      ],
       "sdk_evidence": [],
       "known_deviations": [
-        "The catalog-upgrade-policy assignment is requested before the first schema increase; this Import slice imposes no gate on Shared state schema changes. Acceptance and any gate belong to the receiving slice. Candidate owners: coordinator, shared-contract and the first schema-changing slice. The assignment remains unresolved; see Delivery boundaries in docs/en/slices/source-storage-contract.md."
+        "The initial schema 14 timestamp migration/backup/downgrade cases are owned by shared-timestamp-precision. Unsupported or overflowing old times block startup without conversion; no automatic downgrade exists. Broader catalog upgrade policy, tested backup restoration, source cutover and memory export remain pending; later schema slices own their migrations and replacement-validation retains the final gate."
       ],
-      "implemented_in": null,
-      "last_verified": null
+      "implemented_in": "3221c94",
+      "last_verified": "2026-10-24"
     },
     {
       "id": "AUDIT-015",

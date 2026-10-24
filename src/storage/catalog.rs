@@ -15,6 +15,14 @@ use std::{
 };
 use tokio::sync::{Notify, Semaphore};
 
+#[cfg(test)]
+#[path = "timestamp_tests.rs"]
+mod timestamp_tests;
+
+#[cfg(test)]
+#[path = "test_support.rs"]
+mod test_support;
+
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
 #[path = "resumable_transfer.rs"]
@@ -58,6 +66,8 @@ const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 const MAX_UPLOADS: usize = 8;
+const CATALOG_SCHEMA_VERSION: i64 = 14;
+const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     complete INTEGER NOT NULL CHECK(complete IN (0, 1))
@@ -99,6 +109,46 @@ fn migrate_bucket_settings(connection: &mut Connection) -> Result<(), CatalogErr
         .execute_batch(BUCKET_SETTINGS_SCHEMA)
         .map_err(unavailable)?;
     transaction.commit().map_err(unavailable)
+}
+
+fn migrate_timestamp_precision(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    // SQLite promotes overflowing integer multiplication to REAL, losing precision.
+    for (table, columns) in [
+        ("buckets", &["time_created", "updated"][..]),
+        ("objects", &["time_created", "updated", "time_deleted"][..]),
+    ] {
+        let condition = columns.iter().map(|column| format!("({column} IS NOT NULL AND (typeof({column}) != 'integer' OR {column} NOT BETWEEN -9223372036854775 AND 9223372036854775))")).collect::<Vec<_>>().join(" OR ");
+        let invalid: bool = transaction
+            .query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE {condition})"),
+                [],
+                |row| row.get(0),
+            )
+            .map_err(unavailable)?;
+        if invalid {
+            return Err(unavailable(format!(
+                "{table} timestamps cannot be converted to integer Unix microseconds"
+            )));
+        }
+    }
+    transaction.execute_batch(
+        "UPDATE buckets SET time_created = time_created * 1000, updated = updated * 1000;
+         UPDATE objects SET time_created = time_created * 1000, updated = updated * 1000, time_deleted = time_deleted * 1000;",
+    ).map_err(unavailable)?;
+    transaction
+        .pragma_update(None, "user_version", TIMESTAMP_MICROS_SCHEMA_VERSION)
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
+
+fn validate_schema_version(version: i64, supported: i64) -> Result<(), CatalogError> {
+    if !(0..=supported).contains(&version) {
+        return Err(unavailable(format!(
+            "unsupported catalog schema version {version}; supported version is {supported}"
+        )));
+    }
+    Ok(())
 }
 
 fn immutable_catalog_uri(path: &Path) -> Result<String, CatalogError> {
@@ -288,11 +338,7 @@ impl Catalog {
             let mut version: i64 = connection
                 .pragma_query_value(None, "user_version", |r| r.get(0))
                 .map_err(unavailable)?;
-            if !(0..=13).contains(&version) {
-                return Err(CatalogError::Unavailable(format!(
-                    "unsupported catalog schema version {version}; supported version is 13"
-                )));
-            }
+            validate_schema_version(version, CATALOG_SCHEMA_VERSION)?;
             if version == 2 {
                 return Err(unavailable("unsupported unreleased catalog schema version 2; deleted generation history cannot be recovered"));
             }
@@ -412,6 +458,9 @@ impl Catalog {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(BUCKET_PAP_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
+            }
+            if version < TIMESTAMP_MICROS_SCHEMA_VERSION {
+                migrate_timestamp_precision(&mut connection)?;
             }
             connection.execute_batch("CREATE TEMP TABLE parent_public_access_prevention (project TEXT PRIMARY KEY) WITHOUT ROWID;").map_err(unavailable)?;
             let recovery_now = unix_millis(clock.now())?;
@@ -553,10 +602,10 @@ impl Catalog {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(unavailable)?;
-            let created = unix_millis(record.time_created)?;
-            let updated = unix_millis(record.updated)?;
-            record.time_created = system_time(created).map_err(unavailable)?;
-            record.updated = system_time(updated).map_err(unavailable)?;
+            let created = unix_micros(record.time_created)?;
+            let updated = unix_micros(record.updated)?;
+            record.time_created = system_time_micros(created).map_err(unavailable)?;
+            record.updated = system_time_micros(updated).map_err(unavailable)?;
             let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
             let changed = transaction
                 .execute(
@@ -746,8 +795,8 @@ impl Catalog {
                 .metageneration
                 .checked_add(1)
                 .ok_or_else(|| unavailable("bucket metageneration exhausted"))?;
-            let updated = unix_millis(clock.now())?;
-            record.updated = system_time(updated).map_err(unavailable)?;
+            let updated = unix_micros(clock.now())?;
+            record.updated = system_time_micros(updated).map_err(unavailable)?;
             transaction
                 .execute(
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
@@ -981,16 +1030,32 @@ fn unavailable(error: impl std::fmt::Display) -> CatalogError {
 }
 
 fn unix_millis(time: SystemTime) -> Result<i64, CatalogError> {
+    unix_timestamp(time, 1_000_000)
+}
+
+fn unix_micros(time: SystemTime) -> Result<i64, CatalogError> {
+    unix_timestamp(time, 1000)
+}
+
+fn unix_timestamp(time: SystemTime, nanos_per_unit: i128) -> Result<i64, CatalogError> {
     let nanos = match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos() as i128,
         Err(error) => -(error.duration().as_nanos() as i128),
     };
-    i64::try_from(nanos.div_euclid(1_000_000)).map_err(unavailable)
+    i64::try_from(nanos.div_euclid(nanos_per_unit)).map_err(unavailable)
 }
 
-fn system_time(millis: i64) -> rusqlite::Result<SystemTime> {
+fn system_time_millis(millis: i64) -> rusqlite::Result<SystemTime> {
     let duration = Duration::from_millis(millis.unsigned_abs());
-    let time = if millis < 0 {
+    signed_system_time(duration, millis < 0)
+}
+
+fn system_time_micros(micros: i64) -> rusqlite::Result<SystemTime> {
+    signed_system_time(Duration::from_micros(micros.unsigned_abs()), micros < 0)
+}
+
+fn signed_system_time(duration: Duration, negative: bool) -> rusqlite::Result<SystemTime> {
+    let time = if negative {
         UNIX_EPOCH.checked_sub(duration)
     } else {
         UNIX_EPOCH.checked_add(duration)
@@ -1015,8 +1080,8 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         labels: serde_json::from_str(&labels)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
         metageneration: row.get(6)?,
-        time_created: system_time(row.get(7)?)?,
-        updated: system_time(row.get(8)?)?,
+        time_created: system_time_micros(row.get(7)?)?,
+        updated: system_time_micros(row.get(8)?)?,
         versioning_enabled: row.get(9)?,
         default_event_based_hold: row.get(10)?,
         public_access_prevention_enforced: row.get(12)?,
@@ -1363,7 +1428,10 @@ mod tests {
             -1
         );
         for millis in [-1001, -1, 0, 1, 1001] {
-            assert_eq!(unix_millis(system_time(millis).unwrap()).unwrap(), millis);
+            assert_eq!(
+                unix_millis(system_time_millis(millis).unwrap()).unwrap(),
+                millis
+            );
         }
     }
 
@@ -1391,7 +1459,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 13),
+                    ("user_version", 14),
                 ] {
                     assert_eq!(
                         connection

@@ -1,4 +1,4 @@
-use super::{Catalog, CatalogError, system_time, unavailable, unix_millis};
+use super::{Catalog, CatalogError, system_time_millis, unavailable, unix_millis};
 
 use crate::{
     auth::{Identity, OBJECTS_CREATE},
@@ -466,8 +466,8 @@ pub(super) fn read_session(row: &Row<'_>) -> rusqlite::Result<ResumableSession> 
             .map(|n| u64::try_from(n).map_err(|e| invalid(e.to_string())))
             .transpose()?,
         offset: u64::try_from(row.get::<_, i64>(7)?).map_err(|e| invalid(e.to_string()))?,
-        created: system_time(row.get(8)?)?,
-        deadline: system_time(row.get(9)?)?,
+        created: system_time_millis(row.get(8)?)?,
+        deadline: system_time_millis(row.get(9)?)?,
         state,
         completion: completion
             .map(|v| serde_json::from_str(&v).map_err(|e| invalid(e.to_string())))

@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
 | behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
-| project_requirement | 92 | 38 | 0 | 26 | 28 | 0 | 0 |
+| project_requirement | 92 | 37 | 0 | 27 | 28 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
 | behavior | 131 | 40 | 28 | 2 | 0 | 0 |
-| project_requirement | 38 | 0 | 0 | 0 | 0 | 54 |
+| project_requirement | 37 | 0 | 0 | 0 | 0 | 55 |
 
 ## api_operation
 
@@ -954,7 +954,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-014 | Catalog schema upgrade and compatibility policy | NOT_STARTED | P3 | PROJECT | NONE | 0 |
+| AUDIT-014 | Catalog schema upgrade and compatibility policy | PARTIAL | P3 | PROJECT | PROJECT | 0 |
 | AUDIT-016 | Safe blob reclamation during active reads | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 
 ### URL and routing

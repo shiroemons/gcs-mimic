@@ -498,13 +498,16 @@ async fn versioned_schema_migrations_preserve_objects() {
         let db = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
         let expected: (gcs_mimic::object::ObjectRecord, Vec<u8>) = {
             let catalog = Catalog::open(&dir.0).await.unwrap();
-            let (record, mut reader) = catalog
+            let (mut record, mut reader) = catalog
                 .open_object("test-bucket", "file", None, ObjectConditions::default())
                 .await
                 .unwrap();
             let mut bytes = Vec::new();
             while let Some(chunk) = reader.next_chunk().await.unwrap() {
                 bytes.extend_from_slice(&chunk);
+            }
+            for time in [&mut record.time_created, &mut record.updated] {
+                *time = object_effects_support::common::timestamp_support::floor_to_millis(*time);
             }
             catalog.close().await.unwrap();
             (record, bytes)
@@ -582,7 +585,97 @@ async fn versioned_schema_migrations_preserve_objects() {
                 .unwrap()
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
     }
+}
+
+#[test]
+fn timestamp_migration_preserves_versioned_json_get_and_xml_head() {
+    let (dir, mut server) = setup(false);
+    let first = server.put("file", b"first").json();
+    let second = server.put("file", b"second").json();
+    assert_eq!(
+        server
+            .request("DELETE", "/storage/v1/b/test-bucket/o/file", "", b"")
+            .status,
+        204
+    );
+    let third = server.put("file", b"live").json();
+    server.stop();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute(
+            "UPDATE objects SET time_created = -1001000 WHERE generation = ?1",
+            [first["generation"]
+                .as_str()
+                .unwrap()
+                .parse::<i64>()
+                .unwrap()],
+        )
+        .unwrap();
+    drop(connection);
+    let mut server = Server::start(&dir, false);
+    let generations: Vec<_> = [&first, &second, &third]
+        .into_iter()
+        .map(|value| value["generation"].as_str().unwrap().to_owned())
+        .collect();
+    let snapshot = |server: &Server| {
+        generations
+            .iter()
+            .map(|generation| {
+                let json = server.get(&format!("file?generation={generation}"));
+                let head = server.request(
+                    "HEAD",
+                    &format!("/test-bucket/file?generation={generation}"),
+                    "",
+                    b"",
+                );
+                assert_eq!(json.status, 200);
+                assert_eq!(head.status, 200);
+                (
+                    json.body,
+                    json.headers["etag"].clone(),
+                    head.headers["last-modified"].clone(),
+                    head.headers["etag"].clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = snapshot(&server);
+    assert!(String::from_utf8_lossy(&before[0].0).contains("1969-12-31T23:59:58.999Z"));
+    server.stop();
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    object_effects_support::common::downgrade_timestamp_precision(&connection);
+    connection.pragma_update(None, "user_version", 13).unwrap();
+    let deleted: Vec<i64> = connection
+        .prepare(
+            "SELECT time_deleted FROM objects WHERE time_deleted IS NOT NULL ORDER BY generation",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(deleted.len(), 2);
+    drop(connection);
+    let server = Server::start(&dir, false);
+    assert_eq!(snapshot(&server), before);
+    let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    let migrated: Vec<i64> = connection
+        .prepare(
+            "SELECT time_deleted FROM objects WHERE time_deleted IS NOT NULL ORDER BY generation",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        migrated,
+        deleted
+            .into_iter()
+            .map(|value| value * 1000)
+            .collect::<Vec<_>>()
+    );
 }

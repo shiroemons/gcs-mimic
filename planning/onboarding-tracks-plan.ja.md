@@ -173,6 +173,7 @@ flowchart TD
   config-contract --> config-log-level
 
   repo-lints --> shared-contract
+  repo-lints --> shared-timestamp-precision --> shared-imported-identity
   repo-lints --> config-legacy-input-diagnostics
   repo-lints --> config-api-origin-default
   repo-lints --> init-parser
@@ -476,8 +477,11 @@ Initializer、Sync、Import が同じ境界の上で独立に作業できるよ�
   IAM の更新で、連番と発生元付きの記録を同じトランザクションで書く。読み手（同期、イベント）が設定されているときだけ書き、
   後から有効にしたときと読み手が追いつけないときは「全体の再走査が必要」と分かるようにする。`validate_schema` の一覧の上限（`LIMIT 32`）を引き上げ、移行テストを書く。上流の Pub/Sub イベント
   （`EXT-BEH-032`）も同じジャーナルを使える設計にする。
+- **`shared-timestamp-precision`**: カタログのバケット・オブジェクトの時刻をマイクロ秒で保持する。版 13 のミリ秒値を
+  1 つのトランザクションで 1000 倍して版 14 に上げ、失敗時は版も値も戻す。新規書き込みは時計をマイクロ秒へ負の無限大方向に
+  切り捨て、JSON のミリ秒表現・XML の HTTP-date・既存 ETag・内部の期限の意味を維持する。移行・境界・失敗・再試行を検証する。
 - **`shared-imported-identity`**: 共通関数に世代・時刻・ハッシュを指定する入口を足し、`last_generation` を取り込んだ最大値以上に
-  進める。既存の世代と衝突したら拒否する。時刻はミリ秒に丸められることを契約に書く。
+  進める。既存の世代と衝突したら拒否する。取り込み元の時刻をマイクロ秒までロスレスに保持し、ミリ秒へ丸めない。
 - **`shared-sync-state`**: オブジェクトごとに、最後に同期した世代と `SyncFingerprint`（サイズ、ナノ秒の mtime と ctime、inode、
   ハッシュ、racy の印）を持ち、作業ツリーのパスで引ける索引付きのテーブルと、作業ツリーのマーカーに対応する `CatalogId`。公開・削除と同じトランザクションで更新できるフックとして提供する。
 - **`shared-import-journal`**: 境界付きのカーソルとソースのフィンガープリントを持つテーブルと、「取り込み中」マーカー。
@@ -732,8 +736,9 @@ fake-gcs-server の 3 つの形式（seed ディレクトリ、filesystem backen
 ### 設計の要件
 
 - 取り込みコマンドは `gcs-mimic import fake-gcs-server --source DIR --data-dir NEW [--dry-run]`。宛先は空の新しいディレクトリだけ。
-- ソースは変更しない。保持できない情報（ACL、`CustomTime`、retention、独自の `Etag`、`Deleted`、ミリ秒より細かい時刻）は既定で
+- ソースは変更しない。保持できない情報（ACL、`CustomTime`、retention、独自の `Etag`、`Deleted`、マイクロ秒未満の非ゼロ桁を持つ時刻）は既定で
   ブロックし、ライブオブジェクトだけの取り込みはそう名乗る（ロスレスと主張しない）。
+  `Created` / `Updated` は既定でマイクロ秒まで保持し、損失のある `--timestamp-precision ms` モードは設けない。
 - 取り込み中は宛先で `serve` を拒否し、完了時に seed を完了にする（途中の宛先で起動すると移行が終わったように見え、
   `seed_dir` を指定すると取り込んだデータの上に seed も走る）。
 - 再開は staging に頼らない（起動時の復旧が消す）。取り込みジャーナルで同じエクスポートだけを再開する。
@@ -755,7 +760,7 @@ fake-gcs-server の 3 つの形式（seed ディレクトリ、filesystem backen
   git blob を記録する。
 - **`import-dry-run`**: 新しいモジュール（例: `src/import/`）で、ソースを変えずに読み、型付きの記録と境界付きの本文ストリームを作る。
   `--dry-run` は未対応メタデータ、壊れた記録、属性の欠落、名前とパスの衝突、本文の欠落・破損、保存されたチェックサムと本文の
-  不一致、時刻の丸め、ディレクトリだけで本文のない名前を JSON で報告する。バケットディレクトリ名は `PathUnescape` で戻す。
+  不一致、マイクロ秒未満の非ゼロ桁を持つ時刻、ディレクトリだけで本文のない名前を JSON で報告する。バケットディレクトリ名は `PathUnescape` で戻す。
   テスト: xattr とサイドカーの固定データ、壊れた JSON、チェックサムの不一致、ソースが変わらないこと。
 - **`import-seed-adapter`**: MIME 表を使う seed を `publish_from_file` に載せ、OS のメタデータのスキップ（決定）を入れる。seed の契約の変更なので、次をすべてこのスライスで行う。
   - `docs/en/slices/seed.md` の「hidden entries」の規則を改訂し、`.DS_Store` を含む fixture の受け入れケースを足す。

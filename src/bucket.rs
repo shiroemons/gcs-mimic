@@ -17,7 +17,7 @@ pub struct BucketRecord {
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
     pub metageneration: i64,
-    /// Millisecond precision; the catalog truncates sub-millisecond values.
+    /// Microsecond precision; the catalog floors sub-microsecond values.
     pub time_created: SystemTime,
     pub updated: SystemTime,
 }

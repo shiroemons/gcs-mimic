@@ -166,7 +166,7 @@ async fn round_trip_exact_hashes_opaque_names_and_restart() {
     assert_eq!(record.content_type, "application/test");
     assert_eq!(
         record.time_created,
-        UNIX_EPOCH + Duration::from_millis(1234)
+        UNIX_EPOCH + Duration::from_micros(1_234_567)
     );
     assert_eq!(record.updated, record.time_created);
     assert_eq!(record.name, name);
@@ -1495,7 +1495,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
 }
 

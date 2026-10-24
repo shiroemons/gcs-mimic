@@ -24,6 +24,18 @@
       { "path": "internal/backend/time_windows.go", "blob": "54c7bc9b0baddfe53d093be97a0d9d68caf6b38d" }
     ]
   },
+  "timestamp_contract": {
+    "source_layout": "2006-01-02T15:04:05.999999Z07:00",
+    "preserved_object_fields": ["Created", "Updated"],
+    "catalog_schema_version": 14,
+    "catalog_unit": "signed Unix microseconds",
+    "fraction_rule": "Accept variable-length fractional seconds and zone offsets; block any nonzero digit after the sixth fractional digit, without truncating before validation.",
+    "lossy_ms_mode": false,
+    "json_rendering": "Unchanged RFC 3339 with three fractional digits, floored toward negative infinity",
+    "xml_rendering": "Unchanged HTTP-date representation and supported range",
+    "lossless_scope": "Exact timestamps within the declared preservation subset require representable microseconds, all preserved fields/generations verified, no unsupported source semantics and completed import acceptance; generated native ETags, metagenerations and bucket times are reported separately.",
+    "owner": "docs/en/slices/catalog-timestamp-precision.md"
+  },
   "mime_profile": {
     "note": "Deterministic selected profile, not a reconstruction of every published reference image. Materialize the merged table with notices in import-seed-adapter; do not read host MIME databases at runtime.",
     "go": {

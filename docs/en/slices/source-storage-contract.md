@@ -22,7 +22,7 @@ and does not establish source import support.
 | source-filesystem-reader | DESIGN-072 | Read escaped bucket names, empty buckets, bucket sidecars and root-wide xattr/sidecar mode without writes; reject ambiguous/missing/orphan/oversize metadata, duplicate decoded names and unsupported fields; test OS-specific errno, typed errors, single-call xattr reads using only SourceMetadataBuffer, exact-cap acceptance, cap-plus-one rejection and Windows source/xattr configuration rejection | import-dry-run |
 | source-integrity-report | DESIGN-072 | Report missing/truncated/changed bodies, invalid JSON/base64/times, checksum mismatches, unrepresentable names and directory-only entries; distinguish metadata-only inspection from streamed hash verification; bounded memory and diagnostics; property-test valid bucket escape round trips and panic-free arbitrary timestamp parsing | import-dry-run |
 | source-name-scope | DESIGN-072 | Fixtures for upstream writes named `a//b`, `a/./b`, `a/../b` and `x/../../other/y` report normalized disk names and unverifiable original names; detect observable collisions/escapes, declare Windows separator rules, never invent lost names | import-dry-run |
-| source-preserved-identity | DESIGN-073 | Preserve recoverable disk names, bytes, headers, metadata and generations; default blocks sub-millisecond object times; explicit ms conversion reports originals/counts and is lossy; report generated ETag/metageneration/bucket time; verify old generation reads/conditions, allocator bounds and unsupported ACL/history/retention blocks | import-filesystem with shared-imported-identity |
+| source-preserved-identity | DESIGN-073 | Preserve recoverable disk names, bytes, headers, metadata, generations and exact microsecond Created/Updated; block nonzero sub-microsecond digits with no lossy ms mode; report generated ETag/metageneration/bucket time; verify old generation reads/conditions, allocator bounds and unsupported ACL/history/retention blocks | import-filesystem with shared-imported-identity |
 | source-import-recovery | DESIGN-073 | Per-element SAVEPOINT publication commits successful elements with journal state, closes batches at count/time limits without rolling back successes and stops on disk-full without a retry loop; element rejection is terminal, resumable progress is a contiguous prefix; resume only the same export after interruption/cancellation/Busy/disk-full or inode/ctime-only change; compare inode/ctime within each execution, stop on drift and revalidate drifted committed elements on resume; test crashes before/after recording that stop; cancel the caller while commit runs on the SQLite execution thread, drop its handle and retain the blob/readable committed body; reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit; verify ambiguous commit, visible cleanup failures off Tokio workers, bounded handles, manifest equality, abandonment and shutdown cleanup; see Delivery boundaries for unresolved requests | import-filesystem with shared-import-journal and shared-publication-modes |
 | source-import-authorization | DESIGN-073 | Require AdminGrant in both auth profiles; no imported IAM/public grants; strict post-cutover reads deny anonymous/ungranted principals and allow configured authorized principals; bucket default hold is retained without adding holds to imported objects | import-filesystem with shared-admin-interface and shared-publication-modes |
 | source-cutover | AUDIT-014 | Empty separate destination only; unfinished import blocks serve/readiness; completion atomically enables serve and disables seed replay; changed source or foreign destination cannot resume; backup/rollback leaves source intact | import-filesystem |
@@ -65,7 +65,7 @@ contract describes local conversion of reference-emulator data, not Google
 Never auto-detect these formats from a directory's shape. Startup seed uses the
 seed profile; the planned `gcs-mimic import fake-gcs-server --source DIR
 --data-dir NEW --metadata-mode xattr|sidecar --source-platform unix|windows
-[--timestamp-precision exact|ms] [--dry-run]` command reads durable
+[--dry-run]` command reads durable
 filesystem state. Its dry-run
 report identifies the source format/revision and metadata mode. A future Go
 export gets its own versioned envelope and reader; this slice freezes its
@@ -291,7 +291,7 @@ their observable meaning differs, or report an unsupported representation.
 | `Crc32c`, `Md5Hash` | Strict base64, exactly 4 big-endian CRC32C bytes and 16 MD5 bytes; compare both with one streamed hash pass; mismatch or missing required checksum blocks verified import |
 | `Generation` | Positive signed 64-bit source generation, in microseconds in normal source writes; shared-imported-identity must retain it and reserve future allocator values above imported identities without overflow |
 | `Etag` | Generated native ETag, including after metadata patch; retain the upstream value in reports only, even if custom. No imported ETag column, JSON/XML rendering override or source If-Match compatibility is requested |
-| `Created`, `Updated` | `time_created`, `updated`; strict source timestamp parsing; reject missing/invalid/overflowing values. Default `--timestamp-precision exact` blocks sub-millisecond values; explicit `--timestamp-precision ms` permits reported conversion to catalog milliseconds |
+| `Created`, `Updated` | `time_created`, `updated`; strict source timestamp parsing; reject missing/invalid/overflowing values. Preserve microseconds exactly by default; block nonzero digits below microsecond precision. No `--timestamp-precision` option or lossy ms mode |
 | `Deleted` | Empty or parsed Go zero time means unset; any other value blocks this live-filesystem import; memory archived membership is separate |
 | `CustomTime` | Empty or parsed Go zero time means unset; any other value blocks until its semantics are supported |
 | `ACL` | Every nonempty persisted ACL blocks, including a seed-looking constant once stored in a runtime snapshot |
@@ -301,30 +301,28 @@ their observable meaning differs, or report an unsupported representation.
 Source object timestamps use layout `2006-01-02T15:04:05.999999Z07:00`.
 Accept its variable fractional precision and zone offset; compare instants,
 not strings. Validate full input and retain the original representation in
-findings. A nonzero digit below millisecond precision is a blocking precision
-finding for object `Created`/`Updated` by default. This keeps a precision-lossless
-path, although the source's usual microsecond clock makes most API-written
-objects ineligible today. The explicit `--timestamp-precision ms` option uses
-the existing catalog's Unix-millisecond conversion (floor toward negative
-infinity, including pre-epoch instants), never nearest rounding. It reports
-`rounded_objects` and `rounded_timestamp_fields`, plus source relative name,
-field, original string and converted value for every affected field in both
-dry-run and final import reports. Use bounded report pages/spooling with exact
-totals; a truncated summary must link the complete detail report. Even zero
-roundings in this mode do not authorize a lossless claim. Record the selected
-precision mode in the journal/options fingerprint. Bucket stat times are
-report-only observations and never enter this check or fingerprint.
+findings. Created/Updated are preserved exactly through microseconds by default,
+including pre-epoch instants. Variable-length fractions with additional zero
+digits remain exact (for example, `.123456000`); any nonzero digit after the
+sixth fractional digit blocks import (for example, `.123456001`). Validate the
+entire fraction rather than truncating it before checking. There is no lossy
+ms mode and no `--timestamp-precision` option. Block unsupported ranges before
+publication. Both dry-run and final reports identify the relative source name,
+field, original string and blocking reason, using bounded report pages/spooling
+with exact totals. Bucket stat times are report-only observations and never
+enter this precision check or fingerprint.
 
 These are reasoned refinements of the plan's design requirements: its blanket
 custom-ETag block is replaced with generated-value reporting because native
 ETags depend on generation/metageneration and are not source MD5 strings;
-its precision block remains the default, with only the explicit lossy mode
-added to make real snapshots usable. Generated ETags and unstable bucket ctime
-are excluded from the preserved-identity scope. Increasing catalog persistence
-to microseconds and deciding JSON/XML timestamp rendering still requires an
-owner decision; candidate owners are `shared-imported-identity` for a deliberate
-schema/rendering migration or a separate timestamp-precision slice before it.
-Neither is implemented or silently required by this contract.
+the owner's microsecond-preservation decision supersedes the former lossy ms
+proposal. Generated ETags and unstable bucket ctime are excluded from the
+preserved-identity scope. The [catalog timestamp slice](catalog-timestamp-precision.md)
+owns schema 14 microsecond storage and its migration; JSON retains three
+fractional digits with floor toward negative infinity and XML retains its
+existing HTTP-date representation. API display precision does not alter the
+stored source instant. shared-imported-identity must accept validated exact
+microseconds without millisecond truncation; the importer is still pending.
 
 A missing bucket sidecar has upstream zero-value semantics, so report defaults
 and retain the empty bucket. Malformed bucket JSON blocks. Directories below a
@@ -334,10 +332,9 @@ without manufacturing zero-byte objects. Body absence, stat/hash disagreement,
 or a sidecar/xattr that cannot be paired is corruption, not an empty object.
 
 Unsupported ACL, nonzero `CustomTime`/`Deleted`, retention, history or object
-timestamp precision blocks by default. Only the explicit ms mode waives the
-precision block; it cannot waive any other finding. Reports list generated
-ETags, bucket times, metagenerations and every omitted field/generation; they
-must distinguish the declared preservation subset from full original-state
+sub-microsecond timestamp precision blocks with no lossy override. Reports list
+generated ETags, bucket times, metagenerations and every omitted field/generation;
+they must distinguish the declared preservation subset from full original-state
 losslessness. A filesystem snapshot is at most the source's current live state;
 memory histories need the separate export.
 
@@ -572,15 +569,16 @@ above. Shared interfaces required before filesystem import are:
 | import-dry-run / shared-publication-io, whichever lands first | Create `src/fsutil.rs`, make approved libc direct and update the dependency ledger per investigation section 7; the later slice extends it. import-dry-run owns SourceMetadataBuffer and the single-call xattr reader accepting only that type, with Linux/macOS ABI, missing/unsupported/permission/exact-cap/cap-plus-one tests; shared-publication-io owns copy/replace/stat. import-dry-run starts without Shared state but merges after repo-lints, with its scoped unsafe exception |
 | shared-admin-interface | AdminGrant in both profiles; no policy/public-access side effects from source project/name; shutdown drains work and releases locks |
 | shared-publication-modes | Request staging-only verified handles (`stage_from_file`), accepted by `publish_objects`, without exposing private paths. Preserve unresolved/possibly committed blobs across caller cancellation during SQLite commit and handle drop; committed bodies remain readable. Reclaim definitely uncommitted, unreferenced excluded/unattempted/cancelled staging blobs before command exit, under section 5 publication protection. Failures stay visible and cleanup never blocks Tokio workers on synchronous I/O or SQLite. Preserve per-element SAVEPOINTs and atomic successful-element journal updates; test both cleanup invariants, terminal element exclusion retaining independent successes, count/time closure and disk-full stopping. Retain bucket default hold without synthesizing imported object holds; later uploads inherit the default. Shared state chooses mechanisms; see handoffs below for unresolved budget |
-| shared-imported-identity | Explicit source generation, verified hashes and selected millisecond timestamps; advance allocator safely, reject collisions; ETags and metageneration stay native generated values, including after patch |
+| shared-timestamp-precision | Schema 14 stores bucket/object times in microseconds; migrate version 13 atomically, preserve API resources/ETags and internal deadlines, and reject overflow without conversion. Own the initial AUDIT-014 timestamp migration/backup/downgrade cases in catalog-timestamp-precision.md |
+| shared-imported-identity | Explicit source generation, verified hashes and exact microsecond timestamps after shared-timestamp-precision; advance allocator safely, reject collisions; ETags and metageneration stay native generated values, including after patch |
 | shared-import-journal | Request committed digests and per-element inode/ctime observations with binding, typed failure and contiguous resumable progress in the publication transaction; observations are readable in bounded pages. Test terminal element rejection without hole-filling resume, revalidation of drifted committed elements, retryable inode/ctime-only stops with crashes before/after recording them, commit crash boundaries and atomic final import/seed completion. Shared state chooses internal representation; baseline persistence is unresolved below |
-| shared-contract | Request assignment of initial catalog-upgrade-policy migration/backup/downgrade tests for AUDIT-014 to the first catalog-schema-version-changing slice before that increase; later schema slices add their own migration cases; replacement-validation retains the final migration gate. This is an assignment request, not an Import-imposed schema-change gate |
+| shared-contract | Later schema slices add their own migration/backup/downgrade acceptance cases to AUDIT-014; replacement-validation retains the final migration gate. The initial timestamp migration cases belong to shared-timestamp-precision |
 
 The owning feature rows' `known_deviations` are authoritative for Shared state
 request status and unresolved handoffs; this section explains their scope.
 Filesystem publication still requires accepted shared interfaces.
 `import-dry-run` may proceed independently. No Shared state ledger entry or
-implementation is changed here.
+implementation is implied by the remaining Import requests.
 
 ### Known limitations and handoffs
 
@@ -589,11 +587,9 @@ implementation is changed here.
   Candidate owners: coordinator and `shared-contract`. The requests have not
   been accepted; repeated prose is not acceptance evidence. DESIGN-073 records
   this limitation rather than inventing an acceptance protocol here.
-- The catalog-upgrade-policy assignment is requested before the first schema
-  increase; this Import slice imposes no gate on Shared state schema changes.
-  Acceptance and any gate belong to the receiving slice. Candidate owners:
-  coordinator, `shared-contract` and the first schema-changing slice.
-  AUDIT-014 records the unresolved assignment.
+- shared-timestamp-precision accepts the initial AUDIT-014 schema 14 timestamp
+  migration/backup/downgrade cases. Broader catalog upgrade and source cutover
+  cases remain pending; later schema slices own their migrations.
 - The former one-call unresolved-handle bound is stricter than section 5's
   sum of publication-route limits, including management slots plus one
   `publish_objects` batch. It could prevent staging the next batch during
@@ -625,8 +621,8 @@ implementation is changed here.
 - `go-adapter-live-export`: separate memory exporter/history work. No claim of
   complete source inventory, live directory synchronization or legacy reseed.
 
-DESIGN-062, DESIGN-072 and DESIGN-073 remain PARTIAL; AUDIT-014 remains
-NOT_STARTED. Their new import cases are PENDING. Existing API/seed evidence and
+DESIGN-062, DESIGN-072, DESIGN-073 and AUDIT-014 remain PARTIAL.
+Their import cases are PENDING. Existing API/seed evidence and
 remaining upgrade/resource/durability cases remain intact. No performance code
 changed, so no benchmark was run and no speed/resource result is claimed;
 reader/publication implementations must use the shared-contract benchmark

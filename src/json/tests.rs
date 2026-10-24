@@ -420,10 +420,7 @@ fn bkt_ins_001_defaults_and_server_owned_values() {
     assert_eq!(bucket.storage_class, "STANDARD");
     assert!(bucket.labels.is_empty());
     assert_eq!(bucket.metageneration, 1);
-    assert_eq!(
-        bucket.time_created,
-        UNIX_EPOCH + Duration::from_millis(123456)
-    );
+    assert_eq!(bucket.time_created, now);
     assert_eq!(bucket.time_created, bucket.updated);
     let bucket = parse_insert(
         br#"{"name":"abc","futureField":{"enabled":true}}"#,

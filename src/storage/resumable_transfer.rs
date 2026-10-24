@@ -4,13 +4,13 @@ use super::{
 };
 use super::{
     objects::{self, authorized_bucket, check_publication, lookup},
-    system_time, unix_millis,
+    system_time_micros, unix_micros,
 };
 use crate::object::{ObjectError, ObjectRecord, UploadChunk};
 use md5::{Digest, Md5};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
-use std::{io, time::UNIX_EPOCH};
+use std::io;
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{OwnedSemaphorePermit, mpsc, oneshot, watch},
@@ -291,12 +291,9 @@ impl Catalog {
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
                 check_publication(previous.as_ref(), options.conditions, allow_overwrite)?;
                 let now = clock.now();
-                let micros = i64::try_from(
-                    now.duration_since(UNIX_EPOCH)
-                        .map_err(unavailable)?
-                        .as_micros(),
-                )
-                .map_err(unavailable)?;
+                now.duration_since(std::time::UNIX_EPOCH)
+                    .map_err(unavailable)?;
+                let micros = unix_micros(now).map_err(unavailable)?;
                 let last: i64 = transaction
                     .query_row(
                         "SELECT last_generation FROM object_generation WHERE singleton = 1",
@@ -314,8 +311,7 @@ impl Catalog {
                         [generation],
                     )
                     .map_err(unavailable)?;
-                let millis = unix_millis(now).map_err(unavailable)?;
-                let time = system_time(millis).map_err(unavailable)?;
+                let time = system_time_micros(micros).map_err(unavailable)?;
                 let mut record = ObjectRecord {
                     bucket: session.bucket,
                     name: session.name,
@@ -341,8 +337,8 @@ impl Catalog {
                 let custom = serde_json::to_string(&record.metadata).map_err(unavailable)?;
                 let resource = render(&record)?;
                 let retired =
-                    objects::retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
-                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![record.bucket,record.name,generation,1,record.content_type,i64::try_from(length).map_err(unavailable)?,&md5[..],crc,record.storage_class,millis,millis,session.blob_id,record.content_encoding,record.content_disposition,record.content_language,record.cache_control,custom,record.event_based_hold]).map_err(unavailable)?;
+                    objects::retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
+                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![record.bucket,record.name,generation,1,record.content_type,i64::try_from(length).map_err(unavailable)?,&md5[..],crc,record.storage_class,micros,micros,session.blob_id,record.content_encoding,record.content_disposition,record.content_language,record.cache_control,custom,record.event_based_hold]).map_err(unavailable)?;
                 transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
                 if let Some(old_id) = retired

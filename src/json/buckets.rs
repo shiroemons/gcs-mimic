@@ -8,7 +8,7 @@ use hyper::StatusCode;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const LEGACY_LOCATION: &str = "US-CENTRAL1";
@@ -214,16 +214,7 @@ pub fn parse_insert_with_profile(
             labels.insert(key.clone(), value.to_owned());
         }
     }
-    let millis = epoch_millis(now);
     timestamp(now)?;
-    let duration =
-        Duration::from_millis(u64::try_from(millis.abs()).map_err(|_| timestamp_error())?);
-    let now = if millis < 0 {
-        UNIX_EPOCH.checked_sub(duration)
-    } else {
-        UNIX_EPOCH.checked_add(duration)
-    }
-    .ok_or_else(timestamp_error)?;
     Ok(BucketRecord {
         name,
         project: project.to_owned(),

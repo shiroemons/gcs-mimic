@@ -3,7 +3,7 @@ use super::{
     derived::{DerivedDestination, DerivedSegment},
     resumable,
     rewrite_token::RewriteToken,
-    system_time, unix_millis,
+    system_time_millis, unix_millis,
 };
 use crate::{
     bucket::BucketAccess,
@@ -607,7 +607,7 @@ impl Catalog {
                 )
                 .map_err(super::unavailable)?;
             deadline
-                .map(system_time)
+                .map(system_time_millis)
                 .transpose()
                 .map_err(super::unavailable)
         })

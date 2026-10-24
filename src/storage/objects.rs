@@ -1,4 +1,4 @@
-use super::{Catalog, MAX_UPLOADS, system_time, unavailable, unix_millis};
+use super::{Catalog, MAX_UPLOADS, system_time_micros, unavailable, unix_micros};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     object::{
@@ -13,7 +13,6 @@ use std::{
     fs::{self, File},
     io,
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
@@ -637,13 +636,12 @@ impl Catalog {
                     // Rechecked under the write lock so a concurrent create cannot be overwritten.
                     check_publication(previous.as_ref(), conditions, allow_overwrite)?;
                     let now = clock.now();
-                    let micros = i64::try_from(now.duration_since(UNIX_EPOCH)
-                        .map_err(object_unavailable)?.as_micros()).map_err(object_unavailable)?;
+                    now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;
+                    let micros = unix_micros(now).map_err(object_unavailable)?;
                     let last: i64 = transaction.query_row("SELECT last_generation FROM object_generation WHERE singleton = 1", [], |row| row.get(0)).map_err(object_unavailable)?;
                     let generation = micros.max(last.checked_add(1).ok_or_else(|| object_unavailable("generation exhausted"))?);
                     transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(object_unavailable)?;
-                    let millis = unix_millis(now).map_err(object_unavailable)?;
-                    let time = system_time(millis).map_err(object_unavailable)?;
+                    let time = system_time_micros(micros).map_err(object_unavailable)?;
                     let mut record = ObjectRecord {
                         bucket, name, generation, metageneration: 1,
                         content_type, size, md5, crc32c, component_count: None, storage_class,
@@ -654,12 +652,12 @@ impl Catalog {
                     };
                     metadata.apply(&mut record)?;
                     let custom_metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
-                    let retired = retire_previous(&transaction, previous.as_ref(), versioning, millis)?;
+                    let retired = retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
                     transaction.execute(
                         "INSERT INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding, content_disposition, content_language, cache_control, metadata, event_based_hold) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                         params![record.bucket, record.name, record.generation, record.metageneration,
                             record.content_type, i64::try_from(size).map_err(object_unavailable)?,
-                            &record.md5[..], record.crc32c, record.storage_class, millis, millis, blob_id,
+                            &record.md5[..], record.crc32c, record.storage_class, micros, micros, blob_id,
                             record.content_encoding, record.content_disposition, record.content_language,
                             record.cache_control, custom_metadata, record.event_based_hold],
                     ).map_err(object_unavailable)?;
@@ -858,8 +856,8 @@ impl Catalog {
                 .metageneration
                 .checked_add(1)
                 .ok_or_else(|| object_unavailable("metageneration exhausted"))?;
-            let millis = unix_millis(clock.now()).map_err(object_unavailable)?;
-            record.updated = system_time(millis).map_err(object_unavailable)?;
+            let micros = unix_micros(clock.now()).map_err(object_unavailable)?;
+            record.updated = system_time_micros(micros).map_err(object_unavailable)?;
             let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
             transaction
                 .execute(
@@ -871,7 +869,7 @@ impl Catalog {
                         bucket,
                         name,
                         record.metageneration,
-                        millis,
+                        micros,
                         record.content_type,
                         record.content_encoding,
                         record.content_disposition,
@@ -941,7 +939,7 @@ impl Catalog {
                 &transaction,
                 Some(&(record, id)),
                 versioning && generation.is_none(),
-                unix_millis(clock.now()).map_err(object_unavailable)?,
+                unix_micros(clock.now()).map_err(object_unavailable)?,
             )?;
             transaction.commit().map_err(object_unavailable)?;
             if let Some(id) = retired
@@ -1274,7 +1272,7 @@ pub(super) fn retire_previous(
     connection: &Connection,
     previous: Option<&(ObjectRecord, String)>,
     retain: bool,
-    millis: i64,
+    micros: i64,
 ) -> Result<Option<String>, ObjectError> {
     let Some((_, id)) = previous else {
         return Ok(None);
@@ -1283,7 +1281,7 @@ pub(super) fn retire_previous(
         connection
             .execute(
                 "UPDATE objects SET time_deleted = ?2 WHERE blob_id = ?1",
-                params![id, millis],
+                params![id, micros],
             )
             .map_err(object_unavailable)?;
         Ok(None)
@@ -1354,11 +1352,11 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             crc32c: row.get(7)?,
             component_count: row.get(19)?,
             storage_class: row.get(8)?,
-            time_created: system_time(row.get(9)?)?,
-            updated: system_time(row.get(10)?)?,
+            time_created: system_time_micros(row.get(9)?)?,
+            updated: system_time_micros(row.get(10)?)?,
             time_deleted: row
                 .get::<_, Option<i64>>(17)?
-                .map(system_time)
+                .map(system_time_micros)
                 .transpose()?,
             event_based_hold: row.get(18)?,
         },
@@ -1377,6 +1375,7 @@ fn read_size(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::UNIX_EPOCH;
 
     /// # Safety
     /// `counter` must point to a live, aligned AtomicUsize whenever SQLite can invoke this callback.

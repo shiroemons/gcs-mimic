@@ -2468,7 +2468,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
     }
 }
