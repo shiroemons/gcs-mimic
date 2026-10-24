@@ -1,23 +1,14 @@
 use gcs_mimic::{
     auth::{Auth, Registry},
-    bucket::CatalogError,
     clock::{Clock, SystemClock},
     config::Config,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
-    server::{self, State},
-    storage::Catalog,
     tls,
 };
-use std::{
-    collections::BTreeMap,
-    io,
-    net::SocketAddr,
-    path::Path,
-    process::ExitCode,
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
+use std::{collections::BTreeMap, io, path::Path, process::ExitCode, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+mod startup;
+use startup::phase;
 
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
 Usage: gcs-mimic serve [--config PATH] [OPTIONS]
@@ -245,49 +236,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     #[cfg(not(any(unix, windows)))]
                     tokio::signal::ctrl_c().await
                 };
-                let clock = Arc::new(SystemClock);
-                let catalog = Catalog::open_with_clock(&config.data_dir, clock.clone()).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "catalog unavailable or already in use; use a writable compatible native data directory owned by only one server and inspect its recovery state."))?;
-                catalog.configure_public_access_prevention(auth.public_access_prevention_projects()).await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "Cannot configure catalog policy; inspect the native catalog and identity policy before restarting."))?;
-                let seed = match gcs_mimic::seed::import(&catalog, &config, clock.as_ref()).await {
-                    Ok(seed) => seed,
-                    Err(error) => {
-                        let mut diagnostics = Diagnostics::error(DiagnosticSource::Seed, "seed_dir", seed_failure(&error));
-                        if catalog.close().await.is_err() {
-                            diagnostics.errors.push(Diagnostic::new(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog after seed failure; inspect persistence before restarting."));
-                        }
-                        return Err(io::Error::other(diagnostics));
-                    }
-                };
-                tokio::pin!(shutdown);
-                let listener = tokio::select! {
-                    biased;
-                    result = &mut shutdown => {
-                        catalog.close().await.map_err(|_| phase(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog; inspect persistence before restarting."))?;
-                        result.map_err(|_| phase(DiagnosticSource::Runtime, "signal", "Cannot receive shutdown signal; check the runtime environment."))?;
-                        println!("{{\"event\":\"stopped\"}}");
-                        return Ok(());
-                    }
-                    listener = bind_listener(config.listen) => listener.map_err(|error| phase(DiagnosticSource::Listener, "listen", if error.kind() == io::ErrorKind::AddrInUse { "Address already in use; choose a free --listen IP:PORT." } else { "Cannot bind listener; check --listen IP:PORT and local network permissions." }))?,
-                };
-                catalog.start_resumable_maintenance();
-                let state = Arc::new(State { ready: AtomicBool::new(true), clock, catalog, api_base_url: config.api_base_url.clone(), auth });
-                let mut ready = serde_json::json!({"event":"ready","listen":listener.local_addr().map_err(|_| phase(DiagnosticSource::Listener, "listen", "Cannot inspect listener address; check the local network environment."))?.to_string(),"protocol":"http1","gcs_api":"json-bucket-object-media-crud","max_connections":config.max_connections,"max_object_bytes":config.max_object_bytes,"worker_threads":config.worker_threads,"max_blocking_threads":config.max_blocking_threads,"connection_timeout_ms":config.connection_timeout_ms,"object_request_timeout_ms":config.object_request_timeout_ms,"catalog_wait_timeout_ms":config.catalog_wait_timeout_ms,"shutdown_timeout_ms":config.shutdown_timeout_ms,"auth_mode":state.auth.mode().as_str()});
-                if let Some(count) = state.auth.identity_count() {
-                    ready["identities"] = count.into();
-                }
-                ready["seed"] = seed;
-                ready["scheme"] = config.scheme.as_str().into();
-                ready["tls_handshake_timeout_ms"] = config.tls_handshake_timeout_ms.into();
-                println!("{ready}");
-                server::serve_with_tls(listener, config, state, shutdown, acceptor).await.map_err(|error| {
-                    if error.get_ref().is_some_and(|e| e.is::<CatalogError>()) {
-                        phase(DiagnosticSource::Catalog, "data_dir", "Cannot close catalog; inspect persistence before restarting.")
-                    } else {
-                        phase(DiagnosticSource::Listener, "listen", "Listener or shutdown failed; inspect active connections and native catalog before restarting.")
-                    }
-                })?;
-                println!("{{\"event\":\"stopped\"}}");
-                Ok::<_, io::Error>(())
+                startup::serve(config, auth, acceptor, shutdown).await
             })?;
             Ok(())
         }
@@ -297,102 +246,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "Invalid command; use gcs-mimic --help for supported native commands.",
         )
         .into()),
-    }
-}
-
-fn phase(source: DiagnosticSource, key: &str, fix: &str) -> io::Error {
-    io::Error::other(Diagnostics::error(source, key, fix))
-}
-
-fn seed_failure(error: &io::Error) -> String {
-    let message = error.to_string();
-    let reason = [
-        "top-level entries",
-        "Invalid bucket name",
-        "Invalid object name",
-        "max_object_bytes",
-        "must not overlap",
-        "32 directory levels",
-        "10000 entries",
-        "only regular files",
-        "not a symlink",
-        "must be UTF-8",
-        "belongs to another project",
-    ]
-    .into_iter()
-    .find(|reason| message.contains(reason))
-    .unwrap_or("unreadable or invalid fixture input");
-    format!(
-        "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
-    )
-}
-
-async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
-    let socket = if address.is_ipv4() {
-        tokio::net::TcpSocket::new_v4()?
-    } else {
-        tokio::net::TcpSocket::new_v6()?
-    };
-    // Linux socket(7) excludes live listeners; BSD address reuse can steal wildcard traffic.
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    socket.set_reuseaddr(true)?;
-    #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-    if let Err(error) = socket.bind(address) {
-        bind_after_time_wait(&socket, address, error).await?;
-    }
-    #[cfg(not(all(unix, not(any(target_os = "linux", target_os = "android")))))]
-    socket.bind(address)?;
-    socket.listen(128)
-}
-
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-async fn bind_after_time_wait(
-    socket: &tokio::net::TcpSocket,
-    address: SocketAddr,
-    original: io::Error,
-) -> io::Result<()> {
-    if original.kind() != io::ErrorKind::AddrInUse {
-        return Err(original);
-    }
-    // Wait out TIME_WAIT without weakening exclusive binding or waiting indefinitely.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(65);
-    let mut probe = address;
-    if address.ip().is_unspecified() {
-        probe.set_ip(if address.is_ipv4() {
-            std::net::Ipv4Addr::LOCALHOST.into()
-        } else {
-            std::net::Ipv6Addr::LOCALHOST.into()
-        });
-    }
-    let mut logged = false;
-    loop {
-        let connected = tokio::time::timeout_at(
-            deadline.min(tokio::time::Instant::now() + Duration::from_millis(250)),
-            tokio::net::TcpStream::connect(probe),
-        )
-        .await;
-        if matches!(connected, Ok(Ok(_))) || tokio::time::Instant::now() >= deadline {
-            return Err(original);
-        }
-        if !logged {
-            eprintln!(
-                "{}",
-                serde_json::json!({"event":"bind_wait","listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"})
-            );
-            logged = true;
-        }
-        tokio::time::sleep_until(
-            deadline.min(tokio::time::Instant::now() + Duration::from_millis(250)),
-        )
-        .await;
-        if tokio::time::Instant::now() >= deadline {
-            return Err(original);
-        }
-        match socket.bind(address) {
-            Ok(()) => return Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::AddrInUse => {}
-            Err(error) => return Err(error),
-        }
     }
 }
 

@@ -38954,7 +38954,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Shared initialization authority/create-missing acceptance is frozen but unimplemented in docs/en/slices/onboarding-state-contract.md. This does not claim fake-gcs-server metadata/seed equivalence.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Shared initialization authority/create-missing acceptance is frozen but unimplemented in docs/en/slices/onboarding-state-contract.md. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39076,13 +39076,36 @@
           "description": "Initialize before seed, preserve existing settings and objects, diagnose owning-project mismatch without reassignment and never delete removed entries; independent of sync and public URLs. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "startup-phase-order",
+          "description": "Preserve recovery/PAP/seed/bind/readiness order with typed phase results and serialized ReadyEvent; future initializer/import/sync integration remains pending. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
+          "result": "PASS",
+          "test_ids": [
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+            "probes_cannot_succeed_while_seed_publication_is_blocked",
+            "seeded_http_metadata_bytes_and_strict_administrative_import"
+          ]
         }
       ],
       "test_ids": [
         "seeded_http_metadata_bytes_and_strict_administrative_import",
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+        "probes_cannot_succeed_while_seed_publication_is_blocked",
         "container-seed-lifecycle"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/startup-phases-checks.txt",
+          "test_ids": [
+            "seeded_http_metadata_bytes_and_strict_administrative_import",
+            "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+            "probes_cannot_succeed_while_seed_publication_is_blocked"
+          ]
+        },
         {
           "command": "Docker Linux ARM64, network none, pinned Rust 1.99.1: cargo +1.99.1 test --locked --offline --test seed",
           "result": "PASS",
@@ -39108,7 +39131,7 @@
         "Directory synchronization settings and activation are specified only in docs/en/slices/directory-synchronization.md; no watcher, bidirectional ingestion or write-back is implemented."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-063",
@@ -40403,6 +40426,14 @@
           "test_ids": []
         },
         {
+          "id": "startup-phase-benchmark",
+          "description": "Five equivalent-profile startup repetitions at 10000/100000 objects with CPU, readiness RSS, disk, correctness and frozen baseline comparison. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
+          "result": "PASS",
+          "test_ids": [
+            "startup-phases-native-startup"
+          ]
+        },
+        {
           "id": "onboarding-state-sync-benchmark",
           "description": "Measure full rescan and concurrent API/sync p50/p99, staged-batch overlap and repeated-resume revalidation after those interfaces exist; currently unimplemented and unmeasured. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
@@ -40446,6 +40477,7 @@
         "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
         "onboarding-state-native-baseline",
+        "startup-phases-native-startup",
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
@@ -40483,6 +40515,15 @@
           "artifact": "docs/en/evidence/onboarding-state-benchmark.txt",
           "test_ids": [
             "onboarding-state-native-baseline"
+          ]
+        },
+        {
+          "command": "Bash startup-only loop in docs/en/evidence/startup-phases.md; jq frozen-baseline comparison",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/startup-phases.json",
+          "test_ids": [
+            "startup-phases-native-startup"
           ]
         }
       ],
@@ -40694,7 +40735,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Pending shared cancellation, protected staging/publication and imported hold cases are accepted in docs/en/slices/onboarding-state-contract.md; contract acceptance is not runtime evidence.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader administrative cancellation, protected staging/publication and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40745,9 +40786,33 @@
         },
         {
           "id": "onboarding-state-cancellation",
-          "description": "Interrupt every pre-bind phase with no false readiness, drain owned administrative effects and cleanup before unlocking; preserve possibly committed readable bodies across commit cancellation and handle drop. Contract: docs/en/slices/onboarding-state-contract.md.",
+          "description": "Startup subset verified: recovery/PAP barriers, real SIGTERM during partial staging and after rename before commit, empty staging and no unreferenced blobs before stopped. Broader administrative/handle-drop and ambiguous-commit cases remain pending. Contract: docs/en/slices/onboarding-state-contract.md.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": [
+            "shutdown_during_recovery_drains_open_before_unlocking",
+            "shutdown_during_policy_configuration_drains_owned_work",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "cancelled_policy_request_still_executes_its_owned_job"
+          ]
+        },
+        {
+          "id": "startup-phase-cleanup",
+          "description": "Race open/recovery, PAP, seed and bind against shutdown; no false readiness, drain owned work before close/lock release, close on PAP/bind failure and preserve committed seed bytes on retry. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-startup-phases.",
+          "result": "PASS",
+          "test_ids": [
+            "shutdown_during_recovery_drains_open_before_unlocking",
+            "shutdown_during_policy_configuration_drains_owned_work",
+            "startup_failures_close_catalog_even_with_live_handles",
+            "shutdown_wins_before_starting_the_next_phase",
+            "phase_completion_and_signal_errors_are_preserved",
+            "catalog_open_failure_preserves_diagnostics_without_repolling",
+            "cancelled_policy_request_still_executes_its_owned_job",
+            "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+            "interrupted_import_retries_without_overwrite_and_releases_lock",
+            "process_restarts_on_same_port_without_allowing_a_second_live_listener"
+          ]
         },
         {
           "id": "onboarding-state-publication",
@@ -40777,9 +40842,41 @@
         "recovery_crosses_bounded_pages_and_never_reclaims_a_live_journal_entry",
         "missing_or_truncated_referenced_blob_blocks_readiness_and_releases_lock",
         "recovery_ignores_os_metadata_and_names_other_stray_entries",
-        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed"
+        "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
+        "shutdown_during_recovery_drains_open_before_unlocking",
+        "shutdown_during_policy_configuration_drains_owned_work",
+        "startup_failures_close_catalog_even_with_live_handles",
+        "shutdown_wins_before_starting_the_next_phase",
+        "phase_completion_and_signal_errors_are_preserved",
+        "catalog_open_failure_preserves_diagnostics_without_repolling",
+        "cancelled_policy_request_still_executes_its_owned_job",
+        "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
+        "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+        "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+        "interrupted_import_retries_without_overwrite_and_releases_lock",
+        "process_restarts_on_same_port_without_allowing_a_second_live_listener"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-24",
+          "artifact": "docs/en/evidence/startup-phases-checks.txt",
+          "test_ids": [
+            "shutdown_during_recovery_drains_open_before_unlocking",
+            "shutdown_during_policy_configuration_drains_owned_work",
+            "startup_failures_close_catalog_even_with_live_handles",
+            "shutdown_wins_before_starting_the_next_phase",
+            "phase_completion_and_signal_errors_are_preserved",
+            "catalog_open_failure_preserves_diagnostics_without_repolling",
+            "cancelled_policy_request_still_executes_its_owned_job",
+            "close_failure_preserves_primary_diagnostics_and_unstructured_errors",
+            "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+            "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+            "interrupted_import_retries_without_overwrite_and_releases_lock",
+            "process_restarts_on_same_port_without_allowing_a_second_live_listener"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -40799,13 +40896,15 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
+        "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
+        "Shutdown during object-count-proportional recovery waits for completion without a deadline or accelerated second-signal path. Startup measurements are observations, not shutdown latency bounds; recovery internals remain unchanged.",
         "Directory sync marker/write-back/shutdown recovery remains PENDING under docs/en/slices/directory-synchronization.md. Non-exchange replacement retains an explicit concurrent-writer loss window; Windows power-loss namespace durability is not claimed.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-24"
     },
     {
       "id": "DESIGN-075",

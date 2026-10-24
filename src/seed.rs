@@ -9,7 +9,8 @@ use crate::{
     storage::Catalog,
 };
 use bytes::Bytes;
-use serde_json::{Value, json};
+use serde::Serialize;
+use serde_json::json;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -19,13 +20,29 @@ use tokio::{io::AsyncReadExt, sync::mpsc};
 const MAX_ENTRIES: usize = 10_000;
 const MAX_DEPTH: usize = 32;
 
-pub async fn import(catalog: &Catalog, config: &Config, clock: &dyn Clock) -> io::Result<Value> {
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "lowercase")]
+pub enum SeedOutcome {
+    Disabled,
+    Skipped,
+    Imported {
+        buckets: usize,
+        objects: usize,
+        existing_objects: usize,
+    },
+}
+
+pub async fn import(
+    catalog: &Catalog,
+    config: &Config,
+    clock: &dyn Clock,
+) -> io::Result<SeedOutcome> {
     if catalog.seed_complete().await.map_err(io::Error::other)? {
-        return Ok(json!({"outcome":"skipped"}));
+        return Ok(SeedOutcome::Skipped);
     }
     let Some(root) = &config.seed_dir else {
         catalog.finish_seed().await.map_err(io::Error::other)?;
-        return Ok(json!({"outcome":"disabled"}));
+        return Ok(SeedOutcome::Disabled);
     };
     eprintln!("{{\"event\":\"seeding\"}}");
     let result = import_directory(catalog, config, clock, root).await;
@@ -51,7 +68,7 @@ async fn import_directory(
     config: &Config,
     clock: &dyn Clock,
     root: &Path,
-) -> io::Result<Value> {
+) -> io::Result<SeedOutcome> {
     if !tokio::fs::symlink_metadata(root)
         .await?
         .file_type()
@@ -192,7 +209,9 @@ async fn import_directory(
         result.map_err(|error| io::Error::other(format!("{label}: {error}")))?;
     }
     catalog.finish_seed().await.map_err(io::Error::other)?;
-    Ok(
-        json!({"outcome":"imported", "buckets":buckets, "objects":objects, "existing_objects":existing_objects}),
-    )
+    Ok(SeedOutcome::Imported {
+        buckets,
+        objects,
+        existing_objects,
+    })
 }

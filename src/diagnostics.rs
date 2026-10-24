@@ -92,6 +92,47 @@ impl fmt::Display for Diagnostics {
 
 impl std::error::Error for Diagnostics {}
 
+/// Preserve the operation failure and catalog-close cause on every shutdown path.
+pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -> io::Result<()> {
+    let mut result = result.map_err(|error| {
+        if error.get_ref().is_some_and(|inner| inner.is::<Diagnostics>()) {
+            error
+        } else {
+            io::Error::new(error.kind(), Diagnostics::error(
+                DiagnosticSource::Runtime, "startup",
+                format!("Startup or shutdown failed ({:?}): {error}; inspect active connections and configured local resources.", error.kind()),
+            ))
+        }
+    });
+    if let Err(close) = close {
+        let diagnostic = Diagnostic::new(
+            DiagnosticSource::Catalog,
+            "data_dir",
+            format!(
+                "Cannot close catalog ({:?}): {close}; inspect persistence before restarting.",
+                close.kind()
+            ),
+        );
+        if let Err(error) = &mut result {
+            if let Some(diagnostics) = error
+                .get_mut()
+                .and_then(|inner| inner.downcast_mut::<Diagnostics>())
+            {
+                diagnostics.errors.push(diagnostic);
+            }
+        } else {
+            result = Err(io::Error::new(
+                close.kind(),
+                Diagnostics {
+                    warnings: Vec::new(),
+                    errors: vec![diagnostic],
+                },
+            ));
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]

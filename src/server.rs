@@ -151,8 +151,10 @@ pub async fn serve_with_tls(
         connections.abort_all();
         while connections.join_next().await.is_some() {}
     }
-    state.catalog.close().await.map_err(io::Error::other)?;
-    signal_result.and(drain_result)
+    crate::diagnostics::combine_shutdown_results(
+        signal_result.and(drain_result),
+        state.catalog.close().await.map_err(io::Error::other),
+    )
 }
 
 async fn serve_connection(

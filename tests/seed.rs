@@ -25,6 +25,21 @@ fn command(data: &Path, seed: Option<&Path>) -> Command {
     command
 }
 
+#[cfg(unix)]
+fn startup_events(child: &mut Child) -> std::sync::mpsc::Receiver<Value> {
+    let stderr = child.stderr.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let event = serde_json::from_str(&line.unwrap()).unwrap();
+            if send.send(event).is_err() {
+                break;
+            }
+        }
+    });
+    receive
+}
+
 struct Server {
     child: Child,
     stdout: BufReader<ChildStdout>,
@@ -659,4 +674,246 @@ async fn probes_cannot_succeed_while_seed_publication_is_blocked() {
     assert_eq!(server.request("GET", "/_internal/health", b"").0, 200);
     assert_eq!(server.request("GET", "/_internal/ready", b"").0, 200);
     server.stop();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_during_seed_drains_writes_releases_lock_and_retries() {
+    let dir = TestDir::new();
+    let data = dir.0.join("data");
+    let seed = dir.0.join("fixtures");
+    fixture(&seed, "local-bucket/file", b"fixture");
+    let catalog = Catalog::open(&data).await.unwrap();
+    catalog.close().await.unwrap();
+    let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let mut child = command(&data, Some(&seed))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let events = startup_events(&mut child);
+    let stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut server = Server {
+        child,
+        stdout,
+        address: String::new(),
+        ready: Value::Null,
+        strict: false,
+    };
+    let event = events
+        .recv_timeout(Duration::from_secs(5))
+        .expect("seed must start");
+    assert_eq!(event["event"], "seeding");
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &server.child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(
+        events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+        "stopping"
+    );
+    // A pending SQLite mutation must keep ownership until it settles, even after TERM.
+    assert!(Catalog::open(&data).await.is_err());
+    assert!(server.child.try_wait().unwrap().is_none());
+    connection.execute_batch("COMMIT;").unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Some(status) = server.child.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "seed ignored SIGTERM after owned write drained"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let mut output = String::new();
+    server.stdout.read_to_string(&mut output).unwrap();
+    assert_eq!(output, "{\"event\":\"stopped\"}\n");
+    let reopened = Catalog::open(&data).await.unwrap();
+    reopened.close().await.unwrap();
+    let retried = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(
+        retried.request("GET", "/storage/v1/b/local-bucket/o/file?alt=media", b""),
+        (200, b"fixture".to_vec())
+    );
+    retried.stop();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() {
+    use std::collections::BTreeSet;
+    const SIZE: u64 = 64 * 1024 * 1024;
+    for after_rename in [false, true] {
+        let dir = TestDir::new();
+        let data = dir.0.join("data");
+        let seed = dir.0.join("fixtures");
+        fixture(&seed, "local-bucket/large", b"");
+        fs::OpenOptions::new()
+            .write(true)
+            .open(seed.join("local-bucket/large"))
+            .unwrap()
+            .set_len(SIZE)
+            .unwrap();
+        let mut child = command(&data, Some(&seed))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let events = startup_events(&mut child);
+        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut server = Server {
+            child,
+            stdout,
+            address: String::new(),
+            ready: Value::Null,
+            strict: false,
+        };
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(5)).unwrap()["event"],
+            "seeding"
+        );
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let transferring = fs::read_dir(data.join("staging"))
+                .into_iter()
+                .flatten()
+                .any(|entry| {
+                    let size = entry.unwrap().metadata().unwrap().len();
+                    size > 0 && size < SIZE
+                });
+            if transferring {
+                break;
+            }
+            assert!(
+                server.child.try_wait().unwrap().is_none(),
+                "seed exited before body transfer"
+            );
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "seed did not reach body transfer"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let connection = rusqlite::Connection::open(data.join("catalog.sqlite3")).unwrap();
+        let blob_ids = || -> BTreeSet<String> {
+            fs::read_dir(data.join("blobs"))
+                .unwrap()
+                .flat_map(|shard| fs::read_dir(shard.unwrap().path()).unwrap())
+                .map(|blob| blob.unwrap().file_name().into_string().unwrap())
+                .collect()
+        };
+        if after_rename {
+            // As in the existing media crash test, reserve SQLite after advisory checks and block publication after rename.
+            connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+            while blob_ids().is_empty() {
+                assert!(
+                    server.child.try_wait().unwrap().is_none(),
+                    "seed exited before publication"
+                );
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "seed did not reach rename before commit"
+                );
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM objects", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        assert!(
+            Command::new("kill")
+                .args(["-TERM", &server.child.id().to_string()])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert_eq!(
+            events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+            "stopping"
+        );
+        if after_rename {
+            assert!(
+                Catalog::open(&data).await.is_err(),
+                "owned publication must retain the lock"
+            );
+            connection.execute_batch("COMMIT").unwrap();
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = server.child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "seed ignored SIGTERM during transfer/publication"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let mut output = String::new();
+        server.stdout.read_to_string(&mut output).unwrap();
+        assert_eq!(output, "{\"event\":\"stopped\"}\n");
+        assert_eq!(fs::read_dir(data.join("staging")).unwrap().count(), 0);
+        let referenced = connection
+            .prepare("SELECT blob_id FROM objects")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<BTreeSet<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            blob_ids(),
+            referenced,
+            "unreferenced blobs must be reclaimed before stopped"
+        );
+        if after_rename {
+            assert_eq!(
+                referenced.len(),
+                1,
+                "owned commit must finish before unlock"
+            );
+        } else {
+            assert!(
+                referenced.is_empty(),
+                "partial body must not commit after cancellation"
+            );
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM objects", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        drop(connection);
+        let reopened = Catalog::open(&data).await.unwrap();
+        reopened.close().await.unwrap();
+        let retried = Server::start(&mut command(&data, Some(&seed)), false);
+        assert_eq!(
+            retried.json("/storage/v1/b/local-bucket/o/large")["size"],
+            SIZE.to_string()
+        );
+        let mut stream = TcpStream::connect(&retried.address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream.write_all(b"GET /storage/v1/b/local-bucket/o/large?alt=media HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-15\r\nConnection: close\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        stream.take(65536).read_to_end(&mut response).unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 206"));
+        assert!(response.ends_with(&[0; 16]));
+        retried.stop();
+    }
 }

@@ -1,0 +1,35 @@
+source=b2b8b094c43c05d5c151c706ae2df747ec70a112 fixture_source=31a1275 profile=native-macos-http-permissive-native-wal-full concurrency=1 repetitions=5
+simultaneous_load=coordinator-approved-exclusive-no-other-worker-build-or-test cache=not-evicted-sequential-warm-mixed CPU=server-ps-0.01s RSS=at-readiness cgroup=UNMEASURED disk=phase-end-not-high-water startup=observed-ready-poll-10ms-plus-command-overhead
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+binary: rustc
+commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+commit-date: 2026-10-13
+host: aarch64-apple-darwin
+release: 1.99.1
+LLVM version: 23.1.1
+cargo 1.99.1 (5f94df478 2026-08-27)
+Darwin arm64
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+Apple M4 Pro
+68719476736
+14
+filesystem_type=apfs
+58e2794c0a27d78f509123d5c39182ffe654963ab54363cf7e6dc0587916c63b  Cargo.lock
+d13306be0ecda81ce779baa290ffb417380d525928477f16200884b5169cca33  rust-toolchain.toml
+637f9db72cc733eb14aca42432780f89c19bb41356dbe4011dc6683ccaa48277  target/release/gcs-mimic
+2726f1027750036a717cab623bd5c6659d7aa415473075f270a3978afa73112a  target/release/examples/onboarding-state-benchmark
+{"fixture_objects":10000,"publication":"Catalog::put_object","result":"PASS"}
+{"fixture_objects":100000,"publication":"Catalog::put_object","result":"PASS"}
+{"round":1,"workload":"startup-10000","objects":10000,"wall_seconds":0.515867,"server_cpu_seconds":0.09,"ready_RSS_KiB":10400,"allocated_disk_KiB":44036,"errors":0,"cgroup_memory":null}
+{"round":1,"workload":"startup-100000","objects":100000,"wall_seconds":1.737045,"server_cpu_seconds":0.91,"ready_RSS_KiB":10336,"allocated_disk_KiB":432864,"errors":0,"cgroup_memory":null}
+{"round":2,"workload":"startup-10000","objects":10000,"wall_seconds":0.092658,"server_cpu_seconds":0.07,"ready_RSS_KiB":10352,"allocated_disk_KiB":44036,"errors":0,"cgroup_memory":null}
+{"round":2,"workload":"startup-100000","objects":100000,"wall_seconds":0.809801,"server_cpu_seconds":0.69,"ready_RSS_KiB":10432,"allocated_disk_KiB":432864,"errors":0,"cgroup_memory":null}
+{"round":3,"workload":"startup-10000","objects":10000,"wall_seconds":0.087599,"server_cpu_seconds":0.07,"ready_RSS_KiB":10336,"allocated_disk_KiB":44036,"errors":0,"cgroup_memory":null}
+{"round":3,"workload":"startup-100000","objects":100000,"wall_seconds":0.732272,"server_cpu_seconds":0.69,"ready_RSS_KiB":10464,"allocated_disk_KiB":432864,"errors":0,"cgroup_memory":null}
+{"round":4,"workload":"startup-10000","objects":10000,"wall_seconds":0.090344,"server_cpu_seconds":0.07,"ready_RSS_KiB":10336,"allocated_disk_KiB":44036,"errors":0,"cgroup_memory":null}
+{"round":4,"workload":"startup-100000","objects":100000,"wall_seconds":0.727584,"server_cpu_seconds":0.67,"ready_RSS_KiB":10384,"allocated_disk_KiB":432864,"errors":0,"cgroup_memory":null}
+{"round":5,"workload":"startup-10000","objects":10000,"wall_seconds":0.091747,"server_cpu_seconds":0.07,"ready_RSS_KiB":10544,"allocated_disk_KiB":44036,"errors":0,"cgroup_memory":null}
+{"round":5,"workload":"startup-100000","objects":100000,"wall_seconds":0.777482,"server_cpu_seconds":0.69,"ready_RSS_KiB":10432,"allocated_disk_KiB":432864,"errors":0,"cgroup_memory":null}
+PASS: five startup repetitions at each exact object count; readiness probes and graceful lock release succeeded; cgroups/cold-cache unmeasured.

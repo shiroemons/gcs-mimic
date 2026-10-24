@@ -1,0 +1,272 @@
+{
+  "source": "b2b8b094c43c05d5c151c706ae2df747ec70a112",
+  "baseline_source": "60a4f03",
+  "profile": "native-macos-http-permissive-native-wal-full",
+  "repetitions": 5,
+  "workloads": [
+    {
+      "workload": "startup-10000",
+      "samples_by_round": [
+        {
+          "round": 1,
+          "workload": "startup-10000",
+          "objects": 10000,
+          "wall_seconds": 0.515867,
+          "server_cpu_seconds": 0.09,
+          "ready_RSS_KiB": 10400,
+          "allocated_disk_KiB": 44036,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 2,
+          "workload": "startup-10000",
+          "objects": 10000,
+          "wall_seconds": 0.092658,
+          "server_cpu_seconds": 0.07,
+          "ready_RSS_KiB": 10352,
+          "allocated_disk_KiB": 44036,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 3,
+          "workload": "startup-10000",
+          "objects": 10000,
+          "wall_seconds": 0.087599,
+          "server_cpu_seconds": 0.07,
+          "ready_RSS_KiB": 10336,
+          "allocated_disk_KiB": 44036,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 4,
+          "workload": "startup-10000",
+          "objects": 10000,
+          "wall_seconds": 0.090344,
+          "server_cpu_seconds": 0.07,
+          "ready_RSS_KiB": 10336,
+          "allocated_disk_KiB": 44036,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 5,
+          "workload": "startup-10000",
+          "objects": 10000,
+          "wall_seconds": 0.091747,
+          "server_cpu_seconds": 0.07,
+          "ready_RSS_KiB": 10544,
+          "allocated_disk_KiB": 44036,
+          "errors": 0,
+          "cgroup_memory": null
+        }
+      ],
+      "metrics": {
+        "wall_seconds": {
+          "samples": [
+            0.515867,
+            0.092658,
+            0.087599,
+            0.090344,
+            0.091747
+          ],
+          "median": 0.091747,
+          "min": 0.087599,
+          "max": 0.515867,
+          "relative_spread": 4.667923746825509,
+          "baseline_median": 0.190218,
+          "baseline_median_upper_bound": 0.654544,
+          "result": "PASS",
+          "pending_reason": null
+        },
+        "server_cpu_seconds": {
+          "samples": [
+            0.09,
+            0.07,
+            0.07,
+            0.07,
+            0.07
+          ],
+          "median": 0.07,
+          "min": 0.07,
+          "max": 0.09,
+          "relative_spread": 0.28571428571428553,
+          "baseline_median": 0.08,
+          "baseline_median_upper_bound": null,
+          "result": "PENDING",
+          "pending_reason": "PENDING: a zero sample or missing/quantized raw server CPU repetition prevents calibration"
+        },
+        "allocated_disk_KiB": {
+          "samples": [
+            44036,
+            44036,
+            44036,
+            44036,
+            44036
+          ],
+          "median": 44036,
+          "min": 44036,
+          "max": 44036,
+          "relative_spread": 0,
+          "baseline_median": 44180,
+          "baseline_median_upper_bound": 48598.00000000001,
+          "result": "PASS",
+          "pending_reason": null
+        },
+        "ready_RSS_KiB": {
+          "samples": [
+            10400,
+            10352,
+            10336,
+            10336,
+            10544
+          ],
+          "median": 10352,
+          "min": 10336,
+          "max": 10544,
+          "relative_spread": 0.02009273570324575,
+          "baseline_median": 10128,
+          "baseline_median_upper_bound": 11140.800000000001,
+          "result": "PASS",
+          "pending_reason": null
+        }
+      }
+    },
+    {
+      "workload": "startup-100000",
+      "samples_by_round": [
+        {
+          "round": 1,
+          "workload": "startup-100000",
+          "objects": 100000,
+          "wall_seconds": 1.737045,
+          "server_cpu_seconds": 0.91,
+          "ready_RSS_KiB": 10336,
+          "allocated_disk_KiB": 432864,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 2,
+          "workload": "startup-100000",
+          "objects": 100000,
+          "wall_seconds": 0.809801,
+          "server_cpu_seconds": 0.69,
+          "ready_RSS_KiB": 10432,
+          "allocated_disk_KiB": 432864,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 3,
+          "workload": "startup-100000",
+          "objects": 100000,
+          "wall_seconds": 0.732272,
+          "server_cpu_seconds": 0.69,
+          "ready_RSS_KiB": 10464,
+          "allocated_disk_KiB": 432864,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 4,
+          "workload": "startup-100000",
+          "objects": 100000,
+          "wall_seconds": 0.727584,
+          "server_cpu_seconds": 0.67,
+          "ready_RSS_KiB": 10384,
+          "allocated_disk_KiB": 432864,
+          "errors": 0,
+          "cgroup_memory": null
+        },
+        {
+          "round": 5,
+          "workload": "startup-100000",
+          "objects": 100000,
+          "wall_seconds": 0.777482,
+          "server_cpu_seconds": 0.69,
+          "ready_RSS_KiB": 10432,
+          "allocated_disk_KiB": 432864,
+          "errors": 0,
+          "cgroup_memory": null
+        }
+      ],
+      "metrics": {
+        "wall_seconds": {
+          "samples": [
+            1.737045,
+            0.809801,
+            0.732272,
+            0.727584,
+            0.777482
+          ],
+          "median": 0.777482,
+          "min": 0.727584,
+          "max": 1.737045,
+          "relative_spread": 1.298372180963675,
+          "baseline_median": 0.969047,
+          "baseline_median_upper_bound": 3.561013,
+          "result": "PASS",
+          "pending_reason": null
+        },
+        "server_cpu_seconds": {
+          "samples": [
+            0.91,
+            0.69,
+            0.69,
+            0.67,
+            0.69
+          ],
+          "median": 0.69,
+          "min": 0.67,
+          "max": 0.91,
+          "relative_spread": 0.34782608695652173,
+          "baseline_median": 0.75,
+          "baseline_median_upper_bound": 1.6899999999999997,
+          "result": "PASS",
+          "pending_reason": null
+        },
+        "allocated_disk_KiB": {
+          "samples": [
+            432864,
+            432864,
+            432864,
+            432864,
+            432864
+          ],
+          "median": 432864,
+          "min": 432864,
+          "max": 432864,
+          "relative_spread": 0,
+          "baseline_median": 432852,
+          "baseline_median_upper_bound": 476137.2,
+          "result": "PASS",
+          "pending_reason": null
+        },
+        "ready_RSS_KiB": {
+          "samples": [
+            10336,
+            10432,
+            10464,
+            10384,
+            10432
+          ],
+          "median": 10432,
+          "min": 10336,
+          "max": 10464,
+          "relative_spread": 0.012269938650306749,
+          "baseline_median": 10144,
+          "baseline_median_upper_bound": 11158.400000000001,
+          "result": "PASS",
+          "pending_reason": null
+        }
+      }
+    }
+  ],
+  "result": "PASS",
+  "pending_metrics": [
+    "startup-10000/server_cpu_seconds"
+  ]
+}

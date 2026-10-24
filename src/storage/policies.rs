@@ -260,3 +260,79 @@ fn authorize_policy(
     check_access(connection, bucket, &project, access)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    use std::{
+        future::Future,
+        sync::mpsc,
+        task::Poll,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn cancelled_policy_request_still_executes_its_owned_job() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "gcs-mimic-policy-job-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let catalog = Catalog::open(&path).await.unwrap();
+            catalog
+                .configure_public_access_prevention(&["old-project".into()])
+                .await
+                .unwrap();
+            let (entered, blocked) = tokio::sync::oneshot::channel();
+            let (release, released) = mpsc::channel();
+            let blocker = tokio::task::spawn_blocking(move || {
+                entered.send(()).unwrap();
+                released.recv_timeout(Duration::from_secs(10)).unwrap();
+            });
+            blocked.await.unwrap();
+            {
+                let projects = ["new-project".into()];
+                let work = catalog.configure_public_access_prevention(&projects);
+                tokio::pin!(work);
+                std::future::poll_fn(|cx| {
+                    assert!(work.as_mut().poll(cx).is_pending());
+                    Poll::Ready(())
+                })
+                .await;
+            }
+            release.send(()).unwrap();
+            blocker.await.unwrap();
+            let projects: Vec<String> = catalog
+                .run(|connection| {
+                    let mut statement = connection
+                        .prepare(
+                            "SELECT project FROM parent_public_access_prevention ORDER BY project",
+                        )
+                        .map_err(unavailable)?;
+                    statement
+                        .query_map([], |row| row.get(0))
+                        .map_err(unavailable)?
+                        .collect::<Result<_, _>>()
+                        .map_err(unavailable)
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                projects,
+                ["new-project"],
+                "cancelled request must not abort its queued SQLite mutation"
+            );
+            catalog.close().await.unwrap();
+            std::fs::remove_dir_all(path).unwrap();
+        });
+    }
+}

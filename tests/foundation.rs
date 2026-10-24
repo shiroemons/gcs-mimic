@@ -95,10 +95,10 @@ fn assert_bind_wait_signals_exit_without_readiness(address: &str, dir: &TestDir)
         std::thread::spawn(move || {
             let mut line = String::new();
             stderr.read_line(&mut line).unwrap();
-            let _ = send.send(line);
+            let _ = send.send((stderr, line));
         });
-        let line = match receive.recv_timeout(Duration::from_secs(3)) {
-            Ok(line) => line,
+        let (_stderr, line) = match receive.recv_timeout(Duration::from_secs(3)) {
+            Ok(value) => value,
             Err(error) => {
                 child.kill().unwrap();
                 let output = child.wait_with_output().unwrap();
@@ -217,7 +217,51 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
         let mut line = String::new();
         stdout.read_line(&mut line).unwrap();
         let ready: serde_json::Value = serde_json::from_str(&line).expect("ready after recovery");
+        assert_eq!(
+            ready
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from([
+                "event",
+                "listen",
+                "protocol",
+                "gcs_api",
+                "max_connections",
+                "max_object_bytes",
+                "worker_threads",
+                "max_blocking_threads",
+                "connection_timeout_ms",
+                "object_request_timeout_ms",
+                "catalog_wait_timeout_ms",
+                "shutdown_timeout_ms",
+                "auth_mode",
+                "seed",
+                "scheme",
+                "tls_handshake_timeout_ms",
+            ])
+        );
         assert_eq!(ready["event"], "ready");
+        assert_eq!(ready["protocol"], "http1");
+        assert_eq!(ready["gcs_api"], "json-bucket-object-media-crud");
+        assert_eq!(ready["scheme"], "http");
+        assert_eq!(ready["auth_mode"], "permissive");
+        assert!(ready.get("identities").is_none());
+        assert_eq!(ready["max_connections"], 32);
+        assert_eq!(ready["max_object_bytes"], 1_073_741_824_u64);
+        assert_eq!(ready["worker_threads"], 2);
+        assert_eq!(ready["max_blocking_threads"], 2);
+        assert_eq!(ready["connection_timeout_ms"], 5000);
+        assert_eq!(ready["object_request_timeout_ms"], 900_000);
+        assert_eq!(ready["catalog_wait_timeout_ms"], 30_000);
+        assert_eq!(ready["shutdown_timeout_ms"], 5000);
+        assert_eq!(ready["tls_handshake_timeout_ms"], 5000);
+        assert!(matches!(
+            ready["seed"]["outcome"].as_str(),
+            Some("disabled" | "skipped")
+        ));
         common::stop_server(&mut child, &mut stdout);
     }
 }
