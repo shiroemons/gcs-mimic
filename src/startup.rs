@@ -59,6 +59,7 @@ pub(crate) struct ReadyEvent {
     tls_handshake_timeout_ms: u64,
     public_base_url: Option<String>,
     public_virtual_host_enabled: bool,
+    api_base_url: String,
 }
 
 impl ReadyEvent {
@@ -68,6 +69,7 @@ impl ReadyEvent {
         listen: SocketAddr,
         seed: SeedOutcome,
         buckets_file: InitOutcome,
+        api_base_url: String,
     ) -> Self {
         Self {
             event: "ready",
@@ -93,6 +95,7 @@ impl ReadyEvent {
                 .as_ref()
                 .map(|origin| origin.as_str().to_owned()),
             public_virtual_host_enabled: config.public_virtual_host_enabled(),
+            api_base_url,
         }
     }
 }
@@ -265,13 +268,16 @@ pub(crate) async fn serve(
             )
         })
         .and_then(|address| {
+            let api_base_url = config.effective_api_base_url(address);
             serde_json::to_string(&ReadyEvent::new(
                 &config,
                 &auth,
                 address,
                 seed,
                 buckets_file,
+                api_base_url.clone(),
             ))
+            .map(|ready| (ready, api_base_url))
             .map_err(|_| {
                 phase(
                     DiagnosticSource::Runtime,
@@ -280,7 +286,7 @@ pub(crate) async fn serve(
                 )
             })
         });
-    let ready = match ready {
+    let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
         Err(error) => return close_startup(&catalog, Err(error)).await,
     };
@@ -289,7 +295,7 @@ pub(crate) async fn serve(
         ready: AtomicBool::new(true),
         clock,
         catalog,
-        api_base_url: config.api_base_url.clone(),
+        api_base_url: ready_api_base_url,
         auth,
     });
     println!("{ready}");

@@ -73,7 +73,7 @@ pub struct Config {
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
     pub buckets_file: Option<PathBuf>,
-    pub api_base_url: String,
+    pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
     pub xml_virtual_host_domains: Vec<String>,
     pub max_connections: usize,
@@ -102,7 +102,7 @@ impl Default for Config {
             seed_dir: None,
             seed_project: "local-project".into(),
             buckets_file: None,
-            api_base_url: "https://127.0.0.1:4443".into(),
+            api_base_url: None,
             public_base_url: None,
             xml_virtual_host_domains: Vec::new(),
             max_connections: 32,
@@ -121,6 +121,25 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
+        self.api_base_url.clone().unwrap_or_else(|| {
+            let ip = match bound.ip() {
+                std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+                    std::net::Ipv4Addr::LOCALHOST.into()
+                }
+                std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+                    std::net::Ipv6Addr::LOCALHOST.into()
+                }
+                ip => ip,
+            };
+            format!(
+                "{}://{}",
+                self.scheme.as_str(),
+                SocketAddr::new(ip, bound.port())
+            )
+        })
+    }
+
     pub fn public_virtual_host_enabled(&self) -> bool {
         self.public_base_url
             .as_ref()
@@ -267,7 +286,6 @@ impl Config {
                 .filter(|key| !settings.contains_key(key))
                 .collect(),
         };
-        let explicit_api_base_url = settings.contains_key("api_base_url");
         let tls_options_supplied = settings.keys().any(|key| {
             matches!(
                 key.as_str(),
@@ -309,8 +327,10 @@ impl Config {
                         config.tls_handshake_timeout_ms = bounded(key, &value, 1, 60_000)?
                     }
                     "api_base_url" => {
-                        config.api_base_url = crate::url::normalize_base_url(&value)
-                            .map_err(|error| format!("api_base_url: {error}"))?;
+                        config.api_base_url = Some(
+                            crate::url::normalize_base_url(&value)
+                                .map_err(|error| format!("api_base_url: {error}"))?,
+                        );
                     }
                     "public_base_url" => {
                         config.public_base_url = Some(
@@ -453,9 +473,6 @@ impl Config {
             }
             _ => {}
         }
-        if !explicit_api_base_url {
-            config.api_base_url = format!("{}://127.0.0.1:4443", config.scheme.as_str());
-        }
         if !report.invalid.contains("public_base_url")
             && let Some(input) = settings.get("public_base_url")
             && let Some(origin) = config.public_base_url.as_ref()
@@ -479,11 +496,11 @@ impl Config {
                     "public_base_url is an IP address: virtual-host routing is disabled; use path-style URLs or a DNS origin such as http://storage.example.invalid."));
             }
         }
-        if !["api_base_url", "xml_virtual_host_domains"]
+        if !["api_base_url", "xml_virtual_host_domains", "listen"]
             .iter()
             .any(|k| report.invalid.contains(*k))
             && config
-                .api_base_url
+                .effective_api_base_url(config.listen)
                 .parse::<hyper::Uri>()
                 .ok()
                 .and_then(|api| api.authority().cloned())
@@ -1145,7 +1162,7 @@ mod tests {
     fn tls_configuration_precedence_and_validation() {
         let defaults = Config::default();
         assert_eq!(defaults.scheme, Scheme::Https);
-        assert_eq!(defaults.api_base_url, "https://127.0.0.1:4443");
+        assert_eq!(defaults.api_base_url, None);
         let loaded = Config::load(&[], &BTreeMap::new()).unwrap();
         assert_eq!(loaded.scheme, Scheme::Https);
         assert_eq!(loaded.tls_cert, None);
@@ -1164,10 +1181,7 @@ mod tests {
             .scheme,
             Scheme::Https
         );
-        assert_eq!(
-            load_http(&[], &BTreeMap::new()).unwrap().api_base_url,
-            "http://127.0.0.1:4443"
-        );
+        assert_eq!(load_http(&[], &BTreeMap::new()).unwrap().api_base_url, None);
         assert_eq!(defaults.tls_handshake_timeout_ms, 5_000);
         let file =
             std::env::temp_dir().join(format!("gcs-mimic-tls-config-{}.json", std::process::id()));
@@ -1178,7 +1192,7 @@ mod tests {
         assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("file-cert.pem")));
         assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("file-key.pem")));
         assert_eq!(loaded.tls_handshake_timeout_ms, 100);
-        assert_eq!(loaded.api_base_url, "https://127.0.0.1:4443");
+        assert_eq!(loaded.api_base_url, None);
         let env = BTreeMap::from([
             ("GCS_MIMIC_TLS_CERT".into(), "env-cert.pem".into()),
             ("GCS_MIMIC_TLS_KEY".into(), "env-key.pem".into()),
@@ -1192,7 +1206,10 @@ mod tests {
         assert_eq!(loaded.tls_cert.as_deref(), Some(Path::new("env-cert.pem")));
         assert_eq!(loaded.tls_key.as_deref(), Some(Path::new("env-key.pem")));
         assert_eq!(loaded.tls_handshake_timeout_ms, 200);
-        assert_eq!(loaded.api_base_url, "http://proxy.invalid/base");
+        assert_eq!(
+            loaded.api_base_url.as_deref(),
+            Some("http://proxy.invalid/base")
+        );
         let cli = [
             args,
             vec![
@@ -1392,14 +1409,56 @@ mod tests {
     }
 
     #[test]
+    fn api_origin_defaults_use_bound_addresses_and_preflight_hosts() {
+        for (bound, expected) in [
+            ("0.0.0.0:54321", "https://127.0.0.1:54321"),
+            ("[::]:54321", "https://[::1]:54321"),
+            ("127.0.0.2:54321", "https://127.0.0.2:54321"),
+            ("[::1]:54321", "https://[::1]:54321"),
+        ] {
+            assert_eq!(
+                Config::default().effective_api_base_url(bound.parse().unwrap()),
+                expected
+            );
+        }
+        for listen in ["127.0.0.1:0", "0.0.0.0:0"] {
+            let args = [
+                "--listen".into(),
+                listen.into(),
+                "--xml-virtual-host-domains".into(),
+                "0.1".into(),
+            ];
+            assert!(
+                load_http(&args, &BTreeMap::new())
+                    .unwrap_err()
+                    .to_string()
+                    .contains("api_base_url host selects")
+            );
+            let explicit = [
+                args.to_vec(),
+                vec![
+                    "--api-base-url".into(),
+                    "https://proxy.invalid/prefix/".into(),
+                ],
+            ]
+            .concat();
+            let config = load_http(&explicit, &BTreeMap::new()).unwrap();
+            assert_eq!(
+                config.effective_api_base_url("127.0.0.1:12345".parse().unwrap()),
+                "https://proxy.invalid/prefix"
+            );
+        }
+    }
+
+    #[test]
     fn advertised_endpoint_precedence_and_validation() {
         let env = BTreeMap::from([(
             "GCS_MIMIC_API_BASE_URL".into(),
             "https://example.invalid/base/".into(),
         )]);
         assert_eq!(
-            load_http(&[], &env).unwrap().api_base_url,
-            "https://example.invalid/base"
+            load_http(&[], &env).unwrap().api_base_url.as_deref(),
+            Some("https://example.invalid/base")
         );
         assert_eq!(
             load_http(
@@ -1407,8 +1466,9 @@ mod tests {
                 &env
             )
             .unwrap()
-            .api_base_url,
-            "http://127.0.0.1:1234"
+            .api_base_url
+            .as_deref(),
+            Some("http://127.0.0.1:1234")
         );
         for value in [
             "relative",

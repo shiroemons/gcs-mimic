@@ -114,7 +114,7 @@ API-host collisions using the explicit base's host or the listen IP after the
 wildcard-to-loopback substitution; this host is known before bind and collision
 matching ignores ports. A collision must prevent catalog access, bind and ready,
 including numeric DNS suffixes such as `0.1` matching `127.0.0.1`. Only fill in
-the actual bound port immediately after bind in `main.rs`, before constructing
+the actual bound port immediately after bind in `startup.rs`, before constructing
 `State` or ready. This is value
 resolution within the existing bind-to-State boundary, not a startup-phase
 reordering; it does not depend on `shared-startup-phases`. Shared state owns
@@ -165,9 +165,9 @@ or existing explicit XML-domain validation.
 
 Ready currently always includes `public_base_url` as a normalized string or
 JSON null, and `public_virtual_host_enabled` as a boolean (false when absent or
-IP). `config-public-origin` owns these two keys. `api_base_url` is not yet a
-ready key: `config-api-origin-default` will add its effective string after
-implementing bound-address resolution. Shared state's `ReadyEvent` retains the
+IP). `config-public-origin` owns these two keys. `api_base_url` always contains
+the effective string resolved after bind by `config-api-origin-default`.
+Shared state's `ReadyEvent` retains the
 implemented keys. No setting creates DNS/certificates, grants IAM/ACL access or changes
 PAP. Helpers encode/sign the final host, port, path, query and required headers;
 there is no post-signing Host replacement. An IP public base supports path-style
@@ -182,8 +182,7 @@ authority. For SDKs that read XML (including the Go SDK's default), configure
 the public base with the same authority as the SDK's API endpoint. Compare the
 configured API endpoint (or an object's JSON `selfLink`/`mediaLink` authority)
 with `public_base_url` in ready; do not assume the API authority bypasses legacy
-routing. Comparing two ready URL fields becomes possible only after
-`config-api-origin-default` adds the API key.
+routing. Compare `api_base_url` and `public_base_url` in ready.
 
 ## Disposition of all 19 source environment variables
 
@@ -487,6 +486,71 @@ remain PARTIAL.
 
 ## Acceptance and delivery ownership
 
+### API origin default acceptance
+
+The selected DESIGN-055 / UX-003 scope requires:
+
+- Keep an explicit normalized API base separate from an unset value. Resolve
+  an unset base once after bind, using the actual port and listener scheme;
+  substitute loopback for IPv4/IPv6 wildcard addresses and bracket IPv6.
+- Pass the same effective string to State and the fixed `api_base_url` ready
+  key. Retain the existing public-origin ready keys. Explicit values, including
+  a different scheme and proxy prefix, override the bound address.
+- Reject API/XML-domain collisions before catalog access or bind using the
+  explicit host or substituted listen host, including numeric DNS suffixes.
+  Ignore request Host/Forwarded headers when generating links and Locations.
+- Compose HTTP/HTTPS defaults follow the published host port. A container smoke
+  test follows a resumable Location after changing that port; an explicit API
+  base override remains authoritative.
+
+`scheme=both` is not accepted by the current parser. Its HTTPS-primary default
+remains a required integration case for `config-dual-listener`; this slice does
+not introduce a second listener. Parent feature rows remain PARTIAL.
+
+### API origin default verification
+
+Verified on 2026-10-25 with Rust 1.99.1 and locked dependencies. Runtime and
+Compose changes are in `351447d`; final test fixtures are in `ed3ff07`.
+Persistence fixtures explicitly fix the advertised origin to preserve complete
+metadata comparisons when ephemeral listeners change; the checksum contract
+follows the actual resumable origin. No production storage or initialization
+behavior changed; two storage-test Config literals only wrap explicit bases in
+`Some`.
+
+SDK/container evidence uses the identical API/Compose implementation before
+rebasing onto shared-publication source `1cd0e8b`; integration is checked
+separately by the final `just check` run.
+
+| Check | Result |
+| --- | --- |
+| `just check` after rebase onto `1cd0e8b` (source `e3996c0`) | PASS, 799 Rust tests across 33 result groups, fmt, Clippy with warnings denied, ledger/generated views, release mocks and shell checks |
+| `cargo test --lib config::tests --locked --offline` | PASS, 17 tests; explicit/unset distinction, precedence, actual address formatting and preflight collision checks |
+| `cargo test --test foundation --locked --offline` | PASS, 21 tests; real IPv4/IPv6 explicit/wildcard port-zero binds, HTTPS ready, explicit scheme/prefix override, hostile request headers, resumable Location traversal and links, no catalog/ready on collision |
+| `cargo test --test auth_http --locked --offline` | PASS, 102 tests; existing strict/signature/PAP/public-origin and restart behavior retained |
+| `cargo test --test basic_contract_http --locked --offline` | PASS, 12 tests; resumable checksum contract follows the actual listener origin |
+| Go vet/test stages of `just check-sdk` | PASS, Go 1.27.3, Storage v1.70.0, API v0.308.0; complete permissive/strict suite including resumable and signed requests |
+| `bundle exec ruby sdk-tests/ruby/https.rb --self-check` and HTTPS permissive/strict runs | PASS, Ruby 4.0.9, Bundler 4.0.23, Storage 1.62.1; endpoints come from ready without an explicit API base, CA verification, 6 bucket methods, 9 object methods, 3 resumable chunks and strict V4 GET/PUT |
+| `just check-containers` | PASS, linux/arm64 and linux/amd64 built once; each reuses an allocated host port as a nondefault fixed mapping and follows the returned resumable Location without rewriting it; existing CRUD/persistence/seed/probe checks pass |
+| `docker compose config --format json` with published port 54321 | PASS, 6 base/HTTP/TLS default and explicit-override cases |
+| `cargo xtask dependencies check` | PASS, all reported compiler/library/SDK/container inputs CURRENT; no dependency changes |
+
+The emulator's automatic origin is a local configuration contract, not a Google
+request-field addition. The official
+[request endpoints](https://docs.cloud.google.com/storage/docs/request-endpoints)
+document was fetched on 2026-10-25; its HTML SHA-256 is
+`e418d822c503d77fccb59d82b23c3f2aea42962f52235e1e147a74321c7394b5`.
+Existing XML-host/signing/proxy gaps remain unchanged.
+
+Docker's automatically assigned host mapping (`GCS_MIMIC_PORT=0`) is unknown
+inside the container: discover it and configure a fixed published port/API base
+before following generated URLs. Explicit proxy prefixes still require the
+proxy to strip the prefix. One base does not cover disjoint host/peer address
+spaces. Trusted proxy origins, dual listeners and parent-row completion remain
+outside this slice. No benchmark, browser or real-cloud run was performed;
+the entire getting-started guide was not replayed because its runnable command
+blocks are unchanged. Relevant native and container
+journeys above cover the changed URL behavior.
+
 ### Public origin implementation acceptance
 
 The `config-public-origin` slice implements DESIGN-055-PENDING,
@@ -542,7 +606,7 @@ or the runtime cases.
 | --- | --- | --- |
 | `DESIGN-055-CONFIG-CONTRACT`, `UX-003-CONFIG-CONTRACT` | Independent review with zero major findings across all contract sections; markdownlint, ledger validate/render/check and `just check`; retain PARTIAL parent states and existing implemented scopes | `config-contract` |
 | `UX-003-LEGACY-DIAGNOSTICS` | All 19 env/CLI names, empty input, one/two hyphens × separate/equals values, no-subcommand Compose argv, mixed equals/separate tokens and native-name collisions; native value-position regressions `--object -data`, `--object -port`, `--object -x` in public/sign helpers; value-derived HOST/PORT/scheme/URL/location/log advice, URL/secret redaction; JSON CORS removal versus XML/public bucket `responseHeader` advice and unsupported global replacement; legacy PUBLIC_HOST advice for unequal API/public authorities and SDK XML reads; all three Compose-only variables and replaced CMD listener/data guidance; `/data` disjoint/overlapping/ancestor/descendant/symlink/missing-path/inspection-error cases; 1024/1025 occurrences, 256/257-byte keys, deterministic source/key/repeated-key order, warnings before errors, control-character escaping; independent malformed config/TLS/identity errors, paged batch behavior and operational-source JSON; nonzero/no ready/no data creation and no parser panic | `config-legacy-input-diagnostics` |
-| `DESIGN-055-API-DEFAULT` | Port 0, IPv4/IPv6 wildcard and explicit binds, explicit base precedence, proxy prefix; HTTPS primary for `scheme=both`; Host/Forwarded/untrusted origins ignored; preflight collision validation using explicit base or substituted listen host, including numeric DNS suffixes, with no catalog access/bind/ready on failure; fixed ready keys; host-published Compose port and resumable Location traversal | `config-api-origin-default` |
+| `DESIGN-055-API-DEFAULT`, `UX-003-API-DEFAULT` | Port 0, IPv4/IPv6 wildcard and explicit binds, explicit base precedence, proxy prefix; HTTPS default (`scheme=both` integration belongs to `config-dual-listener`); Host/Forwarded/untrusted origins ignored; preflight collision validation using explicit base or substituted listen host, including numeric DNS suffixes, with no catalog access/bind/ready on failure; fixed ready keys; host-published Compose port and resumable Location traversal | `config-api-origin-default` |
 | `DESIGN-055-PENDING` | DNS/IP public origins, 32-domain union/dedup/overflow/API conflict, normalization idempotence proptest, non-root path/userinfo/query/fragment rejection, default-port normalization; explicit-config helpers (syntax/size/value types/public base only), override/no implicit reads/no TLS/identity/catalog access; final-host signature/tampering, host/peer/browser receiver choices and fixed ready fields; proxy derivation remains separate | `config-public-origin`; DESIGN-056 separately |
 | `DESIGN-055-LEGACY-HOST` | Implement against the recorded reference authority/DNS/route/request-form matrix; verify selected buckets, status and deliberate local boundaries including explicit overlapping domains and explicit-domain reserved paths (XML) versus public-derived/path-style JSON precedence, same-domain explicit/public deduplication, unequal API/public authorities with API-host XML fallback and equal-authority SDK XML reads, absolute conflict/signature rejection, existing XML errors/methods and IP virtual disabling; native/unset-public reserved-path and arbitrary-Host regressions and strict IAM/PAP isolation | `config-public-origin` |
 | `UX-003-PUBLIC-ORIGIN` | Explicit public origin for host/peer/browser receiver choices, independent API/listener roles, DNS/IP domain behavior and diagnostics, explicit-config helper defaults/overrides, final-host signature/PAP isolation and fixed ready keys | `config-public-origin` |

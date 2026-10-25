@@ -41,6 +41,15 @@ follows API-generated URLs, set `GCS_MIMIC_API_BASE_URL` to the address reachabl
 by that application, such as `http://gcs:4443`. A single server advertises one API
 base. Public and signed URLs must use the address reachable by their recipient.
 
+Without an explicit API base, native startup derives it from the actual bound
+listener, replacing wildcard IPs with loopback and port zero with the allocated
+port. The ready event includes this effective `api_base_url`. The checked-in
+Compose files instead advertise the published `GCS_MIMIC_PORT` (default 4443)
+using their HTTP/HTTPS mode; an explicit `GCS_MIMIC_API_BASE_URL` wins.
+Docker port-zero mappings require discovering and configuring the assigned host
+port before following links. Neither a container listener nor request headers
+can discover a host port mapping or a proxy's external address.
+
 ## Load local files
 
 Keep the bucket/object layout used by fake-gcs-server's `/data` mount:

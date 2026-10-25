@@ -46,6 +46,8 @@ impl Server {
                 "http",
                 "--listen",
                 "127.0.0.1:0",
+                "--api-base-url",
+                "http://127.0.0.1:4443",
                 "--data-dir",
             ])
             .arg(&data.0)

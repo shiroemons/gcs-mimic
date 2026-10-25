@@ -12,7 +12,7 @@ pub type TestDir = input_fixtures::TestDir;
 pub fn http_config() -> gcs_mimic::config::Config {
     gcs_mimic::config::Config {
         scheme: gcs_mimic::config::Scheme::Http,
-        api_base_url: "http://127.0.0.1:4443".into(),
+        api_base_url: Some("http://127.0.0.1:4443".into()),
         ..Default::default()
     }
 }

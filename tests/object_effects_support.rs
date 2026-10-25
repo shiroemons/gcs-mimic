@@ -61,6 +61,7 @@ impl Server {
                 "--data-dir",
             ])
             .arg(&dir.0)
+            .args(["--api-base-url", "http://127.0.0.1:4443"])
             .arg("--catalog-wait-timeout-ms")
             .arg(catalog_milliseconds.to_string())
             .arg("--object-request-timeout-ms")

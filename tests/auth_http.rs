@@ -65,6 +65,12 @@ impl Server {
     }
 
     fn start_with_stderr(dir: &TestDir, auth: &[&str], stderr: Stdio) -> (Self, Value) {
+        // Restart comparisons retain one advertised origin while ephemeral listeners change.
+        let api_options: &[&str] = if auth.iter().any(|arg| arg.starts_with("--api-base-url")) {
+            &[]
+        } else {
+            &["--api-base-url", "http://127.0.0.1:4443"]
+        };
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -76,6 +82,7 @@ impl Server {
             ])
             .arg(&dir.0)
             .args(["--connection-timeout-ms", "2000"])
+            .args(api_options)
             .args(auth)
             .stdout(Stdio::piped())
             .stderr(stderr)

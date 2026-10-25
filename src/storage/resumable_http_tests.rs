@@ -112,7 +112,7 @@ impl Harness {
         });
         let config = Config {
             scheme: gcs_mimic::config::Scheme::Http,
-            api_base_url: state.api_base_url.clone(),
+            api_base_url: Some(state.api_base_url.clone()),
             max_object_bytes: max,
             catalog_wait_timeout_ms,
             ..Default::default()
@@ -1908,7 +1908,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
     });
     let config = Config {
         scheme: gcs_mimic::config::Scheme::Http,
-        api_base_url: h.base.clone(),
+        api_base_url: Some(h.base.clone()),
         max_object_bytes: 1024 * 1024,
         ..Default::default()
     };

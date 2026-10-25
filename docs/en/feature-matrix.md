@@ -859,7 +859,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | Clean-checkout source Docker build | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | Seed then ready startup | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
-| UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-003 | Host and peer-container CRUD flow | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-004 | Go and Ruby first-use examples | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | Private/public authorization journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | Signed access and invalid-signature journey | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
@@ -962,6 +962,6 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-046 | Public URL construction without permission mutation | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
-| DESIGN-055 | Listen versus advertised API/public addresses | PARTIAL | P2 | PROJECT | PROJECT | 0 |
+| DESIGN-055 | Listen versus advertised API/public addresses | PARTIAL | P2 | PROJECT | PROJECT | 2 |
 | DESIGN-056 | Proxy-aware advertised URLs with explicit trust | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | Resumable Location reachable by clients | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |

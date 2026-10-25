@@ -245,6 +245,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "tls_handshake_timeout_ms",
                 "public_base_url",
                 "public_virtual_host_enabled",
+                "api_base_url",
             ])
         );
         assert_eq!(ready["event"], "ready");
@@ -286,7 +287,7 @@ async fn start(
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
-        api_base_url: config.api_base_url.clone(),
+        api_base_url: config.effective_api_base_url(address),
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
@@ -313,6 +314,135 @@ fn request(address: SocketAddr, request: &str) -> String {
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response
+}
+
+#[test]
+fn api_origin_ready_and_resumable_locations_use_bound_addresses() {
+    for listen in ["127.0.0.1:0", "0.0.0.0:0", "[::1]:0", "[::]:0"] {
+        let dir = TestDir::new();
+        let mut child = common::server_command()
+            .args([
+                "serve",
+                "--scheme",
+                "http",
+                "--listen",
+                listen,
+                "--data-dir",
+            ])
+            .arg(&dir.0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (mut stdout, ready) = process_ready(&mut child);
+        let mut address: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+        if address.ip().is_unspecified() {
+            address.set_ip(if address.is_ipv4() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                std::net::Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        assert_ne!(address.port(), 0);
+        let base = format!("http://{address}");
+        assert_eq!(ready["api_base_url"], base);
+        assert!(ready["public_base_url"].is_null());
+        assert_eq!(ready["public_virtual_host_enabled"], false);
+        let response = request(
+            address,
+            "POST /storage/v1/b?project=local-project HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=attacker.invalid;proto=https\r\nContent-Type: application/json\r\nContent-Length: 21\r\n\r\n{\"name\":\"api-origin\"}",
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let response = request(
+            address,
+            "POST /upload/storage/v1/b/api-origin/o?uploadType=resumable&name=file HTTP/1.1\r\nHost: attacker.invalid\r\nX-Forwarded-Host: attacker.invalid\r\nX-Forwarded-Proto: https\r\nContent-Length: 0\r\n\r\n",
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let location = response
+            .lines()
+            .find_map(|line| {
+                line.split_once(':')
+                    .filter(|(key, _)| key.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value.trim())
+            })
+            .unwrap();
+        let path = location
+            .strip_prefix(&base)
+            .expect("Location uses ready API base");
+        let response = request(
+            address,
+            &format!(
+                "PUT {path} HTTP/1.1\r\nHost: attacker.invalid\r\nContent-Length: 3\r\nContent-Range: bytes 0-2/3\r\n\r\nabc"
+            ),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let object: serde_json::Value =
+            serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        for key in ["selfLink", "mediaLink"] {
+            assert!(
+                object[key]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("{base}/"))
+            );
+        }
+        common::stop_server(&mut child, &mut stdout);
+    }
+}
+
+#[test]
+fn api_origin_explicit_base_wins_and_conflicts_fail_before_catalog() {
+    let dir = TestDir::new();
+    let data = dir.0.join("catalog");
+    let output = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "0.0.0.0:0",
+            "--xml-virtual-host-domains",
+            "0.1",
+            "--data-dir",
+        ])
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!data.exists());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("api_base_url host selects"));
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "0.0.0.0:0",
+            "--api-base-url",
+            "https://proxy.invalid/prefix/",
+            "--xml-virtual-host-domains",
+            "0.1",
+            "--data-dir",
+        ])
+        .arg(&data)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(ready["api_base_url"], "https://proxy.invalid/prefix");
+    common::stop_server(&mut child, &mut stdout);
+    let mut child = common::server_command()
+        .args(["serve", "--listen", "127.0.0.1:0", "--data-dir"])
+        .arg(&data)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    assert_eq!(
+        ready["api_base_url"],
+        format!("https://{}", ready["listen"].as_str().unwrap())
+    );
+    common::stop_server(&mut child, &mut stdout);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -372,7 +502,7 @@ async fn shutdown_stops_accepting_on_original_listener() {
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
         catalog: Catalog::open(&dir.0).await.unwrap(),
-        api_base_url: config.api_base_url.clone(),
+        api_base_url: config.effective_api_base_url(address),
         auth: Default::default(),
     });
     let (stop, shutdown) = oneshot::channel();
@@ -430,7 +560,7 @@ async fn shutdown_releases_catalog_before_return_with_state_clones_alive() {
         ready: AtomicBool::new(true),
         clock: Arc::new(FixedClock),
         catalog,
-        api_base_url: config.api_base_url.clone(),
+        api_base_url: config.effective_api_base_url(listener.local_addr().unwrap()),
         auth: Default::default(),
     });
     server::serve(listener, config, restarted.clone(), async { Ok(()) })

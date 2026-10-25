@@ -185,7 +185,9 @@ implemented as described below, with actual process-crash tests at selected boun
 Power-loss durability and every individual instruction window remain unverified.
 
 `selfLink` uses fixed `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` /
-JSON, default `http://127.0.0.1:4443`). Listener and advertised origin are independent;
+JSON, otherwise resolved once from the actual bound listener with wildcard IPs
+replaced by loopback). Ready reports the effective `api_base_url`.
+Explicit advertised origins remain independent of the listener;
 Host and forwarded headers do not influence it. No public URL or permissions follow
 from this setting. See the [slice contract](slices/json-bucket-crud.md) for local
 projectNumber, projection and unsupported-semantics deviations.
@@ -473,8 +475,9 @@ V4 includes the host in the signed request. Sign the actual browser-facing emula
 
 The resumable contract requires absolute `Location` values from configured
 `api_base_url` (`--api-base-url` / `GCS_MIMIC_API_BASE_URL` / JSON), preserving a
-normalized proxy prefix. The proxy must strip that prefix before forwarding.
-Never derive it from bind, Host, Forwarded or X-Forwarded-*; public-object URL
+normalized proxy prefix. If unset, resolve it once from the actual bound listener
+with wildcard IPs replaced by loopback. The proxy must strip an explicit prefix
+before forwarding. Never derive it from Host, Forwarded or X-Forwarded-*; public-object URL
 configuration does not choose this capability endpoint or grant permissions.
 Use `http://127.0.0.1:PORT` for a host, `http://gcs:4443` for a Compose peer,
 and a host-reachable address such as `http://localhost:PORT` for a host browser.

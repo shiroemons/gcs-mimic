@@ -504,7 +504,7 @@ fn basic_contract_single_request_resumable_checksums_validate_stored_bytes() {
         );
         assert_eq!(initiation.status, 200);
         let path = initiation.headers["location"]
-            .strip_prefix("http://127.0.0.1:4443")
+            .strip_prefix(&format!("http://{}", server.address))
             .unwrap();
         let uploaded = server.request("PUT", path,
             &format!("Content-Type: application/octet-stream\r\nContent-Range: bytes 0-8/9\r\nX-Goog-Hash: {hash}\r\n"), HASH_BYTES,

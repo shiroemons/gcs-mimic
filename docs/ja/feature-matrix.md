@@ -859,7 +859,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | --- | --- | --- | --- | --- | ---: |
 | UX-001 | クリーンチェックアウトからDockerビルド | PARTIAL | P0 | PROJECT | PROJECT | 0 |
 | UX-002 | 初期データ投入後の起動完了 | IMPLEMENTED | P1 | PROJECT | PROJECT | 0 |
-| UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| UX-003 | ホスト・別コンテナ双方からのCRUD | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-004 | Go・Rubyの初回利用例 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | UX-005 | 非公開・公開の権限制御フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |
 | UX-006 | 署名付きアクセスと不正署名の検証フロー | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
@@ -962,6 +962,6 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | DESIGN-046 | 権限を変えない公開URLの組み立て | IMPLEMENTED | P2 | PROJECT | PROJECT | 0 |
-| DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 0 |
+| DESIGN-055 | 待受・API公開先・オブジェクト公開先の分離 | PARTIAL | P2 | PROJECT | PROJECT | 2 |
 | DESIGN-056 | 明示的なプロキシ信頼設定とURL生成 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-057 | クライアントから到達できる再開用Location | IMPLEMENTED | P2 | PROJECT | PROJECT | 1 |

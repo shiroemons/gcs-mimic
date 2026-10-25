@@ -76,8 +76,11 @@ are supported; handshakes share `max_connections` and have a separate
 Configuration precedence is CLI > `GCS_MIMIC_` environment > JSON > defaults.
 For example, use JSON `scheme`, `tls_cert`, `tls_key`, `tls_handshake_timeout_ms`
 or environment `GCS_MIMIC_SCHEME`, `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY`.
-An omitted API base uses `https://127.0.0.1:4443`; set `--api-base-url` for a
-different reachable host/port. Explicit HTTP(S) API bases remain independent for
+An omitted API base uses the listener scheme and actual bound address, including
+the allocated port for `--listen 127.0.0.1:0`. Wildcard `0.0.0.0` / `::` becomes
+`127.0.0.1` / `[::1]`. Ready reports the effective `api_base_url`.
+Set `--api-base-url` for a different client-reachable address or proxy prefix.
+Explicit HTTP(S) API bases remain independent for
 reverse proxies. Neither `Host` nor forwarding headers change generated links.
 
 Build and run the same journey with the non-root, read-only source image:
@@ -167,9 +170,11 @@ CPU to one, PIDs to 64 and file descriptors to 1024; these are configured bounds
 not measured resource requirements. The image also works with `docker run` when
 an explicit writable volume is mounted at that path.
 
-The default fixed `selfLink` origin is `http://127.0.0.1:4443`, independent of the
-selected listener. With a dynamic port, set the actual advertised endpoint and
-recreate the service; the named volume preserves its catalog:
+The checked-in Compose HTTP/HTTPS API defaults follow `GCS_MIMIC_PORT` (4443
+when unset). An explicit `GCS_MIMIC_API_BASE_URL` overrides that default.
+Docker's dynamically allocated host port (`GCS_MIMIC_PORT=0`) is unknown inside
+the container: discover it, set the actual advertised endpoint and recreate the
+service before following generated links; the named volume preserves its catalog:
 
 ```sh
 export GCS_MIMIC_PORT=${address##*:}
@@ -1983,7 +1988,7 @@ for the bounded input, redaction and `/data` inspection rules.
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | Stable read-only bucket-directory input; only before initial catalog completion |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
-| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `https://127.0.0.1:4443` | Default scheme follows listener mode; explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment |
+| `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |

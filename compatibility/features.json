@@ -38293,7 +38293,7 @@
       ],
       "source_checked_at": "2026-10-24",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Listener, fixed API base and public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; proxy-derived policy remains pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract/evidence: docs/en/slices/xml-virtual-host.md and docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that select a virtual bucket. Legacy migration diagnostics distinguish endpoint roles with safe URL advice (docs/en/evidence/configuration-diagnostics.md). Public origin validation/normalization, bounded domain merging, IP warnings, explicit-file helper defaults, measured opt-in legacy Host routing and normalized DNS/IP/unset ready fields are verified in docs/en/evidence/configuration-public-origin.md. Public-origin acceptance cases pass; parent status stays PARTIAL for independent contract review, API-default-origin and separate proxy-origin work.",
+      "notes": "Listener, fixed API base and public/signing helper bases remain separate. Native/container final host:port signing never rewrites Host; proxy-derived policy remains pending. Contract/evidence: docs/en/slices/signed-upload.md and docs/en/evidence/signed-urls.md. Opt-in virtual-host XML GET/HEAD/PUT uses configured DNS suffixes, the original object-only canonical URI and actual bucket Host/port. Dotted prefixes are the deliberate SPEC-XML-VIRTUAL-HOST local extension; supplied matching certificates are required for HTTPS. Contract/evidence: docs/en/slices/xml-virtual-host.md and docs/en/evidence/xml-virtual-host.md. Startup rejects api_base_url hosts that select a virtual bucket. Legacy migration diagnostics distinguish endpoint roles with safe URL advice (docs/en/evidence/configuration-diagnostics.md). Public origin validation/normalization, bounded domain merging, IP warnings, explicit-file helper defaults, measured opt-in legacy Host routing and normalized DNS/IP/unset ready fields are verified in docs/en/evidence/configuration-public-origin.md. Public-origin acceptance cases pass; bound-listener API defaults, fixed ready API strings and Compose host-port resumable traversal are verified in docs/en/slices/configuration-workflows.md. Parent status stays PARTIAL for independent contract review and separate proxy-origin work.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -38381,9 +38381,17 @@
         },
         {
           "id": "DESIGN-055-API-DEFAULT",
-          "description": "config-api-origin-default owns explicit/unset Config state: validate API-host conflicts during preflight using the explicit base host or wildcard-substituted listen IP, including numeric DNS suffixes, before catalog access/bind/ready; resolve only the actual port after bind before State/ready, including port zero, with IPv4/IPv6 loopback substitutions and HTTPS primary for scheme=both. Explicit base/prefix wins; Host/Forwarded/untrusted origins stay ignored, fixed ready keys are retained and Compose host-port changes preserve resumable Location reachability without startup-phase reordering.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "config-api-origin-default owns explicit/unset Config state: validate API-host conflicts during preflight using the explicit base host or wildcard-substituted listen IP, including numeric DNS suffixes, before catalog access/bind/ready; resolve only the actual port after bind before State/ready, including port zero, with IPv4/IPv6 loopback substitutions and HTTPS for the primary listener. Explicit base/prefix wins; Host/Forwarded/untrusted origins stay ignored, fixed ready keys are retained and Compose host-port changes preserve resumable Location reachability without startup-phase reordering.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses",
+            "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
+            "container-host-port-resumable",
+            "compose-api-base-published-port",
+            "TestObjectResumableWriter",
+            "ruby-api-default-https"
+          ]
         },
         {
           "id": "DESIGN-055-LEGACY-HOST",
@@ -38435,7 +38443,14 @@
         "virtual_host::public_origin_helpers_reach_equal_api_public_authorities_for_each_receiver",
         "virtual_host::public_origin_ready_reports_normalized_dns_ip_and_unset_values",
         "virtual_host::invalid_public_origin_prevents_catalog_creation_and_ready",
-        "process_shutdown_reports_stopped_and_releases_catalog_for_restart"
+        "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
+        "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+        "api_origin_ready_and_resumable_locations_use_bound_addresses",
+        "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
+        "container-host-port-resumable",
+        "compose-api-base-published-port",
+        "TestObjectResumableWriter",
+        "ruby-api-default-https"
       ],
       "verification": [
         {
@@ -38566,14 +38581,92 @@
             "signed_journey (Docker/Compose)",
             "signed_journey (native)"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses",
+            "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog"
+          ]
+        },
+        {
+          "command": "just check-containers",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "container-host-port-resumable"
+          ]
+        },
+        {
+          "command": "docker compose config --format json (base/HTTP/TLS, published port 54321, default and explicit API bases)",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "compose-api-base-published-port"
+          ]
+        },
+        {
+          "command": "Go vet/test stages of just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb (HTTPS permissive and strict, endpoint from ready.api_base_url)",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "ruby-api-default-https"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; permissive/strict fixture endpoints; HTTPS trust tests",
+          "command": "Go vet/test stages of just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS JSON/XML; CA verification, permissive/strict and V4; automatic API base from ready",
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "ruby-api-default-https"
+          ]
+        }
+      ],
       "known_deviations": [
-        "Public origin routing, helpers and ready fields are verified. Automatic API-origin defaults retain their separate pending case; trusted proxy-derived origins remain DESIGN-056 work."
+        "Public/API origin routing, helpers, ready fields and automatic bound-address defaults are verified. Independent configuration contract review remains pending; trusted proxy-derived origins remain DESIGN-056 work. HTTPS-primary scheme=both is a future dual-listener integration case; Docker dynamic host-port mappings require explicit post-discovery configuration."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
-      "last_verified": "2026-10-24"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-056",
@@ -43488,7 +43581,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Parent status remains PARTIAL; independent contract review, automatic API-origin defaults, dual listeners, log levels and remaining settings retain pending cases in docs/en/slices/configuration-workflows.md.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Parent status remains PARTIAL; bound-address API defaults and Compose host-port resumable traversal now pass; independent contract review, dual listeners, log levels and remaining settings retain pending cases in docs/en/slices/configuration-workflows.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43593,6 +43686,20 @@
           ]
         },
         {
+          "id": "UX-003-API-DEFAULT",
+          "description": "Resolve an unset API base after bind from the actual port with IPv4/IPv6 wildcard loopback substitution; explicit normalized bases and proxy prefixes win. State and ready share the effective string, Host/Forwarded cannot change links or Locations, preflight rejects API/XML-domain collisions before catalog access/bind, and Compose host-port overrides preserve resumable Location traversal.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses",
+            "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
+            "container-host-port-resumable",
+            "compose-api-base-published-port",
+            "TestObjectResumableWriter",
+            "ruby-api-default-https"
+          ]
+        },
+        {
           "id": "UX-003-DUAL-LISTENER",
           "description": "config-dual-listener: HTTP and HTTPS share one catalog and aggregate connection limit, one advertised API base, existing ready listen plus both actual listeners, all-or-nothing bind readiness and shutdown. Reject duplicate nonzero endpoints including primary port 8000 colliding with default listen_http, and reject listen_http unless scheme=both; both port-zero listeners bind independently to distinct actual ports. Preserve TLS trust and handshake bounds.",
           "result": "PENDING",
@@ -43649,7 +43756,14 @@
         "invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures",
         "config::tests::native_syntax_errors_preserve_invalid_prerequisites_without_cascades",
         "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
-        "config_input::tests::native_environment_encoding_follows_effective_precedence"
+        "config_input::tests::native_environment_encoding_follows_effective_precedence",
+        "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+        "api_origin_ready_and_resumable_locations_use_bound_addresses",
+        "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog",
+        "container-host-port-resumable",
+        "compose-api-base-published-port",
+        "TestObjectResumableWriter",
+        "ruby-api-default-https"
       ],
       "verification": [
         {
@@ -43731,15 +43845,93 @@
             "config_input::tests::option_prefixes_require_exactly_two_native_or_one_or_two_legacy_hyphens",
             "config_input::tests::native_environment_encoding_follows_effective_precedence"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "config::tests::api_origin_defaults_use_bound_addresses_and_preflight_hosts",
+            "api_origin_ready_and_resumable_locations_use_bound_addresses",
+            "api_origin_explicit_base_wins_and_conflicts_fail_before_catalog"
+          ]
+        },
+        {
+          "command": "just check-containers",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "container-host-port-resumable"
+          ]
+        },
+        {
+          "command": "docker compose config --format json (base/HTTP/TLS, published port 54321, default and explicit API bases)",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "compose-api-base-published-port"
+          ]
+        },
+        {
+          "command": "Go vet/test stages of just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb (HTTPS permissive and strict, endpoint from ready.api_base_url)",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "ruby-api-default-https"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; permissive/strict fixture endpoints; HTTPS trust tests",
+          "command": "Go vet/test stages of just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTPS JSON/XML; CA verification, permissive/strict and V4; automatic API base from ready",
+          "command": "bundle exec ruby sdk-tests/ruby/https.rb",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "ruby-api-default-https"
+          ]
+        }
+      ],
       "known_deviations": [
         "Scoped listing, metadata, multipart/resumable, strict auth, ranges, HTTPS and browser CORS now have evidence; broader SDK/signing coverage remains pending.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-24"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "UX-004",

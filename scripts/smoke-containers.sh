@@ -114,6 +114,12 @@ for platform in "$@"; do
   service=$(docker compose -p "$project" ps --quiet gcs)
   address=$(docker compose -p "$project" port gcs 4443)
   [[ $address == 127.0.0.1:* ]]
+  # Reuse the allocated port as an explicit host mapping to exercise Compose's API default.
+  export GCS_MIMIC_PORT=${address##*:}
+  [[ $GCS_MIMIC_PORT != 4443 ]]
+  docker compose -p "$project" up --detach --no-build --force-recreate --wait --wait-timeout 40
+  service=$(docker compose -p "$project" ps --quiet gcs)
+  [[ $(docker compose -p "$project" port gcs 4443) == "$address" ]]
   [[ $(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}} {{.HostConfig.PidsLimit}}' "$service") == 'true 134217728 1000000000 64' ]]
   expect_status GET /_internal/health 200
   expect_status GET /_internal/ready 200
@@ -125,6 +131,15 @@ for platform in "$@"; do
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
     -H 'Content-Type: application/octet-stream' --data-binary @"$work/expected" \
     "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=media&name=dir%2Ffile.bin" \
+    | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
+  expect_object
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -D "$work/resumable-headers" -o /dev/null -X POST \
+    "http://$address/upload/storage/v1/b/smoke-bucket/o?uploadType=resumable&name=dir%2Ffile.bin"
+  location=$(awk 'tolower($1) == "location:" { sub(/\r$/, ""); print $2 }' "$work/resumable-headers")
+  [[ $location == "http://$address/"* ]]
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    -X PUT -H 'Content-Range: bytes 0-11/12' --data-binary @"$work/expected" "$location" \
     | jq -e '.name == "dir/file.bin" and .size == "12"' >/dev/null
   expect_object
   curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X PATCH \

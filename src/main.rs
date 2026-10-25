@@ -28,7 +28,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 MiB)
-  --api-base-url URL           <scheme>://127.0.0.1:4443 (fixed advertised endpoint)
+  --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
   --max-connections N          32 (1..1024)

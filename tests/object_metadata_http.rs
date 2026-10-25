@@ -34,6 +34,7 @@ impl Server {
                 "--data-dir",
             ])
             .arg(&dir.0)
+            .args(["--api-base-url", "http://127.0.0.1:4443"])
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
