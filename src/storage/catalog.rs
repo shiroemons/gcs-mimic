@@ -79,7 +79,7 @@ const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 const MAX_UPLOADS: usize = 8;
-const CATALOG_SCHEMA_VERSION: i64 = 18;
+const CATALOG_SCHEMA_VERSION: i64 = 19;
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -287,6 +287,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(import_journal::FAILURE_SCHEMA)
             .map_err(unavailable)?;
         import_journal::validate_failure(connection)?;
+    }
+    if version >= 19 {
+        expected
+            .execute_batch(sync_state::root::SCHEMA)
+            .map_err(unavailable)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -522,6 +527,9 @@ impl Catalog {
             }
             if version < 18 {
                 import_journal::migrate_failure(&mut connection)?;
+            }
+            if version < 19 {
+                sync_state::root::migrate(&mut connection)?;
             }
             let journal_enabled: bool = connection.query_row("SELECT enabled FROM change_journal_state WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
             if journal_enabled {

@@ -325,7 +325,7 @@ impl Catalog {
         }
     }
 
-    async fn wait_admin(
+    pub(super) async fn wait_admin(
         &self,
         slots: Arc<Semaphore>,
         deadline: tokio::time::Instant,

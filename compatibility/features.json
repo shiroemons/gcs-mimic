@@ -39138,11 +39138,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. Schema stays 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-root-activation",
+          "description": "Persist root identity and activating/complete associations; validate bounded markers, resume and explicitly reinitialize missing markers without changing API/seed data. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
+          "result": "PASS",
+          "test_ids": ["sync_root_activation_baseline_reopen_and_reinitialize_preserve_data","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+        },
         {
           "id": "shared-sync-catalog-identity",
           "description": "Persist an opaque catalog identity across reopen and distinguish independent catalogs; reject foreign catalog bindings. Scope: docs/en/slices/shared-sync-state.md.",
@@ -39351,6 +39357,9 @@
         }
       ],
       "test_ids": [
+        "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data",
+        "sync_root_interrupted_activation_requires_explicit_missing_marker_recovery",
+        "sync_root_sql_failures_never_publish_marker_or_complete_baseline",
         "filesystem_import_preserves_source_identity_and_skips_later_seed",
         "filesystem_import_interrupt_resume_and_serve_gate",
         "bucket_initializer_selectors_follow_precedence_and_reject_empty_paths",
@@ -39406,6 +39415,13 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-root.md",
+          "test_ids": ["sync_root_activation_baseline_reopen_and_reinitialize_preserve_data","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
           "result": "PASS",
@@ -39580,10 +39596,10 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED.",
-        "Directory synchronization settings and activation are specified only in docs/en/slices/directory-synchronization.md; no watcher, bidirectional ingestion or write-back is implemented."
+        "Root activation and ownership primitives pass the native adapter-facing cases in docs/en/slices/shared-sync-root.md. Runtime directory synchronization settings/startup, watcher, initial merge, bidirectional ingestion and write-back remain unimplemented."
       ],
-      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
-      "last_verified": "2026-10-24"
+      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-063",
@@ -40733,11 +40749,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-root-ownership",
+          "description": "Exclusive root inode ownership across catalogs and file-job-owned lease/catalog lifetime, root replacement and lock-file replacement rejection. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
+          "result": "PASS",
+          "test_ids": ["sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacement","sync_root_lock_child","sync_root_cancelled_file_job_keeps_both_ownerships_until_drain","sync_root_replacement_symlinks_and_marker_changes_fail_closed","sync_root_trailing_separators_and_dots_do_not_follow_symlinks","sync_root_selected_parent_alias_retarget_stops_owned_jobs"]
+        },
         {
           "id": "shared-sync-indexed-state",
           "description": "Persist exact synchronized generations/fingerprints with indexed relative-path lookup and bounded keyset pages; reject unsafe paths, stale bucket incarnations/generations and hash mismatches. Scope: docs/en/slices/shared-sync-state.md.",
@@ -41078,6 +41100,12 @@
         }
       ],
       "test_ids": [
+        "sync_root_trailing_separators_and_dots_do_not_follow_symlinks",
+        "sync_root_selected_parent_alias_retarget_stops_owned_jobs",
+        "sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacement",
+        "sync_root_lock_child",
+        "sync_root_cancelled_file_job_keeps_both_ownerships_until_drain",
+        "sync_root_replacement_symlinks_and_marker_changes_fail_closed",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "indexed_listing_orders_filters_pages_and_limits",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
@@ -41178,6 +41206,13 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-root.md",
+          "test_ids": ["sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacement","sync_root_lock_child","sync_root_cancelled_file_job_keeps_both_ownerships_until_drain","sync_root_replacement_symlinks_and_marker_changes_fail_closed","sync_root_trailing_separators_and_dots_do_not_follow_symlinks","sync_root_selected_parent_alias_retarget_stops_owned_jobs"]
+        },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
           "result": "PASS",
@@ -41444,12 +41479,12 @@
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. All invalid-parent child findings and record suppression are tested. import-filesystem owns consolidation into a pending-state record with decoded names/failure material when integrating validated buckets with publication; avoiding that larger representation now preserves the tested diagnostic order. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection is verified on macOS/Linux ARM64. Native Windows runtime and file-ID/ctime observation are unverified; optional non-Unix identity fields remain absent. Dry-run cannot publish, resume, recover original normalized-away names or inspect memory history, and metadata-only reports never certify body bytes. Publication/journal benchmarks remain PENDING; no time/CPU/RSS result is claimed. shared-blob-id is requested to consolidate existing storage/JSON/authentication hex encoders with hashing::encode_lower while migrating hash loops.",
         "The Shared state storage owner is requested to adopt source_tree::is_os_metadata for regular catalog entries. Seed now uses source_tree::Walker on a dedicated bounded traversal thread, preserves native entry/depth limits and counts skipped regular OS metadata files. Local files use Admin::publish_from_file without changing storage recovery or import readers; current verification is in docs/en/slices/import-seed-adapter.md.",
-        "Directory synchronization has a tested lexical name/path mapper only. Actual-root case/Unicode aliases, filesystem length limits, collisions and no-follow identity validation remain pending, as do API write-back, activation, markers, restart recovery, state/control/conflict/approval and observation. Public storage prerequisites and acceptance handoffs are requested in docs/en/slices/directory-synchronization.md; no runtime synchronization or measured performance is claimed.",
+        "Directory synchronization has tested lexical name/path mapping and adapter-facing root identity, marker, exclusive ownership and activation recovery. Actual-root case/Unicode aliases, filesystem length limits, object-entry collisions/no-follow checks, API write-back, initial merge, runtime startup, state/control/conflict/approval and observation remain pending. Scope and remaining prerequisites are in docs/en/slices/directory-synchronization.md and docs/en/slices/shared-sync-root.md; no runtime synchronization or measured performance is claimed.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
-      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
+      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
       "last_verified": "2026-10-25"
     },
     {
@@ -41699,11 +41734,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-root-recovery",
+          "description": "Fail closed at marker validation and activation interruption boundaries; missing-marker-only explicit reinitialization preserves data. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
+          "result": "PASS",
+          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+        },
         {
           "id": "shared-import-terminal-publication",
           "description": "Retain independent successes with atomic terminal rejection, forbid hole-filling resume/finish, roll back DiskFull without progress and drain accepted/cancelled staged publication safely. Scope: docs/en/slices/shared-import-publication.md.",
@@ -41912,6 +41953,10 @@
         }
       ],
       "test_ids": [
+        "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
+        "sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker",
+        "sync_root_interrupted_activation_requires_explicit_missing_marker_recovery",
+        "sync_root_sql_failures_never_publish_marker_or_complete_baseline",
         "obj_http_restart_and_sigkill_mid_upload_clean_staging",
         "obj_http_sigkill_after_blob_rename_before_commit_and_after_success",
         "recovery_clears_staging_orphans_and_pending_deletions_preserving_live_objects",
@@ -41974,6 +42019,13 @@
         "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-root.md",
+          "test_ids": ["sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved","sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker","sync_root_interrupted_activation_requires_explicit_missing_marker_recovery","sync_root_sql_failures_never_publish_marker_or_complete_baseline"]
+        },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
           "result": "PASS",
@@ -42163,12 +42215,12 @@
         "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
         "Shutdown during object-count-proportional recovery waits for completion without a deadline or accelerated second-signal path. Startup measurements are observations, not shutdown latency bounds; recovery internals remain unchanged.",
-        "Directory sync marker/write-back/shutdown recovery remains PENDING under docs/en/slices/directory-synchronization.md. Non-exchange replacement retains an explicit concurrent-writer loss window; Windows power-loss namespace durability is not claimed.",
+        "Adapter-facing root marker validation, activation recovery and owned file-job shutdown pass the native subset in docs/en/slices/shared-sync-root.md. Runtime sync startup, mirror write-back/conflict recovery and broader shutdown remain PENDING under docs/en/slices/directory-synchronization.md. Non-exchange replacement retains an explicit concurrent-writer loss window; Windows power-loss namespace durability is not claimed.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
-      "implemented_in": "dbfe9de56f1858a785702d6eea968b40fb77cb00",
+      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
       "last_verified": "2026-10-25"
     },
     {
@@ -47064,11 +47116,17 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Schema 14 timestamp migration atomically scales version-13 bucket/object times to microseconds, rejects overflow and preserves API resources, ETags, generations, permissions and session deadlines. Rollback/retry and unsupported newer versions are tested; backup/downgrade expectations are documented in docs/en/slices/catalog-timestamp-precision.md. Schema 15 adds the change journal atomically without rescaling times; partial-DDL rollback/retry, retained object/policy/session identity, original catalog snapshot validation and newer-format rejection are verified in docs/en/slices/onboarding-state-contract.md. Complete older-executable data-directory restoration, broader schema/cutover and separate memory-export acceptance remain pending; replacement-validation owns the combined final gate.",
+      "notes": "Schema 14 timestamp migration atomically scales version-13 bucket/object times to microseconds, rejects overflow and preserves API resources, ETags, generations, permissions and session deadlines. Rollback/retry and unsupported newer versions are tested; backup/downgrade expectations are documented in docs/en/slices/catalog-timestamp-precision.md. Schema 15 adds the change journal atomically without rescaling times; partial-DDL rollback/retry, retained object/policy/session identity, original catalog snapshot validation and newer-format rejection are verified in docs/en/slices/onboarding-state-contract.md. Complete older-executable data-directory restoration, broader schema/cutover and separate memory-export acceptance remain pending; replacement-validation owns the combined final gate. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "catalog-sync-root-migration",
+          "description": "Atomically migrate schema 18 to 19, rollback partial DDL/version, retry and preserve catalog identity, objects, synchronization and seed state. Scope: docs/en/slices/shared-sync-root.md.",
+          "result": "PASS",
+          "test_ids": ["sync_root_schema_migration_rolls_back_retries_and_preserves_state","sync_state_schema_migration_rolls_back_retries_and_preserves_objects"]
+        },
         {
           "id": "catalog-import-failure-migration",
           "description": "Atomically migrate schema 17 to 18 with bounded terminal failure state, rollback/retry and preserved catalog/journal identities. Scope: docs/en/slices/shared-import-publication.md.",
@@ -47135,6 +47193,7 @@
         }
       ],
       "test_ids": [
+        "sync_root_schema_migration_rolls_back_retries_and_preserves_state",
         "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
         "timestamp_migration_rejects_overflow_without_changing_version_or_values",
         "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
@@ -47155,6 +47214,13 @@
         "filesystem_import_generation_urls_conditions_and_strict_permissions"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-root.md",
+          "test_ids": ["sync_root_schema_migration_rolls_back_retries_and_preserves_state","sync_state_schema_migration_rolls_back_retries_and_preserves_objects"]
+        },
         {
           "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
           "result": "PASS",
@@ -47246,7 +47312,7 @@
       "known_deviations": [
         "The initial schema 14 timestamp migration/backup/downgrade cases are owned by shared-timestamp-precision. Unsupported or overflowing old times block startup without conversion; no automatic downgrade exists. Broader catalog upgrade policy, tested backup restoration, source cutover and memory export remain pending; later schema slices own their migrations and replacement-validation retains the final gate."
       ],
-      "implemented_in": "3221c94",
+      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
       "last_verified": "2026-10-25"
     },
     {

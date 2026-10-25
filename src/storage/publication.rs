@@ -54,7 +54,7 @@ impl FileWorkers {
         })
     }
 
-    async fn run<T: Send + 'static>(
+    pub(crate) async fn run<T: Send + 'static>(
         &self,
         job: impl FnOnce() -> Result<T, AdminError> + Send + 'static,
     ) -> Result<T, AdminError> {

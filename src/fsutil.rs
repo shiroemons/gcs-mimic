@@ -21,6 +21,50 @@ pub fn open_directory(path: &std::path::Path) -> io::Result<File> {
     options.open(path)
 }
 
+/// Pins the selected directory without following a replacement symlink.
+pub fn open_directory_nofollow(path: &std::path::Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Trailing separators/dots otherwise make the OS follow a final symlink.
+        let path: std::path::PathBuf = path.components().collect();
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+/// Opens only a regular single-component entry under the pinned directory.
+pub fn open_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        open_at(directory, &component(name)?, false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (directory, name);
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        open_at(directory, &component(name)?, true)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (directory, name);
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
 #[derive(Debug)]
 pub enum FsError {
     Io(io::Error),

@@ -23,22 +23,27 @@ PARTIAL; UX-002 seed-before-ready behavior is unchanged.
 ## Decisions and boundaries
 
 One configured working tree is represented by UTF-8 slash-separated relative
-paths. Shared storage validates lexical safety only; Sync owns representability,
-marker contents and filesystem operations. CatalogId is identity, not authority.
+paths. Shared storage validates lexical safety; Sync owns representability and
+object-file operations. The later [shared root slice](shared-sync-root.md) owns
+root association, exclusive leases and marker validation. CatalogId is identity,
+not authority.
 The local administrative interface uses the existing trusted-operator boundary.
 State acknowledgments require the current object generation and verified hashes.
 MD5/CRC32C describe immutable object bytes, rather than a new hash algorithm.
 Nanoseconds/inodes use fixed-width big-endian blobs to avoid SQLite integer loss.
 
-Root association/ownership, activation baselines, write-back intents, conflict
-preservation, watching, mirror orchestration and HTTP controls remain pending in
-the directory synchronization contract. This slice supplies state primitives,
-not a complete mirror or marker recovery implementation. File and parent
-durability must precede acknowledgment by the adapter.
+Root association/ownership and explicit activation-baseline transitions are
+provided by [shared-sync-root](shared-sync-root.md); they are not connected to
+runtime startup. Write-back intents, conflict preservation, watching, initial
+merge, mirror orchestration and HTTP controls remain pending in the directory
+synchronization contract. File and parent durability must precede acknowledgment
+by the adapter.
 
-Schema 17 is forward-only. Back up the entire stopped data directory before an
+Schema 17 introduced these records; schema 19 adds root associations. Both are
+forward-only. Back up the entire stopped data directory before an
 upgrade; restore the complete backup with its matching executable to roll back.
-Older executables reject schema 17; do not edit user_version to downgrade.
+Executables supporting at most schema 18 reject schema 19; do not edit
+`user_version` to downgrade.
 
 ## Verification
 

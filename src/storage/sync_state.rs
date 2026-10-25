@@ -39,6 +39,9 @@ PRAGMA user_version = 17;";
 #[path = "sync_state_tests.rs"]
 mod tests;
 
+#[path = "sync_root.rs"]
+pub mod root;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogId([u8; 16]);
 impl CatalogId {

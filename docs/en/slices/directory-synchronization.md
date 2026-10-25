@@ -138,7 +138,7 @@ independent catalog identity/progress files.
 | --- | --- |
 | `Admin::list_all_buckets(after, limit)` | Keyset pages of at most 256 across all owner projects, including empty buckets, with bucket owner and incarnation. Test multiple projects, empty buckets, page boundaries and concurrent delete/recreation. A selected `seed_project` must not hide another owner's bucket. |
 | `Catalog::wait_for_changes(after)` | A cancellable effect-free wait, returning immediately when the sequence/revision has advanced or a rescan is needed. Register/recheck atomically enough to prevent a commit between the reader's last page and its wait from being missed. Wake on publication, metadata, deletion, bucket/IAM changes, epoch changes and shutdown; test commit-before/after-registration and restart/gap without periodic polling. Journal pages retain their captured finite fence. |
-| Durable catalog identity and root association | Return a stable opaque `CatalogId`, reserve a root identity and opaque root ID under exclusive ownership, and record activating/complete associations. Before bind, validate the bounded marker against both identities. Test foreign/missing/malformed markers, replacement roots, two catalogs sharing a root, interrupted activation and safe explicit reinitialization. Do not infer deletion from an incomplete baseline. |
+| Durable catalog identity and root association | Delivered adapter API: `SyncState::activate_root`, `RootLease::file_job` and `RootLease::complete_baseline` persist opaque identities, exclusive root ownership and activating/complete associations. Native marker/recovery tests and platform limits are in [shared-sync-root](shared-sync-root.md). Before-bind invocation and actual initial merge remain pending. Do not infer deletion from an incomplete baseline. |
 | Write-back progress and pending-operation API | Bounded records bind root/catalog, logical target, original owner/incarnation, selected generation, opaque workspace entry and operation phase. Durably protect any potentially displaced body before destructive replacement; expose/page unfinished work after restart even if the original bucket disappeared. Commit synchronized fingerprints/generation and journal progress only after file and affected-parent durability. Test crash before/after copy, replacement, parent sync and progress commit, ENOSPC/ambiguous completion, protected conflicts and quota stops without automatic cleanup or blind rollback. |
 | `ObjectReader` descriptor transfer or duplication | Yield an owned descriptor for the already opened selected immutable blob, without exposing/reopening a storage path or hard-linking it to the tree. Pass it to `fsutil::clone_or_copy_into` on a dedicated worker. Test API overwrite/delete while a descriptor is retained, exact zero/binary bytes, fixed memory, unchanged source position and ownership through cancellation/drain. |
 
@@ -151,6 +151,16 @@ their safety cases are available. No polling or best-effort marker substitute is
 introduced to bypass this dependency.
 
 ### Marker and activation requirements
+
+The [shared root implementation](shared-sync-root.md) supplies these storage
+primitives on supported Unix filesystems. Configuration, startup and mirror
+consumers remain unconnected. Its `Activation::Reinitialize` is an adapter API,
+not an implemented `--sync-reinitialize` command. Directory-inode locks prevent
+lock-file replacement bypass; owned file jobs retain both root and catalog leases.
+An interrupted marker creation can leave a partial marker: preserve/back up that
+file and remove it explicitly before requesting missing-marker reinitialization.
+The API never overwrites it. Host power loss and other-platform runtime behavior
+are unverified; unsupported platforms reject activation.
 
 The root marker is bounded to 4 KiB and contains version `1`, opaque `catalog_id`
 and opaque `root_id`. Reject unknown versions/fields, malformed IDs, symlinks
