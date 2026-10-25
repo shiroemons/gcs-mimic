@@ -27,6 +27,46 @@ jobs:
           echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
       - run: bash scripts/test-check.sh
       - run: bash scripts/check.sh
+  # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
+  # target per release OS family on every push instead of only at tag time.
+  portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust and target
+        run: |
+          pin=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$pin"
+          rustup toolchain install "$pin" --profile minimal --target "$TARGET"
+          echo "RUSTUP_TOOLCHAIN=$pin" >> "$GITHUB_ENV"
+      - name: Install native musl compiler
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+          echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          linker="CARGO_TARGET_${TARGET^^}_LINKER"
+          echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
+      - run: cargo fetch --locked
+      - run: cargo test --workspace --target "$TARGET" --locked --offline
   containers:
     strategy:
       fail-fast: false

@@ -88,6 +88,13 @@ The root `Cargo.toml` defines `unsafe_code = "deny"` in
 `[lints] workspace = true`; add that opt-in to every new workspace member.
 The policy covers each member's library, binaries and tests. `just check` runs
 workspace/all-target Clippy with `-D warnings` in addition to these manifest lints.
+It also type-checks the Windows MSVC, Linux musl and macOS ARM64 release targets
+other than the host through `scripts/check-cross.sh`, installing missing Rust
+targets with `rustup`. C dependencies compile to empty stub objects there, so
+this catches `cfg` and platform-API mistakes but not link or runtime failures.
+Foundation CI's `portability` job runs the tests natively on one target per
+release OS family on every push; the full eight-target matrix still runs only
+for release tags and manual dispatch.
 
 Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
 with an adjacent `// SAFETY:` comment explaining why the operation is safe.

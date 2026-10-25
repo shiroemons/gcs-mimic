@@ -11,13 +11,23 @@ set -euo pipefail
 echo "$*" >>"$GCS_MIMIC_CHECK_LOG"
 if [[ $* == "${GCS_MIMIC_CHECK_FAIL:-}" ]]; then exit 23; fi
 SH
-chmod +x "$work/bin/cargo"
+cat >"$work/bin/rustc" <<'SH'
+#!/usr/bin/env bash
+echo 'host: aarch64-apple-darwin'
+SH
+cat >"$work/bin/rustup" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' x86_64-pc-windows-msvc x86_64-unknown-linux-musl aarch64-apple-darwin
+SH
+chmod +x "$work/bin/cargo" "$work/bin/rustc" "$work/bin/rustup"
 export PATH="$work/bin:$PATH"
 export GCS_MIMIC_CHECK_LOG="$work/actual"
 cat >"$work/expected" <<'TEXT'
 fetch --locked
 fmt --all --check
 clippy --workspace --all-targets --locked --offline -- -D warnings
+clippy --workspace --all-targets --locked --offline --target x86_64-pc-windows-msvc -- -D warnings
+clippy --workspace --all-targets --locked --offline --target x86_64-unknown-linux-musl -- -D warnings
 test --workspace --locked --offline
 xtask compatibility check
 TEXT
