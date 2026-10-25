@@ -21,6 +21,12 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{fs::File, io, sync::Arc};
 
+#[path = "sync_live_export.rs"]
+mod live_export;
+#[cfg(test)]
+pub(crate) use live_export::inject_failure as inject_live_export_failure;
+pub use live_export::{LiveExport, LiveResult};
+
 pub(in crate::storage) const SCHEMA: &str = "CREATE TABLE sync_writeback_roots (
     root_id BLOB PRIMARY KEY REFERENCES sync_roots(root_id),
     max_bytes INTEGER NOT NULL CHECK(max_bytes BETWEEN 1 AND 1099511627776),

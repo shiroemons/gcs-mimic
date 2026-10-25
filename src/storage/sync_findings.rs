@@ -68,6 +68,31 @@ fn read_reason(reason: &str) -> rusqlite::Result<Reason> {
 }
 
 impl RootLease {
+    /// Conflicts may refer to a deleted API object whose synchronized body is still tracked.
+    pub async fn record_export_conflict(
+        &self,
+        binding: SyncBinding,
+        name: ObjectName,
+        generation: Generation,
+    ) -> Result<(), RootError> {
+        self.file_job(|_| Ok(())).await?;
+        let lease = self.clone();
+        let root = self.status().root_id.as_bytes();
+        self.catalog().run_admin(move |c| {
+            let _lease = lease;
+            let tx = c.transaction().map_err(unavailable)?;
+            matching(&tx,&binding,&binding.bucket).map_err(unavailable)?;
+            let live = objects::lookup(&tx,&binding.bucket,name.as_str()).map_err(unavailable)?.is_some_and(|(record,_)| record.generation == generation.get());
+            let tracked: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_objects WHERE bucket=?1 AND name=?2 AND incarnation=?4 AND generation=?3)",params![binding.bucket,name.as_str(),generation.get(),binding.incarnation],|r| r.get(0)).map_err(unavailable)?;
+            let valid = live || tracked;
+            if valid {
+                tx.execute("INSERT INTO sync_findings(root_id,bucket,name,incarnation,generation,reason) VALUES(?1,?2,?3,?4,?5,'collision') ON CONFLICT(root_id,bucket,name) DO UPDATE SET incarnation=excluded.incarnation,generation=excluded.generation,reason=excluded.reason",params![root,binding.bucket,name.as_str(),binding.incarnation,generation.get()]).map_err(unavailable)?;
+            }
+            tx.commit().map_err(unavailable)
+        }).await?;
+        Ok(())
+    }
+
     /// Records only the selected live incarnation/generation; no filesystem path is required.
     pub async fn record_finding(
         &self,
