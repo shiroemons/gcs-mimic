@@ -4,8 +4,15 @@
 
 最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
 イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.0`は未公開で、まだpullできません。
-以下も公開後、または検証済みのローカルイメージに置き換えて使います。
-CIでは公開済みのバージョンを明示してください。
+以下は、ソースのチェックアウトで先にローカルイメージをビルドして使います。
+
+```sh
+docker build -t gcs-mimic:migration .
+```
+
+[Composeの移行手順](fake-gcs-server-migration.md)では、Composeでビルドし、
+空のバケットも初期化します。対象はUX-012、DESIGN-061、UX-001です。
+CIでは公開後に、公開済みのバージョンを明示してください。
 
 [English](../en/container-usage.md) ·
 [実装状態の原本](../../compatibility/features.json)
@@ -18,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.1.0
+  gcs-mimic:migration
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -60,6 +67,10 @@ APIが返すURLも使う場合は、接続元から到達できるアドレス�
 `GCS_MIMIC_API_BASE_URL`へ指定します。コンテナ間なら`http://gcs:4443`が例です。
 サーバーが通知するAPIエンドポイントは1つです。
 公開URLや署名URLも、受け取るクライアントから到達できるアドレスで作ります。
+移行用Composeでは`http://gcs:4443`を最初から指定し、コンテナのSDKが
+resumableのLocationへ接続できるようにします。ホストやブラウザーは
+`http://localhost:14443`などの公開先を使います。署名のないセッションURLの変換、
+取り消し時の499、作業ツリー別のポートは移行手順を参照してください。
 
 API URLを明示しない場合、実際にbindしたアドレスとポートから決まります。
 `0.0.0.0`は`127.0.0.1`、`::`は`[::1]`に置き換え、ポート0は割り当て後のポートを使います。
@@ -95,6 +106,9 @@ data/
 再起動時に初期ファイルを再読込して、APIの変更を上書きすることはありません。
 初期バケットの所有プロジェクトは既定で`local-project`です。
 変更する場合は`GCS_MIMIC_SEED_PROJECT`を指定します。
+初期化後に足したバケットディレクトリは、再起動しても作成されません。
+空ディレクトリでのバケット準備は[バケット設定ファイル](#初期バケット設定ファイルを使う)に
+置き換えます。こちらは毎回、未作成のバケットを作ります。
 
 すでにREADMEの例を起動した場合は、`docker compose down`で停止します。
 次に`docker compose -p gcs-seeded up -d --wait`で別プロジェクトを起動できます。

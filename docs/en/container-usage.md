@@ -1,9 +1,17 @@
 # Use the Docker image
 
 The first public image is pending. The planned reference is
-`ghcr.io/shiroemons/gcs-mimic:0.1.0`; the commands below require its publication
-or an explicitly substituted local image. No checkout or build is required
-once an image is available. Use an exact released version in CI.
+`ghcr.io/shiroemons/gcs-mimic:0.1.0`; it cannot be pulled yet. Build the local
+image from a source checkout before running the commands below:
+
+```sh
+docker build -t gcs-mimic:migration .
+```
+
+The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)
+instead builds through `docker compose up --build` and initializes empty buckets.
+It covers UX-012, DESIGN-061 and UX-001. Use an exact released version in CI
+after publication; no published image is claimed here.
 
 The [README Compose example](../../README.md#quick-start) is the shortest start.
 It selects HTTP and persists data in a named volume. HTTPS remains the server
@@ -17,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  ghcr.io/shiroemons/gcs-mimic:0.1.0
+  gcs-mimic:migration
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
@@ -51,6 +59,10 @@ The named volume keeps data when a stopped container is removed.
 follows API-generated URLs, set `GCS_MIMIC_API_BASE_URL` to the address reachable
 by that application, such as `http://gcs:4443`. A single server advertises one API
 base. Public and signed URLs must use the address reachable by their recipient.
+The migration Compose example explicitly advertises `http://gcs:4443` so
+container SDKs can follow resumable Location. A host/browser needs its own
+published origin, for example `http://localhost:14443`; the walkthrough explains
+unsigned session translation, cancellation 499 and separate worktree ports.
 
 Without an explicit API base, native startup derives it from the actual bound
 listener, replacing wildcard IPs with loopback and port zero with the allocated
@@ -88,6 +100,9 @@ do not replace those sections. Files load before readiness only when the
 persistent catalog is first initialized. Existing data is not re-seeded on
 restart. The default owning project for seeded buckets is `local-project`;
 use `GCS_MIMIC_SEED_PROJECT` to select another project.
+Bucket directories added after initialization do not create buckets on restart.
+For empty-directory bucket setup, replace the seed mount with a
+[buckets file](#initialize-bucket-settings); it creates missing buckets every start.
 
 If you already ran the quick start, stop it with `docker compose down`, then use
 `docker compose -p gcs-seeded up -d --wait` for a separate, fresh data volume.

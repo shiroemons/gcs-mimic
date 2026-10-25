@@ -206,3 +206,65 @@ func TestMigrationAppScenarioCancellation(t *testing.T) {
 	migrationHTTP(t, ctx, httpClient, http.MethodPut, location, "", http.Header{"Content-Range": {"bytes */0"}}, http.StatusGone)
 	requireObjectMissing(t, ctx, object)
 }
+
+func TestMigrationAppScenarioParallelBrowser(t *testing.T) {
+	ctx, client, httpClient, endpoint := newEmulatorClient(t)
+	// The shared SDK transport's two-connection cap would hide upload admission failures.
+	transport := httpClient.Transport.(emulatorTransport)
+	transport.base = transport.base.Clone()
+	transport.base.MaxConnsPerHost = 12
+	t.Cleanup(transport.base.CloseIdleConnections)
+	browser := *httpClient
+	browser.Transport = transport
+	httpClient = &browser
+	const origin = "http://localhost:3000"
+	start := make(chan struct{})
+	results := make(chan error, 12)
+	for i := range 12 {
+		name := fmt.Sprintf("browser/parallel-%02d.bin", i)
+		resumableObject(t, client.Bucket("assets"), name)
+		go func() {
+			results <- func() error {
+				payload := strings.Repeat(fmt.Sprintf("browser-%02d\n", i), 400000)
+				target := endpoint.String() + "/upload/storage/v1/b/assets/o?uploadType=media&name=" + url.QueryEscape(name)
+				request, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(payload))
+				if err != nil {
+					return err
+				}
+				request.Header = http.Header{"Origin": {origin}, "Content-Type": {"application/octet-stream"}}
+				<-start
+				response, err := httpClient.Do(request)
+				if err != nil {
+					return err
+				}
+				_, readErr := io.Copy(io.Discard, response.Body)
+				closeErr := response.Body.Close()
+				if readErr != nil || closeErr != nil || response.StatusCode != http.StatusOK || response.Header.Get("Access-Control-Allow-Origin") != origin {
+					return fmt.Errorf("%s upload: status=%d, read=%v, close=%v, headers=%v", name, response.StatusCode, readErr, closeErr, response.Header)
+				}
+				request, err = http.NewRequestWithContext(ctx, http.MethodGet,
+					endpoint.String()+"/storage/v1/b/assets/o/"+url.PathEscape(name)+"?alt=media", nil)
+				if err != nil {
+					return err
+				}
+				request.Header.Set("Origin", origin)
+				response, err = httpClient.Do(request)
+				if err != nil {
+					return err
+				}
+				data, readErr := io.ReadAll(io.LimitReader(response.Body, int64(len(payload)+1)))
+				closeErr = response.Body.Close()
+				if readErr != nil || closeErr != nil || response.StatusCode != http.StatusOK || string(data) != payload || response.Header.Get("Access-Control-Allow-Origin") != origin {
+					return fmt.Errorf("%s read: status=%d, bytes=%d, read=%v, close=%v, headers=%v", name, response.StatusCode, len(data), readErr, closeErr, response.Header)
+				}
+				return nil
+			}()
+		}()
+	}
+	close(start)
+	for range 12 {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+}

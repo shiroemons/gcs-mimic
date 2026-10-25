@@ -1,6 +1,173 @@
 # fake-gcs-server migration and compatibility target
 
-<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+<!-- markdownlint-configure-file
+{"MD013": {"tables": false, "code_blocks": false}}
+-->
+
+[日本語](../ja/fake-gcs-server-migration.md)
+
+## Replace a fake-gcs-server Compose service
+
+This walkthrough covers UX-012, DESIGN-061 and UX-001: HTTP, initialized empty
+buckets, Go SDK and unsigned browser transfers in the default permissive/native
+profile. It does not migrate existing backend data or establish full replacement.
+The [scenario coverage and results](slices/migrate-guide-compose.md) include the
+known differences in the pinned fake-gcs-server comparison.
+
+For example, replace this source service (retain your existing application
+services and their `STORAGE_EMULATOR_HOST=gcs:4443`):
+
+```yaml
+services:
+  gcs:
+    image: fsouza/fake-gcs-server:1.56.1
+    command: ["-scheme", "http", "-host", "0.0.0.0", "-port", "4443",
+              "-public-host", "gcs:4443", "-external-url", "http://gcs:4443",
+              "-backend", "filesystem", "-filesystem-root", "/storage", "-data", "/data"]
+    ports:
+      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+    volumes:
+      - ./data:/data:ro
+      - source-data:/storage
+volumes:
+  source-data:
+```
+
+Five common option groups translate as follows. Old flags and `FAKE_GCS_*`
+variables are diagnosed with replacement advice, never accepted as aliases.
+
+| Before | After in this walkthrough | Why |
+| --- | --- | --- |
+| `-scheme http` | `GCS_MIMIC_SCHEME: http` | Otherwise the default is HTTPS, so existing HTTP clients fail. The image healthcheck follows this setting without an override. |
+| `-host 0.0.0.0 -port 4443` | `GCS_MIMIC_LISTEN: 0.0.0.0:4443` | Peers need a wildcard listener; a loopback-only listener is unreachable from other containers. This repeats the image default. |
+| `-public-host gcs:4443 -external-url http://gcs:4443` | `GCS_MIMIC_API_BASE_URL: http://gcs:4443` | Container SDKs must reach resumable Location. Native path-style reads need no public-host setting; this does not reproduce legacy virtual-host matching or grant permissions. |
+| `-backend filesystem -filesystem-root /storage` | Named volume at `/var/lib/gcs-mimic` | The default persistent backend uses SQLite and opaque blobs. Keep the source volume separate; its format cannot be mounted as native storage. Memory backend has no equivalent here. |
+| `-data /data` with empty bucket directories | `GCS_MIMIC_BUCKETS_FILE: /buckets.json` and a read-only file mount | Missing buckets must be created on each startup. Seed runs only on first catalog initialization; directories added afterward do not create buckets. |
+
+For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
+
+```json
+{"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}
+```
+
+Remove the empty-directory seed mount and add this file instead. Restart creates
+only missing entries, preserves existing objects and API settings, and does not
+delete buckets removed from the file. Add future bucket names to this file and
+restart. Object fixtures are a separate [one-time seed](container-usage.md#load-local-files).
+
+The image is unpublished. From a source checkout, place the following
+`compose.migration.yaml` beside the Dockerfile and `buckets.json`; `build: .`
+builds local source rather than pulling a registry image. In an existing app
+checkout, use the gcs-mimic checkout as the build context and resolve the buckets
+file relative to your Compose file. Keep your application services unchanged.
+
+```yaml
+services:
+  gcs:
+    build: .
+    image: gcs-mimic:migration
+    ports:
+      - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
+    environment:
+      GCS_MIMIC_SCHEME: http
+      GCS_MIMIC_LISTEN: 0.0.0.0:4443
+      GCS_MIMIC_API_BASE_URL: http://gcs:4443
+      GCS_MIMIC_BUCKETS_FILE: /buckets.json
+    volumes:
+      - migration-data:/var/lib/gcs-mimic
+      - ./buckets.json:/buckets.json:ro
+volumes:
+  migration-data:
+```
+
+The API base is fixed, not derived from request Host. Without the explicit
+container origin, bind-derived loopback Location points another container back
+to itself. One server advertises one origin: container SDKs use `gcs:4443`, while
+the host/browser uses `localhost` and the published port. The server cannot
+discover Docker port mappings. The image healthcheck needs no override. App
+services can wait with `depends_on: {gcs: {condition: service_healthy}}`.
+
+Use a distinct Compose project and host port per worktree; the internal port
+and advertised container URL stay 4443. Run these commands from the checkout:
+
+```sh
+export COMPOSE_FILE=compose.migration.yaml
+export COMPOSE_PROJECT_NAME=assets-migration
+export GCS_MIMIC_PORT=14443
+docker compose up -d --build --wait
+docker compose exec -T gcs gcs-mimic healthcheck
+api="http://localhost:${GCS_MIMIC_PORT}"
+curl --fail "$api/storage/v1/b/assets"
+curl --fail "$api/storage/v1/b/exports"
+curl --fail -H 'Content-Type: application/json' -d '{"name":"scratch-assets"}' \
+  "$api/storage/v1/b?project=local-project"
+curl --fail --data-binary 'hello' \
+  "$api/upload/storage/v1/b/assets/o?uploadType=media&name=hello.txt"
+test "$(curl --fail "$api/storage/v1/b/assets/o/hello.txt?alt=media")" = hello
+```
+
+For a second worktree use, for example, project `assets-migration-two` and
+`GCS_MIMIC_PORT=24443`; project-scoped volumes keep state separate. Stop with
+`docker compose down` using the same file/project. The named volume retains data.
+
+### Cross-origin upload and reading
+
+These raw HTTP requests model a browser page at `http://localhost:3000` using
+the JSON API without credentials; no CORS setting is required for this scope.
+Check the echoed `Access-Control-Allow-Origin` in both responses:
+
+```sh
+curl --fail -i -X OPTIONS -H 'Origin: http://localhost:3000' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: content-type' \
+  "$api/upload/storage/v1/b/assets/o?uploadType=media&name=browser.txt"
+curl --fail -i -H 'Origin: http://localhost:3000' -H 'Content-Type: text/plain' \
+  --data-binary 'browser bytes' \
+  "$api/upload/storage/v1/b/assets/o?uploadType=media&name=browser.txt"
+curl --fail -i -H 'Origin: http://localhost:3000' \
+  "$api/storage/v1/b/assets/o/browser.txt?alt=media"
+curl --fail "$api/assets/browser.txt"
+```
+
+The scenario also verifies twelve concurrent browser-role uploads and exact
+reads. Raw HTTP does not verify browser enforcement. Path-style anonymous GET
+returns bytes in this permissive profile; XML cross-origin fetch uses separate
+bucket CORS rules. CORS never grants access in strict mode. See
+[Google's CORS distinction](https://docs.cloud.google.com/storage/docs/cross-origin).
+
+For an unsigned resumable session created by the server, preserve path/query
+when replacing the internal authority with the browser-reachable authority.
+The scenario verifies changed-Host PUT with Content-Range and a preflight.
+Cancellation deliberately returns **499**, and later session access returns
+410, following the [JSON resumable protocol](https://docs.cloud.google.com/storage/docs/performing-resumable-uploads).
+Do not treat 499 here as an infrastructure failure or retry cancellation as an
+upload. This example checks the status explicitly instead of using curl `--fail`:
+
+```sh
+location=$(curl --fail -sS -D - -o /dev/null \
+  -H 'Content-Type: application/json' -H 'X-Upload-Content-Type: text/plain' \
+  -d '{}' "$api/upload/storage/v1/b/assets/o?uploadType=resumable&name=cancelled.txt" \
+  | awk 'tolower($1)=="location:" {sub("\r$", "", $2); print $2}')
+host_session="$api${location#http://gcs:4443}"
+cancellation_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE "$host_session")
+test "$cancellation_status" = 499
+```
+
+Authority rewriting is scoped to these unsigned permissive sessions. Never
+rewrite a strict signed URL after signing; sign the final recipient-visible URL.
+
+### Migration troubleshooting
+
+| Symptom | Cause | Repair |
+| --- | --- | --- |
+| Startup rejects `-scheme` or `FAKE_GCS_SCHEME` | Source names are not aliases | Remove the old command/key and set `GCS_MIMIC_SCHEME: http`. |
+| SDK initiation succeeds but its next request cannot connect | Location contains loopback or a host-only address | Set `GCS_MIMIC_API_BASE_URL: http://gcs:4443` for container clients and recreate the service. |
+| Browser cannot resolve `gcs` | Container DNS is not host DNS | Use `http://localhost:14443` for the example browser origin; preserve session path/query when translating unsigned URLs. |
+| A newly added empty directory creates no bucket | Seed completed during the first catalog initialization | Add `{"name":"exports"}` to the version-1 buckets file and restart; do not erase the data volume. |
+| HTTP connection fails or an inherited probe is unhealthy | Scheme/listener differs from the client or probe environment | Use `GCS_MIMIC_SCHEME: http` and `GCS_MIMIC_LISTEN: 0.0.0.0:4443`; let the image's probe inherit them. |
+| Bucket listing returns 400 with a project example | Native requires an explicit project | Request `/storage/v1/b?project=local-project`. The existing legacy profile defaults omitted project to seed_project. |
+| Docker reports the host port is in use | Another worktree publishes the same port | Set `GCS_MIMIC_PORT=24443` and a different Compose project; update browser URLs, leaving `http://gcs:4443` unchanged. |
+| `curl --fail` reports 499 on session DELETE | Successful JSON resumable cancellation uses 499 | Inspect `%{http_code}` as above and accept 499 for cancellation only. |
 
 ## Goal and current state
 
@@ -30,7 +197,7 @@ from the current GCS inventory or the early-release queue.
 
 The ledger's `delivery_plan.migration` owns the planning scope and acceptance
 milestones. Existing feature statuses and evidence remain authoritative; this
-document adds no passing migration result.
+broader target adds no passing full-migration result.
 
 ## Concurrent uploads and storage errors
 

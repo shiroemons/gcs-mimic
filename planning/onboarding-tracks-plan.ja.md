@@ -891,7 +891,7 @@ fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-s
 
 | 項目 | 推奨 | 決める場所 |
 | --- | --- | --- |
-| `api_base_url` を明示しないときの Location | 今のまま（bind したアドレスから導出）とし、移行ガイドの Compose の例に `GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書く。起動時の警告は足さない。リクエストの Host から組む案は `config-api-origin-default` の決定を変えるので、シナリオで困る例が出たときにオーナーへ上げる | `migrate-guide-compose` |
+| `api_base_url` を明示しないときの Location | 決定済み。bind したアドレスからの導出を維持し、移行ガイドの Compose には `GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書く。起動時の警告は足さず、リクエストの Host からは組まない。契約は [migrate-guide-compose](../docs/en/slices/migrate-guide-compose.md) | `migrate-guide-compose` |
 | project のない `buckets.list` | `legacy-emulator` では作成と同じく `seed_project` で補う。native は 400 のまま、メッセージに `?project=local-project` の例を足す | `migrate-defaults` |
 
 ### スライス

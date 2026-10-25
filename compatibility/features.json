@@ -39088,7 +39088,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Probe examples run from the host and a separate container using Compose service DNS. No public/SDK URL semantics are claimed.",
+      "notes": "Existing host/peer foundation remains verified. The source-built migration Compose walkthrough also initializes buckets, exercises host media and peer resumable Location at http://gcs:4443; evidence and limits: docs/en/slices/migrate-guide-compose.md. No full migration parity is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -39100,10 +39100,19 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "id": "MIGRATION-COMPOSE",
+          "description": "Source-built migration Compose initializes buckets and supports host media and peer resumable Location; contract: docs/en/slices/migrate-guide-compose.md.",
+          "result": "PASS",
+          "test_ids": [
+            "migration-compose-walkthrough"
+          ]
         }
       ],
       "test_ids": [
-        "container-foundation-smoke"
+        "container-foundation-smoke",
+        "migration-compose-walkthrough"
       ],
       "verification": [
         {
@@ -39114,12 +39123,21 @@
           "test_ids": [
             "container-foundation-smoke"
           ]
+        },
+        {
+          "command": "docker compose up -d --build --wait; execute host guide commands and peer resumable Location check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-guide-compose.md",
+          "test_ids": [
+            "migration-compose-walkthrough"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-062",
@@ -44377,7 +44395,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "The current-source Docker build and native release build pass in the guide with a unique image tag and isolated Compose project. Scope: docs/en/slices/json-object-media.md; evidence and limits: docs/en/evidence/object-media.md.",
+      "notes": "The current-source Docker build and native release build pass in the guide with a unique image tag and isolated Compose project. Scope: docs/en/slices/json-object-media.md; evidence and limits: docs/en/evidence/object-media.md. Source-built Compose migration, English/Japanese guidance and representative scenario coverage are verified in docs/en/slices/migrate-guide-compose.md; broader pending cases remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -44412,13 +44430,22 @@
           "description": "Verify a published clean checkout and native amd64 execution.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "MIGRATION-COMPOSE",
+          "description": "Build the unpublished image from final source and run migration Compose through health, initialization, bucket creation and exact object reads; contract: docs/en/slices/migrate-guide-compose.md.",
+          "result": "PASS",
+          "test_ids": [
+            "migration-compose-walkthrough"
+          ]
         }
       ],
       "test_ids": [
         "native-onboarding",
         "container-foundation-smoke",
         "guide-source-docker-build",
-        "guide-native-object-media"
+        "guide-native-object-media",
+        "migration-compose-walkthrough"
       ],
       "verification": [
         {
@@ -44448,6 +44475,15 @@
             "guide-source-docker-build",
             "guide-native-object-media"
           ]
+        },
+        {
+          "command": "docker compose up -d --build --wait; execute host guide commands and peer resumable Location check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-guide-compose.md",
+          "test_ids": [
+            "migration-compose-walkthrough"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -44455,7 +44491,7 @@
         "Current checkout uses cached Docker layers; no published remote clean checkout, native amd64 or released image is claimed."
       ],
       "implemented_in": "89acc944ae2c1d5896cea5d84b66a8a2250e8910",
-      "last_verified": "2026-10-21"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "UX-002",
@@ -46403,7 +46439,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Canonical English README/design/roadmap and runnable bucket/object media guide match the tested local subset, including troubleshooting and limitations. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Affected native/CORS/HTTPS guide blocks, both container architectures and pinned Go/Ruby basic workflows now pass in docs/en/evidence/cors.md; full-guide publication/signing/Rails coverage remains pending.",
+      "notes": "Canonical English README/design/roadmap and runnable bucket/object media guide match the tested local subset, including troubleshooting and limitations. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Affected native/CORS/HTTPS guide blocks, both container architectures and pinned Go/Ruby basic workflows now pass in docs/en/evidence/cors.md; full-guide publication/signing/Rails coverage remains pending. Source-built Compose migration, English/Japanese guidance and representative scenario coverage are verified in docs/en/slices/migrate-guide-compose.md; broader pending cases remain unchanged.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -46455,6 +46491,20 @@
           "test_ids": []
         },
         {
+          "id": "MIGRATION-COMPOSE",
+          "description": "English/Japanese Compose migration guidance, five flag groups, one-time seed replacement, browser/cancellation/port troubleshooting and full scenario mapping pass final guide and twelve concurrent browser upload checks; contract: docs/en/slices/migrate-guide-compose.md.",
+          "result": "PASS",
+          "test_ids": [
+            "migration-compose-guide",
+            "migration-compose-walkthrough",
+            "TestMigrationAppScenarioGo",
+            "TestMigrationAppScenarioBrowser",
+            "TestMigrationAppScenarioCancellation",
+            "TestMigrationAppScenarioBucketList",
+            "TestMigrationAppScenarioParallelBrowser"
+          ]
+        },
+        {
           "id": "UX-012-MEDIA-SAFETY",
           "description": "repeated startup journal failure names the blob ID once and blocks readiness until fixed",
           "result": "PASS",
@@ -46494,7 +46544,14 @@
         "obj_http_disconnected_overwrite_preserves_the_previous_generation",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "producer_closure_without_eof_never_publishes_partial_bytes",
-        "recovery_ignores_os_metadata_and_names_other_stray_entries"
+        "recovery_ignores_os_metadata_and_names_other_stray_entries",
+        "migration-compose-guide",
+        "migration-compose-walkthrough",
+        "TestMigrationAppScenarioGo",
+        "TestMigrationAppScenarioBrowser",
+        "TestMigrationAppScenarioCancellation",
+        "TestMigrationAppScenarioBucketList",
+        "TestMigrationAppScenarioParallelBrowser"
       ],
       "verification": [
         {
@@ -46551,6 +46608,21 @@
           "test_ids": [
             "cors-guide-native"
           ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN=TestMigrationAppScenario bash scripts/sdk-go.sh; execute English/Japanese migration guide and scenario coverage review",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-guide-compose.md",
+          "test_ids": [
+            "migration-compose-guide",
+            "migration-compose-walkthrough",
+            "TestMigrationAppScenarioGo",
+            "TestMigrationAppScenarioBrowser",
+            "TestMigrationAppScenarioCancellation",
+            "TestMigrationAppScenarioBucketList",
+            "TestMigrationAppScenarioParallelBrowser"
+          ]
         }
       ],
       "sdk_evidence": [],
@@ -46560,7 +46632,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-23"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DEP-001",
