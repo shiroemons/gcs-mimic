@@ -90,6 +90,8 @@ Imported generation/time/hash publication belongs to shared-imported-identity. A
 
 shared-publication-io owns these descriptor-based operations in `src/fsutil.rs`, extending the module if import-dry-run creates it first. This slice creates no runtime helper or dependency.
 
+The delivered native subset and exact callable signatures are recorded in [shared publication I/O](shared-publication-io.md). `clone_into` also supports mutable-source staging by returning Unsupported without an output entry when cloning is unavailable; the later modes owner must then copy and hash in one pass. Unix exchange preserves displaced entries, Windows exchange returns Unsupported for Sync's checked-replace policy, and orphan scanning remains before bind. Publication and maintenance reclaim retired blobs in bounded pages outside SQLite execution while session-owned cleanup markers remain with their owner.
+
 ```rust
 clone_or_copy_into(src_fd, dst_dir_fd, name) -> Result<CopyMethod, FsError>
 durable_replace(dst_dir_fd, staged_name, destination_name, expected_identity)

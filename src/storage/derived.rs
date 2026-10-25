@@ -696,7 +696,7 @@ impl Catalog {
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
-                let (record, retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
+                let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
                 let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {
@@ -721,12 +721,11 @@ impl Catalog {
                         eprintln!("deferred derived source cleanup: {error}");
                     }
                 }
-                objects::reclaim_after_commit(connection, &data_dir, retired);
-                if let Err(error) = reclaim_derived_deletions(connection, &data_dir, Some(&query)) {
-                    eprintln!("deferred derived source reclamation: {error}");
-                }
                 Ok(record)
             }).await;
+            if result.is_ok() {
+                catalog.reclaim_after_commit().await;
+            }
             catalog.0.maintenance_wake.notify_one();
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
@@ -762,11 +761,7 @@ impl Catalog {
         &self,
         now: i64,
     ) -> Result<Option<std::time::SystemTime>, crate::bucket::CatalogError> {
-        let data_dir = self.0.data_dir.clone();
-        let mut failure = self
-            .run_object(move |connection| reclaim_derived_deletions(connection, &data_dir, None))
-            .await
-            .err();
+        let mut failure = self.reclaim_pending().await.err();
         let due = self.run_object(move |connection| {
             connection.prepare("SELECT id FROM derived_transfers WHERE deadline <= ?1 ORDER BY id LIMIT 128").map_err(unavailable)?
                 .query_map([now], |row| row.get::<_, String>(0)).map_err(unavailable)?.collect::<rusqlite::Result<Vec<_>>>().map_err(unavailable)

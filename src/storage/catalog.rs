@@ -288,6 +288,7 @@ struct Inner {
     resources: Mutex<Option<Resources>>,
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
+    reclamation: Arc<Semaphore>,
     uploads: Arc<Semaphore>,
     admin_uploads: Arc<Semaphore>,
     admin_reads: Arc<Semaphore>,
@@ -497,6 +498,7 @@ impl Catalog {
                 resources: Mutex::new(Some(Resources { connection, lock })),
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
+                reclamation: Arc::new(Semaphore::new(1)),
                 uploads: Arc::new(Semaphore::new(MAX_UPLOADS)),
                 admin_uploads: Arc::new(Semaphore::new(2)),
                 admin_reads: Arc::new(Semaphore::new(32)),
@@ -550,6 +552,13 @@ impl Catalog {
             .uploads
             .clone()
             .acquire_many_owned(MAX_UPLOADS as u32)
+            .await
+            .map_err(unavailable)?;
+        let _reclamation = self
+            .0
+            .reclamation
+            .clone()
+            .acquire_owned()
             .await
             .map_err(unavailable)?;
         let execution = self

@@ -1171,11 +1171,14 @@ async fn committed_mutations_succeed_when_reclaim_is_deferred_to_restart() {
         .unwrap();
     let new_shard = new_path.parent().unwrap();
     let permissions = fs::metadata(new_shard).unwrap().permissions();
+    let old_permissions = fs::metadata(old_shard).unwrap().permissions();
+    fs::set_permissions(old_shard, fs::Permissions::from_mode(0o555)).unwrap();
     fs::set_permissions(new_shard, fs::Permissions::from_mode(0o555)).unwrap();
     let result = catalog
         .delete_object("bucket", "object", None, ObjectConditions::default())
         .await;
     fs::set_permissions(new_shard, permissions).unwrap();
+    fs::set_permissions(old_shard, old_permissions).unwrap();
     result.expect("committed delete must succeed despite failed reclaim");
     assert!(new_path.exists());
     assert_eq!(

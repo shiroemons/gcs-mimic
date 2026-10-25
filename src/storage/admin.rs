@@ -696,13 +696,11 @@ impl Admin {
         let bucket = bucket.0.clone();
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
-        let data_dir = self.catalog.0.data_dir.clone();
         let clock = self.catalog.0.clock.clone();
         self.catalog
             .run_admin(move |connection| {
                 Ok(objects::delete_selected(
                     connection,
-                    &data_dir,
                     clock.as_ref(),
                     &bucket,
                     &name,
@@ -712,6 +710,8 @@ impl Admin {
                 ))
             })
             .await?
-            .map_err(AdminError::from)
+            .map_err(AdminError::from)?;
+        self.catalog.reclaim_after_commit().await;
+        Ok(())
     }
 }

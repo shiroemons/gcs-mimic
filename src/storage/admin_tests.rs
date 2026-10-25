@@ -2,6 +2,318 @@ use super::*;
 use crate::{clock::SystemClock, test_support::TestDir};
 use bytes::Bytes;
 use std::collections::BTreeMap;
+use std::{fs, time::Duration};
+
+fn publication_blobs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(dir.join("blobs"))
+        .unwrap()
+        .flat_map(|shard| {
+            fs::read_dir(shard.unwrap().path())
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn shared_reclamation_preserves_cancelled_session_cleanup_markers() {
+    let (dir, catalog, _admin, _bucket, _name) = setup().await;
+    let session = catalog
+        .create_resumable_session(
+            "test-bucket",
+            "cancelled",
+            super::super::ResumableOptions::new(BucketAccess::Permissive),
+            None,
+        )
+        .await
+        .unwrap();
+    let stage = dir.0.join("staging").join(&session.blob_id);
+    fs::remove_file(&stage).unwrap();
+    fs::create_dir(&stage).unwrap();
+    let lease = catalog
+        .lock_resumable_session(&session.id, "test-bucket")
+        .await
+        .unwrap();
+    catalog.invalidate_resumable_session(&lease).await.unwrap();
+    catalog.reclaim_pending().await.unwrap();
+    let id = session.blob_id.clone();
+    catalog
+        .run_upload(move |connection| {
+            let pending: bool = connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pending_blob_deletions WHERE blob_id = ?1)",
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(pending);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(stage.is_dir());
+    drop(lease);
+    fs::remove_dir(&stage).unwrap();
+    fs::write(&stage, b"").unwrap();
+    catalog.maintain_resumable_sessions().await.unwrap();
+    assert!(!stage.exists());
+    catalog
+        .run_upload(|connection| {
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies() {
+    for route in ["media", "derived", "resumable"] {
+        let (dir, catalog, admin, bucket, name) = setup().await;
+        let old = admin
+            .publish_object(&bucket, &name, request(None), body(b"old"))
+            .await
+            .unwrap();
+        let held = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+        let worker = catalog.clone();
+        let cleanup = tokio::spawn(async move { worker.reclaim_pending().await });
+        let worker = catalog.clone();
+        let publication = tokio::spawn(async move {
+            match route {
+                "media" => {
+                    worker
+                        .put_object(
+                            "test-bucket",
+                            "object",
+                            "text/plain".into(),
+                            Default::default(),
+                            Default::default(),
+                            1024,
+                            body(b"new"),
+                        )
+                        .await
+                        .unwrap();
+                }
+                "derived" => {
+                    let source = worker
+                        .resolve_derived_source(
+                            "test-bucket",
+                            "object",
+                            None,
+                            Default::default(),
+                            &BucketAccess::Permissive,
+                        )
+                        .await
+                        .unwrap();
+                    let transfer = worker.begin_derived(vec![source.whole()], 3).await.unwrap();
+                    worker
+                        .advance_derived(&transfer.id, u64::MAX)
+                        .await
+                        .unwrap();
+                    let mut destination =
+                        super::super::derived::DerivedDestination::new(BucketAccess::Permissive);
+                    destination.bucket = "test-bucket".into();
+                    destination.name = "object".into();
+                    destination.content_type = "text/plain".into();
+                    worker
+                        .publish_derived(&transfer.id, destination, |_, _| Ok(()))
+                        .await
+                        .unwrap();
+                }
+                "resumable" => {
+                    let session = worker
+                        .create_resumable_session(
+                            "test-bucket",
+                            "object",
+                            super::super::ResumableOptions::new(BucketAccess::Permissive),
+                            Some(3),
+                        )
+                        .await
+                        .unwrap();
+                    finalize_session(&worker, &session.id, b"new")
+                        .await
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+        });
+        let selected = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let record = admin.get_object(&bucket, &name, None).await.unwrap();
+                if record.generation != old.generation {
+                    break record;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!publication.is_finished());
+        drop(held);
+        publication.await.unwrap();
+        cleanup.await.unwrap().unwrap();
+        let (_, mut reader) = catalog
+            .open_object("test-bucket", "object", None, Default::default())
+            .await
+            .unwrap();
+        let expected: &[u8] = if route == "derived" { b"old" } else { b"new" };
+        assert_eq!(
+            reader.next_chunk().await.unwrap().unwrap().as_ref(),
+            expected
+        );
+        assert!(reader.next_chunk().await.unwrap().is_none());
+        assert_eq!(publication_blobs(&dir.0).len(), 1);
+        catalog.close().await.unwrap();
+        let reopened = Catalog::open(&dir.0).await.unwrap();
+        assert_eq!(
+            reopened
+                .admin(Origin::Seed)
+                .get_object(&bucket, &name, None)
+                .await
+                .unwrap(),
+            selected
+        );
+        reopened.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn publication_reclamation_is_paged_and_rejects_live_journal_entries() {
+    let (dir, catalog, admin, bucket, name) = setup().await;
+    admin
+        .publish_object(&bucket, &name, request(None), body(b"retained"))
+        .await
+        .unwrap();
+    let live_path = publication_blobs(&dir.0).pop().unwrap();
+    let live_id = live_path.file_name().unwrap().to_str().unwrap().to_owned();
+    let data_dir = dir.0.clone();
+    catalog
+        .run_upload(move |connection| {
+            let transaction = connection.transaction().unwrap();
+            for index in 0..140 {
+                let id = format!("{index:032x}");
+                let path = objects::blob_path(&data_dir, &id).unwrap();
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, b"retired").unwrap();
+                transaction
+                    .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+                    .unwrap();
+            }
+            transaction.commit().unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.reclaim_after_commit().await;
+    assert_eq!(publication_blobs(&dir.0).len(), 13);
+    assert_eq!(catalog.0.execution.available_permits(), 1);
+    catalog.reclaim_after_commit().await;
+    assert_eq!(publication_blobs(&dir.0), vec![live_path.clone()]);
+    let id = live_id.clone();
+    catalog
+        .run_upload(move |connection| {
+            connection
+                .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [id])
+                .unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.reclaim_after_commit().await;
+    assert_eq!(fs::read(live_path).unwrap(), b"retained");
+    catalog
+        .run_upload(move |connection| {
+            assert_eq!(
+                connection
+                    .query_row("SELECT count(*) FROM pending_blob_deletions", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1
+            );
+            connection
+                .execute(
+                    "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+                    [live_id],
+                )
+                .unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn publication_waits_for_reclamation_without_holding_catalog_execution() {
+    let (dir, catalog, admin, bucket, name) = setup().await;
+    let old = admin
+        .publish_object(&bucket, &name, request(None), body(b"old"))
+        .await
+        .unwrap();
+    let cleanup = catalog.0.reclamation.clone().acquire_owned().await.unwrap();
+    let worker = admin.clone();
+    let target_bucket = bucket.clone();
+    let target_name = name.clone();
+    let publication = tokio::spawn(async move {
+        worker
+            .publish_object(&target_bucket, &target_name, request(None), body(b"new"))
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if admin
+                .get_object(&bucket, &name, None)
+                .await
+                .unwrap()
+                .generation
+                != old.generation
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(!publication.is_finished());
+    assert_eq!(publication_blobs(&dir.0).len(), 2);
+    drop(cleanup);
+    publication.await.unwrap().unwrap();
+    assert_eq!(publication_blobs(&dir.0).len(), 1);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_reclamation_retains_directory_ownership_until_sql_settles() {
+    let (dir, catalog, _admin, _bucket, _name) = setup().await;
+    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+    let worker = catalog.clone();
+    let cleanup = tokio::spawn(async move { worker.reclaim_after_commit().await });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while catalog.0.reclamation.available_permits() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    cleanup.abort();
+    let _ = cleanup.await;
+    let worker = catalog.clone();
+    let close = tokio::spawn(async move { worker.close().await });
+    tokio::task::yield_now().await;
+    assert!(!close.is_finished());
+    assert!(Catalog::open(&dir.0).await.is_err());
+    drop(execution);
+    close.await.unwrap().unwrap();
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
+}
 
 fn bucket(name: &str, project: &str) -> BucketDefinition {
     BucketDefinition::default_for(&BucketName::new(name).unwrap(), project, &SystemClock).unwrap()

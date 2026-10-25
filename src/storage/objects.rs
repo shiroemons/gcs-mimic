@@ -163,56 +163,48 @@ pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectErro
 
 #[cfg(unix)]
 pub(super) fn sync_dir(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    crate::fsutil::sync_dir(path)
 }
 
 pub(super) fn publish_blob(source: &Path, destination: &Path) -> io::Result<()> {
+    static SHARD_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let shard = destination.parent().expect("blob parent");
-    fs::create_dir_all(shard)?;
+    {
+        // A concurrent publisher must not pass a creator whose parent fsync is unfinished.
+        let _creation = SHARD_CREATION
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        match fs::create_dir(shard) {
+            Ok(()) =>
+            {
+                #[cfg(unix)]
+                if let Err(error) = sync_dir(shard.parent().expect("blobs directory")) {
+                    fs::remove_dir(shard)?;
+                    return Err(error);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if !fs::symlink_metadata(shard)?.is_dir() {
+                    return Err(io::Error::other("blob shard is not a directory"));
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
     #[cfg(unix)]
     {
-        sync_dir(shard.parent().expect("blobs directory"))?;
         fs::rename(source, destination)?;
         sync_dir(shard)
     }
     #[cfg(windows)]
     {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
-
         // Preserve extended paths and keep publication on the same volume. Windows
         // uses write-through publication, not Unix directory-fsync durability.
         let source = source.canonicalize()?;
         let destination = shard
             .canonicalize()?
             .join(destination.file_name().expect("blob filename"));
-        let wide = |path: &Path| -> io::Result<Vec<u16>> {
-            let mut path: Vec<_> = path.as_os_str().encode_wide().collect();
-            if path.contains(&0) {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "NUL in blob path",
-                ));
-            }
-            path.push(0);
-            Ok(path)
-        };
-        let source = wide(&source)?;
-        let destination = wide(&destination)?;
-        // SAFETY: Both terminated UTF-16 buffers remain alive for this synchronous call.
-        #[allow(unsafe_code)]
-        let moved = unsafe {
-            MoveFileExW(
-                source.as_ptr(),
-                destination.as_ptr(),
-                MOVEFILE_WRITE_THROUGH,
-            )
-        };
-        if moved == 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
+        crate::fsutil::move_write_through(&source, &destination)
     }
 }
 
@@ -272,7 +264,11 @@ pub(super) fn recover(
         fs::create_dir_all(data_dir.join("staging")).map_err(object_unavailable)?;
         fs::create_dir_all(data_dir.join("blobs")).map_err(object_unavailable)?;
         #[cfg(unix)]
-        sync_dir(data_dir).map_err(object_unavailable)?;
+        {
+            sync_dir(data_dir).map_err(object_unavailable)?;
+            // A pre-crash shard creator may have stopped before making its parent durable.
+            sync_dir(&data_dir.join("blobs")).map_err(object_unavailable)?;
+        }
         super::resumable_recovery::recover(connection, data_dir).map_err(object_unavailable)?;
         super::derived::recover(connection, data_dir, now)?;
         for entry in fs::read_dir(data_dir.join("staging")).map_err(object_unavailable)? {
@@ -640,7 +636,6 @@ impl Catalog {
                     .await
                     .map_err(object_unavailable)?
                     .map_err(object_unavailable)?;
-                let data_dir = catalog.0.data_dir.clone();
                 let clock = catalog.0.clock.clone();
                 let blob_id = id.clone();
                 catalog
@@ -661,7 +656,7 @@ impl Catalog {
                             .map_err(object_unavailable)?;
                         let micros = unix_micros(now).map_err(object_unavailable)?;
                         let time = system_time_micros(micros).map_err(object_unavailable)?;
-                        let (record, retired, ()) = publish_in_transaction(
+                        let (record, _retired, ()) = publish_in_transaction(
                             &transaction,
                             micros,
                             previous.as_ref(),
@@ -695,12 +690,14 @@ impl Catalog {
                             },
                         )?;
                         transaction.commit().map_err(object_unavailable)?;
-                        reclaim_after_commit(connection, &data_dir, retired);
                         Ok(record)
                     })
                     .await
             }
             .await;
+            if result.is_ok() {
+                catalog.reclaim_after_commit().await;
+            }
             if result.is_err() {
                 let data_dir = catalog.0.data_dir.clone();
                 // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
@@ -937,13 +934,11 @@ impl Catalog {
     ) -> Result<(), ObjectError> {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
-        let data_dir = self.0.data_dir.clone();
         let access = access.clone();
         let clock = self.0.clock.clone();
         self.run_object(move |connection| {
             delete_selected(
                 connection,
-                &data_dir,
                 clock.as_ref(),
                 &bucket,
                 &name,
@@ -952,7 +947,9 @@ impl Catalog {
                 &access,
             )
         })
-        .await
+        .await?;
+        self.reclaim_after_commit().await;
+        Ok(())
     }
 }
 
@@ -1006,7 +1003,6 @@ pub(super) fn open_selected(
 )]
 pub(super) fn delete_selected(
     connection: &mut Connection,
-    data_dir: &Path,
     clock: &dyn crate::clock::Clock,
     bucket: &str,
     name: &str,
@@ -1038,18 +1034,13 @@ pub(super) fn delete_selected(
         &record,
     )
     .map_err(object_unavailable)?;
-    let retired = retire_previous(
+    retire_previous(
         &transaction,
         Some(&(record, id)),
         versioning && generation.is_none(),
         unix_micros(clock.now()).map_err(object_unavailable)?,
     )?;
     transaction.commit().map_err(object_unavailable)?;
-    if let Some(id) = retired
-        && let Err(error) = reclaim(connection, data_dir, &id)
-    {
-        eprintln!("deferred blob reclaim {id}: {error}");
-    }
     Ok(())
 }
 
@@ -1428,16 +1419,112 @@ pub(super) fn publish_in_transaction<T>(
     Ok((record, retired, prepared))
 }
 
-pub(super) fn reclaim_after_commit(
-    connection: &Connection,
-    data_dir: &Path,
-    retired: Option<String>,
-) {
-    // Once committed, failure to reclaim must never remove the new live blob.
-    if let Some(id) = retired
-        && let Err(error) = reclaim(connection, data_dir, &id)
-    {
-        eprintln!("deferred blob reclaim {id}: {error}");
+impl Catalog {
+    pub(super) async fn reclaim_after_commit(&self) {
+        if let Err(error) = self.reclaim_pending().await {
+            eprintln!("deferred blob reclamation: {error}");
+        }
+    }
+
+    pub(super) async fn reclaim_pending(&self) -> Result<(), ObjectError> {
+        let permit = self
+            .0
+            .reclamation
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(object_unavailable)?;
+        let catalog = self.clone();
+        // Detached callers retain the cleanup slot until filesystem work and SQL settle.
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            let ids = catalog
+                .run_upload(|connection| {
+                    let ids = connection
+                        .prepare(
+                            // Cancelled sessions need their marker until staging cleanup also succeeds.
+                            "SELECT blob_id FROM pending_blob_deletions AS pending WHERE NOT EXISTS (SELECT 1 FROM resumable_sessions AS session WHERE session.blob_id = pending.blob_id AND session.state != 'COMPLETE') ORDER BY blob_id LIMIT 128",
+                        )
+                        .map_err(object_unavailable)?
+                        .query_map([], |row| row.get::<_, String>(0))
+                        .map_err(object_unavailable)?
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .map_err(object_unavailable)?;
+                    for id in &ids {
+                        let referenced: bool = connection
+                            .query_row(
+                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+                                [id],
+                                |row| row.get(0),
+                            )
+                            .map_err(object_unavailable)?;
+                        if referenced {
+                            return Err(object_unavailable(
+                                "deletion journal references a live blob",
+                            ));
+                        }
+                    }
+                    Ok(ids)
+                })
+                .await?;
+            if ids.is_empty() {
+                return Ok(());
+            }
+            let data_dir = catalog.0.data_dir.clone();
+            let (removed, failure) = tokio::task::spawn_blocking(move || {
+                let mut shards = std::collections::BTreeMap::<PathBuf, Vec<String>>::new();
+                let mut failure = None;
+                for id in ids {
+                    let path = blob_path(&data_dir, &id)?;
+                    match unlink(&path) {
+                        Ok(()) => shards
+                            .entry(path.parent().expect("blob parent").to_owned())
+                            .or_default()
+                            .push(id),
+                        Err(error) => {
+                            eprintln!("deferred blob reclaim {id}: {error}");
+                            failure = Some(object_unavailable(error));
+                        }
+                    }
+                }
+                let mut removed = Vec::new();
+                for (shard, ids) in shards {
+                    #[cfg(unix)]
+                    if shard.exists()
+                        && let Err(error) = sync_dir(&shard)
+                    {
+                        eprintln!("deferred blob reclaim directory: {error}");
+                        failure = Some(object_unavailable(error));
+                        continue;
+                    }
+                    #[cfg(not(unix))]
+                    let _ = shard;
+                    removed.extend(ids);
+                }
+                Ok::<_, ObjectError>((removed, failure))
+            })
+            .await
+            .map_err(object_unavailable)??;
+            catalog
+                .run_upload(move |connection| {
+                    let transaction = connection.transaction().map_err(object_unavailable)?;
+                    for id in removed {
+                        transaction
+                            .execute(
+                                "DELETE FROM pending_blob_deletions WHERE blob_id = ?1",
+                                [&id],
+                            )
+                            .map_err(object_unavailable)?;
+                        transaction
+                            .execute("DELETE FROM derived_deletions WHERE blob_id = ?1", [&id])
+                            .map_err(object_unavailable)?;
+                    }
+                    transaction.commit().map_err(object_unavailable)
+                })
+                .await?;
+            failure.map_or(Ok(()), Err)
+        });
+        task.await.map_err(object_unavailable)?
     }
 }
 

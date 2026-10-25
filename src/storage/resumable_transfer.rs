@@ -252,7 +252,6 @@ impl Catalog {
             .map_err(unavailable)?;
         let session = lease.session.clone();
         let clock = self.0.clock.clone();
-        let data_dir = self.0.data_dir.clone();
         catalog_wait.send_replace(true);
         let publication =
             move |connection: &mut rusqlite::Connection| -> Result<Value, ResumableError> {
@@ -295,7 +294,7 @@ impl Catalog {
                     .map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
-                let (_, retired, resource) = objects::publish_in_transaction(
+                let (_, _retired, resource) = objects::publish_in_transaction(
                     &transaction,
                     micros,
                     previous.as_ref(),
@@ -331,10 +330,14 @@ impl Catalog {
                 )?;
                 transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
-                objects::reclaim_after_commit(connection, &data_dir, retired);
                 Ok(resource)
             };
-        self.run_upload(move |connection| Ok(publication(connection)))
-            .await?
+        let result = self
+            .run_upload(move |connection| Ok(publication(connection)))
+            .await?;
+        if result.is_ok() {
+            self.reclaim_after_commit().await;
+        }
+        result
     }
 }
