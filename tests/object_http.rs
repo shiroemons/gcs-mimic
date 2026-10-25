@@ -228,6 +228,17 @@ impl Reply {
     }
 }
 
+/// macOS reports a peer close during transfer as a reset or broken pipe where
+/// Linux often still accepts the write or returns EOF.
+fn closed_by_server(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+    )
+}
+
 #[test]
 fn obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket() {
     let dir = TestDir::new();
@@ -744,23 +755,25 @@ fn obj_http_restart_and_sigkill_mid_upload_clean_staging() {
 #[test]
 fn obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 300);
+    // The 80 ms chunk gap stays far below the 600 ms timeout so scheduler
+    // stalls on shared CI runners cannot turn activity into inactivity.
+    let server = Server::start(&dir, 1000, 600);
     server.bucket();
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=slow HTTP/1.1\r\nHost: local\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
-    for _ in 0..6 {
+    for _ in 0..10 {
         stream.write_all(b"1\r\na\r\n").unwrap();
         thread::sleep(Duration::from_millis(80));
     }
     stream.write_all(b"0\r\n\r\n").unwrap();
     assert_eq!(Reply::read(stream).status, 200);
-    assert_eq!(server.get("slow?alt=media").body, b"aaaaaa");
+    assert_eq!(server.get("slow?alt=media").body, b"aaaaaaaaaa");
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=idle HTTP/1.1\r\nHost: local\r\nContent-Length: 100\r\n\r\nx").unwrap();
     let start = Instant::now();
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).unwrap();
-    assert!(start.elapsed() >= Duration::from_millis(200));
+    assert!(start.elapsed() >= Duration::from_millis(500));
     assert!(start.elapsed() < Duration::from_secs(2));
     server.get("idle").error(404, "notFound");
     assert_eq!(server.upload("name=after-timeout", "", b"ok").status, 200);
@@ -786,12 +799,18 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
     for _ in 0..10 {
         thread::sleep(Duration::from_millis(70));
         for stream in &mut uploads {
-            stream.write_all(b"1\r\na\r\n").unwrap();
+            // A slow runner can reach the deadline while the client still
+            // trickles; the server closing first is the outcome under test.
+            if let Err(error) = stream.write_all(b"1\r\na\r\n") {
+                assert!(closed_by_server(&error), "{error}");
+            }
         }
     }
     for mut stream in uploads {
         let mut response = Vec::new();
-        stream.read_to_end(&mut response).unwrap();
+        if let Err(error) = stream.read_to_end(&mut response) {
+            assert!(closed_by_server(&error), "{error}");
+        }
         assert!(response.is_empty(), "unfinished upload must not succeed");
     }
     assert!(started.elapsed() >= Duration::from_millis(800));
@@ -843,20 +862,24 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
     assert!(headers.starts_with(b"HTTP/1.1 200"));
     let mut received = 0;
     let mut chunk = vec![0; 256 * 1024];
-    for _ in 0..20 {
-        received += reader.read(&mut chunk).unwrap();
+    // Time the server's close itself, not the client's remaining sleeps.
+    let closed = loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break started.elapsed(),
+            Ok(read) => received += read,
+            Err(error) if closed_by_server(&error) => break started.elapsed(),
+            Err(error) => panic!("{error}"),
+        }
+        assert!(received < size, "trickled download completed");
         thread::sleep(Duration::from_millis(80));
-    }
-    let mut rest = Vec::new();
-    reader.read_to_end(&mut rest).unwrap();
-    received += rest.len();
+    };
     assert!(
         received > 0 && received < size,
         "truncated media: {received}/{size}"
     );
     assert!(
-        started.elapsed() < Duration::from_millis(2800),
-        "deadline precedes inactivity"
+        closed < Duration::from_millis(2800),
+        "deadline precedes inactivity: closed after {closed:?}"
     );
     assert_eq!(server.get("large").json()["size"], size.to_string());
 }
