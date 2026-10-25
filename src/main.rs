@@ -30,6 +30,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --data-dir PATH              data (exclusive persistent catalog)
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
+  --seed-content-type MODE     octet-stream (octet-stream|extension; pinned MIME table)
   --buckets-file PATH          none (create missing buckets before seed; JSON v1, at most 1 MiB)
   --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)

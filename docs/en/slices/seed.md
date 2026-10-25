@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
-Contract checked: **2026-10-22**. Scope: UX-002, an emulator-specific project
+Contract checked: **2026-10-25**. Scope: UX-002, an emulator-specific project
 requirement. The directory layout follows fake-gcs-server's fixture ergonomics;
 it is not a Google API. The authoritative status remains in
 `compatibility/features.json`. Historical native behavior is recorded in the
@@ -56,6 +56,7 @@ Test identifiers below are the exact integration test function names in
 | seed-migration | Populated v4 catalog migrates to v5 without replay or overwrite; existing v1/v3 migration coverage remains green | `populated_v4_catalog_migrates_without_seeding`; `src/storage/object_tests.rs::v1_migration_is_transactional_and_current_schema_reopens_idempotently`; `src/storage/object_tests.rs::metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog` | PASS |
 | seed-readiness | After recovery and the seeding event, blocked publication prevents any listener/probe success; successful import precedes health and readiness | `probes_cannot_succeed_while_seed_publication_is_blocked` | PASS |
 | seed-compose | Read-only fixture mount; up --wait; stop/start, recreate and all-bucket deletion preserve mutations; deliberate new volume reseeds | `container-seed-lifecycle`: `scripts/smoke-containers.sh` seeded section | PASS on Linux ARM64/native and AMD64/emulated |
+| seed-extension | Explicit pinned MIME, literal percent names, unchanged source bytes/mtime/permissions, existing OS metadata object identity and bytes retained after restart | `extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart` | PASS on macOS ARM64 |
 
 ## Supported subset and local rules
 
@@ -68,8 +69,9 @@ condition and checksums. Its two management upload slots and bounded 30-second
 admission waits are independent of the API's 32-call/eight-upload limits.
 Accepted publication and cancellation cleanup retain their permits until
 completion, and catalog close drains them before releasing directory ownership.
-Local file staging remains the existing streaming route; dedicated file
-publication belongs to shared-publication-modes.
+Local files use `Admin::publish_from_file`, with dedicated file workers,
+immutable staging checksums and source-change detection. The
+[seed adapter contract](import-seed-adapter.md) records current verification.
 
 ### Configuration
 
@@ -77,13 +79,16 @@ publication belongs to shared-publication-modes.
 | --- | --- | --- | --- |
 | `seed_dir` | `--seed-dir PATH` | `GCS_MIMIC_SEED_DIR` | Absent: import disabled |
 | `seed_project` | `--seed-project ID` | `GCS_MIMIC_SEED_PROJECT` | `local-project` |
+| `seed_content_type` | `--seed-content-type MODE` | `GCS_MIMIC_SEED_CONTENT_TYPE` | `octet-stream` |
 
 These are flat settings with the existing precedence. An explicitly empty path,
 including an empty `GCS_MIMIC_SEED_DIR`, fails configuration validation.
 Projects use the same nonempty identifier,
 256-byte maximum and whitespace/control-character rejection as bucket insertion.
-There is no project registry or Google project lookup. No `seed_policy` option,
-metadata sidecar format, MIME database or dependency is added.
+There is no project registry or Google project lookup. `seed_content_type` accepts
+only `octet-stream` and `extension`; empty or unknown values fail validation.
+The latter uses the repository's pinned Go/mailcap/YAML MIME table. There is no
+runtime host MIME database lookup, body sniffing, sidecar format or new dependency.
 
 ### Directory mapping
 
@@ -95,15 +100,22 @@ validation to bound names before traversal. Files are processed sequentially in
 sorted depth-first order, independent of directory enumeration order on the
 current platform.
 
-All hidden entries receive the same rules: `.DS_Store`, `._*` and `.gitkeep`
-inside a bucket are ordinary objects, not silently discarded metadata. A hidden
-top-level file fails. Top-level regular files, symlinks (including the root),
+Regular files named `.DS_Store` or starting with `._` are skipped at every depth,
+including the root, and counted in `skipped_os_metadata`. Matching directories,
+such as `._assets/`, are traversed normally; other hidden files such as `.gitkeep`
+remain objects inside a bucket. Other top-level regular files fail.
+Symlinks (including the root and metadata-looking names),
 special files, non-UTF-8 names and invalid bucket/object names fail startup with
-a diagnostic. No unsupported entry is silently skipped.
+a diagnostic. Only the declared regular OS metadata files are skipped.
 
-Every newly imported file has explicit `application/octet-stream` content type,
-including `.txt`. The source's filesystem metadata and suffix do not define
-Google metadata. Bucket defaults are the existing `US` multi-region and
+By default every newly imported file has explicit `application/octet-stream`
+content type, including `.txt`. Explicit `extension` mode uses the last dot in
+the final component, exact-case then pinned Go simple-lowercase lookup, and
+`application/octet-stream` for unknown suffixes. Hidden `.yaml` files therefore
+use `application/x-yaml`; text mappings include `charset=utf-8`.
+The [source contract](source-storage-contract.md#seed-profile-and-mime-decision)
+pins the exact inputs and rules. Filesystem metadata does not define Google
+metadata. Bucket defaults are the existing `US` multi-region and
 `STANDARD` class. Seed timestamps use the injected clock. No IAM/ACL grant follows
 from import. Seeding bypasses API authorization as a local administrative action
 in both profiles; subsequent API access follows the selected profile.
@@ -163,7 +175,7 @@ The stdout ready event adds a `seed` object:
 
 - `{"outcome":"disabled"}` for first startup with no seed setting.
 - `{"outcome":"skipped"}` for an already initialized or migrated catalog.
-- `{"outcome":"imported","buckets":1,"objects":1,"existing_objects":0}`
+- `{"outcome":"imported","buckets":1,"objects":1,"existing_objects":0,"skipped_os_metadata":0}`
   after a successful import; counts describe this startup, not catalog totals.
 
 A failure prints a diagnostic, explicitly closes the catalog, releases its lock
@@ -175,10 +187,13 @@ replaces the original seed diagnostic; successful lock release is then unproven.
 
 ### Resource bounds
 
-Import is sequential. Each file streams through a 64 KiB producer buffer and a
-two-slot channel into the existing bounded publisher. `max_object_bytes` applies
+Import is sequential. A dedicated traversal thread sends entries over a two-slot
+channel using the shared bounded, sorted Walker. File publication clones to
+immutable staging where supported or copies with fixed buffers, hashing the
+staged bytes once on the shared administrative file workers.
+`max_object_bytes` applies
 per newly imported file, with a metadata check before reading and the publisher's
-streamed cap at publication. Existing live objects are preserved regardless of a
+streamed cap at staging. Existing live objects are preserved regardless of a
 later, smaller configured cap. No object body is collected in memory.
 
 Traversal counts all files and directories, including hidden entries and bucket
@@ -220,7 +235,7 @@ without `-v`. The container smoke script uses its own isolated project/volume.
 
 ## Deviations and limitations
 
-All seed configuration, directory rules, fixed MIME choice, initialization policy
+All seed configuration, directory rules, MIME profiles, initialization policy
 and caps are declared local project rules. They make no Google fixture API or
 full fake-gcs-server flag/metadata compatibility claim. No additional upstream
 ambiguity was found that needs a new Google compatibility gap.
@@ -234,12 +249,15 @@ Source mutation races are excluded by the stable read-only input contract.
 
 ## Ledger completion
 
-**UX-002 is IMPLEMENTED** with achieved fidelity `PROJECT`, all 14 acceptance
-cases PASS and the Linux/Compose evidence recorded on 2026-10-22. Its earlier
+**UX-002 is IMPLEMENTED** with achieved fidelity `PROJECT`, the original 14
+acceptance cases PASS and the Linux/Compose evidence recorded on 2026-10-22.
+Its earlier
 native checks and evidence remain attached. **UX-009 is IMPLEMENTED** for its
 declared stop/reset journey. The broader **DESIGN-062** fixture requirement
 remains PARTIAL because manifest metadata is unimplemented; **DESIGN-063** and
 **UX-008** retain their separate durability/platform/permission limitations.
 
-The implementation scope and local input/resource rules above are unchanged.
-No new Google compatibility gap or legacy-format compatibility claim is added.
+The [seed adapter](import-seed-adapter.md) supersedes the hidden-entry rule and
+adds explicit extension MIME. Historical platform evidence remains attached;
+the adapter's current native results are recorded separately. No new Google
+compatibility gap or complete legacy-format compatibility claim is added.

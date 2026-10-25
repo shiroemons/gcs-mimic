@@ -147,34 +147,56 @@ fn seed_configuration_precedence_and_validation() {
     let file = dir.0.join("settings.json");
     fs::write(
         &file,
-        r#"{"seed_dir":"file-seed","seed_project":"file-project"}"#,
+        r#"{"seed_dir":"file-seed","seed_project":"file-project","seed_content_type":"extension"}"#,
     )
     .unwrap();
     let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
     let defaults = common::load_http_config(&[], &BTreeMap::new()).unwrap();
     assert_eq!(defaults.seed_dir, None);
     assert_eq!(defaults.seed_project, "local-project");
+    assert_eq!(
+        defaults.seed_content_type,
+        gcs_mimic::mime::SeedContentType::OctetStream
+    );
     let loaded = common::load_http_config(&args, &BTreeMap::new()).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("file-seed")));
     assert_eq!(loaded.seed_project, "file-project");
+    assert_eq!(
+        loaded.seed_content_type,
+        gcs_mimic::mime::SeedContentType::Extension
+    );
     let env = BTreeMap::from([
         ("GCS_MIMIC_SEED_DIR".into(), "env-seed".into()),
         ("GCS_MIMIC_SEED_PROJECT".into(), "env-project".into()),
+        ("GCS_MIMIC_SEED_CONTENT_TYPE".into(), "octet-stream".into()),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("env-seed")));
     assert_eq!(loaded.seed_project, "env-project");
+    assert_eq!(
+        loaded.seed_content_type,
+        gcs_mimic::mime::SeedContentType::OctetStream
+    );
     args.extend([
         "--seed-dir".into(),
         "cli-seed".into(),
         "--seed-project".into(),
         "cli-project".into(),
+        "--seed-content-type".into(),
+        "extension".into(),
     ]);
     let loaded = common::load_http_config(&args, &env).unwrap();
     assert_eq!(loaded.seed_dir.as_deref(), Some(Path::new("cli-seed")));
     assert_eq!(loaded.seed_project, "cli-project");
+    assert_eq!(
+        loaded.seed_content_type,
+        gcs_mimic::mime::SeedContentType::Extension
+    );
     for (key, invalid) in [
         ("seed_dir", ""),
+        ("seed_content_type", ""),
+        ("seed_content_type", "unknown"),
+        ("seed_content_type", "Extension"),
         ("seed_project", ""),
         ("seed_project", "with space"),
         ("seed_project", "line\nfeed"),
@@ -201,6 +223,11 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         fixture(&seed, "local-bucket/dir/hello.txt", b"hello");
         fixture(&seed, "local-bucket/.gitkeep", b"");
         fixture(&seed, "local-bucket/.DS_Store", b"hidden");
+        fixture(&seed, ".DS_Store", b"root metadata");
+        fixture(&seed, "._bucket", b"root metadata");
+        fixture(&seed, "local-bucket/dir/._hello.txt", b"nested metadata");
+        fixture(&seed, "local-bucket/._assets/kept", b"real input");
+        fixture(&seed, "local-bucket/._assets/.DS_Store", b"deep metadata");
         fixture(&seed, "local-bucket/space % 雪.bin", b"\0\xff");
         let large = vec![42; 131_073];
         fixture(&seed, "local-bucket/large.bin", &large);
@@ -217,7 +244,7 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         let server = Server::start(&mut cmd, strict);
         assert_eq!(
             server.ready["seed"],
-            json!({"outcome":"imported","buckets":2,"objects":5,"existing_objects":0})
+            json!({"outcome":"imported","buckets":2,"objects":5,"existing_objects":0,"skipped_os_metadata":5})
         );
         assert_eq!(server.request("GET", "/_internal/ready", b"").0, 200);
         let buckets = server.json("/storage/v1/b?project=local-project");
@@ -235,6 +262,20 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
                 .is_none_or(|items| items.is_empty())
         );
         let metadata = server.json("/storage/v1/b/local-bucket/o/dir%2Fhello.txt");
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b/local-bucket/o/.DS_Store", b"")
+                .0,
+            404
+        );
+        assert_eq!(
+            server.request(
+                "GET",
+                "/storage/v1/b/local-bucket/o/._assets%2Fkept?alt=media",
+                b""
+            ),
+            (200, b"real input".to_vec())
+        );
         assert_eq!(metadata["size"], "5");
         assert_eq!(metadata["md5Hash"], "XUFAKrxLKna5cZ2REBfFkg==");
         assert_eq!(metadata["crc32c"], "mnG7TA==");
@@ -265,6 +306,125 @@ fn seeded_http_metadata_bytes_and_strict_administrative_import() {
         );
         server.stop();
     }
+}
+
+#[test]
+fn extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart() {
+    let dir = TestDir::new();
+    let seed = dir.0.join("fixtures");
+    let data = dir.0.join("data");
+    let cases = [
+        ("NOTE.TXT", "text/plain; charset=utf-8"),
+        (".yaml", "application/x-yaml"),
+        ("style.css", "text/css; charset=utf-8"),
+        ("data.json", "application/json"),
+        ("archive.tar.gz", "application/gzip"),
+        ("foo.", "application/octet-stream"),
+        ("literal%2F.bin", "application/octet-stream"),
+    ];
+    for (name, _) in cases {
+        fixture(&seed, &format!("local-bucket/{name}"), b"fixture");
+    }
+    let before = fs::metadata(seed.join("local-bucket/NOTE.TXT")).unwrap();
+    let server = Server::start(
+        command(&data, Some(&seed)).args(["--seed-content-type", "extension"]),
+        false,
+    );
+    for (name, expected) in cases {
+        let encoded = name.replace('%', "%25");
+        assert_eq!(
+            server.json(&format!("/storage/v1/b/local-bucket/o/{encoded}"))["contentType"],
+            expected
+        );
+        assert_eq!(
+            fs::read(seed.join("local-bucket").join(name)).unwrap(),
+            b"fixture"
+        );
+    }
+    let after = fs::metadata(seed.join("local-bucket/NOTE.TXT")).unwrap();
+    assert_eq!(before.modified().unwrap(), after.modified().unwrap());
+    assert_eq!(before.permissions(), after.permissions());
+    assert_eq!(
+        server
+            .request(
+                "POST",
+                "/upload/storage/v1/b/local-bucket/o?uploadType=media&name=.DS_Store",
+                b"previously imported"
+            )
+            .0,
+        200
+    );
+    let old = server.json("/storage/v1/b/local-bucket/o/.DS_Store");
+    server.stop();
+    fixture(&seed, "local-bucket/.DS_Store", b"new metadata");
+    let server = Server::start(&mut command(&data, Some(&seed)), false);
+    assert_eq!(server.ready["seed"]["outcome"], "skipped");
+    let retained = server.json("/storage/v1/b/local-bucket/o/.DS_Store");
+    for field in [
+        "generation",
+        "metageneration",
+        "contentType",
+        "size",
+        "md5Hash",
+        "crc32c",
+        "updated",
+    ] {
+        assert_eq!(retained[field], old[field], "{field}");
+    }
+    assert_eq!(
+        server.request(
+            "GET",
+            "/storage/v1/b/local-bucket/o/.DS_Store?alt=media",
+            b""
+        ),
+        (200, b"previously imported".to_vec())
+    );
+    server.stop();
+}
+
+#[test]
+fn seed_mime_setting_does_not_replace_durable_source_content_type() {
+    let dir = TestDir::new();
+    let source = dir.0.join("source");
+    fixture(&source, "local-bucket/hello.txt", b"hello");
+    fixture(
+        &source,
+        "local-bucket/hello.txt.metadata",
+        include_bytes!("fixtures/import/object-attrs.json"),
+    );
+    let output = common::server_command()
+        .env("GCS_MIMIC_SEED_CONTENT_TYPE", "extension")
+        .args(["import", "fake-gcs-server", "--source"])
+        .arg(&source)
+        .arg("--data-dir")
+        .arg(dir.0.join("destination"))
+        .args([
+            "--metadata-mode",
+            "sidecar",
+            "--source-platform",
+            "unix",
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let pages: Vec<Value> = std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let object = pages
+        .iter()
+        .filter_map(|page| page["page"]["records"].as_array())
+        .flatten()
+        .find(|record| record["kind"] == "object")
+        .unwrap();
+    assert_eq!(object["attributes"]["ContentType"], "text/plain");
+    assert!(!dir.0.join("destination").exists());
 }
 
 #[test]
@@ -498,23 +658,25 @@ fn symlinks_and_special_files_fail_closed() {
     let dir = TestDir::new();
     let seed = dir.0.join("fixtures");
     fixture(&seed, "local-bucket/file", b"source");
-    symlink(
-        seed.join("local-bucket/file"),
-        seed.join("local-bucket/link"),
-    )
-    .unwrap();
-    fails(
-        &mut command(&dir.0.join("link-data"), Some(&seed)),
-        "only regular files",
-    );
-    fs::remove_file(seed.join("local-bucket/link")).unwrap();
+    for name in ["link", ".DS_Store", "._file"] {
+        symlink(
+            seed.join("local-bucket/file"),
+            seed.join("local-bucket").join(name),
+        )
+        .unwrap();
+        fails(
+            &mut command(&dir.0.join("link-data"), Some(&seed)),
+            "only regular files",
+        );
+        fs::remove_file(seed.join("local-bucket").join(name)).unwrap();
+    }
     let root_link = dir.0.join("root-link");
     symlink(&seed, &root_link).unwrap();
     fails(
         &mut command(&dir.0.join("root-link-data"), Some(&root_link)),
         "not a symlink",
     );
-    let socket = seed.join("local-bucket/socket");
+    let socket = seed.join("local-bucket/._socket");
     let _listener = UnixListener::bind(&socket).unwrap();
     fails(
         &mut command(&dir.0.join("socket-data"), Some(&seed)),
@@ -580,7 +742,7 @@ fn explicit_project_and_empty_seed_directory_are_supported() {
     let server = Server::start(&mut command(&dir.0.join("empty-data"), Some(&empty)), false);
     assert_eq!(
         server.ready["seed"],
-        json!({"outcome":"imported", "buckets":0, "objects":0, "existing_objects":0})
+        json!({"outcome":"imported", "buckets":0, "objects":0, "existing_objects":0,"skipped_os_metadata":0})
     );
     server.stop();
 }
@@ -795,7 +957,8 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                 .flatten()
                 .any(|entry| {
                     let size = entry.unwrap().metadata().unwrap().len();
-                    size > 0 && size < SIZE
+                    // File publication may clone the complete source before hashing it.
+                    size > 0 && size <= SIZE
                 });
             if transferring {
                 break;

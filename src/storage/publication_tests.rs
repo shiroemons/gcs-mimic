@@ -365,35 +365,54 @@ async fn publication_admits_only_one_active_and_one_waiting_batch() {
 
 #[tokio::test]
 async fn publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks() {
-    let (dir, catalog, admin, _, _) = setup().await;
-    let input = entry(&admin, &dir.0, "object", b"cancelled").await;
-    let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
-    let worker = admin.clone();
-    let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while blob_count(&dir.0) == 0 {
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-    })
-    .await
-    .unwrap();
-    publishing.abort();
-    assert!(matches!(publishing.await, Err(error) if error.is_cancelled()));
-    let worker = catalog.clone();
-    let close = tokio::spawn(async move { worker.close().await });
-    tokio::task::yield_now().await;
-    assert!(!close.is_finished());
-    assert!(Catalog::open(&dir.0).await.is_err());
-    drop(execution);
-    tokio::time::timeout(Duration::from_secs(3), close)
+    for cancel_request in [false, true] {
+        let (dir, catalog, admin, bucket, name) = setup().await;
+        let input = entry(&admin, &dir.0, "object", b"cancelled").await;
+        let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
+        let worker = admin.clone();
+        let publishing = tokio::spawn(async move { worker.publish_objects(vec![input]).await });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while blob_count(&dir.0) == 0 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
         .await
-        .unwrap()
-        .unwrap()
         .unwrap();
-    assert_eq!(blob_count(&dir.0), 0);
-    assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
-    let reopened = Catalog::open(&dir.0).await.unwrap();
-    reopened.close().await.unwrap();
+        if cancel_request {
+            publishing.abort();
+        }
+        let worker = catalog.clone();
+        let close = tokio::spawn(async move { worker.close().await });
+        tokio::task::yield_now().await;
+        assert!(!close.is_finished());
+        assert!(Catalog::open(&dir.0).await.is_err());
+        drop(execution);
+        let result = publishing.await;
+        if cancel_request {
+            assert!(matches!(result, Err(error) if error.is_cancelled()));
+        } else {
+            assert!(result.unwrap().unwrap().results[0].is_ok());
+        }
+        tokio::time::timeout(Duration::from_secs(3), close)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(blob_count(&dir.0), 1);
+        assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
+        let reopened = Catalog::open(&dir.0).await.unwrap();
+        let (_, mut reader) = reopened
+            .admin(Origin::Seed)
+            .open_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            reader.next_chunk().await.unwrap().unwrap(),
+            b"cancelled"[..]
+        );
+        assert!(reader.next_chunk().await.unwrap().is_none());
+        reopened.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

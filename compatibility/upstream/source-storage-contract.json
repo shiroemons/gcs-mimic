@@ -37,12 +37,25 @@
     "owner": "docs/en/slices/catalog-timestamp-precision.md"
   },
   "mime_profile": {
-    "note": "Deterministic selected profile, not a reconstruction of every published reference image. Materialize the merged table with notices in import-seed-adapter; do not read host MIME databases at runtime.",
+    "note": "Deterministic selected profile, not a reconstruction of every published reference image. The merged table is embedded; no host MIME databases are read at runtime.",
+    "generated_table": {
+      "path": "src/mime.tsv",
+      "sha256": "5ea7e4eaee7f4592359c65c5eccb260faa2f6dda17ea1b320961492e8dd73d3f",
+      "entries": 1406,
+      "notice": "src/mime.NOTICE",
+      "format": "UTF-8 tab-separated extension and Go-formatted media type, sorted by extension bytes; includes lowercase aliases after exact-case assignments."
+    },
     "go": {
       "version": "go1.27.3",
       "commit": "2aae1000ea1d4b28923b96db28acf4e3b99d6aff",
       "repository": "https://github.com/golang/go",
       "license": "BSD-3-Clause",
+      "unicode": {
+        "version": "17.0.0",
+        "path": "src/unicode/tables.go",
+        "sha256": "ac0e5d5d1b58ed4b02d7cb4a0085bdefbdb4f7aae6fadddbc9477f8463da8bd8",
+        "lookup_scope": "Table keys are ASCII except U+00B3; non-ASCII simple lowercase can reach these keys only through U+0130 to i or U+212A to k."
+      },
       "sources": [
         {
           "path": "src/mime/type.go",

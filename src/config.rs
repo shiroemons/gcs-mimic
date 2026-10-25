@@ -77,6 +77,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
+    pub seed_content_type: crate::mime::SeedContentType,
     pub default_location: String,
     pub buckets_file: Option<PathBuf>,
     pub api_base_url: Option<String>,
@@ -109,6 +110,7 @@ impl Default for Config {
             data_dir: PathBuf::from("data"),
             seed_dir: None,
             seed_project: "local-project".into(),
+            seed_content_type: crate::mime::SeedContentType::OctetStream,
             default_location: "US".into(),
             buckets_file: None,
             api_base_url: None,
@@ -403,6 +405,7 @@ impl Config {
                             .map_err(|error| format!("seed_project: {}", error.message))?;
                         config.seed_project = value;
                     }
+                    "seed_content_type" => config.seed_content_type = value.parse()?,
                     "default_location" => {
                         if !matches!(value.as_str(), "US" | "EU" | "ASIA") {
                             return Err("default_location must be US, EU or ASIA".into());

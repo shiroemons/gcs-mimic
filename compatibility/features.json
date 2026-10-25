@@ -1077,7 +1077,7 @@
             "Use shared bounded traversal and local-file publication with read-only source and one-time initialization; skip and count only regular OS metadata files at every depth, traverse matching directories, retain other native validation and exclude only the code-generated source seed ACL. Pass seed-content-type-config and shutdown safety; record the generated MIME table digest in the upstream manifest.",
             "Update docs/en/slices/seed.md, the affected seed test, UX-002 evidence and release notes together; retain existing imported OS metadata and all other native seed acceptance cases. Source reload/reseed remains a separate legacy slice."
           ],
-          "deferred_scope": "Contract and source pins do not implement the MIME option/table, OS-metadata skipping or local-file adapter. This does not import durable xattr/sidecar state, archived memory generations or implement legacy reseed."
+          "deferred_scope": "The seed adapter implements the explicit MIME profile, regular-file OS-metadata skipping and local-file publication; current verification is in docs/en/slices/import-seed-adapter.md. Durable xattr/sidecar publication, archived memory generations and legacy reseed remain separate."
         },
         {
           "id": "filesystem-state-import",
@@ -39283,21 +39283,21 @@
         },
         {
           "id": "source-seed-profile",
-          "description": "Implement the pinned source seed profile, Go filepath.Ext and Unicode simple-lowercase extension MIME, empty buckets and counted regular-file OS-metadata skipping at every depth; traverse matching directories including ._assets children and retain native octet-stream default; contract: docs/en/slices/source-storage-contract.md.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Pinned extension MIME uses Go suffix/simple-lowercase rules, empty buckets and counted regular-file OS-metadata skipping at every depth; matching directories including ._assets children remain input and native octet-stream stays the default; contracts: docs/en/slices/source-storage-contract.md and docs/en/slices/import-seed-adapter.md.",
+          "result": "PASS",
+          "test_ids": ["pinned_go_suffix_case_and_media_types", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart"]
         },
         {
           "id": "source-seed-safety",
           "description": "Retain native validation, read-only input and one-time initialization; reject unsupported inputs instead of silently skipping them, exclude only the generated seed ACL without granting permissions, and verify shutdown drains side effects, removes temporary files and releases locks.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": ["seeded_http_metadata_bytes_and_strict_administrative_import", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
         },
         {
           "id": "seed-content-type-config",
           "description": "Reject empty/unknown seed_content_type values, verify CLI over environment over config over octet-stream default, both MIME profiles and durable-import isolation; owner import-seed-adapter.",
-          "result": "PENDING",
-          "test_ids": []
+          "result": "PASS",
+          "test_ids": ["seed_configuration_precedence_and_validation", "seed_mime_setting_does_not_replace_durable_source_content_type"]
         },
         {
           "id": "fixture-manifest-metadata",
@@ -39354,6 +39354,12 @@
         "shutdown_during_initializer_validation_never_publishes_or_runs_seed",
         "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
         "container-bucket-initialization",
+        "pinned_go_suffix_case_and_media_types",
+        "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+        "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
+        "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart",
+        "seed_mime_setting_does_not_replace_durable_source_content_type",
+        "seed_configuration_precedence_and_validation",
         "seeded_http_metadata_bytes_and_strict_administrative_import",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "probes_cannot_succeed_while_seed_publication_is_blocked",
@@ -39400,6 +39406,13 @@
           "test_ids": [
             "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
           ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed; cargo test --locked --offline --lib mime::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-seed-adapter.md",
+          "test_ids": ["pinned_go_suffix_case_and_media_types", "seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart", "seed_mime_setting_does_not_replace_durable_source_content_type", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
         },
         {
           "command": "cargo test --offline --test bucket_initialization; cargo test --offline --lib bucket_initializer_selectors; cargo test --offline --bin gcs-mimic startup::tests",
@@ -41358,7 +41371,7 @@
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. All invalid-parent child findings and record suppression are tested. import-filesystem owns consolidation into a pending-state record with decoded names/failure material when integrating validated buckets with publication; avoiding that larger representation now preserves the tested diagnostic order. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection is verified on macOS/Linux ARM64. Native Windows runtime and file-ID/ctime observation are unverified; optional non-Unix identity fields remain absent. Dry-run cannot publish, resume, recover original normalized-away names or inspect memory history, and metadata-only reports never certify body bytes. Publication/journal benchmarks remain PENDING; no time/CPU/RSS result is claimed. shared-blob-id is requested to consolidate existing storage/JSON/authentication hex encoders with hashing::encode_lower while migrating hash loops.",
-        "The Shared state storage owner is requested to adopt source_tree::is_os_metadata for regular catalog entries. import-seed-adapter is requested to adopt Walker during its dedicated-worker/local-publication migration, retaining native limits and the separately owned ignore-policy change. This slice changes neither storage recovery nor native seed ignore semantics; seed now compares already-canonicalized paths without synchronous filesystem calls on Tokio workers.",
+        "The Shared state storage owner is requested to adopt source_tree::is_os_metadata for regular catalog entries. Seed now uses source_tree::Walker on a dedicated bounded traversal thread, preserves native entry/depth limits and counts skipped regular OS metadata files. Local files use Admin::publish_from_file without changing storage recovery or import readers; current verification is in docs/en/slices/import-seed-adapter.md.",
         "Directory synchronization has a tested lexical name/path mapper only. Actual-root case/Unicode aliases, filesystem length limits, collisions and no-follow identity validation remain pending, as do API write-back, activation, markers, restart recovery, state/control/conflict/approval and observation. Public storage prerequisites and acceptance handoffs are requested in docs/en/slices/directory-synchronization.md; no runtime synchronization or measured performance is claimed.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
@@ -43726,7 +43739,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-22",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Read-only bucket-directory fixtures import sequentially into a fresh catalog after recovery and before listener readiness. A transactional v5 marker prevents replay after restart or user deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Fixed octet-stream MIME, 10000 entries, 32 nested directories and max_object_bytes apply; no metadata sidecars or source mutation. Scope: docs/en/slices/seed.md; Linux invalid-byte rejection and ARM64/native plus AMD64/emulated seeded Compose lifecycle are verified in docs/en/evidence/seed-platform.md. Stable read-only source input remains required; no source-mutation protection or directory-wide atomic import is claimed.",
+      "notes": "Read-only bucket-directory fixtures import sequentially before listener readiness. The durable seed marker prevents replay after restart or deletion; interrupted imports resume create-if-absent. First startup without fixtures and migrated catalogs are already initialized. Octet-stream remains the default; explicit seed_content_type=extension uses the pinned Go/mailcap/YAML table. Regular .DS_Store/._* files are skipped/countable at every depth, matching directories are traversed, and existing catalog objects remain. Shared bounded traversal and publish_from_file retain 10000 entries, 32 directory levels and max_object_bytes; no sidecar or source mutation. Current adapter evidence: docs/en/slices/import-seed-adapter.md. Historical Linux/Compose evidence: docs/en/evidence/seed-platform.md. Stable administrative input remains required; no directory-wide atomic import or complete source compatibility is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
@@ -43741,7 +43754,7 @@
         },
         {
           "id": "seed-layout",
-          "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and fixed MIME.",
+          "description": "Empty buckets, nested Unicode/binary/hidden files, metadata, exact bytes, hashes and default octet-stream MIME; skip/count regular OS metadata at every depth while traversing matching directories.",
           "result": "PASS",
           "test_ids": [
             "seeded_http_metadata_bytes_and_strict_administrative_import"
@@ -43754,6 +43767,12 @@
           "test_ids": [
             "seeded_http_metadata_bytes_and_strict_administrative_import"
           ]
+        },
+        {
+          "id": "seed-adapter",
+          "description": "Explicit pinned extension MIME and settings precedence leave durable-source ContentType unchanged; retain previously imported OS metadata identity/bytes and drain staged file publication through shutdown without leaks.",
+          "result": "PASS",
+          "test_ids": ["pinned_go_suffix_case_and_media_types", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart", "seed_mime_setting_does_not_replace_durable_source_content_type", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
         },
         {
           "id": "seed-project",
@@ -43848,6 +43867,11 @@
       ],
       "test_ids": [
         "seed_configuration_precedence_and_validation",
+        "pinned_go_suffix_case_and_media_types",
+        "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart",
+        "seed_mime_setting_does_not_replace_durable_source_content_type",
+        "sigterm_during_seed_drains_writes_releases_lock_and_retries",
+        "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files",
         "seeded_http_metadata_bytes_and_strict_administrative_import",
         "explicit_project_and_empty_seed_directory_are_supported",
         "restart_preserves_mutations_and_deleted_buckets_and_new_data_reseeds",
@@ -43864,6 +43888,13 @@
         "container-seed-lifecycle"
       ],
       "verification": [
+        {
+          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --test seed; cargo test --locked --offline --lib mime::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-seed-adapter.md",
+          "test_ids": ["pinned_go_suffix_case_and_media_types", "seed_configuration_precedence_and_validation", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart", "seed_mime_setting_does_not_replace_durable_source_content_type", "sigterm_during_seed_drains_writes_releases_lock_and_retries", "sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files"]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -43989,7 +44020,7 @@
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": "8ad9e4ecdf8a034442a1291b9272df0d7d005cc4",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "UX-003",

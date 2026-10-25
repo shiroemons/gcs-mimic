@@ -4,7 +4,8 @@ use crate::{
     clock::Clock,
     config::Config,
     json::validate_object_name,
-    object::{ExpectedHashes, UploadChunk},
+    object::ExpectedHashes,
+    source_tree::{WalkError, Walker, is_os_metadata},
     storage::{
         Catalog,
         admin::{
@@ -13,16 +14,16 @@ use crate::{
         },
     },
 };
-use bytes::Bytes;
 use serde::Serialize;
 use std::{
     io,
     path::{Path, PathBuf},
 };
-use tokio::{io::AsyncReadExt, sync::mpsc};
+use tokio::sync::mpsc;
 
 const MAX_ENTRIES: usize = 10_000;
 const MAX_DEPTH: usize = 32;
+type Entry = io::Result<(PathBuf, std::fs::Metadata, usize)>;
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "outcome", rename_all = "lowercase")]
@@ -33,6 +34,7 @@ pub enum SeedOutcome {
         buckets: usize,
         objects: usize,
         existing_objects: usize,
+        skipped_os_metadata: usize,
     },
 }
 
@@ -58,18 +60,36 @@ pub async fn import(
     result.map_err(|error| io::Error::other(format!("seed import: {error}")))
 }
 
-async fn entries(path: &Path, count: &mut usize) -> io::Result<Vec<PathBuf>> {
-    let mut reader = tokio::fs::read_dir(path).await?;
-    let mut paths = Vec::new();
-    while let Some(entry) = reader.next_entry().await? {
-        *count += 1;
-        if *count > MAX_ENTRIES {
-            return Err(io::Error::other("fixture exceeds 10000 entries"));
+fn walk_error(error: WalkError) -> io::Error {
+    match error {
+        WalkError::Io(error) => error,
+        WalkError::EntryLimit => io::Error::other("fixture exceeds 10000 entries"),
+        WalkError::DepthLimit => {
+            io::Error::other("fixture exceeds 32 directory levels below a bucket")
         }
-        paths.push(entry.path());
+        WalkError::NotDirectory => io::Error::other("seed_dir must be a directory, not a symlink"),
     }
-    paths.sort();
-    Ok(paths)
+}
+
+fn entries(root: PathBuf) -> io::Result<mpsc::Receiver<Entry>> {
+    let (send, receive) = mpsc::channel(2);
+    std::thread::Builder::new()
+        .name("seed-walk".into())
+        .spawn(move || {
+            let walk = match Walker::new(&root, MAX_ENTRIES, MAX_DEPTH) {
+                Ok(walk) => walk,
+                Err(error) => {
+                    let _ = send.blocking_send(Err(walk_error(error)));
+                    return;
+                }
+            };
+            for entry in walk {
+                if send.blocking_send(entry.map_err(walk_error)).is_err() {
+                    break;
+                }
+            }
+        })?;
+    Ok(receive)
 }
 
 async fn import_directory(
@@ -92,35 +112,42 @@ async fn import_directory(
     if crate::source_tree::paths_overlap_canonical(&root, &data) {
         return Err(io::Error::other("seed_dir and data_dir must not overlap"));
     }
-    let mut count = 0;
-    let mut pending: Vec<_> = entries(&root, &mut count)
-        .await?
-        .into_iter()
-        .rev()
-        .map(|path| (path, None::<String>, String::new(), 0))
-        .collect();
-    let (mut buckets, mut objects, mut existing_objects) = (0, 0, 0);
-    while let Some((path, bucket, prefix, depth)) = pending.pop() {
+    let mut entries = entries(root.clone())?;
+    let (mut buckets, mut objects, mut existing_objects, mut skipped_os_metadata) = (0, 0, 0, 0);
+    while let Some(entry) = entries.recv().await {
+        let (path, metadata, depth) = entry?;
         let label = path.strip_prefix(&root).expect("fixture path").display();
         let result = async {
             let leaf = path
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))?;
-            let kind = tokio::fs::symlink_metadata(&path).await?.file_type();
+            let kind = metadata.file_type();
             if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
                 return Err(io::Error::other(
                     "only regular files and directories are supported",
                 ));
             }
-            let (bucket, name) = if let Some(bucket) = bucket {
-                let name = if prefix.is_empty() {
-                    leaf.to_owned()
-                } else {
-                    format!("{prefix}/{leaf}")
-                };
+            if kind.is_file() && is_os_metadata(leaf) {
+                skipped_os_metadata += 1;
+                return Ok(());
+            }
+            let relative = path.strip_prefix(&root).map_err(io::Error::other)?;
+            let mut components = relative.iter();
+            let bucket = components
+                .next()
+                .and_then(|part| part.to_str())
+                .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))?;
+            let (bucket, name) = if depth > 0 {
+                let name = components
+                    .map(|part| {
+                        part.to_str()
+                            .ok_or_else(|| io::Error::other("fixture names must be UTF-8"))
+                    })
+                    .collect::<io::Result<Vec<_>>>()?
+                    .join("/");
                 validate_object_name(&name).map_err(|error| io::Error::other(error.message))?;
-                (bucket, name)
+                (bucket.to_owned(), name)
             } else {
                 if !kind.is_dir() {
                     return Err(io::Error::other(
@@ -143,16 +170,7 @@ async fn import_directory(
                 }
                 (leaf.to_owned(), String::new())
             };
-            if kind.is_dir() {
-                if depth > MAX_DEPTH {
-                    return Err(io::Error::other(
-                        "fixture exceeds 32 directory levels below a bucket",
-                    ));
-                }
-                for child in entries(&path, &mut count).await?.into_iter().rev() {
-                    pending.push((child, Some(bucket.clone()), name.clone(), depth + 1));
-                }
-            } else {
+            if kind.is_file() {
                 let bucket = BucketName::new(bucket).map_err(io::Error::other)?;
                 let name = ObjectName::new(name).map_err(io::Error::other)?;
                 match catalog
@@ -166,44 +184,29 @@ async fn import_directory(
                     }
                     Err(error) => return Err(io::Error::other(error)),
                 }
-                let mut file = tokio::fs::File::open(&path).await?;
+                let file = tokio::fs::File::open(&path).await?;
                 let metadata = file.metadata().await?;
                 if !metadata.is_file() || metadata.len() > config.max_object_bytes {
                     return Err(io::Error::other(
                         "seed file is not regular or exceeds max_object_bytes",
                     ));
                 }
-                let (send, body) = mpsc::channel(2);
-                let produce = async move {
-                    let mut buffer = vec![0; 64 * 1024];
-                    loop {
-                        let read = file.read(&mut buffer).await?;
-                        let chunk = if read == 0 {
-                            UploadChunk::End
-                        } else {
-                            UploadChunk::Data(Bytes::copy_from_slice(&buffer[..read]))
-                        };
-                        if send.send(Ok(chunk)).await.is_err() || read == 0 {
-                            return Ok::<_, io::Error>(());
-                        }
-                    }
-                };
-                let publish = catalog.publish_object(
-                    &bucket,
-                    &name,
-                    Publication {
-                        content_type: "application/octet-stream".into(),
-                        expected: ExpectedHashes::default(),
-                        condition: Some(GenerationCondition::Absent),
-                        metadata: Default::default(),
-                        max_bytes: config.max_object_bytes,
-                        mode: PublishMode::Replace,
-                    },
-                    body,
-                );
-                let (produced, published) = tokio::join!(produce, publish);
-                produced?;
-                published.map_err(io::Error::other)?;
+                catalog
+                    .publish_from_file(
+                        &bucket,
+                        &name,
+                        Publication {
+                            content_type: config.seed_content_type.for_name(leaf).into(),
+                            expected: ExpectedHashes::default(),
+                            condition: Some(GenerationCondition::Absent),
+                            metadata: Default::default(),
+                            max_bytes: config.max_object_bytes,
+                            mode: PublishMode::Replace,
+                        },
+                        file.into_std().await,
+                    )
+                    .await
+                    .map_err(io::Error::other)?;
                 objects += 1;
             }
             Ok::<_, io::Error>(())
@@ -216,5 +219,6 @@ async fn import_directory(
         buckets,
         objects,
         existing_objects,
+        skipped_os_metadata,
     })
 }

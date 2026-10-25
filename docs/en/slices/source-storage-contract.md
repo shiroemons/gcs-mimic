@@ -6,7 +6,8 @@ Contract checked: **2026-10-24**. Scope: DESIGN-062, DESIGN-072, DESIGN-073 and
 AUDIT-014; delivery gate `source-storage-contract` and migration milestones
 `seed-format-adapter` and `filesystem-state-import`. The local read-only
 dry-run is available; destination publication, conversion recovery and memory
-export remain pending. No Google import API or server setting is added.
+export remain pending. No Google import API is added; the
+[seed adapter](import-seed-adapter.md) implements the explicit seed MIME setting.
 Implementation status remains in `compatibility/features.json`.
 
 ## Acceptance cases
@@ -106,10 +107,11 @@ profile; block host-ambiguous mappings rather than guessing the source platform.
 
 ### Seed profile and MIME decision
 
-The future setting is **`seed_content_type`**, with values **`octet-stream`**
+The seed setting is **`seed_content_type`**, with values **`octet-stream`**
 (default) and **`extension`**. Its matching CLI/environment names are
 `--seed-content-type` and `GCS_MIMIC_SEED_CONTENT_TYPE`. Empty/unknown values are
-configuration errors. This slice does not make those settings available.
+configuration errors. The [seed adapter](import-seed-adapter.md) implements
+these settings.
 Use the existing CLI > environment > config file > default precedence.
 The setting only controls seed input. Durable imports preserve `ContentType`
 and must not infer a replacement from the filename.
@@ -136,14 +138,15 @@ has SHA-256
 `d48e5f43c52905e344d6fc31c3fba4d1d3abd55594d94af2347e63fd13a9b528`;
 its extracted `etc/mime.types` has SHA-256
 `6d89583307fd2941a32039b9d8f392195c6e9a2fc89c681e693a06a714b3a23d`.
-The manifest also pins Go's loader and the YAML additions. The adapter owner
-must retain the generated table with provenance and applicable Go BSD notices;
+The manifest also pins Go's loader, Unicode tables and the YAML additions.
+The generated `src/mime.tsv` and `src/mime.NOTICE` retain provenance and Go BSD
+notices;
 Alpine's package declares the MIME data Public Domain. No MIME crate is needed.
 The APK CDN may retire old revisions. The manifest also pins the aports APKBUILD
 and its upstream tarball/SHA-512, with an Alpine distfiles mirror. Verify the
 tarball's MIME member against the same SHA-256 as the APK member; do not replace
-the selected data with a newer package. `import-seed-adapter` must add the final
-generated table's path and SHA-256 to this manifest when it materializes it.
+the selected data with a newer package. The manifest records the generated
+table's path and SHA-256.
 
 Extract extensions exactly as Go `filepath.Ext`: the suffix starting at the
 last dot in the final path component, including a leading dot or a lone final
@@ -177,7 +180,7 @@ fixed `projectOwner-test-project: OWNER` ACL is generated code, not information
 present in a seed file. Excluding it does not waive the block on **stored** ACLs
 in durable or memory data and never grants anonymous or project access.
 
-The adapter will skip only **regular files** named `.DS_Store` or `._*` at every
+The adapter skips only **regular files** named `.DS_Store` or `._*` at every
 depth using the common OS metadata predicate plus an entry-type check, and
 report `skipped_os_metadata` in the ready seed outcome. Directories such as
 `._assets/` remain ordinary input, including their children; symlinks and
@@ -188,7 +191,7 @@ unreadable buckets and invalid entries still fail native startup; legacy silent
 skipping is outside this slice. Existing catalogs keep already-imported OS metadata
 objects because seed is one-time. The seed-adapter owner must update
 `slices/seed.md`, its affected test/evidence, UX-002 and release notes together;
-none of that behavior changes in this documentation slice. Explicit reseed is
+the adapter records that verification separately. Explicit reseed is
 DESIGN-068, outside this contract.
 
 ### Durable metadata selection and xattr decision

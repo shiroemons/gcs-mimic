@@ -18,6 +18,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "data_dir",
     "seed_dir",
     "seed_project",
+    "seed_content_type",
     "default_location",
     "buckets_file",
     "api_base_url",

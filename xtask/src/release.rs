@@ -313,6 +313,12 @@ fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -
         copy(&root.join(name), &output.join(name))?;
     }
     let third_party = output.join("third-party-licenses");
+    fs::create_dir_all(third_party.join("mime")).map_err(|e| e.to_string())?;
+    fs::write(
+        third_party.join("mime/NOTICE"),
+        include_str!("../../src/mime.NOTICE"),
+    )
+    .map_err(|e| e.to_string())?;
     for name in &rust_files {
         copy(
             &rust_notices.join(name),
@@ -387,6 +393,7 @@ fn write_notices(root: &Path, target: &str, packages: &[Value], output: &Path) -
         &json!({
             "scope": "Superset of the complete locked workspace dependency graph, including build, test, host and other-target dependencies; not a claim that every listed crate is linked into this binary.",
             "rust_notices": "rust/COPYRIGHT-library.html and rust/COPYRIGHT.html are upstream toolchain attribution supersets; rust/licenses contains the associated license texts.",
+            "mime_notices": "mime/NOTICE retains the pinned Go BSD-3-Clause and mailcap Public Domain attribution for the embedded seed MIME profile.",
             "native_notices": native_names.iter().map(|name| format!("native/{name}")).collect::<Vec<_>>(),
             "gcc_notices": if target.contains("linux") { Some("GCC-COPYRIGHT preserves the build runner GCC package's complete runtime/startup-code copyright and license terms.") } else { None },
             "musl_notices": if target.ends_with("-musl") { Some(json!({
@@ -527,6 +534,11 @@ mod tests {
                 .is_file()
         );
         let index = fs::read_to_string(output.join("third-party-licenses/INDEX.json")).unwrap();
+        assert_eq!(
+            fs::read_to_string(output.join("third-party-licenses/mime/NOTICE")).unwrap(),
+            include_str!("../../src/mime.NOTICE")
+        );
+        assert!(index.contains("mime/NOTICE"));
         assert!(!index.contains(directory.0.to_str().unwrap()));
         assert!(!output.join("BUILD-INFO.json").exists());
         assert!(!directory.0.join(".git").exists());

@@ -479,9 +479,13 @@ async fn run_batch(
                 .await?;
             entry.staged.published = true;
         }
-        catalog
-            .wait_admin(catalog.0.execution.clone(), deadline)
+        // Accepted batches retain ownership through shutdown; only new admission is closed.
+        tokio::time::timeout_at(deadline, catalog.0.execution.clone().acquire_owned())
             .await
+            .map_err(|_| AdminError::Busy {
+                retry_after: Duration::from_secs(1),
+            })?
+            .map_err(|_| AdminError::Closed)
     }
     .await;
     let execution = match prepared {

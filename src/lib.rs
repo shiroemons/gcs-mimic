@@ -13,6 +13,7 @@ pub mod hashing;
 mod http_conditions;
 pub mod import;
 pub mod json;
+pub mod mime;
 pub mod object;
 pub mod seed;
 pub mod server;
