@@ -188,6 +188,15 @@ pub fn request(address: &str, method: &str, path: &str, headers: &str, body: &[u
         }
     } else {
         reader.read_to_end(&mut body).unwrap();
+        if let Some(length) = headers.get("content-length")
+            && method != "HEAD"
+        {
+            assert_eq!(
+                body.len().to_string(),
+                *length,
+                "server closed {method} {path} before the declared body ended"
+            );
+        }
     }
     Reply {
         status,
