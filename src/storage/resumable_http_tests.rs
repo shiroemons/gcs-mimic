@@ -1,4 +1,4 @@
-use super::catalog::test_support::replace_resumable_cleanup_obstacle;
+use super::catalog::replace_resumable_cleanup_obstacle;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};

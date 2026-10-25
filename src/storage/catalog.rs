@@ -23,6 +23,19 @@ mod timestamp_tests;
 #[path = "test_support.rs"]
 pub(super) mod test_support;
 
+#[cfg(test)]
+pub(super) async fn replace_resumable_cleanup_obstacle(catalog: &Catalog, stage: PathBuf) {
+    catalog
+        .run(move |_| {
+            // Maintenance must not clear the deletion journal while this path is temporarily absent.
+            std::fs::remove_dir(&stage).unwrap();
+            std::fs::write(stage, b"uncommitted tail").unwrap();
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
 #[path = "resumable.rs"]
 pub(crate) mod resumable;
 #[path = "resumable_transfer.rs"]
