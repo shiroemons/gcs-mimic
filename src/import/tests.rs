@@ -39,6 +39,53 @@ fn xattr_finding(pages: &[serde_json::Value], key: &str, reason: &str) {
     );
 }
 const ATTRS: &[u8] = include_bytes!("../../tests/fixtures/import/object-attrs.json");
+
+#[test]
+fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
+    struct StopAfterObject(usize);
+    impl std::io::Write for StopAfterObject {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.contains(&b'\n') {
+                self.0 += 1;
+                if self.0 == 2 {
+                    return Err(std::io::ErrorKind::BrokenPipe.into());
+                }
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let (_dir, mut options) = xattr_setup();
+    options.metadata_mode = MetadataMode::Xattr;
+    let path = options.source.join("bucket-one/body");
+    fs::write(&path, b"hello").unwrap();
+    let file = fs::File::open(&path).unwrap();
+    if !crate::fsutil::test_support::set_metadata(&file, ATTRS).unwrap() {
+        eprintln!(
+            "xattr import execution unavailable: source filesystem does not support user.metadata"
+        );
+        return;
+    }
+    assert!(execute(options.clone(), StopAfterObject(0), Vec::new()).is_err());
+    assert!(crate::fsutil::test_support::set_metadata(&file, ATTRS).unwrap());
+    let before = Fingerprint::of(&file.metadata().unwrap()).unwrap();
+    let mut diagnostics = Vec::new();
+    let summary = execute(options, Vec::new(), &mut diagnostics).unwrap();
+    assert!(summary.bodies_verified);
+    assert!(
+        String::from_utf8(diagnostics)
+            .unwrap()
+            .contains("stat_identity_drift")
+    );
+    assert_eq!(before, Fingerprint::of(&file.metadata().unwrap()).unwrap());
+    assert_eq!(
+        crate::fsutil::read_source_metadata(&file, &mut SourceMetadataBuffer::default()).unwrap(),
+        Some(ATTRS)
+    );
+}
+
 #[test]
 fn xattr_snapshot_verifies_bodies_without_mutating_source_attributes() {
     use crate::fsutil::{SourceMetadataBuffer, read_source_metadata};

@@ -54,16 +54,14 @@ Dockerfile and its copy rules are unchanged.
 | `cargo test --locked --offline --lib mime::tests` | PASS; one fixed-profile test |
 | `cargo test -p xtask --locked --offline release::tests::notice_only_output_needs_neither_git_nor_an_executable` | PASS; archive/container notice aggregation |
 | `RUST_TEST_THREADS=4 cargo test --locked --offline --test seed` | PASS; all 15 native tests, no skips or failures |
-| `RUST_TEST_THREADS=4 just check` | PASS; fmt, clippy, workspace/doc tests, compatibility and shell checks before the final three-row text MIME correction |
+| `RUST_TEST_THREADS=4 just check` | PASS on integrated main `b181e2a`; fmt, clippy, workspace/doc tests, compatibility and shell checks |
 | `just check-sdk` | PASS on final schema-17 source; pinned Go vet/tests and Ruby self-check, permissive/strict HTTP and V4 GET/PUT |
 | `bash scripts/smoke-containers.sh linux/arm64` | PASS on final source; native image, default seed read-only mount, ready, stop/start/recreate, retained mutations/deletions and fresh-volume reseed |
 
-The final text MIME correction additionally passes `mime::tests`, including
-SGML/DMClientScript normalization and unchanged non-text casing. After rebasing,
-all 15 seed tests pass with the schema-17 assertion retained, and ledger render/check
-and formatting pass. Pinned Ruby 4.0.9, Bundler 4.0.23 and the frozen lockfile are
-used with an isolated bundle path; no dependency files change. The coordinator
-owns the full workspace check after main integration; it is not repeated here.
+The final source passes `mime::tests`, including SGML/DMClientScript normalization
+and unchanged non-text casing, all 15 seed tests with schema-17 assertions, and
+ledger render/check and formatting. Pinned Ruby 4.0.9, Bundler 4.0.23 and the
+frozen lockfile are used with an isolated bundle path; no dependency files change.
 
 The Shared state owner's [shutdown correction](shared-publication-shutdown.md)
 is included. The existing seed signal test retains its one-committed-generation

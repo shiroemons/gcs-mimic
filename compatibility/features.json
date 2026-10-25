@@ -39288,6 +39288,12 @@
           "test_ids": ["pinned_go_suffix_case_and_media_types", "seeded_http_metadata_bytes_and_strict_administrative_import", "extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart"]
         },
         {
+          "id": "filesystem-import-seed-guard",
+          "description": "Filesystem import retains empty buckets and source bytes, refuses serve while incomplete, and atomically completes import/seed so later seed_dir cannot replay imported data. Scope: docs/en/slices/import-filesystem.md.",
+          "result": "PASS",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate"]
+        },
+        {
           "id": "source-seed-safety",
           "description": "Retain native validation, read-only input and one-time initialization; reject unsupported inputs instead of silently skipping them, exclude only the generated seed ACL without granting permissions, and verify shutdown drains side effects, removes temporary files and releases locks.",
           "result": "PASS",
@@ -39345,6 +39351,8 @@
         }
       ],
       "test_ids": [
+        "filesystem_import_preserves_source_identity_and_skips_later_seed",
+        "filesystem_import_interrupt_resume_and_serve_gate",
         "bucket_initializer_selectors_follow_precedence_and_reject_empty_paths",
         "selected_file_only_is_loaded_and_invalid_paths_fail_without_ready",
         "validation_reports_all_entries_before_seed_or_mutation",
@@ -39398,6 +39406,13 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate"]
+        },
         {
           "command": "cargo test --locked --offline --lib sync_state",
           "result": "PASS",
@@ -40936,6 +40951,18 @@
           ]
         },
         {
+          "id": "filesystem-import-bounded-resume",
+          "description": "Reuse the bounded reader, dedicated workers, fixed-size execution baseline and shared file publication; resume only the same canonical source/options/export, validate committed destination identities and revalidate committed inode/ctime drift before new publication. Scope: docs/en/slices/import-filesystem.md.",
+          "result": "PASS",
+          "test_ids": ["filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_resume_revalidates_inode_and_ctime_only_drift", "filesystem_import_xattr_revalidation_preserves_source_metadata", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_source_replacement_during_publication_stays_unservable"]
+        },
+        {
+          "id": "filesystem-import-file-descriptors",
+          "description": "Bound opened source files across the publication scanner, two queued pages and consumer to at most 32 by using eight-record publication pages; import 302 objects under a child-process descriptor limit of 64 without reopening source paths. Scope: docs/en/slices/import-filesystem.md.",
+          "result": "PASS",
+          "test_ids": ["filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"]
+        },
+        {
           "id": "DESIGN-072-PENDING",
           "description": "Implement objects.list prefix/delimiter/pagination and measure catalog growth/resource behavior.",
           "result": "PENDING",
@@ -41141,7 +41168,14 @@
         "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
         "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
         "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
-        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix",
+        "filesystem_import_interrupt_resume_and_serve_gate",
+        "filesystem_import_resume_revalidates_inode_and_ctime_only_drift",
+        "filesystem_import_xattr_revalidation_preserves_source_metadata",
+        "filesystem_import_foreign_options_refuse_without_poisoning_original_resume",
+        "filesystem_import_rejects_destination_records_outside_its_prefix",
+        "filesystem_import_source_replacement_during_publication_stays_unservable",
+        "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
         {
@@ -41154,6 +41188,20 @@
             "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
             "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
           ]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_resume_revalidates_inode_and_ctime_only_drift", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_source_replacement_during_publication_stays_unservable", "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib import::",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_xattr_revalidation_preserves_source_metadata"]
         },
         {
           "command": "cargo test --locked --offline --lib sync_state",
@@ -41474,6 +41522,12 @@
           "test_ids": []
         },
         {
+          "id": "filesystem-import-adapter",
+          "description": "Preflight metadata, use shared file staging and atomic imported publication/checkpoints, retain source generations/hashes/microsecond times, bind resume to the same source/options, verify stat drift and final fingerprints, keep unfinished destinations unservable and complete seed atomically. Scope: docs/en/slices/import-filesystem.md; no independent SQL or progress transaction.",
+          "result": "PASS",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_resume_revalidates_inode_and_ctime_only_drift", "filesystem_import_xattr_revalidation_preserves_source_metadata", "filesystem_import_source_replacement_during_publication_stays_unservable", "filesystem_import_checksum_failure_is_terminal_even_after_source_repair", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_changed_export_is_terminal_after_source_repair", "filesystem_import_preflight_blocks_unsupported_metadata_without_creating_destination", "filesystem_import_generation_urls_conditions_and_strict_permissions", "filesystem_import_cli_creates_catalog_without_starting_server"]
+        },
+        {
           "id": "source-import-recovery",
           "description": "Require staging-only verified handles, per-element SAVEPOINTs and atomic successful-element journal state with digests and paged per-element inode/ctime observations; see Delivery boundaries in docs/en/slices/source-storage-contract.md and known_deviations for Shared state handoffs. Close count/time-bounded batches without rollback; element rejection is terminal, resumable progress is a contiguous prefix; test A/C committed with B PreconditionFailed refuses resume. Verify ambiguous commit then handle drop retains the blob for startup recovery. Cancel the caller while commit runs on the SQLite execution thread, drop its handle and verify blob retention and readable committed bytes. Reclaim definitely uncommitted, unreferenced staged-only handles dropped before publication, excluded elements and cancelled staging blobs before command exit; startup recovery alone does not satisfy cleanup. Keep cleanup failures visible without synchronous I/O or SQLite waiting on Tokio workers; handle budgeting remains unresolved. Compare inode/ctime through preflight/publication/final scan; test same-size replacement with restored mtime. An inode/ctime-only change stops publication retryably; crashes before/after recording that stop must yield the same stat_identity_drift revalidation on resume. Unchanged committed bodies are not reread. Test successful revalidation after chmod-only changes, identical xattr reattachment and same-byte/metadata/mtime inode replacement. This limited no-reread exception was coordinator-approved on 2026-10-24; persistence of revalidated observations remains unresolved. Retry interruption/cancellation/Busy/disk-full or stat-only stops only for the same export binding; paths/size/mtime/metadata/body changes, corruption, checksum mismatch and blockers remain terminal. Verify crash boundaries, no duplicate/partial records, safe abandonment and shutdown cleanup.",
           "result": "PENDING",
@@ -41509,6 +41563,18 @@
         }
       ],
       "test_ids": [
+        "filesystem_import_preserves_source_identity_and_skips_later_seed",
+        "filesystem_import_interrupt_resume_and_serve_gate",
+        "filesystem_import_resume_revalidates_inode_and_ctime_only_drift",
+        "filesystem_import_xattr_revalidation_preserves_source_metadata",
+        "filesystem_import_source_replacement_during_publication_stays_unservable",
+        "filesystem_import_checksum_failure_is_terminal_even_after_source_repair",
+        "filesystem_import_foreign_options_refuse_without_poisoning_original_resume",
+        "filesystem_import_rejects_destination_records_outside_its_prefix",
+        "filesystem_import_changed_export_is_terminal_after_source_repair",
+        "filesystem_import_preflight_blocks_unsupported_metadata_without_creating_destination",
+        "filesystem_import_generation_urls_conditions_and_strict_permissions",
+        "filesystem_import_cli_creates_catalog_without_starting_server",
         "conditional_overwrite_delete_and_bucket_delete_upload_races_are_atomic",
         "generation_selection_nonempty_bucket_and_open_readers_survive_unlink",
         "limits_bad_hashes_and_body_errors_leave_no_generation_or_blob",
@@ -41533,6 +41599,20 @@
           "test_ids": [
             "import_publication_preserves_identity_settings_hold_and_atomic_prefix"
           ]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_resume_revalidates_inode_and_ctime_only_drift", "filesystem_import_source_replacement_during_publication_stays_unservable", "filesystem_import_checksum_failure_is_terminal_even_after_source_repair", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_changed_export_is_terminal_after_source_repair", "filesystem_import_preflight_blocks_unsupported_metadata_without_creating_destination", "filesystem_import_generation_urls_conditions_and_strict_permissions", "filesystem_import_cli_creates_catalog_without_starting_server"]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib import::",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_xattr_revalidation_preserves_source_metadata"]
         },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -47026,6 +47106,12 @@
           "test_ids": []
         },
         {
+          "id": "filesystem-import-cutover",
+          "description": "Verify the delivered STANDARD live-filesystem subset: unchanged source, separate fresh destination, interruption and same-export resume, terminal checksum/export changes surviving retries, unfinished serve gate, generation-specific reads/conditions, strict permissions and completed seed guard. Wider backup restoration and crash/platform coverage remain pending. Scope: docs/en/slices/import-filesystem.md.",
+          "result": "PASS",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_checksum_failure_is_terminal_even_after_source_repair", "filesystem_import_changed_export_is_terminal_after_source_repair", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_generation_urls_conditions_and_strict_permissions"]
+        },
+        {
           "id": "source-memory-boundary",
           "description": "Keep memory live-export separate from seed/filesystem input, including empty buckets, settings, active/archive membership and every generation; block lossless claims for live-only exports until the Go adapter and history preservation pass.",
           "result": "PENDING",
@@ -47059,7 +47145,14 @@
         "journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables",
         "journal_schema_upgrade_preserves_objects_policies_and_active_sessions",
         "sync_state_schema_migration_rolls_back_retries_and_preserves_objects",
-        "import_publication_failure_schema_rolls_back_and_reopens_preserved_state"
+        "import_publication_failure_schema_rolls_back_and_reopens_preserved_state",
+        "filesystem_import_preserves_source_identity_and_skips_later_seed",
+        "filesystem_import_interrupt_resume_and_serve_gate",
+        "filesystem_import_checksum_failure_is_terminal_even_after_source_repair",
+        "filesystem_import_changed_export_is_terminal_after_source_repair",
+        "filesystem_import_foreign_options_refuse_without_poisoning_original_resume",
+        "filesystem_import_rejects_destination_records_outside_its_prefix",
+        "filesystem_import_generation_urls_conditions_and_strict_permissions"
       ],
       "verification": [
         {
@@ -47070,6 +47163,13 @@
           "test_ids": [
             "import_publication_failure_schema_rolls_back_and_reopens_preserved_state"
           ]
+        },
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --test import --test import_filesystem",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/import-filesystem.md",
+          "test_ids": ["filesystem_import_preserves_source_identity_and_skips_later_seed", "filesystem_import_interrupt_resume_and_serve_gate", "filesystem_import_checksum_failure_is_terminal_even_after_source_repair", "filesystem_import_changed_export_is_terminal_after_source_repair", "filesystem_import_foreign_options_refuse_without_poisoning_original_resume", "filesystem_import_rejects_destination_records_outside_its_prefix", "filesystem_import_generation_urls_conditions_and_strict_permissions"]
         },
         {
           "command": "cargo test --locked --offline --lib sync_state",

@@ -55,13 +55,10 @@ with Rust 1.99.1:
 The existing `v1_migration_is_transactional_and_current_schema_reopens_idempotently`
 test also passed after updating old-schema fixtures. The dependency freshness
 check passed with all pinned inputs CURRENT; no dependency was added or updated.
-`RUST_TEST_THREADS=4 just check` ran once: format/clippy, 399 library tests and
-9 binary tests passed; auth_http stopped at 101 passed / 1 failed because an
-old-schema test still expected version 16 (`left: 17`, `right: 16`). The IAM
-expectation and matching bucket fixture were corrected; the two selected HTTP
-migration tests, five sync-state tests, format and clippy then passed. The
-coordinator will run the remaining full gate on integrated main; it was not
-repeated here. Markdownlint passed. Independent review checks the focused fix.
+`RUST_TEST_THREADS=4 just check` passed on integrated main `fd43d63`, including
+format, clippy, workspace/doc tests, compatibility and shell checks. The selected
+HTTP migration tests and five sync-state tests also passed with current-schema
+fixtures. Markdownlint passed and independent review found no release blockers.
 
 No benchmark, SDK or container run is needed because this slice changes no HTTP
 behavior, container input or user guide. No performance numbers are claimed.

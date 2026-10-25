@@ -481,7 +481,7 @@ fn cli_never_starts_serve_and_requires_explicit_read_only_mode() {
     assert!(text.contains("\"bodies_verified\":true"));
     assert!(!text.contains("\"event\":\"ready\""));
     assert!(!options.destination.exists());
-    assert!(!run(&[]).status.success());
+    assert!(!run(&["--verify-bodies"]).status.success());
     assert!(!run(&["--dry-run", "--dry-run"]).status.success());
     let help = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
         .args(["import", "fake-gcs-server", "--help"])

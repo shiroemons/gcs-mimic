@@ -468,6 +468,16 @@ fn object(
     let bytes = metadata_bytes(&body, options, metadata_buffer, report, relative, xattr)?;
     let attrs: ObjectAttrs = serde_json::from_slice(&bytes).map_err(|e| ImportFailure::corrupt("ObjectAttrs", format!("invalid object metadata JSON: {e}"), "Restore valid ObjectAttrs JSON with exact known field names, unique keys and the pinned field types."))?;
     let errors_before = report.summary.blocking_findings;
+    if report.baseline.is_some() && attrs.storage_class != "STANDARD" {
+        report.finding(
+            relative,
+            "StorageClass",
+            "filesystem publication currently preserves only STANDARD",
+            "Use an importer preserving this stored class; do not silently change source metadata.",
+            true,
+            Some(attrs.storage_class.clone()),
+        )?;
+    }
     let mut reject = |field: ObjectField, reason: &str, original: String| {
         report.finding(
             relative,
@@ -666,9 +676,11 @@ fn object(
             attributes: Box::new(attrs),
             created_micros: times[0],
             updated_micros: times[1],
-            fingerprint: body.before,
+            fingerprint: body.before.clone(),
             verified_hashes,
             generated: &["native_etag", "metageneration_1"],
+            source_file: report.publication_files.then_some(body.file),
+            attributes_digest: super::filesystem::sha(&bytes),
         })?;
     }
     Ok(())
@@ -806,7 +818,7 @@ pub(super) fn scan(
                     if report.summary.blocking_findings == before {
                         buckets.insert(leaf.to_owned(), BucketState::Eligible);
                         report.summary.eligible_buckets += 1;
-                        report.record(Record::Bucket { path: relative.clone(), name, attributes: attrs, generated: &["project_local-project", "native_location", "native_storage_class", "metageneration_1", "creation_time", "no_iam_grants"], observed_stat: format!("report-only modified time: {:?}; source bucket ctime is not creation identity", metadata.modified()?) })?;
+                        report.record(Record::Bucket { path: relative.clone(), name, attributes: attrs, generated: &["project_local-project", "native_location", "native_storage_class", "metageneration_1", "creation_time", "no_iam_grants"], observed_stat: format!("report-only modified time: {:?}; source bucket ctime is not creation identity", metadata.modified()?), attributes_digest: super::filesystem::sha(&bytes) })?;
                     }
                 } else if let Some(bucket) = leaf.strip_suffix(".bucketMetadata") {
                     if !fs::symlink_metadata(root.join(bucket)).is_ok_and(|m| m.is_dir()) {

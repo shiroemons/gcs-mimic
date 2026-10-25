@@ -58,8 +58,9 @@ behavior, with old-schema fixtures and current-version assertions advanced.
 
 Workspace all-target clippy and format passed. The dependency freshness check
 reported all pinned inputs CURRENT; no dependency changed. Independent review
-found no release-blocking findings. Import adapter integration remains a separate
-receiving gate. The coordinator
-owns the final integrated-main `just check`; it is not duplicated here.
+found no release-blocking findings. The coordinator's integrated-main
+`RUST_TEST_THREADS=4 just check` passed on `72a9b8b`, including workspace/doc
+tests, format, clippy, compatibility and shell checks. Import adapter integration
+is a separate receiving gate.
 SDK, container and benchmark runs are excluded because this slice changes only
 internal storage interfaces. No performance numbers are claimed.

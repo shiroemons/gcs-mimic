@@ -2,6 +2,7 @@
 //! Read-only inspection of pinned fake-gcs-server durable filesystem snapshots.
 
 pub mod codec;
+mod filesystem;
 mod reader;
 #[cfg(test)]
 mod tests;
@@ -11,6 +12,7 @@ use crate::{
     hashing::Hashes,
     source_tree,
 };
+pub use filesystem::execute;
 pub use reader::{BodyStream, ChangedField, Fingerprint, ImportFailure};
 use ring::digest::{Context, SHA256};
 use serde::Serialize;
@@ -18,21 +20,24 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
-    sync::mpsc,
 };
+use tokio::sync::mpsc;
 
 pub const SOURCE_REVISION: &str = "896ece51e49eed0946089f3089f6343855c0d106";
 pub const PAGE_SIZE: usize = 256;
+const PUBLICATION_PAGE_SIZE: usize = 8;
 pub const FINGERPRINT_FORMAT: u8 = 1;
 pub const HELP: &str = "Usage: gcs-mimic import fake-gcs-server --source DIR --data-dir NEW
-       --metadata-mode xattr|sidecar --source-platform unix|windows --dry-run [--verify-bodies]
+       --metadata-mode xattr|sidecar --source-platform unix|windows [--dry-run [--verify-bodies]]
 
-Inspect a stopped writer's durable filesystem snapshot without changing it or creating NEW.
-NEW must be absent (with an existing parent) or an empty directory separate from the source.
-Output is JSON Lines: a header, bounded pages, and an exact-count summary; diagnostics use stderr.
-Metadata-only inspection is the default. --verify-bodies reads each body once in 64 KiB chunks.
+Import a stopped writer's durable filesystem snapshot without changing the source.
+NEW must be absent or empty, or contain the same unfinished import for automatic resume.
+--dry-run inspects metadata without creating NEW; --verify-bodies also verifies its bodies.
+Actual import always verifies body checksums and keeps unfinished destinations unservable.
+Output is JSON Lines; diagnostics use stderr. Source and destination must be separate.
 Only normalized disk names are recoverable; original API names and history cannot be verified.
-Actual import/publication and memory exports are unavailable. No server configuration is read.";
+Native bucket defaults/project and ETags are generated. Memory exports are unavailable.
+No server configuration is read.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +84,10 @@ impl Options {
     }
 
     fn validate(&self) -> Result<(), Diagnostics> {
+        self.validate_destination(false)
+    }
+
+    fn validate_destination(&self, resume: bool) -> Result<(), Diagnostics> {
         let mut diagnostics = Diagnostics::default();
         let mut issue = |key, fix| {
             diagnostics
@@ -93,8 +102,9 @@ impl Options {
         }
         match fs::symlink_metadata(&self.destination) {
             Ok(m) if m.is_dir() => {
-                if !fs::read_dir(&self.destination)
-                    .is_ok_and(|mut entries| entries.next().is_none())
+                if !resume
+                    && !fs::read_dir(&self.destination)
+                        .is_ok_and(|mut entries| entries.next().is_none())
                 {
                     issue(
                         "--data-dir",
@@ -161,6 +171,8 @@ pub enum Record {
         attributes: codec::BucketAttrs,
         generated: &'static [&'static str],
         observed_stat: String,
+        #[serde(skip)]
+        attributes_digest: [u8; 32],
     },
     Object {
         path: String,
@@ -172,6 +184,10 @@ pub enum Record {
         fingerprint: Fingerprint,
         verified_hashes: Option<Hashes>,
         generated: &'static [&'static str],
+        #[serde(skip)]
+        source_file: Option<fs::File>,
+        #[serde(skip)]
+        attributes_digest: [u8; 32],
     },
     Directory {
         path: String,
@@ -197,6 +213,8 @@ pub struct Summary {
     pub directories: u64,
     pub skipped_os_metadata: u64,
     pub blocking_findings: u64,
+    pub stat_identity_drift_findings: u64,
+    pub io_findings: u64,
     pub warnings: u64,
     pub bytes_hashed: u64,
     pub mixed_format_absence_verified: bool,
@@ -207,30 +225,54 @@ pub struct Summary {
 }
 
 pub(super) struct Reporter {
-    send: mpsc::SyncSender<Page>,
+    send: PageSender,
     page: Page,
     pub summary: Summary,
     manifest: Context,
     observations: Context,
     body_manifest: Context,
+    baseline: Option<filesystem::Baseline>,
+    publication_files: bool,
+}
+
+enum PageSender {
+    Sync(std::sync::mpsc::SyncSender<Page>),
+    Async(mpsc::Sender<Page>),
+}
+
+impl PageSender {
+    fn send(&self, page: Page) -> Result<(), ImportFailure> {
+        match self {
+            Self::Sync(send) => send.send(page).map_err(|_| ImportFailure::ReportClosed),
+            Self::Async(send) => send
+                .blocking_send(page)
+                .map_err(|_| ImportFailure::ReportClosed),
+        }
+    }
 }
 
 impl Reporter {
     fn flush(&mut self) -> Result<(), ImportFailure> {
         if !self.page.records.is_empty() || !self.page.findings.is_empty() {
-            self.send
-                .send(std::mem::take(&mut self.page))
-                .map_err(|_| ImportFailure::ReportClosed)?;
+            self.send.send(std::mem::take(&mut self.page))?;
         }
         Ok(())
     }
     fn boundary(&mut self) -> Result<(), ImportFailure> {
-        if self.page.records.len() + self.page.findings.len() >= PAGE_SIZE {
+        let limit = if self.publication_files {
+            PUBLICATION_PAGE_SIZE
+        } else {
+            PAGE_SIZE
+        };
+        if self.page.records.len() + self.page.findings.len() >= limit {
             self.flush()?;
         }
         Ok(())
     }
     pub fn record(&mut self, record: Record) -> Result<(), ImportFailure> {
+        if let Some(baseline) = &mut self.baseline {
+            baseline.check(&record)?;
+        }
         self.page.records.push(record);
         self.boundary()
     }
@@ -258,6 +300,12 @@ impl Reporter {
         self.boundary()
     }
     pub fn failure(&mut self, path: &str, failure: ImportFailure) -> Result<(), ImportFailure> {
+        if matches!(failure, ImportFailure::Io(_)) {
+            self.summary.io_findings += 1;
+        }
+        if failure.retryable_stat_drift() {
+            self.summary.stat_identity_drift_findings += 1;
+        }
         let fields = if let ImportFailure::SourceChanged { fields } = &failure {
             fields.clone()
         } else {
@@ -372,7 +420,68 @@ fn inspect_with_xattr(
         "max_entries":options.max_entries,"max_depth":options.max_depth,"page_size":PAGE_SIZE,"channel_pages":2}),
     )?;
     writeln!(output)?;
-    let (send, receive) = mpsc::sync_channel(2);
+    let (send, receive) = std::sync::mpsc::sync_channel(2);
+    let worker = spawn_scan(options, xattr, PageSender::Sync(send), None, false)?;
+    let write_result = (|| -> io::Result<()> {
+        for page in &receive {
+            let mut batch = Diagnostics::default();
+            for finding in &page.findings {
+                if finding.blocking {
+                    batch.errors.push(finding.diagnostic.clone());
+                } else {
+                    batch.warnings.push(finding.diagnostic.clone());
+                }
+            }
+            serde_json::to_writer(
+                &mut output,
+                &serde_json::json!({"event":"import_page", "page": page}),
+            )?;
+            writeln!(output)?;
+            batch.write(&mut diagnostics)?;
+        }
+        Ok(())
+    })();
+    drop(receive);
+    let joined = worker
+        .join()
+        .map_err(|_| io::Error::other("import worker panicked"))?;
+    write_result?;
+    let summary = joined?;
+    serde_json::to_writer(
+        &mut output,
+        &serde_json::json!({"event":"import_summary", "summary":summary}),
+    )?;
+    writeln!(output)?;
+    Ok(summary)
+}
+
+type ScanWorker = std::thread::JoinHandle<Result<Summary, ImportFailure>>;
+type Scan = (mpsc::Receiver<Page>, ScanWorker);
+
+fn scan_with_baseline(
+    options: Options,
+    xattr: reader::XattrReader,
+    baseline: Option<(PathBuf, bool)>,
+    publication_files: bool,
+) -> io::Result<Scan> {
+    let (send, receive) = mpsc::channel(2);
+    let worker = spawn_scan(
+        options,
+        xattr,
+        PageSender::Async(send),
+        baseline,
+        publication_files,
+    )?;
+    Ok((receive, worker))
+}
+
+fn spawn_scan(
+    options: Options,
+    xattr: reader::XattrReader,
+    send: PageSender,
+    baseline: Option<(PathBuf, bool)>,
+    publication_files: bool,
+) -> io::Result<ScanWorker> {
     let worker = std::thread::Builder::new()
         .name("import-inspection".into())
         .spawn(move || {
@@ -386,6 +495,10 @@ fn inspect_with_xattr(
                 manifest: digest_context(b"export"),
                 observations: digest_context(b"stat"),
                 body_manifest: digest_context(b"bodies"),
+                baseline: baseline
+                    .map(|(path, write)| filesystem::Baseline::open(&path, write))
+                    .transpose()?,
+                publication_files,
             };
             reporter.manifest(
                 "options",
@@ -434,37 +547,7 @@ fn inspect_with_xattr(
             reporter.flush()?;
             Ok(reporter.summary)
         })?;
-    let write_result = (|| -> io::Result<()> {
-        for page in &receive {
-            let mut batch = Diagnostics::default();
-            for finding in &page.findings {
-                if finding.blocking {
-                    batch.errors.push(finding.diagnostic.clone());
-                } else {
-                    batch.warnings.push(finding.diagnostic.clone());
-                }
-            }
-            serde_json::to_writer(
-                &mut output,
-                &serde_json::json!({"event":"import_page", "page": page}),
-            )?;
-            writeln!(output)?;
-            batch.write(&mut diagnostics)?;
-        }
-        Ok(())
-    })();
-    drop(receive);
-    let joined = worker
-        .join()
-        .map_err(|_| io::Error::other("import worker panicked"))?;
-    write_result?;
-    let summary = joined?;
-    serde_json::to_writer(
-        &mut output,
-        &serde_json::json!({"event":"import_summary", "summary":summary}),
-    )?;
-    writeln!(output)?;
-    Ok(summary)
+    Ok(worker)
 }
 
 pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
@@ -505,10 +588,10 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
         index += 1;
     }
-    if !dry_run {
+    if verify && !dry_run {
         return Err(invalid(
-            "--dry-run",
-            "Actual import is unavailable; add --dry-run for read-only inspection.",
+            "--verify-bodies",
+            "Use --dry-run --verify-bodies for inspection; actual import always verifies bodies.",
         )
         .into());
     }
@@ -549,7 +632,17 @@ pub fn cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         platform,
     );
     options.verify_bodies = verify;
-    let summary = inspect(options, io::stdout().lock(), io::stderr().lock())?;
+    let summary = if dry_run {
+        inspect(options, io::stdout().lock(), io::stderr().lock())?
+    } else {
+        execute(options, io::stdout().lock(), io::stderr().lock()).map_err(|error| {
+            Diagnostics::error(
+                DiagnosticSource::Import,
+                "import",
+                format!("Import failed: {error}. Keep the source snapshot unchanged; resolve the reported cause and retry only the same source/options. Terminal failures require a new empty destination; never remove only the import marker."),
+            )
+        })?
+    };
     if !summary.eligible {
         return Err(invalid("import", "Inspection found blocking findings; apply the reported remedies and inspect a stable snapshot again.").into());
     }
