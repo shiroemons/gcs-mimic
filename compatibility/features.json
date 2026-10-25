@@ -40687,7 +40687,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; publication modes, sync and cgroup measurements remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -41425,7 +41425,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader administrative cancellation, protected staging/publication and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; later publication modes remain pending; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -41538,9 +41538,55 @@
         },
         {
           "id": "onboarding-state-publication",
-          "description": "Enforce per-element SAVEPOINT isolation, atomic successful-element state, 256-element/20ms closure, bounded staging overlap within the 650-ID route sum, typed disk-full stops and protected reclamation for all publication routes. Contract: docs/en/slices/onboarding-state-contract.md; owner shared-publication-modes.",
+          "description": "Publication modes, SAVEPOINT batches, 256-handle/20ms closure, dedicated file staging and cancellation cleanup pass in docs/en/slices/shared-publication-modes.md. Broader atomic adapter-state hooks, every batch/file crash window and Linux/Windows runtime evidence remain pending with their owning slices; no post-ready orphan scanning is introduced.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "publication-metadata-modes",
+          "description": "Transaction-local inheritance preserves patches after staging; equal size/MD5/CRC32C skips generations and journal entries while conditions/holds remain enforced. Contract: docs/en/slices/shared-publication-modes.md.",
+          "result": "PASS",
+          "test_ids": [
+            "publication_inherits_metadata_patched_after_staging",
+            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_streaming_modes_preserve_patches_and_require_all_hash_fields"
+          ]
+        },
+        {
+          "id": "publication-staged-batches",
+          "description": "Opaque catalog-bound file handles share a 256-handle budget; single-flight SAVEPOINT batches commit independent successes, return unattempted handles at 20ms and stop on DiskFull. Contract: docs/en/slices/shared-publication-modes.md.",
+          "result": "PASS",
+          "test_ids": [
+            "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
+            "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
+            "publication_budget_returns_retryable_handles_and_releases_sql_lane",
+            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_partial_batch_allows_staging_without_a_second_batch",
+            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup"
+          ]
+        },
+        {
+          "id": "publication-file-integrity",
+          "description": "Two dedicated OS workers clone or copy/hash in bounded buffers, verify immutable staging checksums and source before/after identity, enforce byte caps and reject source drift. Contract: docs/en/slices/shared-publication-modes.md.",
+          "result": "PASS",
+          "test_ids": [
+            "publication_file_checksums_caps_staging_visibility_and_discard",
+            "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
+            "publication_file_staging_does_not_wait_for_shared_blocking_pool"
+          ]
+        },
+        {
+          "id": "publication-handle-cleanup",
+          "description": "Dropped/cancelled/excluded handles retain budget and directory ownership through reference-aware cleanup. Renamed cancellation, discard, rollback and restart preserve readable committed bodies; cleanup failures remain visible. Contract: docs/en/slices/shared-publication-modes.md. Exhaustive ambiguous-commit crash injection remains in the broader publication case.",
+          "result": "PASS",
+          "test_ids": [
+            "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
+            "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation",
+            "publication_file_checksums_caps_staging_visibility_and_discard",
+            "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
+            "publication_disk_full_rolls_back_the_batch_and_journal"
+          ]
         },
         {
           "id": "onboarding-state-import-holds",
@@ -41610,9 +41656,70 @@
         "shared_reclamation_preserves_cancelled_session_cleanup_markers",
         "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies",
         "callback_reclamation_failure_preserves_success_and_maintenance_retries",
-        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination"
+        "compose_hard_deletion_is_atomic_deduplicated_and_preserves_new_destination",
+        "publication_inherits_metadata_patched_after_staging",
+        "publication_equal_hash_keeps_generation_metadata_and_journal",
+        "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
+        "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
+        "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
+        "publication_budget_returns_retryable_handles_and_releases_sql_lane",
+        "publication_disk_full_rolls_back_the_batch_and_journal",
+        "publication_partial_batch_allows_staging_without_a_second_batch",
+        "publication_admits_only_one_active_and_one_waiting_batch",
+        "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
+        "publication_file_checksums_caps_staging_visibility_and_discard",
+        "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
+        "publication_file_staging_does_not_wait_for_shared_blocking_pool",
+        "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
+        "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation"
       ],
       "verification": [
+        {
+          "command": "cargo test --lib --locked --offline storage::catalog::admin::publication::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-publication-modes.md",
+          "test_ids": [
+            "publication_inherits_metadata_patched_after_staging",
+            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
+            "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
+            "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
+            "publication_budget_returns_retryable_handles_and_releases_sql_lane",
+            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_partial_batch_allows_staging_without_a_second_batch",
+            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
+            "publication_file_checksums_caps_staging_visibility_and_discard",
+            "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
+            "publication_file_staging_does_not_wait_for_shared_blocking_pool",
+            "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
+            "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-publication-modes.md",
+          "test_ids": [
+            "publication_inherits_metadata_patched_after_staging",
+            "publication_equal_hash_keeps_generation_metadata_and_journal",
+            "publication_streaming_modes_preserve_patches_and_require_all_hash_fields",
+            "publication_batch_isolates_failed_elements_and_cleans_unused_blobs",
+            "publication_batch_keeps_per_element_validation_and_rejects_foreign_handles",
+            "publication_budget_returns_retryable_handles_and_releases_sql_lane",
+            "publication_disk_full_rolls_back_the_batch_and_journal",
+            "publication_partial_batch_allows_staging_without_a_second_batch",
+            "publication_admits_only_one_active_and_one_waiting_batch",
+            "publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup",
+            "publication_file_checksums_caps_staging_visibility_and_discard",
+            "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
+            "publication_file_staging_does_not_wait_for_shared_blocking_pool",
+            "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
+            "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -41716,7 +41823,7 @@
       "sdk_evidence": [],
       "known_deviations": [
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
-        "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Batch/mutable-file staging and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
+        "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",
         "Shutdown during object-count-proportional recovery waits for completion without a deadline or accelerated second-signal path. Startup measurements are observations, not shutdown latency bounds; recovery internals remain unchanged.",
         "Directory sync marker/write-back/shutdown recovery remains PENDING under docs/en/slices/directory-synchronization.md. Non-exchange replacement retains an explicit concurrent-writer loss window; Windows power-loss namespace durability is not claimed.",

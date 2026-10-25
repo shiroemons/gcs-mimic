@@ -10,6 +10,17 @@ pub enum CopyMethod {
     ReadWrite,
 }
 
+pub fn open_directory(path: &std::path::Path) -> io::Result<File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    options.open(path)
+}
+
 #[derive(Debug)]
 pub enum FsError {
     Io(io::Error),
@@ -320,6 +331,17 @@ fn copy_fallback(error: &io::Error) -> bool {
     )
 }
 
+pub fn read_at(file: &File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::FileExt::read_at(file, bytes, offset)
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
+    }
+}
+
 fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::FileExt;
@@ -328,10 +350,7 @@ fn copy_read_write(src: &File, dst: &File) -> io::Result<()> {
     let mut bytes = [0u8; 65_536];
     let mut offset = 0;
     loop {
-        #[cfg(unix)]
-        let read = src.read_at(&mut bytes, offset);
-        #[cfg(windows)]
-        let read = src.seek_read(&mut bytes, offset);
+        let read = read_at(src, &mut bytes, offset);
         let count = match read {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             result => result?,

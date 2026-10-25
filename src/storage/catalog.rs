@@ -293,6 +293,10 @@ struct Inner {
     admin_uploads: Arc<Semaphore>,
     admin_reads: Arc<Semaphore>,
     admin_waiters: Arc<Semaphore>,
+    staged_handles: Arc<Semaphore>,
+    publication_batch: Arc<Semaphore>,
+    publication_requests: Arc<Semaphore>,
+    file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
@@ -503,6 +507,10 @@ impl Catalog {
                 admin_uploads: Arc::new(Semaphore::new(2)),
                 admin_reads: Arc::new(Semaphore::new(32)),
                 admin_waiters: Arc::new(Semaphore::new(32)),
+                staged_handles: Arc::new(Semaphore::new(256)),
+                publication_batch: Arc::new(Semaphore::new(1)),
+                publication_requests: Arc::new(Semaphore::new(2)),
+                file_workers: admin::FileWorkers::new().map_err(unavailable)?,
                 admin_shutdown: Notify::new(),
                 data_dir,
                 clock,
@@ -533,6 +541,20 @@ impl Catalog {
         self.0.admission.close();
         self.0.admin_shutdown.notify_waiters();
         self.0.maintenance_wake.notify_one();
+        let _publication_requests = self
+            .0
+            .publication_requests
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .map_err(unavailable)?;
+        let _staged_handles = self
+            .0
+            .staged_handles
+            .clone()
+            .acquire_many_owned(256)
+            .await
+            .map_err(unavailable)?;
         let _admin_uploads = self
             .0
             .admin_uploads

@@ -590,6 +590,40 @@ impl Catalog {
         // while the body streamed, and overwriting needs storage.objects.delete there.
         access: BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
+        self.put_object_with_mode(
+            bucket,
+            name,
+            content_type,
+            expected,
+            conditions,
+            max_bytes,
+            body,
+            permit,
+            metadata,
+            access,
+            super::admin::PublishMode::Replace,
+        )
+        .await
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Shared publication retains existing upload arguments"
+    )]
+    pub(super) async fn put_object_with_mode(
+        &self,
+        bucket: &str,
+        name: &str,
+        content_type: String,
+        expected: ExpectedHashes,
+        conditions: ObjectConditions,
+        max_bytes: u64,
+        body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
+        permit: OwnedSemaphorePermit,
+        metadata: ObjectMetadataUpdate,
+        access: BucketAccess,
+        mode: super::admin::PublishMode,
+    ) -> Result<ObjectRecord, ObjectError> {
         crate::object::validate_fixed_metadata("contentType", &content_type)?;
         metadata.validate()?;
         let catalog = self.clone();
@@ -651,6 +685,11 @@ impl Catalog {
                         let previous = lookup(&transaction, &bucket, &name)?;
                         // Rechecked under the write lock so a concurrent create cannot be overwritten.
                         check_publication(previous.as_ref(), conditions, allow_overwrite)?;
+                        if skip_same(mode, previous.as_ref(), size, md5, crc32c) {
+                            return previous
+                                .map(|(record, _)| record)
+                                .ok_or(ObjectError::ObjectNotFound);
+                        }
                         let now = clock.now();
                         now.duration_since(std::time::UNIX_EPOCH)
                             .map_err(object_unavailable)?;
@@ -686,6 +725,7 @@ impl Catalog {
                                     event_based_hold: default_hold,
                                 };
                                 metadata.apply(&mut record)?;
+                                inherit_metadata(mode, previous.as_ref(), &mut record);
                                 Ok((record, ()))
                             },
                         )?;
@@ -698,7 +738,13 @@ impl Catalog {
             if result.is_ok() {
                 catalog.reclaim_after_commit().await;
             }
-            if result.is_err() {
+            if result.is_err()
+                || matches!(
+                    mode,
+                    super::admin::PublishMode::SkipIfSameHash
+                        | super::admin::PublishMode::InheritAndSkipIfSameHash
+                )
+            {
                 let data_dir = catalog.0.data_dir.clone();
                 // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
                 catalog
@@ -1106,7 +1152,7 @@ async fn write_body(
     Ok((size, md5, crc32c))
 }
 
-fn object_unavailable(error: impl std::fmt::Display + std::any::Any) -> ObjectError {
+pub(super) fn object_unavailable(error: impl std::fmt::Display + std::any::Any) -> ObjectError {
     if let Some(reason) = super::admin::corrupt_reason(&error) {
         return ObjectError::Corrupt(reason);
     }
@@ -1369,6 +1415,48 @@ pub(super) fn check_publication(
         return Err(ObjectError::ActiveHold);
     }
     Ok(())
+}
+
+pub(super) fn skip_same(
+    mode: super::admin::PublishMode,
+    previous: Option<&(ObjectRecord, String)>,
+    size: u64,
+    md5: [u8; 16],
+    crc32c: u32,
+) -> bool {
+    matches!(
+        mode,
+        super::admin::PublishMode::SkipIfSameHash
+            | super::admin::PublishMode::InheritAndSkipIfSameHash
+    ) && previous.is_some_and(|(record, _)| {
+        record.size == size && record.md5 == md5 && record.crc32c == crc32c
+    })
+}
+
+pub(super) fn inherit_metadata(
+    mode: super::admin::PublishMode,
+    previous: Option<&(ObjectRecord, String)>,
+    record: &mut ObjectRecord,
+) {
+    if matches!(
+        mode,
+        super::admin::PublishMode::InheritFromReplaced
+            | super::admin::PublishMode::InheritAndSkipIfSameHash
+    ) && let Some((previous, _)) = previous
+    {
+        record.content_type.clone_from(&previous.content_type);
+        record
+            .content_encoding
+            .clone_from(&previous.content_encoding);
+        record
+            .content_disposition
+            .clone_from(&previous.content_disposition);
+        record
+            .content_language
+            .clone_from(&previous.content_language);
+        record.cache_control.clone_from(&previous.cache_control);
+        record.metadata.clone_from(&previous.metadata);
+    }
 }
 
 /// The caller owns protocol-specific completion and commits before reclaiming retired bytes.

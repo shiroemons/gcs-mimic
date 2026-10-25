@@ -167,7 +167,15 @@ impl EnsureBucket {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PublishMode {
     Replace,
+    InheritFromReplaced,
+    SkipIfSameHash,
+    InheritAndSkipIfSameHash,
 }
+
+#[path = "publication.rs"]
+mod publication;
+pub(super) use publication::FileWorkers;
+pub use publication::{BatchPublication, BatchResult, StagedObject};
 
 pub struct Publication {
     pub content_type: String,
@@ -541,11 +549,8 @@ impl Admin {
         let access = BucketAccess::Admin(self.grant.clone());
         self.check_upload_until(bucket, name, request.condition, deadline)
             .await?;
-        match request.mode {
-            PublishMode::Replace => {}
-        }
         self.catalog
-            .put_object_prechecked(
+            .put_object_with_mode(
                 bucket.as_str(),
                 name.as_str(),
                 request.content_type,
@@ -556,6 +561,7 @@ impl Admin {
                 permit,
                 request.metadata,
                 access,
+                request.mode,
             )
             .await
             .map_err(AdminError::from)

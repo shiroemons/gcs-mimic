@@ -1,0 +1,45 @@
+# Shared publication modes
+
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+## Contract and acceptance
+
+This emulator-only administrative slice extends `onboarding-state-contract` (DESIGN-072 and DESIGN-074). It changes no Google HTTP behavior, schema or seed adapter. Existing Google compatibility gaps remain open.
+
+- `publication-metadata-modes`: inherit content fields and custom metadata from the replaced live generation in the publication transaction; a patch after staging survives. Equal size, MD5 and CRC32C in SkipIfSameHash returns the existing generation without journal mutation. Conditions and holds still apply. Changed content uses supplied metadata; InheritFromReplaced and SkipIfSameHash can be combined.
+- `publication-staged-batches`: file staging returns an opaque catalog-bound handle without making an object visible. At most 256 retained handles, including unattempted handles, share one budget. Batches are single-flight, use per-element SAVEPOINTs, commit successful elements and journal entries together, and return individual semantic errors plus unattempted handles after a 20 ms execution budget. A single SQLite operation/commit can overrun; report this explicitly. DiskFull aborts the transaction without retry.
+- `publication-file-integrity`: two dedicated OS workers clone an open regular file or copy/hash the same bounded buffers in one pass; mutable inputs never use copy_file_range. Hash cloned staging bytes, compare expected checksums and source identity before/after, and return SourceChanged with changed fields. Enforce byte caps.
+- `publication-handle-cleanup`: cancellation/drop/semantic exclusion cleans unreferenced staging and renamed bodies before releasing handle charges and catalog ownership. Probe committed references after ambiguous SQL outcomes; never delete committed bytes. Cleanup errors are visible. Startup orphan scanning stays before bind, so no new asynchronous orphan sweeper is introduced.
+
+Typed adapter-state hooks, imported identities/default-hold policy and adapter resume cursors remain with their owning slices. A batch reports per-element outcomes; it does not invent a resume cursor over rejected elements.
+
+## Delivered interface and ownership
+
+`Admin::stage_from_file(File, ExpectedHashes, max_bytes)` returns a `StagedObject` with readable size/hashes and no public filename. Combine it with `bucket`, `name` and `request` in `BatchPublication`, then call `Admin::publish_objects`. `Admin::publish_from_file(bucket, name, Publication, File)` composes those operations for one object. The existing streamed `publish_object` supports the same modes.
+
+`BatchResult.results` preserves attempted input order; semantic errors occupy their own result position. Its `unattempted` entries retain their bodies and budget charges and can be submitted again, including after immutable rename. Its `budget_exceeded` flag records a transaction/commit overrun. The 20 ms budget checks before starting each subsequent element; it cannot preempt one element or commit. The SQL execution permit is released before cleanup and another batch. A failed SQLite transaction rolls back all of that batch, including its journal entries, and returns DiskFull without retry when appropriate.
+
+Each catalog owns two persistent OS workers and a bounded two-job queue, independent of Tokio's shared blocking pool. Files use 64 KiB buffers. Clone-capable systems hash the new snapshot; otherwise the same bytes read from explicit source offsets are written and hashed together. Shared descriptor cursor changes cannot select different bytes between chunks. Expected MD5/CRC32C and the byte cap are checked against those bytes. Size, device, inode, nanosecond mtime and ctime are compared around staging, with changed fields returned in SourceChanged. Windows opens directory descriptors with backup semantics and uses the existing read/write fallback and write-through publication.
+
+InheritFromReplaced copies content type, encoding, disposition, language, cache control and custom metadata from the live generation selected in the publication transaction. New generations still use normal bucket storage class/default hold and explicitly supplied hold behavior. InheritAndSkipIfSameHash combines inheritance with no-op detection. SkipIfSameHash alone uses supplied metadata when content changes; on equality it preserves the entire old record. Conditions and active holds are checked before deciding to skip.
+
+All active, staged-next and returned handles share 256 semaphore charges. Batch execution is single-flight, with at most one additional waiting batch; a third batch receives Busy. New staging can use remaining charges while another partial batch is active. `StagedObject::discard().await` explicitly awaits cleanup. Drop schedules owned cleanup on the originating runtime, including when dropped from another OS thread. Close drains batch admission through post-commit reclamation and then all handle charges before releasing the directory lock, so callers must submit/discard/drop retained handles before awaiting close and keep the runtime alive through that close.
+
+Cleanup checks committed references before deleting a private body, preserving possibly committed data on SQL ambiguity. Filesystem work runs outside SQLite execution and before charge release. Explicit cleanup failures are returned; Drop failures emit the common error-level JSON event. A reference-probe failure preserves bytes for recovery. Startup orphan scanning stays before bind; pending-deletion reclamation cannot select newly owned staged IDs. A post-ready orphan sweeper remains forbidden until it participates in the separate in-flight-ID registration protocol.
+
+## Verification
+
+On 2026-10-25, `cargo xtask dependencies check` passed (Rust 1.99.1 and all declared direct crates, container/tool inputs and SDK pins CURRENT). No dependency or toolchain pin changed.
+
+`cargo test --lib --locked --offline storage::catalog::admin::publication::tests`: **15 passed**, covering the four acceptance cases above; the extended shared-cursor/source-drift case also passed after its final refinement. `cargo test --lib --locked --offline storage::catalog::admin` preserved the existing **20 passed** administrative cases before the added suite. `cargo clippy --lib --tests --locked --offline -- -D warnings` passed. Implementation: `d4fc61c`, with bounded waiting in `f86edde`, complete batch shutdown drain in `6aeef15` and positional source reads in `39d62b0`.
+
+| Acceptance | Executed tests |
+| --- | --- |
+| publication-metadata-modes | `publication_inherits_metadata_patched_after_staging`, `publication_equal_hash_keeps_generation_metadata_and_journal`, `publication_streaming_modes_preserve_patches_and_require_all_hash_fields` |
+| publication-staged-batches | `publication_batch_isolates_failed_elements_and_cleans_unused_blobs`, `publication_batch_keeps_per_element_validation_and_rejects_foreign_handles`, `publication_budget_returns_retryable_handles_and_releases_sql_lane`, `publication_disk_full_rolls_back_the_batch_and_journal`, `publication_partial_batch_allows_staging_without_a_second_batch`, `publication_admits_only_one_active_and_one_waiting_batch`, `publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup` |
+| publication-file-integrity | `publication_file_checksums_caps_staging_visibility_and_discard`, `publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers`, `publication_file_staging_does_not_wait_for_shared_blocking_pool` |
+| publication-handle-cleanup | `publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks`, `publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation`, `publication_file_checksums_caps_staging_visibility_and_discard`, `publication_handle_budget_backpressures_and_shutdown_waits_for_cleanup`, `publication_disk_full_rolls_back_the_batch_and_journal` |
+
+Final `just check` on source `39d62b0`: **PASS, exit 0**. This includes formatting, workspace/all-target Clippy, Rust unit/integration/doc tests, ledger/generated-view validation and offline container-release/shell checks. The command ran with localhost permissions required by the HTTP tests. `cargo xtask compatibility render` regenerated the English and Japanese matrices; neither changed because parent implementation statuses and fidelity remain unchanged.
+
+No benchmark, SDK, container or guide run was performed: this slice changes internal administrative operations, with no HTTP, Dockerfile or guide change. Verification is native macOS ARM64. Linux/Windows runtime, host power loss, exhaustive batch/file crash injection and fault injection of every cleanup I/O error remain unverified. Existing ordinary upload/versioning/hold behavior remains shared; imported identity/default-hold policy, typed adapter-state hooks and seed/sync/import adoption belong to later slices. DESIGN-072 and DESIGN-074 remain PARTIAL; the four scoped acceptance cases pass while the broader onboarding publication case stays pending for that remaining evidence.

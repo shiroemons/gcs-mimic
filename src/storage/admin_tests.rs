@@ -319,7 +319,7 @@ fn bucket(name: &str, project: &str) -> BucketDefinition {
     BucketDefinition::default_for(&BucketName::new(name).unwrap(), project, &SystemClock).unwrap()
 }
 
-fn request(condition: Option<GenerationCondition>) -> Publication {
+pub(super) fn request(condition: Option<GenerationCondition>) -> Publication {
     Publication {
         content_type: "text/plain".into(),
         metadata: Default::default(),
@@ -330,7 +330,7 @@ fn request(condition: Option<GenerationCondition>) -> Publication {
     }
 }
 
-fn body(bytes: &'static [u8]) -> mpsc::Receiver<Result<UploadChunk, io::Error>> {
+pub(super) fn body(bytes: &'static [u8]) -> mpsc::Receiver<Result<UploadChunk, io::Error>> {
     let (sender, receiver) = mpsc::channel(2);
     sender
         .try_send(Ok(UploadChunk::Data(Bytes::from_static(bytes))))
@@ -339,7 +339,7 @@ fn body(bytes: &'static [u8]) -> mpsc::Receiver<Result<UploadChunk, io::Error>> 
     receiver
 }
 
-async fn setup() -> (TestDir, Catalog, Admin, BucketName, ObjectName) {
+pub(super) async fn setup() -> (TestDir, Catalog, Admin, BucketName, ObjectName) {
     let dir = TestDir::new();
     let catalog = Catalog::open(&dir.0).await.unwrap();
     let admin = catalog.admin(Origin::Seed);
