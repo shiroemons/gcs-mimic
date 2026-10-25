@@ -93,6 +93,8 @@ async fn entry(
 async fn import_publication_preserves_identity_settings_hold_and_atomic_prefix() {
     let (dir, catalog, admin, source) = setup(2).await;
     let mut record = definition().0;
+    record.time_created = UNIX_EPOCH + Duration::from_micros(123_456);
+    record.updated = UNIX_EPOCH + Duration::from_micros(234_567);
     record.default_event_based_hold = true;
     record.labels.insert("source".into(), "kept".into());
     admin

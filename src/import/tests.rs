@@ -57,7 +57,7 @@ fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
             Ok(())
         }
     }
-    let (_dir, mut options) = xattr_setup();
+    let (dir, mut options) = xattr_setup();
     options.metadata_mode = MetadataMode::Xattr;
     let path = options.source.join("bucket-one/body");
     fs::write(&path, b"hello").unwrap();
@@ -69,8 +69,17 @@ fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
         return;
     }
     assert!(execute(options.clone(), StopAfterObject(0), Vec::new()).is_err());
+    // Identical xattr writes need not change ctime; a replacement inode guarantees drift.
+    let original = file.metadata().unwrap();
+    let replacement = dir.0.join("replacement");
+    fs::write(&replacement, b"hello").unwrap();
+    let file = fs::File::open(&replacement).unwrap();
     assert!(crate::fsutil::test_support::set_metadata(&file, ATTRS).unwrap());
+    file.set_times(std::fs::FileTimes::new().set_modified(original.modified().unwrap()))
+        .unwrap();
+    fs::rename(replacement, &path).unwrap();
     let before = Fingerprint::of(&file.metadata().unwrap()).unwrap();
+    assert_ne!(before.inode, Fingerprint::of(&original).unwrap().inode);
     let mut diagnostics = Vec::new();
     let summary = execute(options, Vec::new(), &mut diagnostics).unwrap();
     assert!(summary.bodies_verified);
