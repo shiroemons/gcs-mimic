@@ -390,6 +390,11 @@ pub struct ObjectReader {
 }
 
 impl ObjectReader {
+    /// Transfers the already-opened immutable generation; no storage path is exposed.
+    pub async fn into_file(self) -> File {
+        self.file.into_std().await
+    }
+
     pub async fn set_range(&mut self, offset: u64, length: u64) -> io::Result<()> {
         self.file.seek(io::SeekFrom::Start(offset)).await?;
         self.remaining = length;

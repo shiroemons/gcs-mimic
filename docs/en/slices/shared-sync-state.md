@@ -34,15 +34,18 @@ Nanoseconds/inodes use fixed-width big-endian blobs to avoid SQLite integer loss
 
 Root association/ownership and explicit activation-baseline transitions are
 provided by [shared-sync-root](shared-sync-root.md); they are not connected to
-runtime startup. Write-back intents, conflict preservation, watching, initial
-merge, mirror orchestration and HTTP controls remain pending in the directory
-synchronization contract. File and parent durability must precede acknowledgment
-by the adapter.
+runtime startup. [Shared write-back APIs](shared-sync-writeback.md) now provide
+durable pending phases, protected workspace accounting, private durability
+receipts, atomic fingerprint/progress acknowledgments and opened ObjectReader
+descriptor transfer. Target replacement, conflict registration/discard, watching,
+initial merge, mirror orchestration and HTTP controls remain pending in the
+directory synchronization contract.
 
-Schema 17 introduced these records; schema 19 adds root associations. Both are
-forward-only. Back up the entire stopped data directory before an
+Schema 17 introduced these records; schema 19 adds root associations and
+schema 20 adds durable write-back state. All are forward-only. Back up the
+entire stopped data directory before an
 upgrade; restore the complete backup with its matching executable to roll back.
-Executables supporting at most schema 18 reject schema 19; do not edit
+Executables supporting at most schema 19 reject schema 20; do not edit
 `user_version` to downgrade.
 
 ## Verification

@@ -309,6 +309,10 @@ pub struct RootLease {
     marker_identity: FileIdentity,
 }
 impl RootLease {
+    pub(super) fn catalog(&self) -> &super::super::Catalog {
+        &self.state.0
+    }
+
     /// A conservative snapshot; only explicit completion returns Complete.
     pub fn status(&self) -> RootStatus {
         self.status

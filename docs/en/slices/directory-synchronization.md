@@ -139,8 +139,8 @@ independent catalog identity/progress files.
 | `Admin::list_all_buckets(after, limit)` | Delivered: all-owner keyset pages of at most 256, shared metadata budget, empty buckets and stored owner/incarnation. Native project/budget/recreation tests and raw name cursor semantics: [shared-sync-observation](shared-sync-observation.md). Runtime Sync consumption remains pending; `seed_project` does not filter this inventory. |
 | `Catalog::wait_for_changes(after)` | Delivered: cancellable `JournalFence` wait returning current fence/rescan, without catalog permits while idle or periodic polling. Register/recheck races, seven mutation kinds, epoch changes, multiple waiters, rollback/false signals, shutdown and restart/gap/future cursors pass native tests in [shared-sync-observation](shared-sync-observation.md). Journal pages retain their captured finite fence; runtime consumers remain pending. |
 | Durable catalog identity and root association | Delivered adapter API: `SyncState::activate_root`, `RootLease::file_job` and `RootLease::complete_baseline` persist opaque identities, exclusive root ownership and activating/complete associations. Native marker/recovery tests and platform limits are in [shared-sync-root](shared-sync-root.md). Before-bind invocation and actual initial merge remain pending. Do not infer deletion from an incomplete baseline. |
-| Write-back progress and pending-operation API | Bounded records bind root/catalog, logical target, original owner/incarnation, selected generation, opaque workspace entry and operation phase. Durably protect any potentially displaced body before destructive replacement; expose/page unfinished work after restart even if the original bucket disappeared. Commit synchronized fingerprints/generation and journal progress only after file and affected-parent durability. Test crash before/after copy, replacement, parent sync and progress commit, ENOSPC/ambiguous completion, protected conflicts and quota stops without automatic cleanup or blind rollback. |
-| `ObjectReader` descriptor transfer or duplication | Yield an owned descriptor for the already opened selected immutable blob, without exposing/reopening a storage path or hard-linking it to the tree. Pass it to `fsutil::clone_or_copy_into` on a dedicated worker. Test API overwrite/delete while a descriptor is retained, exact zero/binary bytes, fixed memory, unchanged source position and ownership through cancellation/drain. |
+| Write-back progress and pending-operation API | Delivered shared API: root/catalog-bound bounded pending pages preserve original owner/incarnation, target, selected generation/hashes, opaque workspace and phase across restart/deletion. Private durable receipts gate atomic fingerprint/progress/completion; native phase, stale/root/hold, SQLite FULL, rollback/retry, quota and protected-body cases: [shared-sync-writeback](shared-sync-writeback.md). Target replacement/exchange, conflict registration, authorized discard and runtime recovery remain pending; storage never cleans protected entries. |
+| `ObjectReader` descriptor transfer or duplication | Delivered `ObjectReader::into_file` transfers the already opened immutable generation without path exposure/reopen or hard links. Dedicated-worker clone/copy tests retain exact zero/binary bytes after API overwrite/delete, preserve source offset and own descriptors/root leases through cancellation/drain: [shared-sync-writeback](shared-sync-writeback.md). Runtime mirror consumption remains pending. |
 
 The baseline captures a journal fence before scanning bounded current-state pages,
 then replays from that fence and handles any rescan indication; listing is not
@@ -315,6 +315,12 @@ that new external file. Test this boundary explicitly, without claiming atomic
 root-wide deletion. Disabling the percentage guard does not remove these checks.
 
 ## Write-back and recovery boundaries
+
+The [shared write-back implementation](shared-sync-writeback.md) supplies durable
+intent/protection, private durability receipts, progress acknowledgment and
+descriptor handoff. The following replacement, exchange, conflict-transfer and
+authorized-resolution sequence remains a runtime requirement. Deterministic
+storage boundary tests do not establish power-loss safety for that future runtime.
 
 Copy from the already opened `ObjectReader` descriptor into the same-volume
 reserved workspace using Shared state's `fsutil` copy/replace operations.
@@ -754,11 +760,12 @@ Windows path handling or actual filesystem representability.
 `cargo xtask dependencies check` passed with Rust 1.99.1 and every checked input
 current at Unix time 1792901168. No dependency or lockfile changed.
 
-Actual-root aliases, host component/path limits, API file/directory collisions,
-no-follow root/ancestor checks, notifications, activation, marker persistence,
-write-back and restart recovery are still pending. Runtime configuration and
-startup remain unchanged. Their storage prerequisites and acceptance handoffs
-are listed above; no narrower implementation is presented as complete sync.
+The lexical slice did not implement actual-root aliases, host component/path
+limits, API file/directory collisions, no-follow root/ancestor checks,
+notifications, activation, marker persistence or write-back/restart recovery.
+The shared root, observation and write-back APIs now deliver the limited storage
+prerequisites listed above. Runtime filesystem reconciliation, notifications,
+configuration and startup remain pending; these APIs do not complete sync.
 Replacing seed's duplicate path conversion with this shared mapper is deferred
 to `import-seed-adapter`.
 SDK/container/guide runs are unnecessary for this source-only utility and

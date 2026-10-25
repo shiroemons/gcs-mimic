@@ -42,6 +42,9 @@ mod tests;
 #[path = "sync_root.rs"]
 pub mod root;
 
+#[path = "sync_writeback.rs"]
+pub mod writeback;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CatalogId([u8; 16]);
 impl CatalogId {
@@ -58,7 +61,7 @@ impl std::fmt::Display for CatalogId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SyncFingerprint {
     pub size: u64,
     pub mtime_ns: i128,

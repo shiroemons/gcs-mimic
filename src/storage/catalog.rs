@@ -79,7 +79,7 @@ const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 const MAX_UPLOADS: usize = 8;
-const CATALOG_SCHEMA_VERSION: i64 = 19;
+const CATALOG_SCHEMA_VERSION: i64 = 20;
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -293,6 +293,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(sync_state::root::SCHEMA)
             .map_err(unavailable)?;
     }
+    if version >= 20 {
+        expected
+            .execute_batch(sync_state::writeback::SCHEMA)
+            .map_err(unavailable)?;
+    }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
             db.prepare("SELECT type, name, tbl_name, substr(sql, 1, 16385) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 257")
@@ -327,6 +332,7 @@ struct Inner {
     staged_handles: Arc<Semaphore>,
     publication_batch: Arc<Semaphore>,
     publication_requests: Arc<Semaphore>,
+    writeback_execution: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
     change_wake: Notify,
@@ -532,6 +538,13 @@ impl Catalog {
             if version < 19 {
                 sync_state::root::migrate(&mut connection)?;
             }
+            if version < 20 {
+                sync_state::writeback::migrate(&mut connection)?;
+            }
+            let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
+            if pending {
+                connection.execute("UPDATE sync_writeback_roots SET recovery=1 WHERE EXISTS(SELECT 1 FROM sync_writeback_ops p WHERE p.root_id=sync_writeback_roots.root_id AND p.phase!=4)",[]).map_err(unavailable)?;
+            }
             let journal_enabled: bool = connection.query_row("SELECT enabled FROM change_journal_state WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
             if journal_enabled {
                 // shortcut: restart requires a full rescan, add durable consumer checkpoints when restart continuity is needed.
@@ -554,6 +567,7 @@ impl Catalog {
                 staged_handles: Arc::new(Semaphore::new(256)),
                 publication_batch: Arc::new(Semaphore::new(1)),
                 publication_requests: Arc::new(Semaphore::new(2)),
+                writeback_execution: Arc::new(Semaphore::new(1)),
                 file_workers: admin::FileWorkers::new().map_err(unavailable)?,
                 admin_shutdown: Notify::new(),
                 change_wake: Notify::new(),

@@ -65,6 +65,43 @@ pub fn create_regular_at(directory: &File, name: &std::ffi::OsStr) -> io::Result
     }
 }
 
+/// Opens a single directory component, creating it only when explicitly requested.
+pub fn directory_at(directory: &File, name: &std::ffi::OsStr, create: bool) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        let name = component(name)?;
+        if create {
+            // SAFETY: name is one validated component under the live directory descriptor.
+            let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o700) };
+            if result != 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(error);
+                }
+            }
+        }
+        // SAFETY: name is terminated and the parent descriptor remains live.
+        let fd = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful openat transfers exactly one owned descriptor.
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (directory, name, create);
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
 #[derive(Debug)]
 pub enum FsError {
     Io(io::Error),

@@ -39144,6 +39144,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-writeback-handoff",
+          "description": "Typed durable pending/receipt/ack handoff retains baseline and API/seed state; shared APIs only, no mirror/runtime startup. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner","writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+        },
+        {
           "id": "shared-sync-owner-inventory",
           "description": "Bounded all-owner bucket pages include empty buckets, stored owner and incarnation, preserve binary keysets and metadata budgets across project/recreation boundaries. Storage-only scope: docs/en/slices/shared-sync-observation.md.",
           "result": "PASS",
@@ -39363,6 +39369,9 @@
         }
       ],
       "test_ids": [
+        "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
+        "writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner",
+        "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
         "sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation",
         "sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead",
@@ -39424,6 +39433,13 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner","writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
           "result": "PASS",
@@ -40771,6 +40787,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-pending-protection",
+          "description": "Bounded root/catalog-bound pending pages retain original owner/incarnation and actual workspace charges/stops after bucket deletion; ObjectReader transfers its opened immutable descriptor without path reopen/hardlink. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["writeback_pending_pages_survive_bucket_deletion_recreation_and_restart","writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack","writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart"]
+        },
+        {
           "id": "shared-sync-change-observation",
           "description": "Observe durable journal fence changes without lost wakeups or polling across all mutation/epoch paths, gap/future/restart cursors, multiple waiters and saturated API admission; preserve finite page fences. Scope: docs/en/slices/shared-sync-observation.md.",
           "result": "PASS",
@@ -41122,6 +41144,11 @@
         }
       ],
       "test_ids": [
+        "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
+        "writeback_pending_pages_survive_bucket_deletion_recreation_and_restart",
+        "writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack",
+        "writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations",
+        "writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain",
         "sync_observation_commits_before_during_and_after_registration_are_not_lost",
         "sync_observation_every_committed_mutation_wakes_all_waiters",
         "sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan",
@@ -41231,6 +41258,13 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["writeback_pending_pages_survive_bucket_deletion_recreation_and_restart","writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack","writeback_progress_cannot_skip_pending_work_and_protection_stops_other_operations","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
           "result": "PASS",
@@ -41772,6 +41806,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-writeback-durability",
+          "description": "Private durable receipts gate atomic sync-state/progress/completion; stale/hold/root/owner failures, protected entries, ENOSPC, restart and cancelled/drained work retain intent and ownership. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries","writeback_rejects_foreign_stale_hold_and_changed_api_winners","writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size","writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart","writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation","writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded"]
+        },
+        {
           "id": "shared-sync-observation-cancellation",
           "description": "Effect-free waits retain no catalog permits while asleep, tolerate false/rollback signals without false changes or busy loops, cancel safely and return Closed on shutdown. Scope: docs/en/slices/shared-sync-observation.md.",
           "result": "PASS",
@@ -41991,6 +42031,15 @@
         }
       ],
       "test_ids": [
+        "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
+        "writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation",
+        "writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded",
+        "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
+        "writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries",
+        "writeback_rejects_foreign_stale_hold_and_changed_api_winners",
+        "writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size",
+        "writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress",
+        "writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain",
         "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker",
@@ -42058,6 +42107,13 @@
         "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion","writeback_failed_ack_rolls_back_progress_and_fingerprint_then_retries","writeback_rejects_foreign_stale_hold_and_changed_api_winners","writeback_sqlite_enospc_keeps_displaced_bytes_and_retry_captures_actual_size","writeback_restart_recovers_each_file_and_catalog_boundary_without_false_progress","writeback_owned_descriptors_preserve_zero_binary_bytes_offsets_and_drain","writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart","writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation","writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
           "result": "PASS",
@@ -47168,6 +47224,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "catalog-writeback-migration",
+          "description": "Atomically migrate schema 19 to 20; rollback partial DDL/version, retry and retain existing catalog/root/API/seed/sync/journal identity and data. Scope: docs/en/slices/shared-sync-writeback.md.",
+          "result": "PASS",
+          "test_ids": ["writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+        },
+        {
           "id": "catalog-sync-root-migration",
           "description": "Atomically migrate schema 18 to 19, rollback partial DDL/version, retry and preserve catalog identity, objects, synchronization and seed state. Scope: docs/en/slices/shared-sync-root.md.",
           "result": "PASS",
@@ -47239,6 +47301,7 @@
         }
       ],
       "test_ids": [
+        "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_root_schema_migration_rolls_back_retries_and_preserves_state",
         "timestamp_migration_scales_extrema_and_rolls_back_after_partial_update",
         "timestamp_migration_rejects_overflow_without_changing_version_or_values",
@@ -47260,6 +47323,13 @@
         "filesystem_import_generation_urls_conditions_and_strict_permissions"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-writeback.md",
+          "test_ids": ["writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
           "result": "PASS",

@@ -534,7 +534,7 @@ async fn sync_root_schema_migration_rolls_back_retries_and_preserves_state() {
     let mut connection = Connection::open(data.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE sync_roots; PRAGMA user_version = 18; CREATE TABLE sync_roots(collision);",
+            "DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; PRAGMA user_version = 18; CREATE TABLE sync_roots(collision);",
         )
         .unwrap();
     assert!(migrate(&mut connection).is_err());
