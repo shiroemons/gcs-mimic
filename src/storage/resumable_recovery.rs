@@ -1,4 +1,4 @@
-use super::{CatalogError, objects, unavailable};
+use super::{CatalogError, unavailable};
 use rusqlite::Connection;
 use std::{fs, io, path::Path};
 
@@ -69,8 +69,8 @@ pub(super) fn recover_prefix(
         fs::rename(&blob, &stage).map_err(unavailable)?;
         #[cfg(unix)]
         {
-            objects::sync_dir(blob.parent().expect("blob parent")).map_err(unavailable)?;
-            objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
+            super::objects::sync_dir(blob.parent().expect("blob parent")).map_err(unavailable)?;
+            super::objects::sync_dir(&data_dir.join("staging")).map_err(unavailable)?;
         }
         metadata
     };

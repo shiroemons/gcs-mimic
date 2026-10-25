@@ -323,6 +323,7 @@ async fn live_export_identical_parent_disappearance_cancels_and_keeps_other_buck
     }
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn live_export_retries_file_and_parent_permissions_without_advancing_the_cursor() {
     use std::{os::unix::fs::PermissionsExt, sync::Arc, time::Duration};

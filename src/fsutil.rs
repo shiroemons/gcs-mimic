@@ -659,10 +659,11 @@ pub fn durable_replace(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Option<(u64, u64)>> =
     std::sync::Mutex::new(None);
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn sync_replace_parent(directory: &File) -> io::Result<()> {
     #[cfg(test)]
     {
@@ -712,9 +713,11 @@ pub fn durable_replace_between(
         {
             // SAFETY: validated components are relative to their respective live directory descriptors.
             let result = unsafe {
+                // musl 1.2.5 has no renameat2 wrapper, so the release musl archives call the syscall directly.
                 #[cfg(target_os = "linux")]
                 {
-                    libc::renameat2(
+                    libc::syscall(
+                        libc::SYS_renameat2,
                         source_directory.as_raw_fd(),
                         staged.as_ptr(),
                         destination_directory.as_raw_fd(),
