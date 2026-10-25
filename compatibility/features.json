@@ -39144,6 +39144,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-catalog-identity",
+          "description": "Persist an opaque catalog identity across reopen and distinguish independent catalogs; reject foreign catalog bindings. Scope: docs/en/slices/shared-sync-state.md.",
+          "result": "PASS",
+          "test_ids": [
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
+          ]
+        },
+        {
           "id": "BUCKET-INIT-CONTRACT",
           "description": "Independent review with no major findings plus markdownlint and ledger validate/render/check verifies docs/en/slices/bucket-initialization.md: JSON v1, selectors/limits, project precedence, native closed schema, full diagnostics/ready, create-missing atomicity and Shared state requirements, local authority and API/profile differences. The integration owner runs just check after merge. Documentation or author checks alone do not pass independent review or runtime cases.",
           "result": "PENDING",
@@ -39380,9 +39388,19 @@
         "failed_retention_never_evicts_an_existing_diagnostic",
         "admin_names_generations_and_permissions_are_validated",
         "admin_ensure_batches_preserve_identity_order_and_rollback",
-        "admin_ensure_full_batch_and_concurrent_creates_are_atomic"
+        "admin_ensure_full_batch_and_concurrent_creates_are_atomic",
+        "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib sync_state",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-state.md",
+          "test_ids": [
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
+          ]
+        },
         {
           "command": "cargo test --offline --test bucket_initialization; cargo test --offline --lib bucket_initializer_selectors; cargo test --offline --bin gcs-mimic startup::tests",
           "result": "PASS",
@@ -40693,6 +40711,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-indexed-state",
+          "description": "Persist exact synchronized generations/fingerprints with indexed relative-path lookup and bounded keyset pages; reject unsafe paths, stale bucket incarnations/generations and hash mismatches. Scope: docs/en/slices/shared-sync-state.md.",
+          "result": "PASS",
+          "test_ids": [
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+            "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+            "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+          ]
+        },
+        {
           "id": "shared-publication-paths",
           "description": "Unify media, multipart, XML PUT, copy, rewrite, compose and resumable generation allocation, retirement and insertion in the caller transaction while preserving metadata, hashes, component counts, authorization, conditions, holds and versioning; contract docs/en/slices/shared-publication-commit.md.",
           "result": "PASS",
@@ -41084,9 +41112,23 @@
         "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
         "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
         "imported_identity_collision_is_atomic_and_exhaustion_is_safe",
-        "imported_identity_rejects_modes_that_could_discard_source_identity"
+        "imported_identity_rejects_modes_that_could_discard_source_identity",
+        "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+        "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib sync_state",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-state.md",
+          "test_ids": [
+            "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
+            "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+            "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib sync::mapping; cargo test --locked --offline --test sync_mapping",
           "result": "PASS",
@@ -41528,6 +41570,16 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-transaction-hooks",
+          "description": "Commit typed synchronization updates atomically with staged publication including same-hash skips and generation-conditioned deletion; rollback failures, preserve holds and leave baseline unchanged on ordinary API mutations. Scope: docs/en/slices/shared-sync-state.md.",
+          "result": "PASS",
+          "test_ids": [
+            "sync_state_publication_skip_rollback_and_conditional_delete_are_atomic",
+            "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+            "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+          ]
+        },
+        {
           "id": "shared-publication-rollback-recovery",
           "description": "Shared publication keeps generation/destination/deletion-journal rollback atomic, reclaims only after commit without failing committed success, and preserves derived rename recovery plus rewrite token checkpoints/completion replay and process-kill recovery; contract docs/en/slices/shared-publication-commit.md.",
           "result": "PASS",
@@ -41768,9 +41820,23 @@
         "publication_mutable_source_is_rejected_and_fallback_hashes_written_buffers",
         "publication_file_staging_does_not_wait_for_shared_blocking_pool",
         "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
-        "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation"
+        "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation",
+        "sync_state_publication_skip_rollback_and_conditional_delete_are_atomic",
+        "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib sync_state",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-state.md",
+          "test_ids": [
+            "sync_state_publication_skip_rollback_and_conditional_delete_are_atomic",
+            "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
+            "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+          ]
+        },
         {
           "command": "cargo test --lib --locked --offline storage::catalog::admin::publication::tests",
           "result": "PASS",
@@ -46827,6 +46893,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "catalog-sync-state-migration",
+          "description": "Atomically migrate schema 16 to 17 without changing existing objects; rollback partial DDL/version on failure, retry and reject invalid catalog identity/schema. Scope: docs/en/slices/shared-sync-state.md.",
+          "result": "PASS",
+          "test_ids": [
+            "sync_state_schema_migration_rolls_back_retries_and_preserves_objects"
+          ]
+        },
+        {
           "id": "catalog-timestamp-migration",
           "description": "Atomically migrate schema 13 bucket/object times to schema 14 by exact multiplication by 1000; cover pre-epoch, epoch, fractional seconds and representable extrema, versioned time_deleted rows, byte-identical JSON GET and XML HEAD Last-Modified/ETags, rollback on a full on-disk catalog after partial conversion and Catalog::open retry, overflow rejection, unknown-version rejection and unchanged internal deadlines/permissions/generations. Scope: docs/en/slices/catalog-timestamp-precision.md.",
           "result": "PASS",
@@ -46878,9 +46952,19 @@
         "timestamp_fixture_downgrade_floors_signed_values_and_deletion_times",
         "timestamp_migration_preserves_versioned_json_get_and_xml_head",
         "journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables",
-        "journal_schema_upgrade_preserves_objects_policies_and_active_sessions"
+        "journal_schema_upgrade_preserves_objects_policies_and_active_sessions",
+        "sync_state_schema_migration_rolls_back_retries_and_preserves_objects"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib sync_state",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-state.md",
+          "test_ids": [
+            "sync_state_schema_migration_rolls_back_retries_and_preserves_objects"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",

@@ -623,7 +623,7 @@ async fn populated_v4_catalog_migrates_without_seeding() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
 }
 

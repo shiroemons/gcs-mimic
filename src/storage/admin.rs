@@ -716,6 +716,27 @@ impl Admin {
         name: &ObjectName,
         condition: GenerationCondition,
     ) -> Result<(), AdminError> {
+        self.delete_with_sync(bucket, name, condition, None).await
+    }
+
+    pub async fn delete_synced_object(
+        &self,
+        bucket: &BucketName,
+        name: &ObjectName,
+        condition: GenerationCondition,
+        binding: super::sync_state::SyncBinding,
+    ) -> Result<(), AdminError> {
+        self.delete_with_sync(bucket, name, condition, Some(binding))
+            .await
+    }
+
+    async fn delete_with_sync(
+        &self,
+        bucket: &BucketName,
+        name: &ObjectName,
+        condition: GenerationCondition,
+        binding: Option<super::sync_state::SyncBinding>,
+    ) -> Result<(), AdminError> {
         let bucket = bucket.0.clone();
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
@@ -730,6 +751,7 @@ impl Admin {
                     None,
                     condition.conditions(),
                     &access,
+                    binding.as_ref(),
                 ))
             })
             .await?

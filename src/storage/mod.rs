@@ -9,6 +9,7 @@ pub use catalog::admin;
 pub use catalog::change_journal;
 pub use catalog::import_journal;
 pub(crate) use catalog::rewrite;
+pub use catalog::sync_state;
 
 pub(crate) use catalog::ResumableChunk;
 pub use catalog::ResumableError;

@@ -996,6 +996,7 @@ impl Catalog {
                 generation,
                 conditions,
                 &access,
+                None,
             )
         })
         .await?;
@@ -1060,6 +1061,7 @@ pub(super) fn delete_selected(
     generation: Option<i64>,
     conditions: ObjectConditions,
     access: &BucketAccess,
+    sync_binding: Option<&super::sync_state::SyncBinding>,
 ) -> Result<(), ObjectError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1075,6 +1077,9 @@ pub(super) fn delete_selected(
     )?;
     if record.event_based_hold {
         return Err(ObjectError::ActiveHold);
+    }
+    if let Some(binding) = sync_binding {
+        super::sync_state::delete_in_transaction(&transaction, binding, &record)?;
     }
     let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
         .map_err(object_unavailable)?;

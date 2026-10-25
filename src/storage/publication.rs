@@ -85,10 +85,15 @@ pub struct StagedObject {
     size: u64,
     hashes: crate::hashing::Hashes,
     published: bool,
+    sync_update: Option<super::super::sync_state::SyncUpdate>,
     runtime: tokio::runtime::Handle,
 }
 
 impl StagedObject {
+    pub fn with_sync_state(mut self, update: super::super::sync_state::SyncUpdate) -> Self {
+        self.sync_update = Some(update);
+        self
+    }
     pub async fn discard(self) -> Result<(), AdminError> {
         let runtime = self.runtime.clone();
         runtime
@@ -321,6 +326,7 @@ impl Admin {
                     crc32c: 0,
                 },
                 published: false,
+                sync_update: None,
                 runtime: tokio::runtime::Handle::current(),
             };
             let stage = catalog.0.data_dir.join("staging").join(&id);
@@ -619,9 +625,13 @@ fn publish_entry(
         staged.hashes.md5,
         staged.hashes.crc32c,
     ) {
-        return previous
+        let record = previous
             .map(|(record, _)| record)
-            .ok_or(ObjectError::ObjectNotFound);
+            .ok_or(ObjectError::ObjectNotFound)?;
+        if let Some(update) = &staged.sync_update {
+            super::super::sync_state::record_in_transaction(transaction, update, &record)?;
+        }
+        return Ok(record);
     }
     let now = clock.now();
     now.duration_since(std::time::UNIX_EPOCH)
@@ -667,5 +677,8 @@ fn publish_entry(
             Ok((record, ()))
         },
     )?;
+    if let Some(update) = &staged.sync_update {
+        super::super::sync_state::record_in_transaction(transaction, update, &record)?;
+    }
     Ok(record)
 }

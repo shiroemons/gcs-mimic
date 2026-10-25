@@ -469,7 +469,7 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state; PRAGMA user_version = 14;",
+            "DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state; PRAGMA user_version = 14;",
         )
         .unwrap();
     super::super::validate_schema(&connection, 14).unwrap();
@@ -503,12 +503,12 @@ async fn journal_schema_upgrade_preserves_objects_policies_and_active_sessions()
     drop(lease);
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 16).unwrap();
+    super::super::validate_schema(&connection, 17).unwrap();
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
     assert!(super::super::validate_schema(&connection, 14).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();
