@@ -100,6 +100,14 @@ end
 observed = { chunks: 0, locations: [] }
 connection.builder.use(EmulatorOriginGuard, origin, observed)
 
+if ARGV == ["--migration-scenario"]
+  raise "migration scenario requires an anonymous client" if ENV.key?("GCS_MIMIC_TOKEN")
+
+  require_relative "migration_scenario"
+  migration_scenario(storage)
+  exit
+end
+
 bucket = nil
 objects = []
 Tempfile.create("gcs-mimic-ruby-upload") do |source|

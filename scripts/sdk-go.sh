@@ -105,7 +105,8 @@ start_server() {
 
 endpoint=
 strict_endpoint=
-start_server pid endpoint server.log '' --data-dir "$work/data"
+jq -n '{version: 1, project: "local-project", buckets: [{name: "assets"}, {name: "exports"}]}' > "$work/buckets.json"
+start_server pid endpoint server.log '' --data-dir "$work/data" --buckets-file "$work/buckets.json"
 # The identity file holds local-only fixture principals; its tokens are not Google credentials.
 jq --rawfile key fixtures/signing/test-only-public.pem \
   '.identities |= map(if .id == "local-admin@example.invalid" then . + {public_keys: [$key]} else . end)' \
@@ -123,6 +124,7 @@ if [[ $with_ruby == true && -z ${GCS_MIMIC_GO_TEST_RUN:-} ]]; then
   cd ../ruby
   BUNDLE_FROZEN=true bundle check
   bundle exec ruby https.rb --self-check
+  env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb --migration-scenario
   env -u GCS_MIMIC_TOKEN GCS_MIMIC_ENDPOINT="$endpoint" bundle exec ruby https.rb
   GCS_MIMIC_ENDPOINT="$strict_endpoint" GCS_MIMIC_TOKEN=local-admin-token GCS_MIMIC_SIGNED_TESTS=1 bundle exec ruby https.rb
 fi

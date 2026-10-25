@@ -42892,9 +42892,18 @@
             "TestBucketCORS",
             "TestStrictAuthBucketCORS"
           ]
+        },
+        {
+          "id": "GO-MIGRATION-SCENARIO",
+          "description": "Application migration: initialized HTTP buckets via STORAGE_EMULATOR_HOST, unchanged default resumable Writer and ChunkSize=0, CRC32C/generation Attrs and NewReader, generation-selected CopierFrom with DoesNotExist/replay 412 and generation-specific Delete. Contract: docs/en/slices/migrate-app-scenario.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestMigrationAppScenarioGo"
+          ]
         }
       ],
       "test_ids": [
+        "TestMigrationAppScenarioGo",
         "TestBucketCORS",
         "TestBucketLifecycle",
         "TestBucketMetadataReplace",
@@ -42931,6 +42940,15 @@
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers"
       ],
       "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "TestMigrationAppScenarioGo"
+          ]
+        },
         {
           "command": "just check-sdk",
           "result": "PASS",
@@ -43257,6 +43275,21 @@
             "TestBucketMetadataReplace",
             "TestStrictAuthBucketMetadataReplace"
           ]
+        },
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; initialized buckets, STORAGE_EMULATOR_HOST, default resumable and ChunkSize=0 Writer, generation-selected copy and delete",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "TestMigrationAppScenarioGo"
+          ]
         }
       ],
       "known_deviations": [
@@ -43303,12 +43336,30 @@
           "description": "Full Ruby/Rails, signing, broad IAM/ACL and default-null compose behavior remain unimplemented or unverified.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "RUBY-MIGRATION-SCENARIO",
+          "description": "Anonymous explicit-endpoint application migration on an initialized HTTP bucket: create_file, bucket.file metadata/bytes and delete/missing lookup. Contract: docs/en/slices/migrate-app-scenario.md.",
+          "result": "PASS",
+          "test_ids": [
+            "ruby-migration-scenario"
+          ]
         }
       ],
       "test_ids": [
+        "ruby-migration-scenario",
         "ruby-basic-api"
       ],
       "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "ruby-migration-scenario"
+          ]
+        },
         {
           "command": "bundle exec ruby sdk-tests/ruby/https.rb with explicit HTTP/HTTPS local endpoints and permissive/strict fixture profiles",
           "result": "PASS",
@@ -43332,6 +43383,21 @@
           "artifact": "docs/en/evidence/cors-sdk-ruby.txt",
           "test_ids": [
             "ruby-basic-api"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; anonymous explicit endpoint, initialized bucket, create_file, bucket.file, download and delete",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "ruby-migration-scenario"
           ]
         }
       ],
@@ -44624,9 +44690,20 @@
           "description": "Separate DESIGN-077 and EXT-BEH-032 slices must decompose and verify bounded memory backend and publisher/filter semantics before claiming source configuration parity; accepting ignored selectors is not completion.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "HTTP-MIGRATION-CONNECTION",
+          "description": "Representative Go/Ruby migration uses HTTP, buckets-file initialized assets/exports, STORAGE_EMULATOR_HOST or an anonymous explicit endpoint without application API bucket creation. Contract: docs/en/slices/migrate-app-scenario.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestMigrationAppScenarioGo",
+            "ruby-migration-scenario"
+          ]
         }
       ],
       "test_ids": [
+        "TestMigrationAppScenarioGo",
+        "ruby-migration-scenario",
         "container-host-peer-bucket-crud",
         "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
         "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
@@ -44687,6 +44764,16 @@
         "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
       ],
       "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "TestMigrationAppScenarioGo",
+            "ruby-migration-scenario"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -45499,9 +45586,20 @@
             "signed-browser-strict-initial",
             "signed-browser-strict-restart"
           ]
+        },
+        {
+          "id": "HTTP-MIGRATION-BROWSER-WIRE",
+          "description": "Raw HTTP substitute with Origin: media/resumable preflight and POST, server-created X-Upload-Content-Type session uploaded with changed Host and complete Content-Range, JSON/path-style anonymous exact-byte reads, and 499 cancellation followed by 410 without publication. No browser enforcement or strict authorization claim. Contract: docs/en/slices/migrate-app-scenario.md.",
+          "result": "PASS",
+          "test_ids": [
+            "TestMigrationAppScenarioBrowser",
+            "TestMigrationAppScenarioCancellation"
+          ]
         }
       ],
       "test_ids": [
+        "TestMigrationAppScenarioBrowser",
+        "TestMigrationAppScenarioCancellation",
         "cors-browser-permissive-initial",
         "cors-browser-permissive-restart",
         "cors-browser-strict-initial",
@@ -45517,6 +45615,16 @@
         "signed-browser-cors-guide-native"
       ],
       "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-app-scenario.md",
+          "test_ids": [
+            "TestMigrationAppScenarioBrowser",
+            "TestMigrationAppScenarioCancellation"
+          ]
+        },
         {
           "command": "bash scripts/signed-browser.sh prepare/run strict initial/restart; bash scripts/cors-browser.sh strict/permissive initial/restart",
           "result": "PASS",
