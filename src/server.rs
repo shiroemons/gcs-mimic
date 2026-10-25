@@ -74,18 +74,24 @@ pub async fn serve(
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
     let acceptor = tls::load_server(&config)?;
-    serve_with_tls(listener, config, state, shutdown, acceptor).await
+    serve_with_tls(vec![(listener, acceptor)], config, state, shutdown).await
 }
 
 pub async fn serve_with_tls(
-    listener: TcpListener,
+    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
     config: Config,
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
-    acceptor: Option<tokio_rustls::TlsAcceptor>,
 ) -> io::Result<()> {
+    if listeners.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "at least one listener is required",
+        ));
+    }
     let (stop, _) = watch::channel(false);
     let mut connections = JoinSet::new();
+    let mut next_listener = 0;
     tokio::pin!(shutdown);
     let signal_result = loop {
         tokio::select! {
@@ -95,15 +101,24 @@ pub async fn serve_with_tls(
                     break Err(io::Error::other(error));
                 }
             }
-            incoming = listener.accept(), if connections.len() < config.max_connections => {
-                let (stream, _) = match incoming {
+            incoming = std::future::poll_fn(|cx| {
+                for offset in 0..listeners.len() {
+                    let index = (next_listener + offset) % listeners.len();
+                    if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
+                        return std::task::Poll::Ready(result.map(|(stream, _)| (index, stream)));
+                    }
+                }
+                std::task::Poll::Pending
+            }), if connections.len() < config.max_connections => {
+                let (index, stream) = match incoming {
                     Ok(incoming) => incoming,
                     Err(error) => break Err(error),
                 };
+                next_listener = (index + 1) % listeners.len();
                 let state = state.clone();
                 let mut stopping = stop.subscribe();
                 let config = config.clone();
-                let acceptor = acceptor.clone();
+                let acceptor = listeners[index].1.clone();
                 connections.spawn(async move {
                     if let Some(acceptor) = acceptor {
                         let handshake = tokio::time::timeout(
@@ -128,7 +143,7 @@ pub async fn serve_with_tls(
         }
     };
     state.ready.store(false, Ordering::Release);
-    drop(listener);
+    drop(listeners);
     stop.send_replace(true);
     let drain = async {
         while let Some(result) = connections.join_next().await {

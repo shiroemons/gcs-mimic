@@ -37,9 +37,16 @@ async fn race<T>(
 }
 
 #[derive(Serialize)]
+struct ReadyListener {
+    listen: SocketAddr,
+    scheme: &'static str,
+}
+
+#[derive(Serialize)]
 pub(crate) struct ReadyEvent {
     event: &'static str,
     listen: SocketAddr,
+    listeners: Vec<ReadyListener>,
     protocol: &'static str,
     gcs_api: &'static str,
     max_connections: usize,
@@ -67,13 +74,29 @@ impl ReadyEvent {
         config: &Config,
         auth: &Auth,
         listen: SocketAddr,
+        listen_http: Option<SocketAddr>,
         seed: SeedOutcome,
         buckets_file: InitOutcome,
         api_base_url: String,
     ) -> Self {
+        let mut listeners = vec![ReadyListener {
+            listen,
+            scheme: if config.scheme == gcs_mimic::config::Scheme::Http {
+                "http"
+            } else {
+                "https"
+            },
+        }];
+        if let Some(listen) = listen_http {
+            listeners.push(ReadyListener {
+                listen,
+                scheme: "http",
+            });
+        }
         Self {
             event: "ready",
             listen,
+            listeners,
             protocol: "http1",
             gcs_api: "json-bucket-object-media-crud",
             max_connections: config.max_connections,
@@ -102,6 +125,7 @@ impl ReadyEvent {
 
 struct BoundStartup {
     listener: tokio::net::TcpListener,
+    listener_http: Option<tokio::net::TcpListener>,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
 }
@@ -176,19 +200,14 @@ async fn prepare_startup(
     };
     let seed = seed?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
-    let PhaseResult::Complete(listener) = race(
+    let PhaseResult::Complete(listeners) = race(
         CancelSafe(async {
-            bind_listener(config.listen).await.map_err(|error| {
-        phase(
-            DiagnosticSource::Listener,
-            "listen",
-            if error.kind() == io::ErrorKind::AddrInUse {
-                "Address already in use; choose a free --listen IP:PORT."
-            } else {
-                "Cannot bind listener; check --listen IP:PORT and local network permissions."
-            },
-        )
-    })
+            let listener = bind_configured_listener(config.listen, "listen").await?;
+            let listener_http = match config.effective_listen_http() {
+                Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
+                None => None,
+            };
+            Ok::<_, io::Error>((listener, listener_http))
         }),
         shutdown.as_mut(),
     )
@@ -196,9 +215,10 @@ async fn prepare_startup(
     else {
         return Ok(PhaseResult::Stopped);
     };
-    let listener = listener?;
+    let (listener, listener_http) = listeners?;
     Ok(PhaseResult::Complete(BoundStartup {
         listener,
+        listener_http,
         seed,
         buckets_file,
     }))
@@ -244,6 +264,7 @@ pub(crate) async fn serve(
     };
     let BoundStartup {
         listener,
+        listener_http,
         seed,
         buckets_file,
     } = match prepare_startup(
@@ -268,11 +289,14 @@ pub(crate) async fn serve(
             )
         })
         .and_then(|address| {
+            let address_http = listener_http.as_ref().map(|listener| listener.local_addr()).transpose()
+                .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
             let api_base_url = config.effective_api_base_url(address);
             serde_json::to_string(&ReadyEvent::new(
                 &config,
                 &auth,
                 address,
+                address_http,
                 seed,
                 buckets_file,
                 api_base_url.clone(),
@@ -300,7 +324,11 @@ pub(crate) async fn serve(
         auth,
     });
     println!("{ready}");
-    server::serve_with_tls(listener, config, state, shutdown, acceptor).await?;
+    let mut listeners = vec![(listener, acceptor)];
+    if let Some(listener) = listener_http {
+        listeners.push((listener, None));
+    }
+    server::serve_with_tls(listeners, config, state, shutdown).await?;
     report_stopped();
     Ok(())
 }
@@ -330,6 +358,21 @@ fn seed_failure(error: &io::Error) -> String {
     format!(
         "seed import: {reason}; correct seed_dir fixtures and their permissions, names, project, overlap and configured limits before restarting."
     )
+}
+
+async fn bind_configured_listener(
+    address: SocketAddr,
+    key: &str,
+) -> io::Result<tokio::net::TcpListener> {
+    bind_listener(address).await.map_err(|error| {
+        let flag = key.replace('_', "-");
+        let fix = if error.kind() == io::ErrorKind::AddrInUse {
+            format!("Address already in use; choose a free --{flag} IP:PORT.")
+        } else {
+            format!("Cannot bind listener; check --{flag} IP:PORT and local network permissions.")
+        };
+        phase(DiagnosticSource::Listener, key, &fix)
+    })
 }
 
 async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {

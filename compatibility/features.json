@@ -38663,7 +38663,7 @@
         }
       ],
       "known_deviations": [
-        "Public/API origin routing, helpers, ready fields and automatic bound-address defaults are verified. Independent configuration contract review remains pending; trusted proxy-derived origins remain DESIGN-056 work. HTTPS-primary scheme=both is a future dual-listener integration case; Docker dynamic host-port mappings require explicit post-discovery configuration."
+        "Public/API origin routing, helpers, ready fields and automatic bound-address defaults are verified, including HTTPS-primary scheme=both integration. Independent configuration contract review remains pending; trusted proxy-derived origins remain DESIGN-056 work. Docker dynamic host-port mappings require explicit post-discovery configuration."
       ],
       "implemented_in": "86744f4c3b5530771c5c4547319e0d4d2b945431",
       "last_verified": "2026-10-25"
@@ -43581,7 +43581,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Parent status remains PARTIAL; bound-address API defaults and Compose host-port resumable traversal pass; independent contract review, dual listeners, log levels, memory and events retain pending cases in that contract.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Bound-address API defaults, Compose host-port resumable traversal and dual HTTP/HTTPS listeners with shared catalog/admission, HTTPS-primary origin, all-or-nothing bind and shutdown pass. Parent status remains PARTIAL for independent contract review, log levels, memory and events in docs/en/slices/configuration-workflows.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43701,9 +43701,18 @@
         },
         {
           "id": "UX-003-DUAL-LISTENER",
-          "description": "config-dual-listener: HTTP and HTTPS share one catalog and aggregate connection limit, one advertised API base, existing ready listen plus both actual listeners, all-or-nothing bind readiness and shutdown. Reject duplicate nonzero endpoints including primary port 8000 colliding with default listen_http, and reject listen_http unless scheme=both; both port-zero listeners bind independently to distinct actual ports. Preserve TLS trust and handshake bounds.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "config-dual-listener: HTTP and HTTPS share bucket/object state and resumable sessions, one aggregate connection limit including stalled TLS handshakes, one HTTPS-primary advertised API base or explicit override, existing ready listen plus both actual listeners, all-or-nothing bind readiness and shutdown. Second-bind failure releases the first socket and catalog lock without ready. Reject duplicate nonzero endpoints including primary port 8000 colliding with default listen_http, and reject listen_http unless scheme=both; verify CLI/environment/file precedence, malformed addresses, independent port-zero binds and wildcard API defaults. Preserve TLS trust and handshake bounds.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::dual_listener_defaults_precedence_and_validation",
+            "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+            "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
+            "dual_listener_shares_state_and_https_primary_resumable_origin",
+            "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
+            "dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both",
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+            "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
+          ]
         },
         {
           "id": "UX-003-LOG-LEVEL",
@@ -43778,7 +43787,15 @@
         "container-host-port-resumable",
         "compose-api-base-published-port",
         "TestObjectResumableWriter",
-        "ruby-api-default-https"
+        "ruby-api-default-https",
+        "config::tests::dual_listener_defaults_precedence_and_validation",
+        "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+        "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
+        "dual_listener_shares_state_and_https_primary_resumable_origin",
+        "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
+        "dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both",
+        "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+        "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
       ],
       "verification": [
         {
@@ -43794,6 +43811,22 @@
             "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
             "default_location_preserves_strict_create_authorization",
             "legacy_create_location_accepts_only_fixed_region_and_stores_native_us"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "config::tests::dual_listener_defaults_precedence_and_validation",
+            "config_input::tests::dual_listener_legacy_advice_names_effective_native_settings",
+            "dual_listener_invalid_settings_fail_before_catalog_or_readiness",
+            "dual_listener_shares_state_and_https_primary_resumable_origin",
+            "dual_listener_second_bind_failure_releases_first_socket_and_catalog",
+            "dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both",
+            "tls_rejects_untrusted_wrong_host_expired_and_plaintext",
+            "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
           ]
         },
         {

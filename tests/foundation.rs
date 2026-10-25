@@ -228,6 +228,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
             std::collections::BTreeSet::from([
                 "event",
                 "listen",
+                "listeners",
                 "protocol",
                 "gcs_api",
                 "max_connections",
@@ -315,6 +316,268 @@ fn request(address: SocketAddr, request: &str) -> String {
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response
+}
+
+fn dual_tls_request(
+    ca: &std::path::Path,
+    address: SocketAddr,
+    path: &str,
+    args: &[&str],
+) -> String {
+    let output = Command::new("curl")
+        .args([
+            "-q",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--noproxy",
+            "*",
+            "--max-time",
+            "4",
+            "--cacert",
+        ])
+        .arg(ca)
+        .args(args)
+        .arg(format!("https://{address}{path}"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn dual_listener_shares_state_and_https_primary_resumable_origin() {
+    for (listen, explicit) in [
+        ("127.0.0.1:0", false),
+        ("0.0.0.0:0", false),
+        ("[::]:0", false),
+        ("127.0.0.1:0", true),
+    ] {
+        let dir = TestDir::new();
+        let ca = dir.0.join("ca.pem");
+        fs::write(&ca, gcs_mimic::tls::DEVELOPMENT_CA_PEM).unwrap();
+        let mut command = common::server_command();
+        command
+            .args([
+                "serve",
+                "--scheme",
+                "both",
+                "--listen",
+                listen,
+                "--listen-http",
+                "127.0.0.1:0",
+                "--data-dir",
+            ])
+            .arg(dir.0.join("data"));
+        if explicit {
+            command.args(["--api-base-url", "https://proxy.invalid/prefix/"]);
+        }
+        let mut child = command.stdout(Stdio::piped()).spawn().unwrap();
+        let (mut stdout, ready) = process_ready(&mut child);
+        assert_eq!(ready["scheme"], "both");
+        assert_eq!(ready["listeners"].as_array().unwrap().len(), 2);
+        assert_eq!(ready["listeners"][0]["listen"], ready["listen"]);
+        assert_eq!(ready["listeners"][0]["scheme"], "https");
+        assert_eq!(ready["listeners"][1]["scheme"], "http");
+        let mut primary: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+        if primary.ip().is_unspecified() {
+            primary.set_ip(if primary.is_ipv4() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                std::net::Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        let secondary: SocketAddr = ready["listeners"][1]["listen"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_ne!(primary.port(), 0);
+        assert_ne!(secondary.port(), 0);
+        if primary.ip() == secondary.ip() {
+            assert_ne!(primary.port(), secondary.port());
+        }
+        let base = if explicit {
+            "https://proxy.invalid/prefix".to_owned()
+        } else {
+            format!("https://{primary}")
+        };
+        assert_eq!(ready["api_base_url"], base);
+        assert!(request(secondary, "POST /storage/v1/b?project=local-project HTTP/1.1\r\nHost: attacker.invalid\r\nContent-Type: application/json\r\nContent-Length: 22\r\n\r\n{\"name\":\"dual-bucket\"}").starts_with("HTTP/1.1 200"));
+        let bucket = dual_tls_request(&ca, primary, "/storage/v1/b/dual-bucket", &[]);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&bucket).unwrap()["name"],
+            "dual-bucket"
+        );
+        let response = request(
+            secondary,
+            "POST /upload/storage/v1/b/dual-bucket/o?uploadType=resumable&name=file HTTP/1.1\r\nHost: attacker.invalid\r\nForwarded: host=attacker.invalid;proto=http\r\nContent-Length: 0\r\n\r\n",
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let location = response
+            .lines()
+            .find_map(|line| {
+                line.split_once(':')
+                    .filter(|(key, _)| key.eq_ignore_ascii_case("location"))
+                    .map(|(_, value)| value.trim())
+            })
+            .unwrap();
+        let path = location
+            .strip_prefix(&base)
+            .expect("one HTTPS primary origin");
+        let object = dual_tls_request(
+            &ca,
+            primary,
+            path,
+            &[
+                "-X",
+                "PUT",
+                "-H",
+                "Content-Range: bytes 0-2/3",
+                "--data-binary",
+                "abc",
+            ],
+        );
+        let object: serde_json::Value = serde_json::from_str(&object).unwrap();
+        for key in ["selfLink", "mediaLink"] {
+            assert!(
+                object[key]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&format!("{base}/"))
+            );
+        }
+        assert!(
+            request(
+                secondary,
+                "GET /storage/v1/b/dual-bucket/o/file?alt=media HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            )
+            .ends_with("abc")
+        );
+        common::stop_server(&mut child, &mut stdout);
+        for address in [primary, secondary] {
+            assert!(TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err());
+        }
+    }
+}
+
+#[test]
+fn dual_listener_invalid_settings_fail_before_catalog_or_readiness() {
+    for args in [
+        vec!["--scheme", "http", "--listen-http", "127.0.0.1:0"],
+        vec!["--scheme", "both", "--listen", "127.0.0.1:8000"],
+        vec!["--scheme", "both", "--listen-http", "bad-address"],
+    ] {
+        let dir = TestDir::new();
+        let data = dir.0.join("data");
+        let output = common::server_command()
+            .arg("serve")
+            .args(args)
+            .arg("--data-dir")
+            .arg(&data)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!data.exists());
+        assert!(String::from_utf8(output.stderr).unwrap().contains("listen"));
+    }
+}
+
+#[test]
+fn dual_listener_second_bind_failure_releases_first_socket_and_catalog() {
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let primary = reserved.local_addr().unwrap();
+    drop(reserved);
+    let dir = TestDir::new();
+    let output = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "both",
+            "--listen",
+            &primary.to_string(),
+            "--listen-http",
+            &occupied.local_addr().unwrap().to_string(),
+            "--data-dir",
+        ])
+        .arg(&dir.0)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let diagnostics = String::from_utf8(output.stderr).unwrap();
+    assert!(diagnostics.contains("listen_http"), "{diagnostics}");
+    assert!(diagnostics.contains("--listen-http"), "{diagnostics}");
+    let _rebound = std::net::TcpListener::bind(primary).unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        catalog.close().await.unwrap();
+    });
+}
+
+#[test]
+fn dual_listener_connection_cap_counts_tls_handshakes_and_shutdown_closes_both() {
+    let dir = TestDir::new();
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "both",
+            "--listen",
+            "127.0.0.1:0",
+            "--listen-http",
+            "127.0.0.1:0",
+            "--max-connections",
+            "1",
+            "--tls-handshake-timeout-ms",
+            "500",
+            "--data-dir",
+        ])
+        .arg(&dir.0)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (mut stdout, ready) = process_ready(&mut child);
+    let primary: SocketAddr = ready["listen"].as_str().unwrap().parse().unwrap();
+    let secondary: SocketAddr = ready["listeners"][1]["listen"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut handshake = stream(primary);
+    handshake.write_all(b"\x16\x03\x01\x00\x10").unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let mut http = stream(secondary);
+    http.write_all(b"GET /_internal/ready HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    http.set_read_timeout(Some(Duration::from_millis(60)))
+        .unwrap();
+    let error = http.read(&mut [0]).unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    ));
+    http.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut response = String::new();
+    http.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let mut handshake = stream(primary);
+    handshake.write_all(b"\x16\x03\x01\x00\x10").unwrap();
+    let mut queued = stream(secondary);
+    queued
+        .write_all(b"GET /_internal/ready HTTP/1.1\r\n")
+        .unwrap();
+    common::stop_server(&mut child, &mut stdout);
+    for address in [primary, secondary] {
+        assert!(TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_err());
+    }
 }
 
 #[test]

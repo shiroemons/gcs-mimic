@@ -1980,7 +1980,8 @@ for the bounded input, redaction and `/data` inspection rules.
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
-| `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `https` or explicit `http`; one listener |
+| `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
+| `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |
 | `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
 | `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |
@@ -1989,7 +1990,7 @@ for the bounded input, redaction and `/data` inspection rules.
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
 | `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | Actual bound listener URL | Wildcard IP becomes loopback; port 0 becomes the allocated port. Explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment. Ready includes the effective string |
-| `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
+| `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024; total across listeners, including TLS handshakes |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
 | `--max-blocking-threads` | `GCS_MIMIC_MAX_BLOCKING_THREADS` | 2 | 1–32 |
 | `--connection-timeout-ms` | `GCS_MIMIC_CONNECTION_TIMEOUT_MS` | 5000 | 1–60000 |
@@ -2000,6 +2001,22 @@ for the bounded input, redaction and `/data` inspection rules.
 | `--auth-mode` | `GCS_MIMIC_AUTH_MODE` | `permissive` | `permissive` or `strict`; strict requires an identity file |
 | `--compat-profile` | `GCS_MIMIC_COMPAT_PROFILE` | `native` | `native` or `legacy-emulator`; JSON key `compat_profile`; independent of authentication. The source bucket profile supplies `seed_project` when creation omits `project`; see the [contract](slices/bucket-core-parity.md). |
 | `--identity-file` | `GCS_MIMIC_IDENTITY_FILE` | none | JSON identity registry, at most 64 KiB; only with `strict` |
+
+To accept HTTP and HTTPS together, run:
+
+```sh
+target/debug/gcs-mimic serve --scheme both \
+  --listen 127.0.0.1:4443 --listen-http 127.0.0.1:8000 --data-dir data
+```
+
+Both listeners use the same catalog, authentication and total connection limit.
+Ready retains the primary `listen` and adds a `listeners` array with each actual
+address/scheme. An implicit API base uses primary HTTPS, including for requests
+made over HTTP; supply `--api-base-url` for another fixed reachable origin.
+Port zero allocates each listener independently. Either bind failure prevents
+ready and releases the sockets/catalog; shutdown closes both. Compose users
+must publish the second HTTP port explicitly. TLS clients still need CA trust
+and a matching SAN, as described in the HTTPS section.
 
 The identity file is read once at startup; an invalid registry, `strict` without a
 file or a file with `permissive` fails before readiness. Run

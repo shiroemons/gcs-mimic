@@ -42,7 +42,7 @@ pub fn load_server(config: &Config) -> io::Result<Option<TlsAcceptor>> {
         if config.tls_cert.is_some() || config.tls_key.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "TLS files require scheme=https",
+                "TLS files require scheme=https or both",
             ));
         }
         return Ok(None);

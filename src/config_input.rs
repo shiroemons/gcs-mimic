@@ -9,6 +9,7 @@ pub(crate) const MAX_KEY_BYTES: usize = 256;
 pub(crate) const NATIVE_KEYS: &[&str] = &[
     "config",
     "listen",
+    "listen_http",
     "scheme",
     "tls_cert",
     "tls_key",
@@ -335,12 +336,12 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
     let value = values.get(name).copied().unwrap_or_default();
     let advice = match name {
         "host" | "port" => format!("combine HOST and PORT as GCS_MIMIC_LISTEN={host}:{port}; use a valid IP address and port 0..65535"),
-        "scheme" if matches!(scheme, "http" | "https") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
-        "scheme" => "dual listeners are unsupported today; choose GCS_MIMIC_SCHEME=http or https; scheme=both is reserved for future delivery".into(),
+        "scheme" if matches!(scheme, "http" | "https" | "both") => format!("use GCS_MIMIC_SCHEME={scheme} or --scheme {scheme}"),
+        "scheme" => "use GCS_MIMIC_SCHEME=http, https or both; both serves HTTPS on listen and HTTP on listen_http".into(),
         "port_http" => {
             let port = component(values, "port_http", "8000").parse::<u16>()
                 .map_or_else(|_| "<PORT_0_TO_65535>".into(), |p| p.to_string());
-            format!("a second HTTP listener is unsupported today; remove this setting; future GCS_MIMIC_LISTEN_HTTP={host}:{port} requires future scheme=both")
+            format!("use GCS_MIMIC_SCHEME=both with GCS_MIMIC_LISTEN_HTTP={host}:{port}; the primary GCS_MIMIC_LISTEN serves HTTPS")
         }
         "external_url" if safe_url(value) => format!("use GCS_MIMIC_API_BASE_URL={value}; preserve the client-reachable proxy prefix"),
         "external_url" => "use GCS_MIMIC_API_BASE_URL=http://gcs:4443/proxy without credentials, query or fragment; unsafe URL values are redacted".into(),
@@ -659,6 +660,24 @@ mod tests {
         );
         assert!(!report.diagnostics.is_err());
         assert_eq!(report.diagnostics.warnings.len(), 1);
+    }
+
+    #[test]
+    fn dual_listener_legacy_advice_names_effective_native_settings() {
+        let report = crate::config::Config::preflight(
+            &[],
+            &BTreeMap::from([
+                ("FAKE_GCS_SCHEME".into(), "both".into()),
+                ("FAKE_GCS_HOST".into(), "::1".into()),
+                ("FAKE_GCS_PORT_HTTP".into(), "9000".into()),
+            ]),
+        );
+        assert!(report.diagnostics.is_err());
+        let advice = report.diagnostics.to_string();
+        assert!(advice.contains("GCS_MIMIC_SCHEME=both"));
+        assert!(advice.contains("GCS_MIMIC_LISTEN_HTTP=[::1]:9000"));
+        assert!(!advice.contains("future"));
+        assert!(!advice.contains("second HTTP listener is unsupported"));
     }
 
     #[test]

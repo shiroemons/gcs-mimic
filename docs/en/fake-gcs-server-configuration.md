@@ -82,8 +82,9 @@ generally mean “use the default.” See the
 
 | Source role | Current native setting | Remaining difference |
 | --- | --- | --- |
-| Scheme | `GCS_MIMIC_SCHEME` | `http` or `https`; no dual listener |
+| Scheme | `GCS_MIMIC_SCHEME` | `http`, `https` or `both`; primary HTTPS in both mode |
 | Bind host and port | `GCS_MIMIC_LISTEN` | One `IP:port` value |
+| Second HTTP listener | `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; defaults to primary IP:8000 |
 | Advertised API endpoint | `GCS_MIMIC_API_BASE_URL` | API origin, separate from public URL construction |
 | Seed input | `GCS_MIMIC_SEED_DIR`, `GCS_MIMIC_SEED_PROJECT` | One-time import; MIME and metadata differ |
 | Persistent destination | `GCS_MIMIC_DATA_DIR` | SQLite plus opaque files; cannot mount legacy `/storage` directly |
@@ -123,7 +124,7 @@ For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
 Public-host advice supplies `GCS_MIMIC_PUBLIC_BASE_URL` and the opt-in legacy
 profile; native path-style Host acceptance stays unrestricted.
 `FAKE_GCS_LOCATION` recommends native `GCS_MIMIC_DEFAULT_LOCATION=US`, `EU` or
-`ASIA`; regional values are not translated. Unsupported dual listeners/log settings,
+`ASIA`; regional values are not translated. Unsupported log settings,
 memory backend and event delivery are identified as unsupported; future names
 are not working replacements. JSON CORS callers can remove the old global
 header setting; XML/public callers configure bucket CORS `responseHeader`.

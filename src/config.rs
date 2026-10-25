@@ -39,6 +39,7 @@ pub enum Scheme {
     Http,
     #[default]
     Https,
+    Both,
 }
 
 impl Scheme {
@@ -46,6 +47,7 @@ impl Scheme {
         match self {
             Self::Http => "http",
             Self::Https => "https",
+            Self::Both => "both",
         }
     }
 }
@@ -57,7 +59,8 @@ impl std::str::FromStr for Scheme {
         match value {
             "http" => Ok(Self::Http),
             "https" => Ok(Self::Https),
-            _ => Err("scheme must be http or https".into()),
+            "both" => Ok(Self::Both),
+            _ => Err("scheme must be http, https or both".into()),
         }
     }
 }
@@ -65,6 +68,7 @@ impl std::str::FromStr for Scheme {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen: SocketAddr,
+    pub listen_http: Option<SocketAddr>,
     pub scheme: Scheme,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
@@ -95,6 +99,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
+            listen_http: None,
             scheme: Scheme::Https,
             tls_cert: None,
             tls_key: None,
@@ -123,6 +128,13 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn effective_listen_http(&self) -> Option<SocketAddr> {
+        (self.scheme == Scheme::Both).then(|| {
+            self.listen_http
+                .unwrap_or_else(|| SocketAddr::new(self.listen.ip(), 8000))
+        })
+    }
+
     pub fn effective_api_base_url(&self, bound: SocketAddr) -> String {
         self.api_base_url.clone().unwrap_or_else(|| {
             let ip = match bound.ip() {
@@ -136,7 +148,11 @@ impl Config {
             };
             format!(
                 "{}://{}",
-                self.scheme.as_str(),
+                if self.scheme == Scheme::Http {
+                    "http"
+                } else {
+                    "https"
+                },
                 SocketAddr::new(ip, bound.port())
             )
         })
@@ -315,6 +331,11 @@ impl Config {
             let result: Result<(), String> = (|| {
                 match key.as_str() {
                     "scheme" => config.scheme = value.parse()?,
+                    "listen_http" => {
+                        config.listen_http = Some(value.parse().map_err(|_| {
+                            "listen_http must be an IP socket address, for example 127.0.0.1:8000".to_owned()
+                        })?);
+                    }
                     "tls_cert" | "tls_key" => {
                         if value.is_empty() {
                             return Err(format!("{key} must not be empty"));
@@ -464,13 +485,13 @@ impl Config {
                         report.diagnostics.errors.push(Diagnostic::new(
                             input.source,
                             &input.key,
-                            "TLS settings require scheme=https; remove TLS settings for HTTP.",
+                            "TLS settings require scheme=https or both; remove TLS settings for HTTP.",
                         ));
                         report.invalid.insert(name.into());
                     }
                 }
             }
-            Scheme::Https
+            Scheme::Https | Scheme::Both
                 if config.tls_cert.is_some() != config.tls_key.is_some()
                     && !["scheme", "tls_cert", "tls_key"]
                         .iter()
@@ -491,6 +512,36 @@ impl Config {
                 report.invalid.insert(name.into());
             }
             _ => {}
+        }
+        if !["scheme", "listen", "listen_http"]
+            .iter()
+            .any(|key| report.invalid.contains(*key))
+        {
+            let fix = if config.scheme != Scheme::Both && config.listen_http.is_some() {
+                Some("listen_http requires scheme=both; remove listen_http or use --scheme both.")
+            } else if config.listen.port() != 0
+                && config.effective_listen_http() == Some(config.listen)
+            {
+                Some(
+                    "listen and listen_http must use different nonzero endpoints; use --listen-http 127.0.0.1:8001 or port 0.",
+                )
+            } else {
+                None
+            };
+            if let Some(fix) = fix {
+                let name = if settings.contains_key("listen_http") {
+                    "listen_http"
+                } else {
+                    "listen"
+                };
+                if let Some(input) = settings.get(name) {
+                    report
+                        .diagnostics
+                        .errors
+                        .push(Diagnostic::new(input.source, &input.key, fix));
+                }
+                report.invalid.insert("listen_http".into());
+            }
         }
         if !report.invalid.contains("public_base_url")
             && let Some(input) = settings.get("public_base_url")
@@ -1334,6 +1385,95 @@ mod tests {
             );
         }
         std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn dual_listener_defaults_precedence_and_validation() {
+        let directory = crate::test_support::TestDir::new();
+        let file = directory.0.join("config.json");
+        std::fs::write(
+            &file,
+            r#"{"scheme":"both","listen":"[::1]:4444","listen_http":"[::1]:8001"}"#,
+        )
+        .unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let mut env = BTreeMap::new();
+        assert_eq!(
+            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Some("[::1]:8001".parse().unwrap())
+        );
+        env.insert("GCS_MIMIC_LISTEN_HTTP".into(), "[::1]:8002".into());
+        assert_eq!(
+            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Some("[::1]:8002".parse().unwrap())
+        );
+        args.extend(["--listen-http".into(), "[::1]:0".into()]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().effective_listen_http(),
+            Some("[::1]:0".parse().unwrap())
+        );
+        for listen in ["127.0.0.2:4443", "[::]:0"] {
+            let config = Config::load(
+                &[
+                    "--scheme".into(),
+                    "both".into(),
+                    "--listen".into(),
+                    listen.into(),
+                ],
+                &BTreeMap::new(),
+            )
+            .unwrap();
+            assert_eq!(
+                config.effective_listen_http(),
+                Some(SocketAddr::new(config.listen.ip(), 8000))
+            );
+            assert!(
+                config
+                    .effective_api_base_url(config.listen)
+                    .starts_with("https://")
+            );
+        }
+        for arguments in [
+            vec!["--scheme", "http", "--listen-http", "127.0.0.1:0"],
+            vec!["--listen-http", "127.0.0.1:0"],
+            vec!["--scheme", "both", "--listen", "127.0.0.1:8000"],
+            vec![
+                "--scheme",
+                "both",
+                "--listen",
+                "127.0.0.1:4443",
+                "--listen-http",
+                "127.0.0.1:4443",
+            ],
+            vec!["--scheme", "both", "--listen-http", "localhost:8000"],
+            vec!["--scheme", "both", "--listen-http", ""],
+            vec!["--scheme", "both", "--tls-cert", "cert.pem"],
+        ] {
+            let arguments: Vec<_> = arguments.into_iter().map(str::to_owned).collect();
+            assert!(
+                Config::load(&arguments, &BTreeMap::new()).is_err(),
+                "{arguments:?}"
+            );
+        }
+        let config = Config::load(
+            &[
+                "--scheme".into(),
+                "both".into(),
+                "--listen".into(),
+                "127.0.0.1:0".into(),
+                "--listen-http".into(),
+                "127.0.0.1:0".into(),
+            ],
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(config.listen, config.effective_listen_http().unwrap());
+        let config = Config::load(
+            &[],
+            &BTreeMap::from([("GCS_MIMIC_SCHEME".into(), "both".into())]),
+        )
+        .unwrap();
+        assert_eq!(config.scheme, Scheme::Both);
     }
 
     #[test]

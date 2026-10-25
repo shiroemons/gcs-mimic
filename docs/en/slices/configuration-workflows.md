@@ -3,8 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract established on **2026-10-24** for `configuration-workflows`; independent
-review results remain in the ledger. The legacy-input diagnostics and public-origin slices now
-implement the input/preflight, shared diagnostic and public Host/helper contracts below; reserved
+review results remain in the ledger. The legacy-input diagnostics, public-origin
+and dual-listener slices implement the input/preflight, shared diagnostic,
+public Host/helper and simultaneous HTTP/HTTPS contracts below; reserved
 settings remain unavailable until their named slices deliver effective behavior.
 DESIGN-055 and UX-003 remain PARTIAL; DESIGN-064 and DESIGN-065 retain their
 implemented precedence and single-listener TLS scopes. The
@@ -69,7 +70,7 @@ The following existing defaults and validation remain unchanged:
 | Setting | Default | Validation/role |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:4443` | IP socket address; port 0 allowed; binds only |
-| `scheme` | `https` | Currently `http` or `https`; future `both` below |
+| `scheme` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
 | `tls_cert`, `tls_key` | Bundled public development pair | Both custom nonempty paths or neither; PEM size/trust rules in [TLS contract](local-tls.md) |
 | `tls_handshake_timeout_ms` | `5000` | `1..60000`; HTTP rejects TLS settings |
 | `data_dir` | `data` | Nonempty; native catalog/blob destination, not a legacy root |
@@ -78,7 +79,7 @@ The following existing defaults and validation remain unchanged:
 | `compat_profile` | `native` | `native` or `legacy-emulator`; independent of authentication |
 | `auth_mode`, `identity_file` | `permissive`, unset | `strict` requires a nonempty registry path; permissive rejects a supplied registry |
 | `xml_virtual_host_domains` | Empty/disabled | At most 32 distinct validated DNS names; existing [virtual-host rules](xml-virtual-host.md) |
-| `max_connections` | `32` | `1..1024`; future dual listeners share this total |
+| `max_connections` | `32` | `1..1024`; all listeners and pending TLS handshakes share this total |
 | `max_object_bytes` | `1073741824` | `1..5497558138880` bytes |
 | `worker_threads`, `max_blocking_threads` | `2`, `2` | Each `1..32` |
 | `connection_timeout_ms`, `shutdown_timeout_ms` | `5000`, `5000` | Each `1..60000` |
@@ -218,8 +219,8 @@ and relative data directory replace the image's usable listener/persistence.
 | --- | --- | --- |
 | `FAKE_GCS_PORT` | Combine effective legacy HOST/PORT, e.g. port `8080` alone yields `GCS_MIMIC_LISTEN=0.0.0.0:8080`; no `GCS_MIMIC_PORT` server alias | Diagnostics |
 | `FAKE_GCS_HOST` | Combine effective legacy HOST/PORT, e.g. host `127.0.0.2` alone yields `GCS_MIMIC_LISTEN=127.0.0.2:4443` | Diagnostics |
-| `FAKE_GCS_SCHEME` | `GCS_MIMIC_SCHEME=https` or `http`; `both` only after dual listeners | `config-dual-listener` |
-| `FAKE_GCS_PORT_HTTP` | Unsupported today; future `GCS_MIMIC_SCHEME=both` with `GCS_MIMIC_LISTEN_HTTP=0.0.0.0:8000` | `config-dual-listener` |
+| `FAKE_GCS_SCHEME` | `GCS_MIMIC_SCHEME=https`, `http` or `both`; both serves primary HTTPS and secondary HTTP | `config-dual-listener` |
+| `FAKE_GCS_PORT_HTTP` | `GCS_MIMIC_SCHEME=both` with `GCS_MIMIC_LISTEN_HTTP=0.0.0.0:8000`; use the supplied legacy HOST/PORT_HTTP values | `config-dual-listener` |
 | `FAKE_GCS_EXTERNAL_URL` | Use its supplied safe URL as `GCS_MIMIC_API_BASE_URL`, preserving the client-reachable prefix; redact credential-bearing URLs | Diagnostics |
 | `FAKE_GCS_PUBLIC_HOST` | Use `GCS_MIMIC_PUBLIC_BASE_URL=https://storage.example.invalid:4443` including the scheme; legacy Host matching also needs `GCS_MIMIC_COMPAT_PROFILE=legacy-emulator`. Native path-style accepts any Host. For legacy SDK XML reads, use the API endpoint's authority too: a different public authority makes API-host XML reads fall back to a hostname bucket | `config-public-origin` |
 | `FAKE_GCS_DATA` | `GCS_MIMIC_SEED_DIR=fixtures`; native seed is one-time and does not overwrite on restart | Diagnostics; Import owns richer seed fidelity |
@@ -563,9 +564,62 @@ The selected DESIGN-055 / UX-003 scope requires:
   test follows a resumable Location after changing that port; an explicit API
   base override remains authoritative.
 
-`scheme=both` is not accepted by the current parser. Its HTTPS-primary default
-remains a required integration case for `config-dual-listener`; this slice does
-not introduce a second listener. Parent feature rows remain PARTIAL.
+`scheme=both` now resolves an implicit API base from the HTTPS primary listener.
+The dual-listener integration cases below cover this extension of the API-origin
+slice. Parent feature rows remain PARTIAL.
+
+### Dual listener behavior and verification
+
+`scheme=both` accepts `listen_http` through CLI, environment or JSON with normal
+precedence. Its default is the primary bind IP with port 8000; it is invalid in
+single-listener modes. Equal nonzero endpoints fail preflight, including a
+primary port 8000 colliding with the default secondary. Both may use port zero:
+the sockets bind independently and same-IP listeners receive distinct ports.
+Wildcard/specific-IP overlaps are left to the OS bind check.
+
+Both sockets bind before ready. A failure or shutdown while binding the second
+drops the first socket and closes the catalog before returning. Ready retains
+`listen` for the primary and includes ordered `listeners` entries with actual
+addresses and effective `https`/`http` schemes; single-listener startup also
+includes a one-entry array. Top-level `scheme` remains the configured mode.
+One State/catalog and one connection task set serve both sockets. Admission
+alternates between ready listeners and stops accepting from both at the shared
+`max_connections` limit, including pending TLS handshakes. Shutdown closes both
+sockets before draining connections and closing the catalog once.
+
+HTTP does not redirect to HTTPS. All links and resumable Locations use the one
+fixed API base, which defaults to primary HTTPS even for HTTP requests. An
+explicit API base overrides that default, including a proxy prefix. Both
+listeners apply the same authentication and storage behavior; enabling HTTP
+does not grant permissions or change public/signed URL construction. No
+Discovery/protobuf field, storage transition or provider gap changes.
+
+Verified on 2026-10-25 with Rust 1.99.1 and locked dependencies; implementation
+and tests are in `bb57857`. The new cases cover configuration precedence/defaults,
+legacy advice, validation before catalog creation, HTTP-to-HTTPS bucket and
+resumable-session sharing, HTTPS primary URLs for IPv4/IPv6 wildcards, explicit
+API-base precedence, second-bind socket/catalog cleanup, aggregate handshake
+admission/timeouts and closure of both listeners. Existing TLS cases retain CA,
+hostname, expiry, TLS-version and strict-permission checks.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --offline --lib dual_listener` | PASS; configuration and migration advice |
+| `cargo test --locked --offline --test foundation dual_listener` | PASS; four startup/wire cases |
+| `cargo test --locked --offline --test foundation --test tls` | PASS; existing startup and nine TLS cases |
+| `just check` | PASS; formatting, clippy, all workspace tests, ledger/matrix checks and shell/publication checks |
+| `cargo xtask dependencies check` | PASS; Rust, direct dependencies and SDK/container inputs CURRENT; no dependency changes |
+| Go vet/test stages of `just check-sdk` | PASS; complete Go suite; Ruby stage required local locked-gem setup and was run separately below |
+| `bundle exec ruby sdk-tests/ruby/https.rb` with HTTPS endpoints from dual-listener ready | PASS; Ruby 4.0.9, Bundler 4.0.23, storage 1.62.1; permissive/strict, resumable and V4, plus HTTP/HTTPS probes; signing uses the existing public-key fixture registry |
+| `just check-containers` | PASS; one ARM64 and one AMD64 build/smoke, existing host/peer CRUD, resumable and seed lifecycle |
+| Native guide dual-listener startup, both readiness probes and shutdown | PASS; isolated data directory and ephemeral ports; the entire pre-existing guide was not replayed |
+| `npx --yes markdownlint-cli2` on changed English/Japanese guides and this contract | PASS |
+
+No benchmark or resource measurement was run: this changes listener admission,
+keeps bounded request streaming and adds no object-catalog buffering. Dynamic
+Docker host-port discovery, trusted proxy origins, and unrelated settings remain
+outside this slice. Compose continues to publish its existing primary port;
+operators using both must explicitly publish the HTTP port as well.
 
 ### API origin default verification
 
@@ -605,7 +659,7 @@ Docker's automatically assigned host mapping (`GCS_MIMIC_PORT=0`) is unknown
 inside the container: discover it and configure a fixed published port/API base
 before following generated URLs. Explicit proxy prefixes still require the
 proxy to strip the prefix. One base does not cover disjoint host/peer address
-spaces. Trusted proxy origins, dual listeners and parent-row completion remain
+spaces. Trusted proxy origins and parent-row completion remain
 outside this slice. No benchmark, browser or real-cloud run was performed;
 the entire getting-started guide was not replayed because its runnable command
 blocks are unchanged. Relevant native and container
@@ -670,7 +724,7 @@ or the runtime cases.
 | `DESIGN-055-PENDING` | DNS/IP public origins, 32-domain union/dedup/overflow/API conflict, normalization idempotence proptest, non-root path/userinfo/query/fragment rejection, default-port normalization; explicit-config helpers (syntax/size/value types/public base only), override/no implicit reads/no TLS/identity/catalog access; final-host signature/tampering, host/peer/browser receiver choices and fixed ready fields; proxy derivation remains separate | `config-public-origin`; DESIGN-056 separately |
 | `DESIGN-055-LEGACY-HOST` | Implement against the recorded reference authority/DNS/route/request-form matrix; verify selected buckets, status and deliberate local boundaries including explicit overlapping domains and explicit-domain reserved paths (XML) versus public-derived/path-style JSON precedence, same-domain explicit/public deduplication, unequal API/public authorities with API-host XML fallback and equal-authority SDK XML reads, absolute conflict/signature rejection, existing XML errors/methods and IP virtual disabling; native/unset-public reserved-path and arbitrary-Host regressions and strict IAM/PAP isolation | `config-public-origin` |
 | `UX-003-PUBLIC-ORIGIN` | Explicit public origin for host/peer/browser receiver choices, independent API/listener roles, DNS/IP domain behavior and diagnostics, explicit-config helper defaults/overrides, final-host signature/PAP isolation and fixed ready keys | `config-public-origin` |
-| `UX-003-DUAL-LISTENER` | HTTP and HTTPS simultaneously, one advertised base, aggregate connection cap, second-bind failure cleanup, retained ready key plus both addresses, shutdown of both; reject equal nonzero endpoints including primary port 8000 colliding with the default secondary; reject listen_http unless scheme=both; both port-0 listeners bind independently and report distinct actual ports; existing TLS trust/handshake tests | `config-dual-listener` |
+| `UX-003-DUAL-LISTENER` | HTTP and HTTPS simultaneously share bucket/object state and resumable sessions, one HTTPS-primary advertised base (or explicit override), and an aggregate connection cap including stalled TLS handshakes; second-bind failure closes the first socket and catalog lock without ready; retain ready listen plus both actual addresses; shutdown closes both; reject equal nonzero endpoints including primary port 8000 colliding with the default secondary; reject listen_http unless scheme=both; test CLI/environment/file precedence, malformed addresses, independent port-0 binds, wildcard API defaults, and existing TLS trust/handshake bounds | `config-dual-listener` |
 | `UX-003-LOG-LEVEL` | Shared stderr JSON/levels; real filtering for each accepted level, invalid-level failure, fatal diagnostics and stdout ready/stopped always visible | `config-log-level` |
 | `UX-003-REMAINING-SETTINGS` | Native location absent/explicit/default/restart, invalid regions and explicit legacy-setting rejection; retain case-insensitive legacy `US-CENTRAL1` acceptance, including `us-central1`, without storing it | `config-remaining-settings` |
 | `UX-003-MEMORY-EVENTS` | Effective bounded memory backend and event publisher/filter behavior with their own decomposed acceptance; no ignored selector counts as success | Separate DESIGN-077 / EXT-BEH-032 plans |
@@ -727,7 +781,7 @@ It delivers the 19-name migration inventory, bounded aggregate configuration
 validation, independent TLS/identity preflight and the shared JSON renderer.
 The earlier contract-only verification record is historical; it does not
 describe newly reserved settings as implemented. Endpoint-default resolution,
-public-origin routing, dual listeners and log-level filtering remain the named
-future slices. Literal host `/data` is not modified by tests; isolated paths
+public-origin routing and dual listeners have since been delivered; log-level
+filtering remains a separate slice. Literal host `/data` is not modified by tests; isolated paths
 exercise the production inspector. Runtime/signal allocation and simultaneous
 cleanup failures are not fault-injected, and performance remains unmeasured.

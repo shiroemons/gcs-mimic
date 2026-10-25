@@ -99,8 +99,9 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 
 | 用途 | 現在の設定 | 違い |
 | --- | --- | --- |
-| HTTP・HTTPS | `GCS_MIMIC_SCHEME` | 同時待受は未対応 |
+| HTTP・HTTPS | `GCS_MIMIC_SCHEME` | `http`・`https`・`both`。bothではprimaryがHTTPS |
 | 待受ホスト・ポート | `GCS_MIMIC_LISTEN` | `IP:port`を1つ指定 |
+| 追加のHTTP待受 | `GCS_MIMIC_LISTEN_HTTP` | both専用。既定はprimaryのIPと8000番 |
 | API応答に載せる接続先 | `GCS_MIMIC_API_BASE_URL` | 公開URLの生成とは別 |
 | 公開origin | `GCS_MIMIC_PUBLIC_BASE_URL` | DNS名のXML仮想ホストと、任意指定のlegacy Host照合に使用 |
 | 初期ファイル | `GCS_MIMIC_SEED_DIR` | 初回読込のみ |
@@ -116,6 +117,26 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | イベント通知先・絞り込み | なし | 未対応 |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`、`US`・`EU`・`ASIA`に対応 |
 | ログレベル選択 | なし | 未対応 |
+
+HTTPとHTTPSを同時に受け付ける場合は、次のように起動します。
+
+```sh
+target/debug/gcs-mimic serve --scheme both \
+  --listen 127.0.0.1:4443 --listen-http 127.0.0.1:8000 --data-dir data
+```
+
+両方の待受でカタログ・認証・接続数上限を共有し、TLSの握手待ちも上限に含めます。
+readyの`listen`はprimaryを保持し、`listeners`に実際の待受アドレスとschemeを追加します。
+API originの既定はprimaryのHTTPSです。HTTPで開始したresumable uploadも同じoriginを通知します。
+別の接続先を通知する場合は`--api-base-url`を指定してください。
+`--listen-http`はboth以外で拒否します。同じ非ゼロの待受アドレスも拒否します。
+両方をポート0にすると独立して空きポートを確保します。
+どちらかのbindに失敗するとreadyを出さず、socketとカタログのlockを解放します。
+終了時には両方の待受を閉じます。ComposeではHTTPのポートも明示して公開してください。
+`FAKE_GCS_SCHEME`・`FAKE_GCS_PORT_HTTP`は引き続きエラーにし、上のnative設定を案内します。
+対象ケース`UX-003-DUAL-LISTENER`の範囲は
+[契約と検証結果](../en/slices/configuration-workflows.md#dual-listener-behavior-and-verification)に記載しています。
+親機能`UX-003`は、独立した未対応ケースが残るためPARTIALのままです。
 
 ネイティブCLIは`serve --scheme http`などの形式です。
 全項目のCLI・既定値は

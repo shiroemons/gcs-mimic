@@ -120,8 +120,9 @@ assume that changing the image name is sufficient.
 
 | fake-gcs-server option | Current gcs-mimic setting | Difference |
 | --- | --- | --- |
-| `-scheme http` / `https` | `--scheme`, `GCS_MIMIC_SCHEME` | One listener; `both` is unavailable |
+| `-scheme http` / `https` / `both` | `--scheme`, `GCS_MIMIC_SCHEME` | Both uses primary HTTPS and a second HTTP listener with one advertised API origin |
 | `-host`, `-port` | `--listen IP:PORT`, `GCS_MIMIC_LISTEN` | Combined listener setting; container port publication remains separate |
+| `-port-http` | `--listen-http IP:PORT`, `GCS_MIMIC_LISTEN_HTTP` | Requires `scheme=both`; default primary IP:8000 |
 | `-external-url` | `--api-base-url`, `GCS_MIMIC_API_BASE_URL` | Fixed origin for API-generated links; not a public-host allowlist |
 | `-public-host` | `--public-base-url`, `GCS_MIMIC_PUBLIC_BASE_URL` | HTTP(S) origin; adds a DNS virtual domain. Legacy Host matching requires `--compat-profile legacy-emulator`; native path-style accepts any Host. |
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR` | Initial import into a fresh catalog, not startup replay or live synchronization |
@@ -152,7 +153,7 @@ arbitrary host rewrites.
 
 Source: pinned [configuration](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/config/config.go)
 and [routes and URL helpers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go).
-The table is not a complete flag inventory; event, logging, dual-listener and
+The table is not a complete flag inventory; event, logging and
 other source-only settings still need individually scoped decisions.
 
 Use native names where they already express the intended role. Retaining every

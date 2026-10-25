@@ -21,10 +21,11 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
   --listen IP:PORT             127.0.0.1:4443
-  --scheme MODE                https (http|https; one listener)
+  --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
+  --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
-  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS only)
+  --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS listener)
   --data-dir PATH              data (exclusive persistent catalog)
   --seed-dir PATH              none (read-only fixtures; fresh data directory only)
   --seed-project ID            local-project (owning project for seeded buckets)
@@ -32,7 +33,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --api-base-url URL           Derived from bound listener (fixed advertised endpoint)
   --public-base-url URL        none (public origin; XML host routing and explicit-config URL helpers)
   --xml-virtual-host-domains LIST none (comma-separated XML base DNS names; at most 32)
-  --max-connections N          32 (1..1024)
+  --max-connections N          32 (1..1024; shared across listeners and TLS handshakes)
   --max-object-bytes N         1073741824 (1..5497558138880; streamed upload cap)
   --worker-threads N           2 (1..32)
   --max-blocking-threads N     2 (1..32)
