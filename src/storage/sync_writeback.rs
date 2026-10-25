@@ -258,6 +258,10 @@ pub struct Writeback {
     lease: RootLease,
     workspace: Arc<File>,
 }
+
+#[path = "sync_unpublished.rs"]
+mod unpublished;
+pub use unpublished::Unpublished;
 impl RootLease {
     pub async fn writeback(&self, limits: Limits) -> Result<Writeback, Error> {
         let permit = self

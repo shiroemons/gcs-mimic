@@ -54,6 +54,9 @@ impl State {
 
 pub const BUCKET_BODY_LIMIT: usize = 64 * 1024;
 
+#[cfg(test)]
+tokio::task_local! { static FORCE_LISTENER_ERROR: bool; }
+
 #[path = "server/copy.rs"]
 mod copy;
 #[path = "server/resumable.rs"]
@@ -83,6 +86,16 @@ pub async fn serve_with_tls(
     state: Arc<State>,
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    serve_with_tls_and_drain(listeners, config, state, shutdown, async { Ok(()) }).await
+}
+
+pub async fn serve_with_tls_and_drain(
+    listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    config: Config,
+    state: Arc<State>,
+    shutdown: impl Future<Output = io::Result<()>>,
+    background_drain: impl Future<Output = io::Result<()>>,
+) -> io::Result<()> {
     if listeners.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -102,6 +115,10 @@ pub async fn serve_with_tls(
                 }
             }
             incoming = std::future::poll_fn(|cx| {
+                #[cfg(test)]
+                if FORCE_LISTENER_ERROR.try_with(|enabled| *enabled).unwrap_or(false) {
+                    return std::task::Poll::Ready(Err(io::Error::other("injected listener failure")));
+                }
                 for offset in 0..listeners.len() {
                     let index = (next_listener + offset) % listeners.len();
                     if let std::task::Poll::Ready(result) = listeners[index].0.poll_accept(cx) {
@@ -172,11 +189,19 @@ pub async fn serve_with_tls(
         connections.abort_all();
         while connections.join_next().await.is_some() {}
     }
+    let background_result = background_drain.await;
     crate::diagnostics::combine_shutdown_results(
-        signal_result.and(drain_result),
+        crate::diagnostics::combine_shutdown_results(
+            signal_result.and(drain_result),
+            background_result,
+        ),
         state.catalog.close().await.map_err(io::Error::other),
     )
 }
+
+#[cfg(test)]
+#[path = "server/drain_tests.rs"]
+mod drain_tests;
 
 async fn serve_connection(
     stream: impl AsyncRead + AsyncWrite + Unpin,

@@ -39138,7 +39138,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Continuous synchronization and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, ingestion, conflict controls and retries remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39176,8 +39176,14 @@
           "test_ids": []
         },
         {
+          "id": "sync-configuration-inputs",
+          "description": "Verify CLI > environment > file > default for only sync_dir and sync_delete_guard, strict boolean parsing, guard without root, removed tuning-key rejection through CLI/environment/JSON, overlap/alias/symlink rejection and CLI-only exact catalog-ID reinitialization. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, 1 GiB and 1000 conflict entries; fewer settings suit local development. Settle/delete effects remain PENDING. Scope and verification: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected"]
+        },
+        {
           "id": "sync-configuration",
-          "description": "Implement the reserved directory-sync settings in docs/en/slices/directory-synchronization.md: one required root, exact defaults/precedence/numeric bounds/boolean parsing, empty/unknown/tuning-without-root errors, path overlap and root substitution checks, startup-only catalog-bound reinitialization; owners sync-mirror and sync-ingest.",
+          "description": "Initial export acceptance: sync_dir and sync_delete_guard are the only settings, with exact defaults/precedence/boolean parsing, guard-without-root and overlap errors, unknown-setting rejection for all five removed tuning keys, startup-only catalog-bound reinitialization and fail-closed root identity. Internal policy is fixed at 1000 ms, at least 100 deletions and more than 50%, 1 GiB and 1000 conflict entries to keep local-development configuration small. Settle/deletion effects remain PENDING with ingestion; contract docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -39278,8 +39284,14 @@
           "test_ids": ["container-bucket-initialization", "initializer_precedes_seed_and_empty_file_is_applied", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
         },
         {
+          "id": "sync-initial-export",
+          "description": "PASS: one post-ready bounded all-owner export preserves empty buckets and immutable binary/empty API bodies, adopts identical bodies via durable receipts, retains divergent/external-only files and activating baseline, records mapping findings and emits counts. Initial ingestion/conflict transfer and continuous journal replay remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
+        {
           "id": "sync-initial-activation",
-          "description": "Merge empty/nonempty catalogs after ready in bounded pages: preserve empty buckets and existing owners/settings, API-first identical/different/absent-name behavior, exact result counts and interruption-safe baseline without implicit deletions or replay; owners sync-mirror and sync-ingest.",
+          "description": "Initial export acceptance: after ready, page all-owner buckets/live objects, create empty bucket directories, export immutable binary/empty bodies through durable receipts, count identical/divergent/external-only/ignored/unrepresentable entries and retain activating baseline when unresolved or changed during scan. Divergent and external-only files remain untouched; ingestion, conflict transfer and journal replay remain PENDING. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -39370,6 +39382,12 @@
       ],
       "test_ids": [
         "writeback_durable_receipts_atomically_ack_fingerprints_progress_and_completion",
+        "sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization",
+        "sync_removed_settings_and_guard_without_root_fail_with_diagnostics",
+        "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected",
+        "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
+        "initial_export_preserves_external_conflicts_and_records_mapping_findings",
+        "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
         "writeback_removal_requires_complete_baseline_and_absent_unchanged_api_winner",
         "writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_root_and_sync",
         "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
@@ -39433,6 +39451,13 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization", "sync_removed_settings_and_guard_without_root_fail_with_diagnostics", "sync_overlaps_aliases_empty_and_symlink_roots_are_rejected", "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
           "result": "PASS",
@@ -40781,7 +40806,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Continuous synchronization and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, ingestion, conflict controls and retries remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40872,56 +40897,68 @@
           ]
         },
         {
+          "id": "sync-runtime-export-mapping",
+          "description": "PASS: initial export records lexical/ignored, prefix/type, host length and symlink findings without following redirects or modifying API/external bytes; descriptor directory pages are bounded. Exhaustive case/Unicode alias groups before first export, stale-finding reconciliation, legacy invalid-bucket per-object findings and non-Linux conflict guarantees remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects"]
+        },
+        {
           "id": "sync-name-mapping",
-          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent/Unix backslash versus Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md.",
+          "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent/Unix backslash versus Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive alias groups and non-Linux conflict guarantees remain PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-bidirectional-mutations",
-          "description": "Verify multiple buckets and API create/overwrite/delete/copy/compose plus external create/edit/delete/rename, zero-byte/binary bodies, independent bucket settings and version history; external bucket-directory removal deletes tracked objects only and recreates the empty directory; owners sync-mirror and sync-ingest.",
+          "description": "Verify multiple buckets and API create/overwrite/delete/copy/compose plus external create/edit/delete/rename, zero-byte/binary bodies, independent bucket settings and version history; external bucket-directory removal deletes tracked objects only and recreates the empty directory; owners sync-mirror and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
+          "id": "sync-unpublished-cancellation",
+          "description": "Private API-copy provenance permits cancellation of unchanged unpublished copies and non-writing identical observations without touching external targets. Installed/modified/protected bodies reject abandonment; an obsolete installed API copy completes only after durability and changed-API checks, without fingerprint or journal progress. API overwrite/delete before open/arm and after publication, external same-name creation, identical-file edits and restart do not strand normal race operations. Interruption of unlink/SQLite completion, disk-full retry and protected recovery remain PENDING. Scope: docs/en/slices/directory-synchronization.md. External deletion/edit/touch between rename and acknowledgement can retain an Armed/Durable recovery stop when both completion paths refuse; sync-conflicts supplies the remedy (PENDING). Obsolete Complete counts as deferred in that pass with baseline incomplete, then Conflicting/external_only on the next reconciliation.",
+          "result": "PASS",
+          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations", "writeback_abandon_rejects_installed_and_modified_workspace_bodies"]
+        },
+        {
           "id": "sync-api-writeback",
-          "description": "Pending: page all owner projects and live objects after ready, export selected immutable descriptors through fsutil, consume fenced change notifications without idle polling, preserve external conflicts and bucket settings/history, recreate empty bucket directories and reconcile gaps/restarts. Blocked on public cross-project bucket pages, race-free journal waits, durable catalog/root associations, protected pending write-back/progress records and ObjectReader descriptor access. Required properties and acceptance handoffs: docs/en/slices/directory-synchronization.md.",
+          "description": "Initial-export subset passes under sync-initial-export: after-ready all-owner/live keyset pages, immutable-descriptor copies, no-replace publication and durable receipts, empty bucket directories and retained external bytes. Continuous journal replay/coalescing/gap recovery, replacements, conflict transfer and disk-full retries remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Obsolete Complete counts as deferred and keeps baseline incomplete; the next reconciliation classifies the retained output as Conflicting or external_only after API deletion.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-metadata-and-loops",
-          "description": "Use shared atomic InheritFromReplaced with concurrent metadata PATCH, seed MIME/default-hold behavior for new files, same-hash no-generation publication, live-hash crash convergence and precise origin/fingerprint suppression without masking later API edits; owner sync-ingest.",
+          "description": "Use shared atomic InheritFromReplaced with concurrent metadata PATCH, seed MIME/default-hold behavior for new files, same-hash no-generation publication, live-hash crash convergence and precise origin/fingerprint suppression without masking later API edits; owner sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-conflict-preservation",
-          "description": "Preserve known divergent bytes before API-priority replacement; after a last-check displacement race protect the actual body in workspace until durable conflict registration or explicitly authorized recovery discard, even at/exceeding byte/entry quotas or ENOSPC, fully account retained bytes/entries and stop ingestion/destructive write-back without automatic cleanup or blind exchange-back; verify kill/restart while stopped, operator retrieval/resumption, zero-byte entries, cancellation/ambiguous commit and revision/generation-bound restore/discard without retargeting or overwriting newer API state; a 1 TiB + 1 byte sparse displaced body must have a pre-registration discard path bound to original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, while foreign-project/stale/unconfirmed requests retain bytes/quota and only durable authorized completion permits root resumption; owners sync-mirror, sync-control and sync-ingest.",
+          "description": "Preserve known divergent bytes before API-priority replacement; after a last-check displacement race protect the actual body in workspace until durable conflict registration or explicitly authorized recovery discard, even at/exceeding byte/entry quotas or ENOSPC, fully account retained bytes/entries and stop ingestion/destructive write-back without automatic cleanup or blind exchange-back; verify kill/restart while stopped, operator retrieval/resumption, zero-byte entries, cancellation/ambiguous commit and revision/generation-bound restore/discard without retargeting or overwriting newer API state; a 1 TiB + 1 byte sparse displaced body must have a pre-registration discard path bound to original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, while foreign-project/stale/unconfirmed requests retain bytes/quota and only durable authorized completion permits root resumption; owners sync-mirror, sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. The 1 TiB sparse-body recovery target remains PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-deletion-approval",
-          "description": "Test inclusive count/strict percentage thresholds, zero denominator and disabled guard; inspect complete-scan-only candidates using GET /_internal/sync?view=deletions with fixed revision/limit/cursor, verifying all pages match the exact approved set and denominator/fence/incarnations/generations; API/tree/root/incarnation changes or restart reject stale cursors and stale/replayed/foreign approvals with 409; preserve recreated external files across final absence-check races, restore protected deletions and retain version history; owners sync-control and sync-ingest.",
+          "description": "Test inclusive count/strict percentage thresholds, zero denominator and disabled guard; inspect complete-scan-only candidates using GET /_internal/sync?view=deletions with fixed revision/limit/cursor, verifying all pages match the exact approved set and denominator/fence/incarnations/generations; API/tree/root/incarnation changes or restart reject stale cursors and stale/replayed/foreign approvals with 409; preserve recreated external files across final absence-check races, restore protected deletions and retain version history; owners sync-control and sync-ingest. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-management-authorization",
-          "description": "Every sync route/CLI requires explicit registered project storage.admin authority for seed_project, all existing synchronized owners and original owner projects retained by unresolved conflicts/recovery in strict mode; retain original project/incarnation through last-bucket deletion, restart and cross-project same-name recreation; list and restore/discard return 403 to a seed admin missing that original project's grant before/after each transition, and authorized restore still rejects stale incarnations; include reads/waits and queued-operation authority/target rechecks, reject missing/invalid/insufficient identities before disclosure and deny public/signed/bucket-only grants; pre-registration recovery discard requires that same original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, rejects foreign-project/stale/unconfirmed requests without changing retained bytes and rechecks authority on execution/restart retry before any unlink or stop release; permissive controls are explicitly unauthenticated; owner sync-control.",
+          "description": "Every sync route/CLI requires explicit registered project storage.admin authority for seed_project, all existing synchronized owners and original owner projects retained by unresolved conflicts/recovery in strict mode; retain original project/incarnation through last-bucket deletion, restart and cross-project same-name recreation; list and restore/discard return 403 to a seed admin missing that original project's grant before/after each transition, and authorized restore still rejects stale incarnations; include reads/waits and queued-operation authority/target rechecks, reject missing/invalid/insufficient identities before disclosure and deny public/signed/bucket-only grants; pre-registration recovery discard requires that same original-owner authority, exact recovery revision/target identity and backup-verified or explicit no-backup discard confirmation, rejects foreign-project/stale/unconfirmed requests without changing retained bytes and rechecks authority on execution/restart retry before any unlink or stop release; permissive controls are explicitly unauthenticated; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Detailed strict retained-owner authorization remains PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-status-and-wait",
-          "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control.",
+          "description": "Implement all documented stop scopes/remedies and GET /_internal/sync fixed-revision views for deletions and findings with limit/cursor, exact candidate/Unrepresentable/ProtectedDeletion/recovery fields and remedies; verify multi-page inspection equals the approved set, intermediate changes reject stale cursors/approval with 409, bounded responses/request admission and sanitized readiness without changing API-ready status; wait on captured stable-scan/journal barriers with timeout/disconnect/shutdown behavior and inspectable stopped state; owner sync-control. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-bounded-observation",
-          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and measure actual resource/latency behavior without inferred performance claims; owners sync-watcher and sync-ingest, dependency selection requires owner approval.",
+          "description": "Dedicated bounded OS-worker scan/hash/copy, paged state/journal and diagnostics, stat/racy filtering, coalesced path queues and full-rescan fallback for gaps/overflow/duplicate/self/missed notifications; no idle polling; verify bind mounts and measure actual resource/latency behavior without inferred performance claims; owners sync-watcher and sync-ingest, dependency selection requires owner approval. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -41151,6 +41188,13 @@
       ],
       "test_ids": [
         "export_directory_walk_rejects_redirects_and_unsafe_components",
+        "export_concurrent_api_and_external_changes_never_strand_unpublished_operations",
+        "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations",
+        "writeback_abandon_rejects_installed_and_modified_workspace_bodies",
+        "initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence",
+        "initial_export_preserves_external_conflicts_and_records_mapping_findings",
+        "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them",
+        "descriptor_directory_pages_are_bounded_and_never_follow_redirects",
         "export_replace_between_directories_retains_displaced_entries",
         "sync_findings_idempotent_pages_conditional_removal_and_restart",
         "sync_findings_reject_foreign_bindings_and_stale_incarnations",
@@ -41268,6 +41312,20 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib -- writeback_abandon export_concurrent_api listener_failure_drains",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["export_concurrent_api_and_external_changes_never_strand_unpublished_operations", "writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations", "writeback_abandon_rejects_installed_and_modified_workspace_bodies"]
+        },
+        {
+          "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["initial_export_pages_all_owners_preserves_empty_binary_bodies_and_api_independence", "initial_export_preserves_external_conflicts_and_records_mapping_findings", "runtime_mapping_reports_type_length_and_symlink_conflicts_without_following_them", "descriptor_directory_pages_are_bounded_and_never_follow_redirects"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
           "result": "PASS",
@@ -41818,7 +41876,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Continuous synchronization and recovery controls remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; the shared APIs now support the initial-export consumer. Initial export is now connected: sync settings and startup-only reinitialization, pre-bind root/marker ownership, and one post-ready all-owner live-object export through immutable descriptors and durable receipts. Divergent/external-only files remain untouched and keep activation incomplete; continuous journal replay, ingestion, conflict controls and retries remain PENDING. Practical local scope and deferred extreme/platform cases: docs/en/slices/directory-synchronization.md#local-development-scope.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -41900,20 +41958,32 @@
           ]
         },
         {
+          "id": "sync-prebind-marker",
+          "description": "PASS: startup activates roots after PAP/initializer/seed and before bind; missing/foreign/malformed markers fail closed with repair diagnostics, exact-ID missing-marker reinitialization preserves API/seed state, and ordinary process shutdown releases ownership. Exhaustive kill/host-power-loss and scan/publication/conflict lock-boundary coverage remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
+        {
           "id": "sync-marker-recovery",
-          "description": "Missing/foreign/malformed markers or wrong mounts stop before bind; verify root/catalog identity, safe missing-marker reinitialization, activation interruption/restart and marker/state durability without interpreting an unobserved tree as deletion; owners sync-mirror and sync-recovery; contract docs/en/slices/directory-synchronization.md.",
+          "description": "Missing/foreign/malformed markers or wrong mounts stop before bind; verify root/catalog identity, safe missing-marker reinitialization, activation interruption/restart and marker/state durability without interpreting an unobserved tree as deletion; owners sync-mirror and sync-recovery; contract docs/en/slices/directory-synchronization.md. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive process-kill and host-power-loss boundaries remain PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
         {
           "id": "sync-writeback-recovery",
-          "description": "Barrier-kill copy/file-sync/exchange-or-replace/parent-sync/state-commit and conflict-registration windows; Linux validates actual displaced inode/no-replace races including last-check replacement at/exceeding byte/entry quota and ENOSPC before preservation/registration, then kill/restart with workspace-resident bodies must retain original bytes/owner, full quota accounting, inspectable stops and operator retrieval/resumption without automatic cleanup or blind exchange-back; include a 1 TiB + 1 byte sparse body and authorized confirmed pre-registration discard, ENOSPC before durable discard intent retains bytes, kill/restart before/after intent/unlink/parent-sync/completion resumes only that exact operation, idempotent retry never targets another entry and quota/root stop remain until durable completion; foreign-project/stale-revision/identity/unconfirmed requests retain bytes; other OS reports checked-replace limitations and detects observable races; disk-full/ambiguous-commit recovery preserves immutable blobs and catalog microseconds; owners sync-mirror and sync-recovery.",
+          "description": "Barrier-kill copy/file-sync/exchange-or-replace/parent-sync/state-commit and conflict-registration windows; Linux validates actual displaced inode/no-replace races including last-check replacement at/exceeding byte/entry quota and ENOSPC before preservation/registration, then kill/restart with workspace-resident bodies must retain original bytes/owner, full quota accounting, inspectable stops and operator retrieval/resumption without automatic cleanup or blind exchange-back; include a 1 TiB + 1 byte sparse body and authorized confirmed pre-registration discard, ENOSPC before durable discard intent retains bytes, kill/restart before/after intent/unlink/parent-sync/completion resumes only that exact operation, idempotent retry never targets another entry and quota/root stop remain until durable completion; foreign-project/stale-revision/identity/unconfirmed requests retain bytes; other OS reports checked-replace limitations and detects observable races; disk-full/ambiguous-commit recovery preserves immutable blobs and catalog microseconds; owners sync-mirror and sync-recovery. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive kill boundaries, 1 TiB sparse recovery and non-Linux conflict guarantees remain PENDING. External deletion/edit/touch between rename and acknowledgement can retain an Armed/Durable recovery stop when both completion paths refuse; sync-conflicts supplies the remedy (PENDING). Obsolete Complete counts as deferred in that pass with baseline incomplete, then Conflicting/external_only on the next reconciliation.",
           "result": "PENDING",
           "test_ids": []
         },
         {
+          "id": "sync-graceful-initial-export-stop",
+          "description": "Ordinary SIGTERM during initial export stops before the next prepare, finishes the active operation and drains sync before catalog close; restart continues without a recovery stop. Listener errors also drain background work while the catalog is still usable. Existing serve_with_tls callers retain a no-op default drain. Exhaustive cancellation/kill boundaries remain PENDING. Scope: docs/en/slices/directory-synchronization.md.",
+          "result": "PASS",
+          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "listener_failure_drains_background_work_before_catalog_close"]
+        },
+        {
           "id": "sync-shutdown-lock",
-          "description": "Drain scans/staging/publication/resolution/write-back on shutdown, clean safe temporary files, and retain exclusive catalog/root ownership until accepted jobs complete; second server cannot acquire the active root even with another catalog, preserving DESIGN-076; owner sync-recovery with Shared state.",
+          "description": "Drain scans/staging/publication/resolution/write-back on shutdown, clean safe temporary files, and retain exclusive catalog/root ownership until accepted jobs complete; second server cannot acquire the active root even with another catalog, preserving DESIGN-076; owner sync-recovery with Shared state. Local-development subset: docs/en/slices/directory-synchronization.md#local-development-scope. Exhaustive scan/publication/conflict cancellation and ownership boundaries remain PENDING.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -42056,6 +42126,10 @@
       ],
       "test_ids": [
         "writeback_export_cross_directory_publication_precedes_state_and_retains_displacement",
+        "sigterm_during_initial_export_restarts_without_recovery_stop",
+        "listener_failure_drains_background_work_before_catalog_close",
+        "marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize",
+        "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready",
         "writeback_export_parent_sync_failure_cannot_commit_state",
         "sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback",
         "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
@@ -42134,6 +42208,20 @@
         "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration; cargo test --locked --offline --lib -- writeback_abandon export_concurrent_api listener_failure_drains",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["sigterm_during_initial_export_restarts_without_recovery_stop", "listener_failure_drains_background_work_before_catalog_close"]
+        },
+        {
+          "command": "cargo test --locked --offline --test sync_mirror --test sync_configuration",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": ["marker_preflight_rejects_missing_foreign_malformed_and_allows_exact_reinitialize", "sync_marker_failure_precedes_bind_and_ready_and_process_exports_after_ready"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
           "result": "PASS",

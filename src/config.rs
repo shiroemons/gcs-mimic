@@ -76,6 +76,9 @@ pub struct Config {
     pub tls_handshake_timeout_ms: u64,
     pub data_dir: PathBuf,
     pub seed_dir: Option<PathBuf>,
+    pub sync_dir: Option<PathBuf>,
+    pub sync_delete_guard: bool,
+    pub sync_reinitialize: Option<crate::storage::sync_state::CatalogId>,
     pub seed_project: String,
     pub seed_content_type: crate::mime::SeedContentType,
     pub default_location: String,
@@ -109,6 +112,9 @@ impl Default for Config {
             tls_handshake_timeout_ms: 5_000,
             data_dir: PathBuf::from("data"),
             seed_dir: None,
+            sync_dir: None,
+            sync_delete_guard: true,
+            sync_reinitialize: None,
             seed_project: "local-project".into(),
             seed_content_type: crate::mime::SeedContentType::OctetStream,
             default_location: "US".into(),
@@ -218,7 +224,9 @@ impl Config {
             match read_config(&selector.value) {
                 Ok(values) => {
                     for (key, value) in values {
-                        let text = if key == "buckets_file" {
+                        let text = if key == "sync_delete_guard" && value.is_boolean() {
+                            Some(value.to_string())
+                        } else if key == "buckets_file" {
                             value.as_str().map(str::to_owned)
                         } else {
                             setting_text(&value)
@@ -276,8 +284,12 @@ impl Config {
                 }
                 if !NATIVE_KEYS.contains(&input.name.as_str())
                     || (input.name == "config" && source == DiagnosticSource::Config)
+                    || (input.name == "sync_reinitialize" && source != DiagnosticSource::Cli)
                 {
                     let fix = match input.name.as_str() {
+                        "sync_reinitialize" => {
+                            "sync_reinitialize is startup-only CLI input; remove it here and use --sync-dir DIRECTORY --sync-reinitialize CATALOG_ID once."
+                        }
                         "port" => {
                             "GCS_MIMIC_PORT is Compose-only host port publication; keep it in the Compose invocation, remove it from the server environment and use GCS_MIMIC_LISTEN=0.0.0.0:4443 for server binding."
                         }
@@ -400,6 +412,23 @@ impl Config {
                         }
                         config.seed_dir = Some(PathBuf::from(value));
                     }
+                    "sync_dir" => {
+                        if value.is_empty() {
+                            return Err(
+                                "sync_dir must not be empty; supply an existing writable directory"
+                                    .into(),
+                            );
+                        }
+                        config.sync_dir = Some(PathBuf::from(value));
+                    }
+                    "sync_delete_guard" => {
+                        config.sync_delete_guard = value
+                            .parse::<bool>()
+                            .map_err(|_| "sync_delete_guard must be true or false")?
+                    }
+                    "sync_reinitialize" => {
+                        config.sync_reinitialize = Some(crate::sync::parse_catalog_id(&value)?)
+                    }
                     "seed_project" => {
                         crate::json::validate_project(&value)
                             .map_err(|error| format!("seed_project: {}", error.message))?;
@@ -471,6 +500,32 @@ impl Config {
             }
         }
         let config = &mut report.config;
+        if config.sync_dir.is_none() && !report.invalid.contains("sync_dir") {
+            for input in settings
+                .values()
+                .filter(|input| input.name.starts_with("sync_"))
+            {
+                if report.invalid.insert(input.name.clone()) {
+                    report.diagnostics.errors.push(Diagnostic::new(input.source, &input.key,
+                        "This setting requires sync_dir; supply --sync-dir DIRECTORY or remove the guard/reinitialization setting."));
+                }
+            }
+        }
+        if !["sync_dir", "data_dir", "seed_dir"]
+            .iter()
+            .any(|key| report.invalid.contains(*key))
+            && let Some(root) = &config.sync_dir
+            && let Err(error) =
+                crate::sync::validate_directory(root, &config.data_dir, config.seed_dir.as_deref())
+        {
+            let input = &settings["sync_dir"];
+            report.invalid.insert("sync_dir".into());
+            report.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                error.to_string(),
+            ));
+        }
         if config.compat_profile == CompatProfile::LegacyEmulator
             && let Some(input) = settings.get("default_location")
             && !report.invalid.contains("default_location")

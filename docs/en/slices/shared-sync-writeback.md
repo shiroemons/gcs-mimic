@@ -52,6 +52,20 @@ PARTIAL while mirror/conflict/authorization runtime work is unimplemented.
 
 ### Adapter sequence
 
+The initial exporter additionally uses `prepare_publish_copy`: open the selected
+immutable generation first, then prepare durable intent and stage its API copy
+before arm. This nondestructive staging returns private inode/body provenance.
+`abandon_unpublished` accepts only that provenance, refuses installed copies and
+changed/protected workspace bodies, never touches the target, and releases only
+the cancelled operation's reservation/stop. Identical observations stage no copy.
+If API state changes after installation, `finish_obsolete_publish` instead verifies
+the selected copy's installed inode/body and file/parent durability, then records
+Complete without synchronization state or journal progress. It rejects a still
+current API winner or any retained external body. Neither addition changes the
+existing methods/schema or implements restart recovery after interruption of
+the separate unlink/SQLite completion boundaries. Runtime/race and ordinary
+shutdown evidence: [directory synchronization](directory-synchronization.md#initial-export-verification).
+
 Obtain `RootLease::writeback(Limits)` after normal activation. Limits allow
 1..=1 TiB and 1..=1,000,000 pending entries per root. A page contains at most
 256 records; terminal metadata retains at most the recent 65,536 operation

@@ -66,6 +66,148 @@ async fn publish(
 async fn fence(catalog: &Catalog) -> JournalFence {
     catalog.read_changes(None, None, 1).await.unwrap().fence
 }
+
+#[tokio::test]
+async fn writeback_abandon_unpublished_copy_preserves_external_bytes_and_releases_reservations() {
+    let (_data, root, catalog, lease, writeback, bucket) = setup().await;
+    let record = publish(&catalog, &bucket, "object", b"api").await;
+    let name = ObjectName::new("object").unwrap();
+    let (_, reader) = catalog
+        .admin(Origin::SyncIngest)
+        .open_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    let (pending, proof) = writeback
+        .prepare_publish_copy(
+            &bucket,
+            &name,
+            Generation::new(record.generation).unwrap(),
+            fence(&catalog).await,
+            Some(reader.into_file().await),
+        )
+        .await
+        .unwrap();
+    let armed = writeback.arm(pending.token).await.unwrap();
+    output(&root, "object", b"external");
+    let entry = armed.workspace_entry.name().to_owned();
+    assert!(
+        writeback
+            .file_job(armed.token, move |root, workspace| {
+                let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), false)?;
+                fsutil::durable_replace_between(
+                    workspace,
+                    entry.as_ref(),
+                    &parent,
+                    "object".as_ref(),
+                    None,
+                )
+                .map_err(|_| AdminError::Io(std::io::ErrorKind::AlreadyExists))?;
+                Ok(())
+            })
+            .await
+            .is_err()
+    );
+    writeback.abandon_unpublished(proof).await.unwrap();
+    assert_eq!(
+        fs::read(root.0.join("test-bucket/object")).unwrap(),
+        b"external"
+    );
+    let status = writeback.status().await.unwrap();
+    assert_eq!(
+        (status.entries, status.reserved_bytes, status.stop),
+        (0, 0, Stop::Ready)
+    );
+    assert!(writeback.page(0, 256).await.unwrap().is_empty());
+    drop(writeback);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn writeback_abandon_rejects_installed_and_modified_workspace_bodies() {
+    let (_data, root, catalog, lease, writeback, bucket) = setup().await;
+    let record = publish(&catalog, &bucket, "object", b"api").await;
+    let name = ObjectName::new("object").unwrap();
+    let (_, reader) = catalog
+        .admin(Origin::SyncIngest)
+        .open_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    let (pending, proof) = writeback
+        .prepare_publish_copy(
+            &bucket,
+            &name,
+            Generation::new(record.generation).unwrap(),
+            fence(&catalog).await,
+            Some(reader.into_file().await),
+        )
+        .await
+        .unwrap();
+    let armed = writeback.arm(pending.token).await.unwrap();
+    let entry = armed.workspace_entry.name().to_owned();
+    writeback
+        .file_job(armed.token, move |root, workspace| {
+            let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), true)?;
+            fsutil::durable_replace_between(
+                workspace,
+                entry.as_ref(),
+                &parent,
+                "object".as_ref(),
+                None,
+            )
+            .map_err(|_| AdminError::Precondition)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        writeback.abandon_unpublished(proof.clone()).await,
+        Err(Error::Protected)
+    ));
+    assert!(
+        writeback
+            .finish_obsolete_publish(proof.clone())
+            .await
+            .is_err()
+    );
+    assert_eq!(writeback.status().await.unwrap().entries, 1);
+    assert_eq!(fs::read(root.0.join("test-bucket/object")).unwrap(), b"api");
+    publish(&catalog, &bucket, "object", b"new-api").await;
+    writeback.finish_obsolete_publish(proof).await.unwrap();
+    assert_eq!(writeback.status().await.unwrap().stop, Stop::Ready);
+    assert!(writeback.page(0, 256).await.unwrap().is_empty());
+    let record = publish(&catalog, &bucket, "another", b"api").await;
+    let name = ObjectName::new("another").unwrap();
+    let (_, reader) = catalog
+        .admin(Origin::SyncIngest)
+        .open_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    let (pending, proof) = writeback
+        .prepare_publish_copy(
+            &bucket,
+            &name,
+            Generation::new(record.generation).unwrap(),
+            fence(&catalog).await,
+            Some(reader.into_file().await),
+        )
+        .await
+        .unwrap();
+    let entry = root
+        .0
+        .join(mapping::WORKSPACE)
+        .join(pending.workspace_entry.name());
+    fs::write(&entry, b"external").unwrap();
+    assert!(matches!(
+        writeback.abandon_unpublished(proof).await,
+        Err(Error::Protected)
+    ));
+    assert_eq!(fs::read(entry).unwrap(), b"external");
+    assert_eq!(writeback.status().await.unwrap().entries, 1);
+    drop(writeback);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
 async fn prepare(
     writeback: &Writeback,
     catalog: &Catalog,

@@ -2,34 +2,128 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract checked: **2026-10-24**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074;
-preserve DESIGN-076. This freezes the `directory-synchronization` delivery gate
-and `filesystem_sync_contract`; it adds no accepted setting or command.
-The shared lexical name mapper is implemented; synchronization runtime cases
-remain **PENDING** in `compatibility/features.json`. One-time seed import is
-the current runtime boundary.
+Contract updated: **2026-10-25**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074
+remain PARTIAL; DESIGN-076 remains IMPLEMENTED. The initial-export increment
+accepts the settings below, activates the root before bind, and exports live
+objects once after ready. Continuous bidirectional synchronization is PENDING.
+
+## Local-development scope
+
+This table selects the practical local-development subset for subsequent
+slices; broader safety targets remain explicit PENDING work. The initial-export
+increment changes only configuration, activation and the export side.
+
+| Acceptance case | Local-development subset | Deferred scope (PENDING) |
+| --- | --- | --- |
+| sync-configuration | Only root selection and the boolean deletion guard are configurable; verify precedence, boolean parsing, removed-key rejection, overlap and CLI-only reinitialization. | The fixed settle/deletion policy requires ingestion. |
+| sync-initial-activation | Export all owners, empty buckets and immutable live bodies; count and preserve divergent/external-only files. | Initial ingestion and conflict transfer. |
+| sync-name-mapping | Exact lexical mapping, actual directory spelling, host component limits, prefix/type collisions and no-follow checks. | Exhaustive case/Unicode alias groups and non-Linux platform conflict guarantees. |
+| sync-lexical-name-mapping | Existing exact round-trip/property coverage remains implemented. | Runtime concerns belong to sync-name-mapping. |
+| sync-bidirectional-mutations | Preserve API state and external bytes during the initial export. | Continuous API create/overwrite/delete/copy/compose and external mutations. |
+| sync-api-writeback | One post-ready paged all-owner export using descriptor copies, no-replace publication and durable receipts; ordinary API/external races defer the affected object without stranding unpublished work. | Journal replay/coalescing/gap recovery, replacements and disk-full retries. |
+| sync-metadata-and-loops | Export never mutates API metadata or generations. | Ingestion metadata inheritance, MIME and loop suppression. |
+| sync-conflict-preservation | Leave divergent files untouched; ambiguous publication retains its pending intent/workspace. | Conflict transfer/registration, ordinary quota recovery and 1 TiB sparse-body cases. |
+| sync-deletion-approval | Infer no external deletion. | Candidate inspection, threshold effects and approval. |
+| sync-management-authorization | Configuration is a trusted local operator action. | Sync controls and detailed original-owner strict authorization. |
+| sync-status-and-wait | Emit initial exported/identical/conflicting/external_only/ignored/unrepresentable counts. | Control API/CLI, paged status, readiness summary and waits. |
+| sync-bounded-observation | Dedicated OS orchestration/file workers and at-most-256-entry catalog/directory pages. | Watcher events, stat-first rescans and bind-mount coverage. |
+| sync-marker-recovery | Missing/foreign/malformed markers fail before bind; exact-ID missing-marker reinitialization. | Exhaustive process-kill/host-power-loss boundaries. |
+| sync-writeback-recovery | Shared receipt and pending-state protection is reused; no destructive replacement is attempted. | Automated recovery, disk-full retries, every-instruction kill coverage, sparse limits and non-Linux conflict guarantees. |
+| sync-shutdown-lock | Stop between objects, drain the active operation before catalog close, and retain root ownership through that drain; SIGTERM/restart and listener-error ordering are tested. | Exhaustive scan/publication/conflict cancellation and lock-boundary coverage. |
+
+Initial export does not choose a winner by overwriting an existing target.
+Filesystem aliases detected by exact directory spelling or no-replace failure
+leave existing bytes intact. A case/Unicode alias discovered after a preceding
+catalog member was exported can leave that first file in place; classifying all
+members before any export is PENDING. Legacy buckets rejected by the native
+typed bucket API are counted as unrepresentable and skipped; per-object durable
+findings for those legacy buckets require a later shared typed interface.
+Directories are capped at 10,000 inspected entries, pages at 256, traversal at
+128 levels and individual components at 255 bytes. Exceeding an inventory bound
+stops reconciliation without inferring deletion. No catalog-sized in-memory
+inventory is built. Actual Linux runtime and non-Linux conflict guarantees are
+PENDING; the current native verification runs on macOS without claiming parity.
+
+Unfinished write-back stops new exports. Until recovery controls are delivered,
+preserve/back up the working tree and reserved workspace, correct the mount or
+permissions, and select a fresh unassociated root if recovery is required. No
+pending body is automatically deleted. A changed journal fence, divergent file,
+external-only file or unrepresentable entry prevents initial baseline completion.
+
+Ordinary shutdown first stops accepting connections and drains HTTP requests,
+then signals the mirror and waits for its current object to finish before closing
+the catalog. The mirror checks shutdown before the next prepare and never drops
+an armed operation to satisfy a network deadline. Background drain has no deadline,
+matching the existing catalog-owned filesystem drain contract.
+
+The source generation is opened before preparing an intent. A disappeared or
+changed generation is deferred, and `deferred` counts also prevent baseline
+completion. API copies are staged under durable Prepared intent before arm;
+staging does not touch the target. Private copy provenance permits abandonment
+only when the copy was never installed and its workspace inode/body remain
+unchanged, or when an identical-file observation made no copy. Existing external
+targets are never unlinked. Installed copies cannot be abandoned. If API state
+changes after installation, an additional durable check can mark that obsolete
+operation Complete without a synchronized fingerprint or journal progress;
+the installed file remains available for the next reconciliation. Changed or
+displaced external bodies still require protected recovery, not cancellation.
+External deletion/edit/touch between rename and acknowledgement can make both recovery paths refuse completion, retaining an Armed/Durable root stop; the remedy belongs to sync-conflicts (PENDING).
+An obsolete Complete counts as `deferred` in that pass and leaves baseline incomplete; the next reconciliation classifies retained output as Conflicting, or `external_only` after API deletion.
+
+### Initial-export verification
+
+Verified on 2026-10-25, macOS ARM64, Rust 1.99.1 against the two-setting configuration.
+The startup-only marker diagnostic also explains accidental Git/copy transport,
+`.gitignore`, preserving the old tree, and selecting the intended `data_dir`.
+
+| Command | Result |
+| --- | --- |
+| `cargo test --locked --offline --test sync_mirror --test sync_configuration` | PASS: 10 tests; `sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization`, `sync_removed_settings_and_guard_without_root_fail_with_diagnostics` and `sync_overlaps_aliases_empty_and_symlink_roots_are_rejected` cover both keys, all removed-key input paths, boolean errors and root validation; the 7 mirror tests preserve pagination, all owners, bodies, findings, marker diagnostics and SIGTERM/restart. |
+| `cargo test --locked --offline --lib -- writeback_abandon export_concurrent_api listener_failure_drains` | PASS: 4 tests; deterministic API overwrite/delete before open/arm and after publication, external same-name creation and identical-file editing leave no permanent unpublished stop; installed/modified bodies reject abandonment, obsolete completion requires changed API state, and listener failure drains before catalog close. |
+| `just check` | PASS on final source: format, workspace clippy/tests/doc tests, compatibility/generated views and shell checks. |
+| `cargo xtask compatibility render` / `check` | PASS: English/Japanese views remain byte-identical because parent statuses/fidelity remain unchanged. Scoped passing cases and their evidence are recorded in the ledger. |
+| `npx --yes markdownlint-cli2 docs/en/slices/directory-synchronization.md` | PASS; the existing MD013 exception permits long contract tables. |
+
+At initial-export slice start, dependency freshness confirmed Rust 1.99.1 and all direct Rust dependencies
+CURRENT; the overall check stopped with exit 2 on the Go proxy's new-major probe:
+`curl: (28) Operation timed out after 30003 milliseconds with 0 bytes received`
+for `https://proxy.golang.org/google.golang.org/api/v2/@v/list`.
+The full freshness check is therefore not a PASS. No dependency/lockfile changed.
+
+No SDK, container, full-guide or benchmark execution was performed: Google HTTP
+behavior, container inputs and runnable guides are unchanged. Linux runtime,
+exhaustive aliases/stale-finding cleanup, interruption recovery and the deferred
+items in Local-development scope remain PENDING. No performance claim is made.
 
 ## Configuration reservation
 
 These flat JSON keys reserve matching CLI/environment names: replace `_` with
 `-` and prefix `--` for CLI, uppercase and prefix `GCS_MIMIC_` for environment.
-Use CLI > environment > file > default. Reject invalid supplied values even when
-overridden, following the configuration diagnostic contract. Boolean values are
-`true` or `false`; integer values are unsigned decimal, without units or fractions.
+Use CLI > environment > file > default. Selected values follow the existing
+configuration parser; malformed source types are diagnosed even when overridden.
+The deletion guard accepts only `true` or `false`.
 Collect diagnostics by original source/key with a concrete fix before mutation.
 
 | JSON key | Default | Validation and effect |
 | --- | --- | --- |
 | `sync_dir` | Unset: disabled | Nonempty existing writable directory, not a symlink. This is the only required setting to enable sync. Canonicalize and reject equality or ancestor/descendant overlap with `data_dir` or `seed_dir`, including aliases. Reserve and revalidate the root identity rather than following a replaced root. |
-| `sync_settle_ms` | `1000` | `1..=60000`; one-shot quiet deadline after the last observed change, renewed on change. Stat before/after staging and retry changed input; this is a stability heuristic, not an atomic snapshot of an active writer. |
 | `sync_delete_guard` | `true` | `false` disables only the count/percentage guard. Marker, complete-scan, incarnation and generation protections remain mandatory. |
-| `sync_delete_min_objects` | `100` | `1..=1000000`; count threshold is inclusive. |
-| `sync_delete_percent` | `50` | `0..=100`; percentage threshold is strictly greater. `100` never triggers; `0` triggers for any positive fraction meeting the count threshold. |
-| `sync_conflict_max_bytes` | `1073741824` (1 GiB) | `1..=1099511627776` (1 TiB); cumulative retained body bytes plus in-progress reservations. Zero-byte conflicts still consume an entry. |
-| `sync_conflict_max_entries` | `1000` | `1..=1000000`; cumulative retained/in-progress conflicts. No automatic eviction. Lowering either limit below retained usage stops new conflict intake and reports the remedy. |
 
-Supplying a tuning key without `sync_dir` is an error, with a fix to supply the
-root or remove that key. Tuning does not silently enable synchronization.
+Local development rarely needs tuning, so the internal policy is fixed at a
+1000 ms quiet deadline, a deletion guard for at least 100 objects and strictly
+more than 50%, and retained/in-progress conflict limits of 1 GiB and 1000 entries.
+Zero-byte conflicts still consume an entry; no automatic eviction is permitted.
+Settling is a stability heuristic: stat before/after staging and retry changed
+input, rather than claiming an atomic snapshot of an active writer.
+This owner decision replaces section 7's provisional tuning recommendations
+to keep the local-development configuration small.
+
+`sync_settle_ms`, `sync_delete_min_objects`, `sync_delete_percent`,
+`sync_conflict_max_bytes` and `sync_conflict_max_entries` are not settings.
+Their CLI, environment and JSON spellings are rejected as unknown settings,
+including when a higher-precedence valid setting is supplied.
+Supplying `sync_delete_guard` without `sync_dir` is an error, with a fix to supply
+the root or remove the guard setting. The guard alone never enables sync.
 `seed_project` remains the existing default `local-project` and owns new external
 bucket directories. Existing bucket owners and settings are preserved. New-file
 MIME follows `seed_content_type` and its pinned table in the
@@ -45,12 +139,29 @@ It is not a reset, deletion approval or permission to overwrite foreign markers.
 
 ## Acceptance cases
 
+### Initial export delivery scope
+
+The first mirror increment implements configuration, pre-bind root activation
+and a single post-ready all-owner export. Before implementation, its acceptance
+cases are: exact two-setting precedence, boolean parsing and removed-key rejection, startup-only reinitialization,
+overlap rejection, fail-closed marker diagnostics, empty bucket creation,
+paged binary/empty-body export from immutable descriptors through durable
+write-back receipts, runtime mapping findings, and exact summary counts.
+Existing divergent and external-only files remain untouched and keep the
+baseline activating. A scan interrupted by API mutations cannot complete the
+baseline. No external deletion is inferred.
+
+Continuous journal consumption, conflict registration/transfer, disk-full retry,
+sync control API/CLI and filesystem ingestion remain PENDING. The boolean guard
+is validated now; fixed settle/delete behavior belongs to the pending ingestion
+scope. Fixed conflict limits already constrain shared write-back reservations.
+
 Each ID below is a row-local case in the named feature. These specify future
 executable tests, not results obtained by inspecting this document.
 
 | Case | Feature | Required positive, negative and boundary behavior | Owning slice |
 | --- | --- | --- | --- |
-| sync-configuration | DESIGN-062 | One required root; defaults, precedence, every numeric boundary and invalid/empty/unknown input; boolean parsing, tuning without root, overlap/alias/root substitution rejection and one-shot reinitialization | sync-mirror, sync-ingest |
+| sync-configuration | DESIGN-062 | Only sync_dir and sync_delete_guard; defaults and CLI/environment/file precedence, strict boolean parsing, removed tuning keys rejected as unknown, guard without root, overlap/alias/root substitution rejection and startup-only reinitialization; internal values fixed for local development | sync-mirror, sync-ingest |
 | sync-initial-activation | DESIGN-062 | Empty/nonempty catalogs, empty buckets, same/different/absent names, exact summary counts; interrupted activation resumes without replay/deletion; owner mismatch never changes ownership | sync-mirror, sync-ingest |
 | sync-name-mapping | DESIGN-072 | Property-test name to path to identical name or explicit Unrepresentable; literal percent/backslash rules, dot/empty segments, ignored/reserved names, OS limits, case/Unicode aliases and file/directory collisions; no traversal, symlink or special-file following | sync-mirror, sync-ingest |
 | sync-lexical-name-mapping | DESIGN-072 | Shared lexical name/path conversion rejects invalid, reserved, ignored and host-invalid components and preserves exact UTF-8 bytes on round trip. Property tests cover arbitrary names and paths. This is a candidate-path check; filesystem collisions, host length limits and descriptor-relative safety still require runtime validation. | sync-mirror |
@@ -126,38 +237,32 @@ from deletion candidates. Unsupported external entries are findings, never impor
 
 ### Shared interface prerequisites for write-back
 
-The current `Admin::list_buckets(project, after, limit)`,
-`Admin::list_objects`, `Admin::open_object`, `Catalog::read_changes` and
-`Catalog::set_change_journal_enabled` provide bounded reads and journal pages.
-They do not yet provide the complete runtime boundary below. These are requested
-public interface properties, not a storage schema or implementation prescription.
-Shared state owns their implementation; adapters must not add SQL or substitute
-independent catalog identity/progress files.
+Shared state owns the delivered interfaces below. The initial exporter consumes
+them without SQL or independent catalog identity/progress files.
 
 | Interface shape | Required properties and acceptance handoff |
 | --- | --- |
-| `Admin::list_all_buckets(after, limit)` | Delivered: all-owner keyset pages of at most 256, shared metadata budget, empty buckets and stored owner/incarnation. Native project/budget/recreation tests and raw name cursor semantics: [shared-sync-observation](shared-sync-observation.md). Runtime Sync consumption remains pending; `seed_project` does not filter this inventory. |
-| `Catalog::wait_for_changes(after)` | Delivered: cancellable `JournalFence` wait returning current fence/rescan, without catalog permits while idle or periodic polling. Register/recheck races, seven mutation kinds, epoch changes, multiple waiters, rollback/false signals, shutdown and restart/gap/future cursors pass native tests in [shared-sync-observation](shared-sync-observation.md). Journal pages retain their captured finite fence; runtime consumers remain pending. |
-| Durable catalog identity and root association | Delivered adapter API: `SyncState::activate_root`, `RootLease::file_job` and `RootLease::complete_baseline` persist opaque identities, exclusive root ownership and activating/complete associations. Native marker/recovery tests and platform limits are in [shared-sync-root](shared-sync-root.md). Before-bind invocation and actual initial merge remain pending. Do not infer deletion from an incomplete baseline. |
-| Write-back progress and pending-operation API | Delivered shared API: root/catalog-bound bounded pending pages preserve original owner/incarnation, target, selected generation/hashes, opaque workspace and phase across restart/deletion. Private durable receipts gate atomic fingerprint/progress/completion; native phase, stale/root/hold, SQLite FULL, rollback/retry, quota and protected-body cases: [shared-sync-writeback](shared-sync-writeback.md). Target replacement/exchange, conflict registration, authorized discard and runtime recovery remain pending; storage never cleans protected entries. |
-| `ObjectReader` descriptor transfer or duplication | Delivered `ObjectReader::into_file` transfers the already opened immutable generation without path exposure/reopen or hard links. Dedicated-worker clone/copy tests retain exact zero/binary bytes after API overwrite/delete, preserve source offset and own descriptors/root leases through cancellation/drain: [shared-sync-writeback](shared-sync-writeback.md). Runtime mirror consumption remains pending. |
-| Workspace-to-target publication | Shared descriptor-based cross-directory no-replace/exchange, both-parent fsync and no-follow parent creation are available in [shared-sync-export-interfaces](shared-sync-export-interfaces.md). Existing private write-back receipts still gate synchronized state. Runtime collision detection, conflict transfer and mirror consumption remain pending. |
-| Unrepresentable/ignored observations | `RootLease` provides generation-checked idempotent finding registration, at-most-256-entry keyset pages and conditional removal, bound to catalog/root/bucket incarnation in schema 21; see [shared-sync-export-interfaces](shared-sync-export-interfaces.md). Runtime summary/status consumption remains pending. |
+| `Admin::list_all_buckets(after, limit)` | Initial export consumes all-owner keyset pages of at most 256, including empty buckets and stored owner/incarnation. `seed_project` does not filter the inventory. Shared tests: [shared-sync-observation](shared-sync-observation.md). |
+| `Catalog::wait_for_changes(after)` | Idle runtime ownership waits without catalog permits or polling, and releases the root when catalog shutdown wakes it. This wait does not export changes or advance synchronization progress; journal replay is PENDING. Shared finite-fence/race tests: [shared-sync-observation](shared-sync-observation.md). |
+| Durable catalog identity and root association | Startup invokes `SyncState::activate_root` after seed and before bind. Reconciliation uses owned file jobs and calls `complete_baseline` only for an unchanged, resolved scan. Shared recovery contract: [shared-sync-root](shared-sync-root.md). |
+| Write-back progress and pending-operation API | Initial export uses prepare_publish_copy/arm/durable/acknowledge/resume for each absent or identical target. Private provenance permits safe unpublished abandonment; obsolete installed copies complete without fingerprints/progress. It commits no journal progress and preserves protected operations. Replacement, conflict registration and recovery controls are PENDING. Shared receipt contract: [shared-sync-writeback](shared-sync-writeback.md). |
+| `ObjectReader` descriptor transfer or duplication | Export transfers the opened immutable selected generation with `into_file` to the owned workspace copy job; no source path reopening or hard link. Shared descriptor tests: [shared-sync-writeback](shared-sync-writeback.md). |
+| Workspace-to-target publication | Export uses descriptor-relative no-replace publication and shared file/parent durability checks before receipt acknowledgement. Ancestors are reopened and compared after installation. Exchange/conflict transfer is PENDING. Shared interfaces: [shared-sync-export-interfaces](shared-sync-export-interfaces.md). |
+| Unrepresentable/ignored observations | Initial export registers generation/incarnation-bound findings and emits aggregate counts. Stale-finding reconciliation and status/control consumption remain PENDING. Shared finding APIs: [shared-sync-export-interfaces](shared-sync-export-interfaces.md). |
 
-The baseline captures a journal fence before scanning bounded current-state pages,
-then replays from that fence and handles any rescan indication; listing is not
-an atomic snapshot and must not be described as one. Durable pending operations
-are a prerequisite for replacement, deletion and conflict preservation. Startup,
-configuration and background tasks remain unchanged until those interfaces and
-their safety cases are available. No polling or best-effort marker substitute is
-introduced to bypass this dependency.
+The baseline captures a journal fence before scanning bounded current-state pages.
+This increment completes it only when the end fence is unchanged; replay remains
+PENDING. The complete mirror will replay from that fence and handle rescan;
+listing is not an atomic snapshot. Durable pending operations
+are a prerequisite for replacement, deletion and conflict preservation. The
+initial exporter uses these delivered interfaces. No polling or best-effort
+marker substitute bypasses them.
 
 ### Marker and activation requirements
 
 The [shared root implementation](shared-sync-root.md) supplies these storage
-primitives on supported Unix filesystems. Configuration, startup and mirror
-consumers remain unconnected. Its `Activation::Reinitialize` is an adapter API,
-not an implemented `--sync-reinitialize` command. Directory-inode locks prevent
+primitives on supported Unix filesystems. The initial-export increment connects
+configuration, startup and `--sync-reinitialize` to them. Directory-inode locks prevent
 lock-file replacement bypass; owned file jobs retain both root and catalog leases.
 An interrupted marker creation can leave a partial marker: preserve/back up that
 file and remove it explicitly before requesting missing-marker reinitialization.
@@ -284,8 +389,8 @@ tracked names absent in that scan. Exclude ignored/unrepresentable/unobserved
 names and stale incarnations. A candidate's live generation must still equal
 its last successfully synchronized generation; a newer API generation is
 write-back work, never a newly inferred deletion. An incomplete scan never generates deletions.
-Guard when enabled and `D >= sync_delete_min_objects` and
-`100 * D > sync_delete_percent * N`, using checked wide arithmetic; `N=0`
+Guard when enabled and `D >= 100` and
+`100 * D > 50 * N`, using checked wide arithmetic; `N=0`
 has no deletions. Freeze this root-wide denominator and exact candidate set;
 do not recompute the fraction per page or convert a marker failure into a scan.
 
@@ -370,7 +475,7 @@ transfer; sync the retained file and affected parents where possible. Failed
 sync/registration remains an explicit unresolved failure, never successful sync
 state. Account the entry and all actual retained bytes, including workspace
 residency and in-progress reservations, without double-counting a transferred
-body. Unexpected size can exceed the configured quota: report actual usage and
+body. Unexpected size can exceed the fixed quota: report actual usage and
 over-limit state rather than clipping, deleting bytes or granting more intake.
 Pause root-wide ingestion and destructive write-back on `ConflictCapacity` or
 `IoFailure` before another such operation can accumulate stranded bodies. Status
@@ -379,8 +484,8 @@ mirror progress cannot be acknowledged while this recovery is incomplete.
 
 Restart must rediscover and protect these entries before workspace cleanup or
 new destructive sync work; keep the stop and quota charges even if the original
-bucket no longer exists. Free space or raise the applicable quota within its hard
-maximum, restart when configuration changed, then rescan to finish preservation
+bucket no longer exists. Free disk space or resolve retained conflicts within
+the fixed quota, then rescan to finish preservation
 and register a conflict. Alternatively use the explicit recovery discard below;
 registration is not a prerequisite for that operation. Repeated failure stays
 stopped without spinning. If normal preservation cannot proceed, stop external
@@ -627,7 +732,7 @@ logical target/key, scope and remedy; paginate details and aggregate counts.
 | `DeletionApproval` | External deletions paused; status/ready summary/event | Inspect exact revision, approve it, or restore files and rescan; changed candidates require fresh approval. |
 | `MarkerMismatch` | Pre-bind failure, or whole-root pause if discovered later | Repair mount/root; for intentional missing-marker reactivation back up and use the one-shot option; preserve foreign/malformed trees and choose a fresh directory. |
 | `Conflict` | Path finding after successful preservation; `conflicts`, status/event | Restore the retained revision with inspected expected generation, or explicitly discard it; reinspection resolves stale conditions. Other paths continue. |
-| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts or raise the byte/entry limit within its hard maximum and restart, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
+| `ConflictCapacity` | Root ingestion and destructive write-back paused; status/ready/event and paged recovery findings | Resolve/discard registered conflicts within the fixed 1 GiB/1000-entry limit, then rescan. Before displacement the source stays intact; afterward protect/account its workspace entry even above quota. Complete preservation/registration or use original-owner-authorized, exact-revision/identity recovery discard with explicit backup/no-backup confirmation, then revalidate all root stops. Never automatically delete or blindly roll back the body to free space. |
 | `Unrepresentable` | Path finding; paged status findings/event | Rename/copy-delete through API into a representable name, remove the collision/unsafe external entry without following it and rescan, or retain API-only access. Never silently normalize. |
 | `ProtectedDeletion` | Path restored and blocked; paged status findings/event | Release hold/retention through a supported API, then delete the file again. If protection cannot be released, retain the restored file/API object. |
 | `SourceChanging` | Path deferred until quiet deadline; status | Finish/stop the writer then rescan/wait. Continuously changing input times out wait without publishing partial bytes. |
@@ -717,7 +822,7 @@ about 1,000 entries as a fact, without a regression gate. Bounded pages and the
 stat-first rescan remain design requirements enforced by tests and review. No
 speed or memory improvement is claimed.
 
-### Document checks
+### Historical contract-only document checks
 
 Executed on 2026-10-24 against this contract and its ledger changes:
 
@@ -734,7 +839,7 @@ build or performance measurement was run for this document-only slice. The
 coordinator owns full `just check` after local-main integration. No new passing
 runtime evidence or feature-status promotion is recorded by these document checks.
 
-### Lexical mapping implementation checks
+### Historical lexical mapping implementation checks
 
 Verified on 2026-10-25. `src/sync/mapping.rs` exposes the shared `PathMapping`
 and explicit reasons, `name_to_path` and `path_to_name`. Both directions use

@@ -128,6 +128,7 @@ struct BoundStartup {
     listener_http: Option<tokio::net::TcpListener>,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
+    sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
 }
 
 async fn open_catalog(
@@ -222,6 +223,17 @@ async fn prepare_startup(
         return Ok(PhaseResult::Stopped);
     };
     let seed = seed?;
+    // Activation jobs own their catalog/root leases; close drains effects after cancellation.
+    let PhaseResult::Complete(sync_root) = race(
+        CancelSafe(gcs_mimic::sync::preflight(catalog, config)),
+        shutdown.as_mut(),
+    )
+    .await?
+    else {
+        return Ok(PhaseResult::Stopped);
+    };
+    let sync_root =
+        sync_root.map_err(|error| phase(DiagnosticSource::Sync, "sync_dir", &error.to_string()))?;
     // Bind/TIME_WAIT has no catalog effects and owns its socket locally.
     let PhaseResult::Complete(listeners) = race(
         CancelSafe(async {
@@ -244,6 +256,7 @@ async fn prepare_startup(
         listener_http,
         seed,
         buckets_file,
+        sync_root,
     }))
 }
 
@@ -294,6 +307,7 @@ pub(crate) async fn serve(
         listener_http,
         seed,
         buckets_file,
+        sync_root,
     } = match prepare_startup(
         &catalog,
         &config,
@@ -339,7 +353,10 @@ pub(crate) async fn serve(
         });
     let (ready, ready_api_base_url) = match ready {
         Ok(ready) => ready,
-        Err(error) => return close_startup(&catalog, Err(error)).await,
+        Err(error) => {
+            drop(sync_root);
+            return close_startup(&catalog, Err(error)).await;
+        }
     };
     catalog.start_resumable_maintenance();
     let state = Arc::new(State {
@@ -351,11 +368,24 @@ pub(crate) async fn serve(
         auth,
     });
     println!("{ready}");
+    let sync_task = match sync_root
+        .map(|root| gcs_mimic::sync::start(state.catalog.clone(), root, &config))
+        .transpose()
+    {
+        Ok(task) => task,
+        Err(error) => return close_startup(&state.catalog, Err(error)).await,
+    };
     let mut listeners = vec![(listener, acceptor)];
     if let Some(listener) = listener_http {
         listeners.push((listener, None));
     }
-    server::serve_with_tls(listeners, config, state, shutdown).await?;
+    server::serve_with_tls_and_drain(listeners, config, state, shutdown, async move {
+        if let Some(task) = sync_task {
+            task.finish().await?;
+        }
+        Ok(())
+    })
+    .await?;
     report_stopped();
     Ok(())
 }
