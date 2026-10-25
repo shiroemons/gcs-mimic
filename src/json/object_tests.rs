@@ -755,7 +755,7 @@ fn obj_error_001_status_reason_envelope_and_private_diagnostics() {
             ObjectError::Unavailable("data/catalog.sqlite3".to_owned()),
             503,
             "backendError",
-            "Object storage is unavailable",
+            "Object storage is unavailable: internal storage failure (private backend details withheld)",
         ),
     ] {
         let error = JsonError::from(error);

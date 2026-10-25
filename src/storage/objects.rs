@@ -1,4 +1,4 @@
-use super::{Catalog, MAX_UPLOADS, system_time_micros, unavailable, unix_micros};
+use super::{Catalog, UploadGuard, system_time_micros, unavailable, unix_micros};
 use crate::{
     bucket::{BucketAccess, CatalogError},
     hashing::{Hasher, Hashes},
@@ -508,16 +508,19 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = access.clone();
-        self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
-            let (_, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
-            let previous = lookup(&transaction, &bucket, &name)?;
-            check_publication(previous.as_ref(), conditions, allow_overwrite)
+        self.run_waiting(move |connection| {
+            Ok((|| {
+                let transaction = connection.transaction().map_err(object_unavailable)?;
+                let (_, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
+                let previous = lookup(&transaction, &bucket, &name)?;
+                check_publication(previous.as_ref(), conditions, allow_overwrite)
+            })())
         })
         .await
+        .map_err(object_unavailable)?
     }
 
-    /// At most eight uploads stream concurrently; excess uploads fail without queuing.
+    /// HTTP connection admission bounds streaming uploads.
     /// File I/O uses short Tokio filesystem jobs, never a blocking worker awaiting a body.
     #[allow(
         clippy::too_many_arguments,
@@ -558,21 +561,26 @@ impl Catalog {
         name: &str,
         conditions: ObjectConditions,
         access: &BucketAccess,
-    ) -> Result<OwnedSemaphorePermit, ObjectError> {
+    ) -> Result<UploadGuard, ObjectError> {
         let permit = self.admit_object_upload()?;
         self.check_upload(bucket, name, conditions, access).await?;
         Ok(permit)
     }
 
-    pub(crate) fn admit_object_upload(&self) -> Result<OwnedSemaphorePermit, ObjectError> {
-        let permit =
-            self.0.uploads.clone().try_acquire_owned().map_err(|_| {
-                object_unavailable(format!("upload limit of {MAX_UPLOADS} reached"))
-            })?;
-        if !self.is_healthy() {
+    pub(crate) fn admit_object_upload(&self) -> Result<UploadGuard, ObjectError> {
+        let mut uploads = self
+            .0
+            .uploads
+            .lock()
+            .map_err(|error| object_unavailable(error.to_string()))?;
+        if uploads.closed || !self.is_healthy() {
             return Err(object_unavailable("catalog is closed"));
         }
-        Ok(permit)
+        uploads.active += 1;
+        Ok(UploadGuard {
+            catalog: Some(self.clone()),
+            _admin: None,
+        })
     }
 
     #[allow(
@@ -588,7 +596,7 @@ impl Catalog {
         conditions: ObjectConditions,
         max_bytes: u64,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-        permit: OwnedSemaphorePermit,
+        permit: UploadGuard,
         metadata: ObjectMetadataUpdate,
         // Rechecked at publication: the bucket may have been recreated under another project
         // while the body streamed, and overwriting needs storage.objects.delete there.
@@ -624,7 +632,7 @@ impl Catalog {
         conditions: ObjectConditions,
         max_bytes: u64,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-        permit: OwnedSemaphorePermit,
+        permit: UploadGuard,
         metadata: ObjectMetadataUpdate,
         access: BucketAccess,
         mode: super::admin::PublishMode,
@@ -2380,7 +2388,7 @@ mod tests {
     async fn publish(
         catalog: &Catalog,
         name: &str,
-        permit: OwnedSemaphorePermit,
+        permit: UploadGuard,
         access: BucketAccess,
     ) -> Result<ObjectRecord, ObjectError> {
         catalog

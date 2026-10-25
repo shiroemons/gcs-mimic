@@ -87,7 +87,8 @@ resumable progress and must be replaced with reference-aware bounded recovery.
 See the [session engine design](design.md#resumable-session-engine-contract).
 
 The planned 128 retained-session limit and existing object-size cap bound staging
-growth, with at most eight in-progress tails; they do not reserve free disk space.
+growth, with in-progress API tails bounded by `max_connections` (default 32)
+rather than a separate upload cap; they do not reserve free disk space.
 Disk-full/write/sync failures must surface. Deadline-indexed maintenance must
 reclaim expired staging and terminal records in bounded batches without busy
 polling, and journal/retry failed unlinks. No whole-body buffering, new backend

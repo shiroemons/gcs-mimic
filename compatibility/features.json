@@ -2272,7 +2272,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "all_conditions_generation_selectors_and_conditioned_races",
         "invalid_and_unsupported_metadata_never_mutates_objects",
@@ -2406,8 +2405,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -2491,8 +2489,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -3052,7 +3049,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
@@ -3222,8 +3218,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -3316,8 +3311,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -4334,7 +4328,6 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "signing::pap::pap_metadata_insert_patch_update_fields_conditions_and_restart",
         "signing::pap::pap_invalid_and_unsupported_settings_preserve_resources",
         "pap_migrates_version_twelve_and_persists_configured_state"
@@ -4449,8 +4442,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -4825,7 +4817,6 @@
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "bucket_cors_large_metadata_lists_page_without_loss",
         "bucket_list_metadata_budget_preserves_large_rows_and_cursor_boundaries",
         "cors-memory-smoke",
@@ -4924,8 +4915,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -5465,7 +5455,6 @@
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "obj_http_concurrent_create_if_absent_has_one_winner",
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
@@ -5585,8 +5574,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -6779,7 +6767,6 @@
         "obj_http_bad_hashes_and_unsupported_requests_never_publish",
         "obj_http_concurrent_create_if_absent_has_one_winner",
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_multipart_http_concurrent_create_if_absent_has_one_winner_and_no_leaks",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body",
@@ -6890,8 +6877,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -9562,7 +9548,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "all_conditions_generation_selectors_and_conditioned_races",
         "invalid_and_unsupported_metadata_never_mutates_objects",
@@ -9702,8 +9687,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -9787,8 +9771,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -10401,7 +10384,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "patch_merges_put_replaces_and_download_reflects_persistent_metadata",
         "all_conditions_generation_selectors_and_conditioned_races",
         "invalid_and_unsupported_metadata_never_mutates_objects",
@@ -10608,8 +10590,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -10694,8 +10675,7 @@
             "producer_closure_without_eof_never_publishes_partial_bytes",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -10732,8 +10712,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         }
       ],
@@ -11078,13 +11057,12 @@
             "rejected_catalog_with_hot_wal_preserves_database_and_wal_bytes",
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
           "id": "JSON-OBJECTS-007-TRANSFER-BOUNDS",
-          "description": "Trickle upload expiry cancels all eight admitted incomplete bodies, preserves old generations and releases permits after cleanup; advisory and post-EOF wait expiry returns 503, with a timed-out complete body still able to commit.",
+          "description": "Trickle upload expiry cancels the admitted incomplete bodies, preserves old generations and releases permits after cleanup; advisory and post-EOF wait expiry returns 503, with a timed-out complete body still able to commit.",
           "result": "PASS",
           "test_ids": [
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
@@ -11155,7 +11133,7 @@
         },
         {
           "id": "JSON-OBJECTS-007-MULTIPART-BOUNDS-DEADLINES",
-          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, connection-bounded upload admission and absolute deadline cleanup preserve generations and release resources.",
           "result": "PASS",
           "test_ids": [
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
@@ -11361,8 +11339,7 @@
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -11434,8 +11411,7 @@
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -11502,8 +11478,7 @@
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -11551,7 +11526,6 @@
         "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
         "rejects_future_schema_unversioned_data_and_corruption",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
         "json::multipart::tests::multipart_boundary_accepts_quoted_rfc_values_and_rejects_invalid_parameters",
@@ -11695,7 +11669,6 @@
             "rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters",
             "rejects_future_schema_unversioned_data_and_corruption",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
@@ -11860,8 +11833,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -11927,8 +11899,7 @@
             "producer_closure_without_eof_never_publishes_partial_bytes",
             "obj_http_disconnected_overwrite_preserves_the_previous_generation",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -11965,8 +11936,7 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -12979,7 +12949,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
@@ -13106,8 +13075,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -14025,7 +13993,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
         "obj_multipart_http_preconditions_reject_before_body_and_preserve_previous_generation",
         "obj_multipart_http_upload_tokens_with_generation_match_allow_one_create_and_overwrite",
@@ -14142,8 +14109,7 @@
             "upload_precheck_rejects_without_waiting_for_body_or_creating_staging",
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -18950,7 +18916,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-001-MULTIPART-BOUNDS-DEADLINES",
-          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, connection-bounded upload admission and absolute deadline cleanup preserve generations and release resources.",
           "result": "PASS",
           "test_ids": [
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
@@ -20094,8 +20060,7 @@
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
         {
@@ -20137,7 +20102,6 @@
         "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
         "json::object_tests::obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value",
@@ -20169,7 +20133,6 @@
             "failed_startup_journal_reclaim_names_blob_and_blocks_readiness_until_fixed",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
@@ -20296,7 +20259,7 @@
         },
         {
           "id": "BEHAVIOR-OBJECT-009-MULTIPART-BOUNDS-DEADLINES",
-          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, immediate eight-slot admission and absolute deadline cleanup preserve generations and release resources.",
+          "description": "Exact JSON/media/custom-metadata and MIME caps, split CRLF at exact header/suffix cap, early oversized custom metadata before media/staging, connection-bounded upload admission and absolute deadline cleanup preserve generations and release resources.",
           "result": "PASS",
           "test_ids": [
             "json::multipart::tests::multipart_parser_bounds_preamble_epilogue_headers_and_metadata",
@@ -26030,7 +25993,7 @@
         },
         {
           "id": "EXT-XML-022-ADMISSION",
-          "description": "Reuse the two-slot 64 KiB chunk bridge and eight-upload admission limit; the ninth incomplete upload is rejected before 100-continue and aborted requests release capacity without publishing.",
+          "description": "Reuse the two-slot 64 KiB chunk bridge and HTTP max_connections limit; additional incomplete uploads are admitted and aborted requests release capacity without publishing.",
           "result": "PASS",
           "test_ids": [
             "xml_put::xml_put_chunked_multibuffer_and_configured_size_boundaries",
@@ -40527,7 +40490,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Object streams use at most 64 KiB copied chunks, two upload slots and one download slot; cap defaults to 1 GiB. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "Object streams use at most 64 KiB copied chunks, depth-two upload channels and one download slot; cap defaults to 1 GiB. Upload admission acceptance: docs/en/slices/migrate-upload-admission.md. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40539,7 +40502,7 @@
           "test_ids": [
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes"
           ]
         },
@@ -40556,6 +40519,21 @@
           ]
         },
         {
+          "id": "DESIGN-070-UPLOAD-ADMISSION",
+          "description": "12/40 uploads with 32 connections and 64 uploads with 64 connections succeed; concurrent GET/list succeed; shutdown waits and disconnect cleans staging; JSON 503 exposes safe causes. Body channels remain depth two with 64 KiB chunks. Resumable initiation and final 128 KiB PUT also succeed for 40 uploads/32 connections and 64 uploads/64 connections; session creation/read/checkpoint wait within catalog deadlines.",
+          "result": "PASS",
+          "test_ids": [
+            "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+            "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+            "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "obj_http_additional_upload_waits_for_advisory_check",
+            "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
+          ]
+        },
+        {
           "id": "DESIGN-070-PENDING",
           "description": "Measure RSS/cgroup/cache/CPU/latency at growing sizes and extend bounded streaming to multipart/resumable/copy/rewrite/compose.",
           "result": "PENDING",
@@ -40563,7 +40541,7 @@
         },
         {
           "id": "DESIGN-070-MEDIA-SAFETY",
-          "description": "After immediate upload admission, one advisory 404/412 check precedes streamed body/hash errors; concurrent state changes are rechecked at publication",
+          "description": "After connection-bounded upload admission, one advisory 404/412 check precedes streamed body/hash errors; concurrent state changes are rechecked at publication",
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing"
@@ -40571,13 +40549,13 @@
         },
         {
           "id": "DESIGN-070-ADMISSION",
-          "description": "queued upload precheck deadlines, deterministic response framing/advisory precedence, immutable WAL-free rejection and immediate upload admission as applicable to this row.",
+          "description": "queued upload precheck deadlines, deterministic response framing/advisory precedence, immutable WAL-free rejection and connection-bounded upload admission as applicable to this row.",
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+            "obj_http_additional_upload_waits_for_advisory_check"
           ]
         },
         {
@@ -40594,7 +40572,6 @@
       "test_ids": [
         "obj_http_zero_multichunk_binary_and_size_limits",
         "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-        "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
         "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
         "producer_closure_without_eof_never_publishes_partial_bytes",
@@ -40603,11 +40580,19 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_trickle_download_stops_at_absolute_deadline",
-        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+        "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+        "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+        "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+        "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+        "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "obj_http_additional_upload_waits_for_advisory_check",
+        "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
+        "TestObjectResumableWriter",
+        "sdk-tests/ruby/https.rb"
       ],
       "verification": [
         {
@@ -40618,7 +40603,6 @@
           "test_ids": [
             "obj_http_zero_multichunk_binary_and_size_limits",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
             "empty_and_multi_chunk_bodies_have_exact_bytes_and_incremental_hashes",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
             "producer_closure_without_eof_never_publishes_partial_bytes",
@@ -40627,24 +40611,79 @@
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_trickle_download_stops_at_absolute_deadline",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+            "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+            "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "obj_http_additional_upload_waits_for_advisory_check",
+            "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "sdk-tests/ruby/https.rb"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON media/resumable regression; parallel admission is covered by Rust wire tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP permissive/strict operations and resumable chunks, V4 signed GET/PUT and response overrides; parallel admission is covered by Rust wire tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb"
+          ]
+        }
+      ],
       "known_deviations": [
         "Bounds are inspected and functionally tested; no memory/throughput/CPU benchmark or 1 GiB constrained-container run.",
         "Only media transfers exist; other transfer modes and checksum throughput/fairness remain unverified.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
-        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
+        "SPEC-008: header validation and the known-size check precede connection-bounded upload admission; one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation.",
         "Lingering close discards at most 256 KiB for 100 ms; early responses are readable on local macOS loopback, without establishing a causal benefit from lingering or every-platform delivery."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "fcb1a338c2e34de41f369591a4f03c127c6604f8",
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-071",
@@ -40663,7 +40702,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Connection/header limits remain; uploads admit eight streams immediately, catalog admits 32 calls and serializes execution before the bounded blocking pool. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Object transfer ceilings are independent of inactivity; upload advisory/post-EOF waits have a separate response bound.",
+      "notes": "Connection/header limits bound API uploads without a separate upload cap. Upload prechecks and resumable session creation/read/checkpoint wait for the 32-operation catalog admission semaphore; other catalog calls reject saturation, and SQLite execution remains serialized before the bounded blocking pool. Scope and verification: docs/en/slices/migrate-upload-admission.md. Existing absolute transfer and catalog-wait deadlines remain applicable.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -40680,10 +40719,10 @@
         },
         {
           "id": "DESIGN-071-MEDIA",
-          "description": "Eight stalled uploads do not occupy both blocking workers; excess upload admission is rejected and cancellation cleanup retains ownership.",
+          "description": "Forty stalled uploads leave blocking workers available; additional uploads succeed and cancellation cleanup retains ownership.",
           "result": "PASS",
           "test_ids": [
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
             "cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out"
           ]
@@ -40699,6 +40738,21 @@
           ]
         },
         {
+          "id": "DESIGN-071-UPLOAD-ADMISSION",
+          "description": "12/40 uploads with 32 connections and 64 uploads with 64 connections succeed; concurrent GET/list succeed; shutdown waits and disconnect cleans staging; JSON 503 exposes safe causes. Only max_connections bounds API upload concurrency. Resumable initiation and final 128 KiB PUT also succeed for 40 uploads/32 connections and 64 uploads/64 connections; session creation/read/checkpoint wait within catalog deadlines.",
+          "result": "PASS",
+          "test_ids": [
+            "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+            "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+            "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "obj_http_additional_upload_waits_for_advisory_check",
+            "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
+          ]
+        },
+        {
           "id": "DESIGN-071-PENDING",
           "description": "Measure saturation/fairness/checksum CPU behavior and validate future maintenance/transfer workers.",
           "result": "PENDING",
@@ -40706,7 +40760,7 @@
         },
         {
           "id": "DESIGN-071-MEDIA-SAFETY",
-          "description": "After immediate upload admission, one advisory 404/412 check precedes streamed body/hash errors; concurrent state changes are rechecked at publication",
+          "description": "After connection-bounded upload admission, one advisory 404/412 check precedes streamed body/hash errors; concurrent state changes are rechecked at publication",
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing"
@@ -40714,18 +40768,18 @@
         },
         {
           "id": "DESIGN-071-ADMISSION",
-          "description": "queued upload precheck deadlines, deterministic response framing/advisory precedence, immutable WAL-free rejection and immediate upload admission as applicable to this row.",
+          "description": "queued upload precheck deadlines, deterministic response framing/advisory precedence, immutable WAL-free rejection and connection-bounded upload admission as applicable to this row.",
           "result": "PASS",
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
-            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
+            "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
+            "obj_http_additional_upload_waits_for_advisory_check"
           ]
         },
         {
           "id": "DESIGN-071-TRANSFER-BOUNDS",
-          "description": "Validated transfer ceilings bound progressing uploads/downloads independently of inactivity; eight expired body streams release admission after cleanup, and advisory/post-EOF waits return 503 at a separate timeout without false commit success.",
+          "description": "Validated transfer ceilings bound progressing uploads/downloads independently of inactivity; expired body streams release admission after cleanup, and advisory/post-EOF waits return 503 at a separate timeout without false commit success.",
           "result": "PASS",
           "test_ids": [
             "config::tests::transfer_timeout_precedence_and_bounds",
@@ -40739,7 +40793,6 @@
         "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
         "connection_limit_deadline_and_shutdown_release_idle_clients",
         "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-        "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
         "cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup",
         "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
         "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -40747,12 +40800,20 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "config::tests::transfer_timeout_precedence_and_bounds",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_trickle_download_stops_at_absolute_deadline",
-        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
+        "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+        "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+        "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+        "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+        "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+        "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+        "obj_http_additional_upload_waits_for_advisory_check",
+        "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission",
+        "TestObjectResumableWriter",
+        "sdk-tests/ruby/https.rb"
       ],
       "verification": [
         {
@@ -40764,7 +40825,6 @@
             "storage::catalog::tests::admission_is_bounded_and_sqlite_settings_are_explicit",
             "connection_limit_deadline_and_shutdown_release_idle_clients",
             "bkt_http_concurrent_duplicates_restart_and_exclusive_directory",
-            "stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded",
             "cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup",
             "obj_http_active_upload_outlives_total_deadline_then_idle_body_times_out",
             "obj_http_completed_body_waits_for_commit_past_inactivity_deadline",
@@ -40772,23 +40832,78 @@
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "config::tests::transfer_timeout_precedence_and_bounds",
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_trickle_download_stops_at_absolute_deadline",
             "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish"
           ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "upload_admission::simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working",
+            "upload_admission::disconnect_cleans_staging_and_shutdown_waits_for_upload_completion",
+            "obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish",
+            "storage::object_tests::stalled_uploads_leave_blocking_workers_available_without_an_upload_limit",
+            "storage::object_tests::shutdown_rejects_new_uploads_and_waits_for_all_active_guards",
+            "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+            "obj_http_additional_upload_waits_for_advisory_check",
+            "upload_admission::simultaneous_resumable_initiation_and_final_chunks_wait_for_catalog_admission"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "TestObjectResumableWriter",
+            "sdk-tests/ruby/https.rb"
+          ]
         }
       ],
-      "sdk_evidence": [],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON media/resumable regression; parallel admission is covered by Rust wire tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "TestObjectResumableWriter"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP permissive/strict operations and resumable chunks, V4 signed GET/PUT and response overrides; parallel admission is covered by Rust wire tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/migrate-upload-admission.md",
+          "test_ids": [
+            "sdk-tests/ruby/https.rb"
+          ]
+        }
+      ],
       "known_deviations": [
         "Current limits are functional/configuration evidence, not RSS/cgroup/CPU/latency or future maintenance bounds.",
         "Body inactivity is suspended during advisory and post-EOF waits, which return 503 backendError after catalog_wait_timeout_ms (default 30000 ms) or the remaining absolute object_request_timeout_ms budget (default 900000 ms). A post-EOF timeout leaves the mutation outcome unknown: the commit may still complete, so re-read state or retry with preconditions. Background filesystem work and shutdown catalog close retain no execution bound; SQLite busy_timeout remains unchanged.",
-        "SPEC-008: header validation and the known-size check precede immediate upload admission (excess: 503); one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
+        "SPEC-008: header validation and the known-size check precede connection-bounded upload admission; one advisory bucket 404/condition 412 check precedes streamed-size, body and checksum errors independent of body timing. Concurrent state changes are rechecked at publication after body validation."
       ],
-      "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-21"
+      "implemented_in": "fcb1a338c2e34de41f369591a4f03c127c6604f8",
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-072",
@@ -46077,7 +46192,6 @@
           "test_ids": [
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication"
           ]
         },
@@ -46102,7 +46216,6 @@
         "obj_http_precheck_and_method_alt_reject_before_consuming_body",
         "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-        "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
         "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
         "obj_http_trickle_upload_deadline_releases_permits_without_publication",
         "obj_http_trickle_download_stops_at_absolute_deadline",
@@ -46123,7 +46236,6 @@
             "obj_http_precheck_and_method_alt_reject_before_consuming_body",
             "obj_http_advisory_failures_precede_chunked_body_errors_regardless_of_timing",
             "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
-            "obj_http_upload_limit_precedes_advisory_check_without_catalog_wait",
             "storage::catalog::objects::tests::prepared_upload_skips_advisory_repeat_but_rechecks_publication",
             "obj_http_trickle_upload_deadline_releases_permits_without_publication",
             "obj_http_trickle_download_stops_at_absolute_deadline",

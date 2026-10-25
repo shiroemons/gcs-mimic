@@ -76,7 +76,7 @@ than treating them as implemented semantics.
 Resolve at most 32 source metadata records and immutable blob handles under a
 short catalog snapshot. No SQL transaction or blocking worker waits for streaming.
 One admitted compose streams the pinned files in order with bounded 64 KiB chunks,
-one source transfer active at a time, reusing the eight derived/upload permits.
+one source transfer active at a time, retaining upload ownership through cleanup.
 The request-owned transfer has a fixed 15-minute lifetime from transfer creation;
 publication after that deadline returns local 410 and preserves the old objects.
 Raising object_request_timeout_ms does not extend this ephemeral lifetime. It is
@@ -90,7 +90,7 @@ source data merely to calculate the combined checksum.
 Stage to a random opaque blob ID, sync and publish using the shared derived-object
 foundation's filesystem/catalog recovery protocol. Copy/compose share a reserved
 128-entry ephemeral quota, independent of 128 continuable transfers; abandoned
-rewrites cannot consume it. The eight-stream execution budget remains shared.
+rewrites cannot consume it. API concurrency is bounded by `max_connections`.
 The final short transaction
 checks the bucket incarnation, current effective grants, destination conditions
 and active destination hold, then publishes one immutable destination generation

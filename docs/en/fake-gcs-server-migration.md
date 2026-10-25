@@ -32,6 +32,31 @@ The ledger's `delivery_plan.migration` owns the planning scope and acceptance
 milestones. Existing feature statuses and evidence remain authoritative; this
 document adds no passing migration result.
 
+## Concurrent uploads and storage errors
+
+API uploads have no separate concurrency quota. `max_connections` (default 32)
+bounds active connections; excess connections wait. Raising it to 64 permits
+64 simultaneous uploads without an upload-admission 503. Upload prechecks and
+resumable session creation/read/checkpoint wait for catalog admission within
+the existing catalog deadline; other catalog operations can still return 503 when their
+32-operation admission limit is saturated. Bodies retain 64 KiB chunks and a
+depth-two channel, without collecting the whole object in memory.
+
+Shutdown waits for active uploads and cleanup within `shutdown_timeout_ms`.
+Disconnecting before EOF aborts publication and cleans staging. New uploads
+after catalog shutdown starts fail with a `catalog is closed` cause.
+JSON object 503 messages also identify catalog saturation, catalog wait timeout,
+I/O failure or corruption when safely known; private backend details are hidden.
+For wait timeouts, retry with generation preconditions or consider
+`catalog_wait_timeout_ms=60000`. A completed-body upload can still commit after
+the response times out: read state before retrying an unconditional write.
+
+The [upload admission contract](slices/migrate-upload-admission.md) records
+12/40-upload tests at 32 connections, 64-upload tests at 64 connections,
+resumable initiation/final 128 KiB PUT at 40/64 uploads, concurrent GET/list checks
+and shutdown/disconnect cleanup. This is scoped
+emulator evidence, not a Google rate-limit or full migration parity claim.
+
 ## Bucket core baseline before further bucket extensions
 
 The create-by-name, basic-resource GET and empty-bucket DELETE baseline is

@@ -66,7 +66,7 @@ with a Seed origin and explicit local authority in both authentication profiles.
 API grants remain unchanged. Bucket creation returns the actual stored record
 without overwriting it; publication preserves the existing create-if-absent
 condition and checksums. Its two management upload slots and bounded 30-second
-admission waits are independent of the API's 32-call/eight-upload limits.
+admission waits are independent of the API's catalog and connection limits.
 Accepted publication and cancellation cleanup retain their permits until
 completion, and catalog close drains them before releasing directory ownership.
 Local files use `Admin::publish_from_file`, with dedicated file workers,

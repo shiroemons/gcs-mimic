@@ -2048,7 +2048,9 @@ so re-read state or retry with generation/metageneration preconditions. Complete
 may also commit after disconnect or shutdown. SQLite lock waiting retains five seconds;
 background filesystem work and shutdown catalog close have no separate execution bound.
 Bucket/probe routes retain a total deadline.
-Uploads have eight admission slots, a two-slot channel with at most 64 KiB
+Uploads share the `max_connections` limit (default 32), with excess connections
+waiting for capacity. There is no separate upload admission cap. Each upload uses
+a two-slot channel with at most 64 KiB
 per copied chunk, and independent size checks before publication. Downloads use one channel
 slot and a 64 KiB reader. No transaction or blocking worker waits for incoming body data.
 These inspected bounds are not an RSS/cgroup/CPU benchmark; the 1 GiB default cap has not
@@ -2062,7 +2064,9 @@ publishing partial bytes. Early rejections send a response and half-close the so
 discard at most 256 KiB for at most 100 ms. Generic admitted catalog writes and completed
 upload bodies can still commit after the client disconnects; clients must read back state
 when the response is lost. Trickle uploads cannot renew the absolute request ceiling;
-cancelled uploads release slots after their cleanup finishes.
+cancelled uploads remain tracked until their cleanup finishes. Upload prechecks
+and resumable session creation/read/checkpoint calls wait for catalog admission
+within the catalog wait deadline; other catalog calls still reject saturation.
 
 Schema-v1 bucket catalogs contain no objects and migrate transactionally through v3,
 v4 and v5 to v6. Existing v3 objects gain default metadata columns; v5 adds the durable

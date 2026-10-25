@@ -15,6 +15,45 @@ pub struct JsonError {
 }
 
 impl JsonError {
+    fn backend(message: &str) -> Self {
+        // Only fixed diagnostics cross the HTTP boundary; arbitrary backend text can contain paths or secrets.
+        let cause = message
+            .strip_prefix("catalog unavailable: ")
+            .unwrap_or(message);
+        let message = match cause {
+            "catalog is closed" => {
+                "Object storage is unavailable: catalog is closed; wait for the server to restart before retrying"
+            }
+            "catalog operation limit reached" => {
+                "Object storage is unavailable: catalog operation limit reached; retry with fewer concurrent requests (for example, 16)"
+            }
+            "upload catalog wait timed out" => {
+                "Object storage is unavailable: upload catalog wait timed out; retry with generation preconditions or increase catalog_wait_timeout_ms (for example, 60000); a completed upload may still commit"
+            }
+            "retained upload session limit reached" => {
+                "Object storage is unavailable: retained upload session limit reached; wait for expired sessions to be reclaimed or use single-request media uploads"
+            }
+            "upload finalization timed out" => {
+                "Object storage is unavailable: upload finalization timed out; read object state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
+            }
+            "copy request deadline exceeded" => {
+                "Object storage is unavailable: copy request deadline exceeded; read destination state before retrying with generation preconditions, or increase object_request_timeout_ms (for example, 1800000)"
+            }
+            "upload session is busy" => {
+                "Object storage is unavailable: upload session is busy; wait for the current request to finish before sending another request for this session"
+            }
+            _ => {
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Error,
+                    "object_backend_failure",
+                    json!({"cause": safe_backend_cause(cause)}),
+                );
+                "Object storage is unavailable: internal storage failure (private backend details withheld)"
+            }
+        };
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "backendError", message)
+    }
+
     pub fn new(status: StatusCode, reason: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -221,15 +260,56 @@ impl From<ObjectError> for JsonError {
                 "The upload request body did not complete",
             ),
             ObjectError::InvalidFixedMetadata(reason) => Self::invalid_argument(reason),
-            ObjectError::Unavailable(_) | ObjectError::Io(_) | ObjectError::Corrupt(_) => {
-                Self::new(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "backendError",
-                    "Object storage is unavailable",
-                )
-            }
+            ObjectError::Unavailable(message) => Self::backend(&message),
+            ObjectError::Io(kind) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                format!(
+                    "Object storage is unavailable: storage I/O error ({kind}); check data directory permissions and available disk space"
+                ),
+            ),
+            ObjectError::Corrupt(_) => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backendError",
+                "Object storage is unavailable: stored data is corrupt; restore a valid data directory",
+            ),
         }
     }
+}
+
+fn safe_backend_cause(cause: &str) -> &'static str {
+    // Only known fixed causes are safe; backend strings may embed credentials or SQL values.
+    const SAFE_CAUSES: &[&str] = &[
+        "database is locked",
+        "database is busy",
+        "database or disk is full",
+        "disk I/O error",
+        "attempt to write a readonly database",
+        "Permission denied",
+        "No space left on device",
+        "No such file or directory",
+        "Acknowledged upload prefix is missing",
+        "invalid resumable catalog state",
+        "invalid opaque blob ID",
+        "deletion journal references a live blob",
+        "generation exhausted",
+        "metageneration exhausted",
+        "bucket metageneration exhausted",
+        "derived transfer limit reached",
+        "derived publication catalog admission timed out",
+        "rewrite session limit reached",
+        "catalog is closing",
+    ];
+    SAFE_CAUSES
+        .iter()
+        .copied()
+        .find(|safe| {
+            cause == *safe
+                || cause
+                    .strip_prefix(safe)
+                    .is_some_and(|tail| tail.starts_with(": ") || tail.starts_with(" (os error "))
+        })
+        .unwrap_or("unrecognized backend failure (private details withheld)")
 }
 
 impl fmt::Display for JsonError {
@@ -239,3 +319,87 @@ impl fmt::Display for JsonError {
 }
 
 impl std::error::Error for JsonError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_causes_are_actionable_and_private_details_stay_private() {
+        if std::env::var_os("GCS_MIMIC_TEST_BACKEND_LOG").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "json::error::tests::backend_causes_are_actionable_and_private_details_stay_private",
+                    "--nocapture",
+                ])
+                .env("GCS_MIMIC_TEST_BACKEND_LOG", "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert!(!stderr.contains("/secret"));
+            assert!(!stderr.contains("token="));
+            let events: Vec<Value> = stderr
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(events.len(), 6);
+            assert!(events.iter().all(|event| {
+                event["event"] == "object_backend_failure" && event["level"] == "error"
+            }));
+            assert_eq!(events[1]["cause"], "database is locked");
+            assert_eq!(events[2]["cause"], "Permission denied");
+            return;
+        }
+        for cause in [
+            "catalog is closed",
+            "catalog operation limit reached",
+            "upload catalog wait timed out",
+            "retained upload session limit reached",
+            "upload finalization timed out",
+            "copy request deadline exceeded",
+            "upload session is busy",
+        ] {
+            let error = JsonError::from(ObjectError::Unavailable(cause.into()));
+            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert!(error.message.contains(cause));
+        }
+        let error = JsonError::from(ObjectError::Unavailable(
+            "failure at /secret/catalog with token=private".into(),
+        ));
+        assert!(!error.message.contains("/secret"));
+        assert!(!error.message.contains("token="));
+        for (cause, expected) in [
+            (
+                "catalog unavailable: database is locked",
+                "database is locked",
+            ),
+            (
+                "Permission denied (os error 13): token=private",
+                "Permission denied",
+            ),
+            (
+                "database is locked: /secret/catalog token=private",
+                "database is locked",
+            ),
+            (
+                "database is locked token=private",
+                "unrecognized backend failure (private details withheld)",
+            ),
+            (
+                "failure at /secret/catalog with token=private",
+                "unrecognized backend failure (private details withheld)",
+            ),
+        ] {
+            let cause = cause.strip_prefix("catalog unavailable: ").unwrap_or(cause);
+            assert_eq!(safe_backend_cause(cause), expected);
+            let error = JsonError::backend(cause);
+            assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                error.message,
+                "Object storage is unavailable: internal storage failure (private backend details withheld)"
+            );
+        }
+    }
+}

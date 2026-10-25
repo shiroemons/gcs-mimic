@@ -238,9 +238,10 @@ Use the existing disk-backed catalog/blob mechanism, not a process-only map.
 The planned local session cap is **128 retained sessions**, including active,
 completed and invalid terminal records before their deadline. Admission is an
 atomic count/insert with immediate **503 backendError** when full; rejected
-initiation creates no files or object. Reuse eight active body-transfer slots,
-32 catalog admission slots and one executing SQLite job. Sessions release body
-permits between requests. One session has at most one active writer, with no
+initiation creates no files or object. The HTTP `max_connections` setting is
+the only API upload concurrency limit; catalog work uses 32 admission slots
+and one executing SQLite job. Upload ownership lasts through cleanup.
+One session has at most one active writer, with no
 unbounded per-session waiter queue.
 
 Keep at most two copied 64 KiB channel chunks per admitted body, plus bounded
@@ -249,9 +250,10 @@ Object cap is existing `max_object_bytes` (default 1 GiB, configurable through
 5 TiB). Apply it to declared total, incoming offsets and actual streamed bytes,
 including unknown-length uploads, using checked arithmetic. Rejected admission,
 length and unsupported requests do not eagerly consume media. Disk usage is
-bounded by retained sessions times object cap, plus at most eight in-progress
-tails bounded by that same cap and existing immutable live blobs; this is not
-a global free-space reservation. Disk-full/write/sync errors fail explicitly.
+bounded by retained sessions times object cap, plus in-progress tails bounded
+by `max_connections` times that same cap and existing immutable live blobs.
+This is not a global free-space reservation. Disk-full/write/sync errors fail
+explicitly.
 
 Add a transactional migration from the existing validated catalog schema to
 an indexed session table: random capability ID, opaque staging/blob ID,

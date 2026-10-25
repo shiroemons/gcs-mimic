@@ -169,7 +169,7 @@ cache at most 128 completed responses, evicting the earliest-created session
 (ordered by its deadline and ID) when full, excluding the current completion.
 Eviction makes that completed token unavailable without changing its destination.
 Use the
-existing eight-stream admission budget and exclusive per-session writer guard.
+HTTP `max_connections` limit and exclusive per-session writer guard.
 Admission and cleanup errors stay visible and never drop existing data.
 
 Each call opens the pinned source revision and copies at most the permitted
@@ -223,7 +223,7 @@ have separate 128-entry quotas, for at most 256 transfers; abandoned rewrites
 cannot exhaust copy/compose capacity. Recovery preserves continuable accounting
 and discards ephemeral transfers. A full continuable quota still rejects a new
 rewrite with 503 backendError, including after restart, without shortening the
-seven-day token lifetime. The eight-stream execution budget remains shared.
+seven-day token lifetime. API concurrency is bounded by `max_connections`.
 Completed-cache eviction uses
 creation order, so a long-running old session can lose its recently finished
 replay on the next completion. These are explicit bounded local limitations.

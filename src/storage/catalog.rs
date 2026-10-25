@@ -91,7 +91,6 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const MAX_UPLOADS: usize = 8;
 const CATALOG_SCHEMA_VERSION: i64 = 21;
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
@@ -343,7 +342,8 @@ struct Inner {
     admission: Arc<Semaphore>,
     execution: Arc<Semaphore>,
     reclamation: Arc<Semaphore>,
-    uploads: Arc<Semaphore>,
+    uploads: Mutex<UploadState>,
+    uploads_idle: Notify,
     admin_uploads: Arc<Semaphore>,
     admin_reads: Arc<Semaphore>,
     admin_waiters: Arc<Semaphore>,
@@ -369,8 +369,44 @@ struct Resources {
     lock: lock::DirectoryLock,
 }
 
-/// A single SQLite connection with at most 32 catalog calls and eight streaming uploads.
-/// Metadata jobs execute serially; excess callers receive `Unavailable` without queuing.
+#[derive(Default)]
+struct UploadState {
+    active: usize,
+    closed: bool,
+}
+
+pub(crate) struct UploadGuard {
+    catalog: Option<Catalog>,
+    _admin: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+impl From<tokio::sync::OwnedSemaphorePermit> for UploadGuard {
+    fn from(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        Self {
+            catalog: None,
+            _admin: Some(permit),
+        }
+    }
+}
+
+impl Drop for UploadGuard {
+    fn drop(&mut self) {
+        if let Some(catalog) = &self.catalog {
+            let mut uploads = catalog
+                .0
+                .uploads
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            uploads.active -= 1;
+            if uploads.active == 0 {
+                catalog.0.uploads_idle.notify_waiters();
+            }
+        }
+    }
+}
+
+/// A single SQLite connection with at most 32 catalog calls.
+/// Metadata jobs execute serially; upload prechecks wait for admission, other excess calls fail.
 #[derive(Clone)]
 pub struct Catalog(Arc<Inner>);
 
@@ -581,7 +617,8 @@ impl Catalog {
                 admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
                 execution: Arc::new(Semaphore::new(1)),
                 reclamation: Arc::new(Semaphore::new(1)),
-                uploads: Arc::new(Semaphore::new(MAX_UPLOADS)),
+                uploads: Mutex::new(UploadState::default()),
+                uploads_idle: Notify::new(),
                 admin_uploads: Arc::new(Semaphore::new(2)),
                 admin_reads: Arc::new(Semaphore::new(32)),
                 admin_waiters: Arc::new(Semaphore::new(32)),
@@ -618,6 +655,11 @@ impl Catalog {
     /// Stops admission on all handles and waits for blocking work before releasing ownership.
     /// Remaining handles become unavailable; repeated closes succeed without touching a new owner.
     pub async fn close(&self) -> Result<(), CatalogError> {
+        self.0
+            .uploads
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed = true;
         self.0.admission.close();
         self.0.admin_shutdown.notify_waiters();
         self.0.maintenance_wake.notify_one();
@@ -649,13 +691,22 @@ impl Catalog {
             .acquire_many_owned(32)
             .await
             .map_err(unavailable)?;
-        let _uploads = self
-            .0
-            .uploads
-            .clone()
-            .acquire_many_owned(MAX_UPLOADS as u32)
-            .await
-            .map_err(unavailable)?;
+        loop {
+            let idle = self.0.uploads_idle.notified();
+            tokio::pin!(idle);
+            idle.as_mut().enable();
+            if self
+                .0
+                .uploads
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .active
+                == 0
+            {
+                break;
+            }
+            idle.await;
+        }
         let _reclamation = self
             .0
             .reclamation
@@ -700,6 +751,28 @@ impl Catalog {
             .clone()
             .try_acquire_owned()
             .map_err(|_| CatalogError::Unavailable("catalog operation limit reached".into()))?;
+        self.run_admitted(admission, operation).await
+    }
+
+    async fn run_waiting<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
+    ) -> Result<T, CatalogError> {
+        let admission = self
+            .0
+            .admission
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| unavailable("catalog is closed"))?;
+        self.run_admitted(admission, operation).await
+    }
+
+    async fn run_admitted<T: Send + 'static>(
+        &self,
+        admission: tokio::sync::OwnedSemaphorePermit,
+        operation: impl FnOnce(&mut Connection) -> Result<T, CatalogError> + Send + 'static,
+    ) -> Result<T, CatalogError> {
         let execution = self
             .0
             .execution

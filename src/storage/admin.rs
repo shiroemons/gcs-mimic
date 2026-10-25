@@ -642,7 +642,7 @@ impl Admin {
                 conditions,
                 request.max_bytes,
                 body,
-                permit,
+                permit.into(),
                 request.metadata,
                 access,
                 request.mode,

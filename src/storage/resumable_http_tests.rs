@@ -1553,23 +1553,26 @@ async fn chunked_cap_overflow_and_disconnected_transfers_release_all_body_slots(
             assert!(tokio::time::Instant::now() < deadline);
             tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
-        stalled.push(stream);
+        stalled.push((stream, path));
     }
     let init = h.initiate("name=admission", "", b"").await;
     let path = h.path(&init);
-    assert_eq!(h.request("PUT", &path, "", b"blocked").await.status, 503);
-    for mut stream in stalled {
+    assert_eq!(h.request("PUT", &path, "", b"additional").await.status, 200);
+    for (mut stream, path) in stalled {
         stream.shutdown().await.unwrap();
-    }
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
-        let r = h.request("PUT", &path, "", b"released").await;
-        if r.status != 503 {
-            assert_eq!(r.status, 200);
-            break;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let r = h
+                .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
+                .await;
+            if r.status != 503 {
+                assert_eq!(r.status, 308);
+                assert!(!r.headers.contains_key("range"));
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline);
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
     let init = h.initiate("name=too-large", "", b"").await;
     let path = h.path(&init);

@@ -464,13 +464,9 @@ async fn sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permit
         .acquire_many_owned(32)
         .await
         .unwrap();
-    let uploads = catalog
-        .0
-        .uploads
-        .clone()
-        .acquire_many_owned(8)
-        .await
-        .unwrap();
+    let uploads: Vec<_> = (0..64)
+        .map(|_| catalog.admit_object_upload().unwrap())
+        .collect();
     assert!(catalog.get_bucket("test-bucket").await.is_err());
     catalog
         .run_admin(|connection| {

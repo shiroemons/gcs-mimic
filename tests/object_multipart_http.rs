@@ -1234,9 +1234,14 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         assert!(Instant::now() < ready, "all uploads must enter staging");
         thread::sleep(Duration::from_millis(5));
     }
-    let mut excess = socket(&server.address);
-    excess.write_all(b"POST /upload/storage/v1/b/missing-bucket/o?uploadType=multipart HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n\r\n").unwrap();
-    Reply::read(excess).error(503, "backendError");
+    server
+        .request(
+            "POST",
+            "/upload/storage/v1/b/missing-bucket/o?uploadType=multipart&name=missing",
+            "Content-Type: multipart/related; boundary=boundary\r\n",
+            &wire(b"{}", None, b"additional", None),
+        )
+        .error(404, "notFound");
     let deadline = Instant::now() + Duration::from_millis(1300);
     while Instant::now() < deadline {
         for stream in &mut streams {

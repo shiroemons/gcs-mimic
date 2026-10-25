@@ -1,4 +1,6 @@
-use super::{ObjectActivity, ResponseBody, boxed, empty_response, stream_upload};
+use super::{
+    ObjectActivity, ResponseBody, await_upload_catalog, boxed, empty_response, stream_upload,
+};
 use crate::{
     bucket::BucketAccess,
     config::Config,
@@ -27,11 +29,14 @@ pub(super) async fn initiate(
     encoding: Option<String>,
     access: BucketAccess,
     state: &State,
-    max: u64,
+    config: &Config,
+    activity: &watch::Sender<ObjectActivity>,
+    deadline: tokio::time::Instant,
 ) -> Result<Response<ResponseBody>, JsonError> {
     let response_fields =
         json::parse_query(request.uri().query().unwrap_or_default())?.remove("fields");
-    let (mime, expected, total) = resumable::headers(request.headers(), params, max)?;
+    let (mime, expected, total) =
+        resumable::headers(request.headers(), params, config.max_object_bytes)?;
     let origin = resumable::single(request.headers(), "origin")?.map(str::to_owned);
     let metadata_type = resumable::single(request.headers(), "content-type")?.map(str::to_owned);
     let json_type = metadata_type.as_ref().is_some_and(|v| {
@@ -68,10 +73,15 @@ pub(super) async fn initiate(
         &bytes, name, mime, expected, params, access, origin, encoding,
     )?;
     options.response_fields = response_fields;
-    let session = state
-        .catalog
-        .create_resumable_session(bucket, &name, options, total)
-        .await?;
+    let session = await_upload_catalog(
+        state
+            .catalog
+            .create_resumable_session(bucket, &name, options, total),
+        std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
+        deadline,
+        activity,
+    )
+    .await?;
     let location = format!("{location_prefix}{}", session.id);
     let mut response = empty_response(StatusCode::OK);
     response.headers_mut().insert(
@@ -167,7 +177,13 @@ pub(super) async fn session_response(
             "Content-Length does not match Content-Range",
         ));
     }
-    let mut lease = state.catalog.lock_resumable_session(id, bucket).await?;
+    let mut lease = await_upload_catalog(
+        state.catalog.lock_resumable_session(id, bucket),
+        std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
+        deadline,
+        activity,
+    )
+    .await?;
     let session = &lease.session;
     let (start, length, total, status) = match range {
         Some(Range::Status(total)) => {
@@ -265,10 +281,15 @@ pub(super) async fn session_response(
             .map_err(|e| ObjectError::Unavailable(e.to_string()))?;
         let offset = session.offset;
         if total != session.total {
-            state
-                .catalog
-                .checkpoint_resumable_session(&mut lease, offset, total)
-                .await?;
+            await_upload_catalog(
+                state
+                    .catalog
+                    .checkpoint_resumable_session(&mut lease, offset, total),
+                std::time::Duration::from_millis(config.catalog_wait_timeout_ms),
+                deadline,
+                activity,
+            )
+            .await?;
         }
         return incomplete(offset, &headers);
     }

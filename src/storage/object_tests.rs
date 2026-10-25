@@ -1738,7 +1738,7 @@ async fn metadata_update_races_with_delete_and_upload_preserve_atomic_identity()
 }
 
 #[test]
-fn stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded() {
+fn stalled_uploads_leave_blocking_workers_available_without_an_upload_limit() {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(2)
@@ -1750,7 +1750,7 @@ fn stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded() {
             let catalog = setup(&dir).await;
             let mut tasks = tokio::task::JoinSet::new();
             let mut senders = Vec::new();
-            for index in 0..8 {
+            for index in 0..40 {
                 let (sender, receiver) = mpsc::channel(1);
                 senders.push(sender);
                 let catalog = catalog.clone();
@@ -1769,7 +1769,7 @@ fn stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded() {
                 });
             }
             tokio::time::timeout(Duration::from_secs(5), async {
-                while fs::read_dir(dir.0.join("staging")).unwrap().count() != 8 {
+                while fs::read_dir(dir.0.join("staging")).unwrap().count() != 40 {
                     tokio::task::yield_now().await;
                 }
             })
@@ -1779,10 +1779,9 @@ fn stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(
-                matches!(put(&catalog, "excess", b"bad", ObjectConditions::default()).await,
-            Err(ObjectError::Unavailable(message)) if message.contains("upload limit"))
-            );
+            put(&catalog, "additional", b"ok", ObjectConditions::default())
+                .await
+                .unwrap();
             for sender in senders {
                 sender
                     .send(Err(io::Error::new(io::ErrorKind::UnexpectedEof, "abort")))
@@ -1792,7 +1791,7 @@ fn stalled_uploads_do_not_occupy_blocking_workers_and_admission_is_bounded() {
             while let Some(task) = tasks.join_next().await {
                 assert_eq!(task.unwrap(), Err(ObjectError::BodyAborted("abort".into())));
             }
-            assert_no_uploads(&dir.0);
+            assert_eq!(fs::read_dir(dir.0.join("staging")).unwrap().count(), 0);
         });
 }
 
@@ -1836,4 +1835,29 @@ async fn cancelled_upload_keeps_directory_owned_until_close_finishes_cleanup() {
     assert_no_uploads(&dir.0);
     assert!(sender.is_closed());
     Catalog::open(&dir.0).await.unwrap();
+}
+
+#[tokio::test]
+async fn shutdown_rejects_new_uploads_and_waits_for_all_active_guards() {
+    let dir = TestDir::new();
+    let catalog = setup(&dir).await;
+    let guards: Vec<_> = (0..64)
+        .map(|_| catalog.admit_object_upload().unwrap())
+        .collect();
+    let closer = catalog.clone();
+    let close = tokio::spawn(async move { closer.close().await });
+    while catalog.is_healthy() {
+        tokio::task::yield_now().await;
+    }
+    assert!(!close.is_finished());
+    assert!(
+        matches!(catalog.admit_object_upload(), Err(ObjectError::Unavailable(cause)) if cause == "catalog is closed")
+    );
+    drop(guards);
+    tokio::time::timeout(Duration::from_secs(5), close)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    Catalog::open(&dir.0).await.unwrap().close().await.unwrap();
 }

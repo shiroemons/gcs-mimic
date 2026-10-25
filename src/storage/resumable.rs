@@ -195,7 +195,7 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let catalog = self.clone();
-        let session = self.run(move |connection| Ok((|| -> Result<_,ResumableError> {
+        let session = self.run_waiting(move |connection| Ok((|| -> Result<_,ResumableError> {
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(unavailable)?;
             let (_,allow_overwrite)=super::objects::authorized_bucket(&transaction,&bucket,&options.access)?;
             let previous=super::objects::lookup(&transaction,&bucket,&name)?;
@@ -238,7 +238,7 @@ impl Catalog {
         let id = id.to_owned();
         let bucket = bucket.to_owned();
         let session = self
-            .run(move |connection| {
+            .run_waiting(move |connection| {
                 connection
                     .query_row(
                         "SELECT * FROM resumable_sessions WHERE id = ?1 AND bucket = ?2",
@@ -319,7 +319,7 @@ impl Catalog {
         let id = lease.session.id.clone();
         let old = lease.session.offset;
         let now = unix_millis(self.0.clock.now())?;
-        let changed = self.run(move |connection| connection.execute("UPDATE resumable_sessions SET offset = ?1, total = ?2 WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![i64::try_from(offset).map_err(unavailable)?, total.map(i64::try_from).transpose().map_err(unavailable)?, id, i64::try_from(old).map_err(unavailable)?, now]).map_err(unavailable)).await?;
+        let changed = self.run_waiting(move |connection| connection.execute("UPDATE resumable_sessions SET offset = ?1, total = ?2 WHERE id = ?3 AND offset = ?4 AND state = 'ACTIVE' AND deadline > ?5", params![i64::try_from(offset).map_err(unavailable)?, total.map(i64::try_from).transpose().map_err(unavailable)?, id, i64::try_from(old).map_err(unavailable)?, now]).map_err(unavailable)).await?;
         if changed != 1 {
             self.resumable_session(&lease.session.id, &lease.session.bucket)
                 .await?;

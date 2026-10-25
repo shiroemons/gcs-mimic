@@ -498,13 +498,9 @@ async fn admin_admission_is_independent_of_saturated_api_slots() {
         .acquire_many_owned(32)
         .await
         .unwrap();
-    let api_uploads = catalog
-        .0
-        .uploads
-        .clone()
-        .acquire_many_owned(8)
-        .await
-        .unwrap();
+    let api_uploads: Vec<_> = (0..64)
+        .map(|_| catalog.admit_object_upload().unwrap())
+        .collect();
     assert!(catalog.get_bucket("test-bucket").await.is_err());
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
     let mut waiting = std::pin::pin!(admin.publish_object(

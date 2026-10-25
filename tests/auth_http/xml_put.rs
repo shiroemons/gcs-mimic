@@ -844,13 +844,10 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
 fn xml_put_upload_admission_is_bounded_and_releases_aborted_slots() {
     let (_config, data, server) = fixture();
     let before = snapshot(&server, &data);
-    let streams: Vec<_> = (0..8)
+    let mut streams: Vec<_> = (0..8)
         .map(|n| expect_continue(&server, &format!("/iam-bucket/held-{n}"), ADMIN, 99999))
         .collect();
-    let request = format!(
-        "PUT {OBJECT} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\nExpect: 100-continue\r\n{ADMIN}\r\n"
-    );
-    xml_error(&server.raw(request.as_bytes()), 503, "ServiceUnavailable");
+    streams.push(expect_continue(&server, OBJECT, ADMIN, 999999));
     assert_eq!(snapshot(&server, &data), before);
     drop(streams);
     clean(&data);

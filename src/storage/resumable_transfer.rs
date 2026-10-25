@@ -1,5 +1,5 @@
 use super::{
-    Catalog,
+    Catalog, UploadGuard,
     resumable::{ResumableError, ResumableOptions, SessionLease, SessionState, read_session},
 };
 use super::{
@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::io;
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::{OwnedSemaphorePermit, mpsc, oneshot, watch},
+    sync::{mpsc, oneshot, watch},
 };
 
 pub(crate) struct ResumableChunk {
@@ -100,7 +100,7 @@ impl Catalog {
         mut lease: SessionLease,
         chunk: ResumableChunk,
         mut body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
-        permit: OwnedSemaphorePermit,
+        permit: UploadGuard,
         render: impl FnOnce(&ObjectRecord) -> Result<Value, ObjectError> + Send + 'static,
     ) -> Result<Option<Value>, ResumableError> {
         let catalog = self.clone();

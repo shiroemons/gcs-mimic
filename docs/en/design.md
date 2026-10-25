@@ -68,8 +68,10 @@ EOF. Media/multipart invocation tokens require generation-match and are not repl
 The [multipart contract](slices/json-object-multipart.md) records precise accounting,
 advisory ordering and local choices under SPEC-013/SPEC-016.
 
-Eight uploads are admitted immediately; excess uploads fail with 503 before any advisory
-catalog check. Header validation and the known Content-Length cap check precede admission.
+Uploads have no separate admission cap: `max_connections` bounds API connections
+and excess connections wait. Header validation and the known Content-Length cap
+check precede upload tracking. Shutdown closes tracking admission and waits for
+the active count to reach zero through notification after publication or cleanup.
 Each upload uses two channel slots with copied chunks of at most 64 KiB, incremental
 MD5/CRC32C and asynchronous short file jobs. Downloads use one channel slot and a 64 KiB
 reader. Neither a database transaction nor a blocking worker is held waiting for body input.
@@ -376,13 +378,15 @@ corrupt schemas read-only. No body transfer may hold a SQL transaction.
 The admission cap is 128 retained sessions, including active, completed
 and invalid terminal records until their deadline. Count/insert must be atomic;
 a full table returns immediate 503 `backendError` without files or object changes.
-Reuse eight body-transfer slots, releasing them between session requests,
-32 catalog admission slots and one executing SQLite job. At most two copied
+Share the HTTP connection limit with other uploads, 32 catalog admission slots
+and one executing SQLite job. Session creation, reads and checkpoints wait for
+catalog admission; finalization already waits for the execution slot. HTTP waits
+use the existing catalog timeout and remaining request budget. At most two copied
 64 KiB channel chunks per admitted body plus bounded hash/parser state are
 allowed; neither chunks nor whole objects may be collected in a byte vector.
 Apply `max_object_bytes` to declared total, offsets and streamed bytes using
 checked arithmetic, including unknown-length requests. Retained staging can use
-session-count times the object cap plus at most eight in-progress tails and live
+session-count times the object cap plus connection-bounded in-progress tails and live
 blobs; this is a disk bound, not a free-space reservation. Disk-full/write/sync
 failures must remain explicit.
 

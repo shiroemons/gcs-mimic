@@ -795,7 +795,9 @@ async fn object_response(
                 content_encoding,
                 access,
                 state,
-                max_bytes,
+                config,
+                activity,
+                deadline,
             )
             .await;
         }

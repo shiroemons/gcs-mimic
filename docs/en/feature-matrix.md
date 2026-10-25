@@ -912,8 +912,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-011 | Disconnected-client resource cleanup | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-012 | Disk exhaustion and write failure integrity | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-013 | File descriptor and active-session budgets | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-070 | Streaming bodies with bounded buffers | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-071 | Bounded request and worker concurrency | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-070 | Streaming bodies with bounded buffers | PARTIAL | P1 | PROJECT | PROJECT | 2 |
+| DESIGN-071 | Bounded request and worker concurrency | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | DESIGN-072 | Disk-backed metadata and indexed listing | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-073 | Immutable blobs and atomic catalog updates | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-074 | Cross-file crash recovery journal | PARTIAL | P1 | PROJECT | PROJECT | 0 |

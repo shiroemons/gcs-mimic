@@ -912,8 +912,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-011 | 切断クライアントの資源解放 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-012 | ディスク枯渇・書込失敗時の整合性 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
 | AUDIT-013 | ファイル記述子・稼働セッションの上限 | NOT_STARTED | P1 | PROJECT | NONE | 0 |
-| DESIGN-070 | 固定上限バッファによる本体ストリーミング | PARTIAL | P1 | PROJECT | PROJECT | 0 |
-| DESIGN-071 | リクエスト・ワーカー同時実行数の上限 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
+| DESIGN-070 | 固定上限バッファによる本体ストリーミング | PARTIAL | P1 | PROJECT | PROJECT | 2 |
+| DESIGN-071 | リクエスト・ワーカー同時実行数の上限 | PARTIAL | P1 | PROJECT | PROJECT | 2 |
 | DESIGN-072 | ディスク上メタデータ・索引付き一覧取得 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-073 | 不変blobとカタログの原子的更新 | PARTIAL | P1 | PROJECT | PROJECT | 0 |
 | DESIGN-074 | 複数ファイルにまたがるクラッシュ回復 | PARTIAL | P1 | PROJECT | PROJECT | 0 |

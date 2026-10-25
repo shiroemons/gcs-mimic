@@ -1,5 +1,8 @@
 mod common;
 
+#[path = "object_http/upload_admission.rs"]
+mod upload_admission;
+
 use common::TestDir;
 use serde_json::{Value, json};
 use std::{
@@ -29,6 +32,17 @@ impl Server {
         object_timeout: u64,
         catalog_timeout: u64,
     ) -> Self {
+        Self::with_connections(dir, limit, timeout, object_timeout, catalog_timeout, 32)
+    }
+
+    fn with_connections(
+        dir: &TestDir,
+        limit: u64,
+        timeout: u64,
+        object_timeout: u64,
+        catalog_timeout: u64,
+        connections: usize,
+    ) -> Self {
         let mut child = common::server_command()
             .args([
                 "serve",
@@ -50,6 +64,8 @@ impl Server {
                 &object_timeout.to_string(),
                 "--catalog-wait-timeout-ms",
                 &catalog_timeout.to_string(),
+                "--max-connections",
+                &connections.to_string(),
             ])
             .stdout(Stdio::piped())
             .spawn()
@@ -870,8 +886,21 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
     thread::sleep(Duration::from_millis(100));
     let mut second = server.stream();
     second.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=queued HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\ntwo").unwrap();
-    Reply::read(first).error(503, "backendError");
-    Reply::read(second).error(503, "backendError");
+    for reply in [Reply::read(first), Reply::read(second)] {
+        reply.error(503, "backendError");
+        assert!(
+            reply.json()["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("upload catalog wait timed out")
+        );
+        assert!(
+            reply.json()["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("catalog_wait_timeout_ms")
+        );
+    }
     assert!(started.elapsed() >= Duration::from_millis(500));
     assert!(
         started.elapsed() < Duration::from_secs(2),
@@ -951,7 +980,7 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
 }
 
 #[test]
-fn obj_http_upload_limit_precedes_advisory_check_without_catalog_wait() {
+fn obj_http_additional_upload_waits_for_advisory_check() {
     let dir = TestDir::new();
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();
@@ -963,27 +992,26 @@ fn obj_http_upload_limit_precedes_advisory_check_without_catalog_wait() {
     }
     let deadline = Instant::now() + Duration::from_secs(3);
     while std::fs::read_dir(dir.0.join("staging")).unwrap().count() < 8 {
-        assert!(Instant::now() < deadline, "all eight upload slots admitted");
+        assert!(Instant::now() < deadline, "all upload bodies admitted");
         thread::sleep(Duration::from_millis(10));
     }
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     uploads[0].write_all(b"one").unwrap();
     thread::sleep(Duration::from_millis(100));
-    let started = Instant::now();
-    server
-        .request(
-            "POST",
-            "/upload/storage/v1/b/missing-bucket/o?uploadType=media&name=excess",
-            "",
-            b"two",
-        )
-        .error(503, "backendError");
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "excess upload must not queue on the catalog"
-    );
-    database.execute_batch("ROLLBACK").unwrap();
+    let reply = thread::scope(|scope| {
+        let reply = scope.spawn(|| {
+            server.request(
+                "POST",
+                "/upload/storage/v1/b/missing-bucket/o?uploadType=media&name=excess",
+                "",
+                b"two",
+            )
+        });
+        database.execute_batch("ROLLBACK").unwrap();
+        reply.join().unwrap()
+    });
+    reply.error(404, "notFound");
     assert_eq!(Reply::read(uploads.remove(0)).status, 200);
 }
 
