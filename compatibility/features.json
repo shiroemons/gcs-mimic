@@ -40718,6 +40718,20 @@
           ]
         },
         {
+          "id": "sync-lexical-name-mapping",
+          "description": "Shared lexical mapping validates native bucket/object names and preserves exact UTF-8 components without decoding, cleaning, folding or normalization; rejects traversal, empty/dot/NUL components, reserved workspace names, ignored regular-file leaves and Windows-invalid components. Property tests cover exact inverse mapping or explicit rejection. Filesystem alias/collision/identity checks remain pending under sync-name-mapping.",
+          "result": "PASS",
+          "test_ids": [
+            "literal_names_round_trip_without_normalization",
+            "unsafe_reserved_and_ignored_names_are_explicit",
+            "windows_restrictions_cover_devices_and_special_components",
+            "arbitrary_names_round_trip_or_are_explicitly_rejected",
+            "arbitrary_paths_never_clean_into_another_name",
+            "mapping_preserves_the_api_name_byte_limit",
+            "non_utf8_paths_are_rejected_without_lossy_conversion"
+          ]
+        },
+        {
           "id": "sync-name-mapping",
           "description": "Property-test exact name/path round trips or explicit Unrepresentable, literal percent/Unix backslash versus Windows restrictions, dot/empty components, reserved/ignored regular files, OS limits, case/Unicode and file/directory collisions, no-follow roots/ancestors and symlink/special-file findings; owners sync-mirror and sync-ingest; contract docs/en/slices/directory-synchronization.md.",
           "result": "PENDING",
@@ -40726,6 +40740,12 @@
         {
           "id": "sync-bidirectional-mutations",
           "description": "Verify multiple buckets and API create/overwrite/delete/copy/compose plus external create/edit/delete/rename, zero-byte/binary bodies, independent bucket settings and version history; external bucket-directory removal deletes tracked objects only and recreates the empty directory; owners sync-mirror and sync-ingest.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "sync-api-writeback",
+          "description": "Pending: page all owner projects and live objects after ready, export selected immutable descriptors through fsutil, consume fenced change notifications without idle polling, preserve external conflicts and bucket settings/history, recreate empty bucket directories and reconcile gaps/restarts. Blocked on public cross-project bucket pages, race-free journal waits, durable catalog/root associations, protected pending write-back/progress records and ObjectReader descriptor access. Required properties and acceptance handoffs: docs/en/slices/directory-synchronization.md.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -41017,9 +41037,31 @@
         "publication_reclamation_is_paged_and_rejects_live_journal_entries",
         "publication_waits_for_reclamation_without_holding_catalog_execution",
         "descriptor_copy_preserves_bytes_offsets_and_exclusive_names",
-        "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies"
+        "reclamation_parallel_to_media_derived_and_resumable_keeps_committed_bodies",
+        "literal_names_round_trip_without_normalization",
+        "unsafe_reserved_and_ignored_names_are_explicit",
+        "windows_restrictions_cover_devices_and_special_components",
+        "arbitrary_names_round_trip_or_are_explicitly_rejected",
+        "arbitrary_paths_never_clean_into_another_name",
+        "mapping_preserves_the_api_name_byte_limit",
+        "non_utf8_paths_are_rejected_without_lossy_conversion"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib sync::mapping; cargo test --locked --offline --test sync_mapping",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/directory-synchronization.md",
+          "test_ids": [
+            "literal_names_round_trip_without_normalization",
+            "unsafe_reserved_and_ignored_names_are_explicit",
+            "windows_restrictions_cover_devices_and_special_components",
+            "arbitrary_names_round_trip_or_are_explicitly_rejected",
+            "arbitrary_paths_never_clean_into_another_name",
+            "mapping_preserves_the_api_name_byte_limit",
+            "non_utf8_paths_are_rejected_without_lossy_conversion"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -41178,7 +41220,7 @@
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. All invalid-parent child findings and record suppression are tested. import-filesystem owns consolidation into a pending-state record with decoded names/failure material when integrating validated buckets with publication; avoiding that larger representation now preserves the tested diagnostic order. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection is verified on macOS/Linux ARM64. Native Windows runtime and file-ID/ctime observation are unverified; optional non-Unix identity fields remain absent. Dry-run cannot publish, resume, recover original normalized-away names or inspect memory history, and metadata-only reports never certify body bytes. Publication/journal benchmarks remain PENDING; no time/CPU/RSS result is claimed. shared-blob-id is requested to consolidate existing storage/JSON/authentication hex encoders with hashing::encode_lower while migrating hash loops.",
         "The Shared state storage owner is requested to adopt source_tree::is_os_metadata for regular catalog entries. import-seed-adapter is requested to adopt Walker during its dedicated-worker/local-publication migration, retaining native limits and the separately owned ignore-policy change. This slice changes neither storage recovery nor native seed ignore semantics; seed now compares already-canonicalized paths without synchronous filesystem calls on Tokio workers.",
-        "Directory synchronization name/state/control/conflict/approval/resource cases are contract-only and PENDING; no runtime support or measured performance is claimed. Required Shared state properties are requests, not a chosen internal schema.",
+        "Directory synchronization has a tested lexical name/path mapper only. Actual-root case/Unicode aliases, filesystem length limits, collisions and no-follow identity validation remain pending, as do API write-back, activation, markers, restart recovery, state/control/conflict/approval and observation. Public storage prerequisites and acceptance handoffs are requested in docs/en/slices/directory-synchronization.md; no runtime synchronization or measured performance is claimed.",
         "Unreleased schema-v2 catalogs are rejected read-only; automatic migration supports object-free v1 catalogs.",
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."

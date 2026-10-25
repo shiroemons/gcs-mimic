@@ -4,9 +4,10 @@
 
 Contract checked: **2026-10-24**. Scope: DESIGN-062, DESIGN-072 and DESIGN-074;
 preserve DESIGN-076. This freezes the `directory-synchronization` delivery gate
-and `filesystem_sync_contract`; it adds no runtime, accepted setting or command.
-All synchronization acceptance cases remain **PENDING** in
-`compatibility/features.json`. One-time seed import is the current boundary.
+and `filesystem_sync_contract`; it adds no accepted setting or command.
+The shared lexical name mapper is implemented; synchronization runtime cases
+remain **PENDING** in `compatibility/features.json`. One-time seed import is
+the current runtime boundary.
 
 ## Configuration reservation
 
@@ -52,7 +53,9 @@ executable tests, not results obtained by inspecting this document.
 | sync-configuration | DESIGN-062 | One required root; defaults, precedence, every numeric boundary and invalid/empty/unknown input; boolean parsing, tuning without root, overlap/alias/root substitution rejection and one-shot reinitialization | sync-mirror, sync-ingest |
 | sync-initial-activation | DESIGN-062 | Empty/nonempty catalogs, empty buckets, same/different/absent names, exact summary counts; interrupted activation resumes without replay/deletion; owner mismatch never changes ownership | sync-mirror, sync-ingest |
 | sync-name-mapping | DESIGN-072 | Property-test name to path to identical name or explicit Unrepresentable; literal percent/backslash rules, dot/empty segments, ignored/reserved names, OS limits, case/Unicode aliases and file/directory collisions; no traversal, symlink or special-file following | sync-mirror, sync-ingest |
+| sync-lexical-name-mapping | DESIGN-072 | Shared lexical name/path conversion rejects invalid, reserved, ignored and host-invalid components and preserves exact UTF-8 bytes on round trip. Property tests cover arbitrary names and paths. This is a candidate-path check; filesystem collisions, host length limits and descriptor-relative safety still require runtime validation. | sync-mirror |
 | sync-bidirectional-mutations | DESIGN-072 | Multiple buckets; API create/overwrite/delete/copy/compose, external create/edit/delete/rename, independent bucket settings/history and zero-byte/binary bodies; deleted bucket directory returns without deleting the bucket | sync-mirror, sync-ingest |
+| sync-api-writeback | DESIGN-072 | After ready, page all owners' buckets and live objects, mirror binary/empty bodies from opened immutable descriptors, consume fenced changes without idle polling, preserve conflicting external bytes and owner/settings/history, recreate empty bucket directories, and recover a gap through bounded reconciliation. Pending the shared interfaces below. | sync-mirror |
 | sync-metadata-and-loops | DESIGN-072 | Atomic metadata inheritance including concurrent PATCH, new-file MIME/default holds, same-hash no new generation, live-hash recovery and origin/fingerprint loop suppression | sync-ingest |
 | sync-conflict-preservation | DESIGN-072 | API priority, immutable conflict body/identity, exact/exceeded byte and entry caps, disk-full and zero-byte conflicts; a quota-exceeding last-check race after displacement retains the actual body in workspace with full quota accounting, stop/restart and operator recovery, never automatic cleanup/exchange-back; even a 1 TiB + 1 byte sparse body can be explicitly discarded before registration only with original-owner authority, exact recovery revision/identity and backup or no-backup discard confirmation; rejected/stale/unconfirmed requests retain bytes and quota, and only durable authorized completion permits root resumption; restore/discard cannot retarget or overwrite newer API state; cancellation/retry retains unresolved bytes and quota | sync-mirror, sync-control, sync-ingest |
 | sync-deletion-approval | DESIGN-072 | Count below/at threshold and fraction equal/above threshold, disabled guard and zero denominator; inspect all pages of one fixed deletion revision and approve exactly that set; an intervening tree/API/root/incarnation change or restart makes old cursors and approval return 409; holds restore files and preserve history | sync-control, sync-ingest |
@@ -120,6 +123,34 @@ Unrepresentable API objects remain available through the API and are excluded
 from deletion candidates. Unsupported external entries are findings, never imports.
 
 ## Activation, marker and startup
+
+### Shared interface prerequisites for write-back
+
+The current `Admin::list_buckets(project, after, limit)`,
+`Admin::list_objects`, `Admin::open_object`, `Catalog::read_changes` and
+`Catalog::set_change_journal_enabled` provide bounded reads and journal pages.
+They do not yet provide the complete runtime boundary below. These are requested
+public interface properties, not a storage schema or implementation prescription.
+Shared state owns their implementation; adapters must not add SQL or substitute
+independent catalog identity/progress files.
+
+| Interface shape | Required properties and acceptance handoff |
+| --- | --- |
+| `Admin::list_all_buckets(after, limit)` | Keyset pages of at most 256 across all owner projects, including empty buckets, with bucket owner and incarnation. Test multiple projects, empty buckets, page boundaries and concurrent delete/recreation. A selected `seed_project` must not hide another owner's bucket. |
+| `Catalog::wait_for_changes(after)` | A cancellable effect-free wait, returning immediately when the sequence/revision has advanced or a rescan is needed. Register/recheck atomically enough to prevent a commit between the reader's last page and its wait from being missed. Wake on publication, metadata, deletion, bucket/IAM changes, epoch changes and shutdown; test commit-before/after-registration and restart/gap without periodic polling. Journal pages retain their captured finite fence. |
+| Durable catalog identity and root association | Return a stable opaque `CatalogId`, reserve a root identity and opaque root ID under exclusive ownership, and record activating/complete associations. Before bind, validate the bounded marker against both identities. Test foreign/missing/malformed markers, replacement roots, two catalogs sharing a root, interrupted activation and safe explicit reinitialization. Do not infer deletion from an incomplete baseline. |
+| Write-back progress and pending-operation API | Bounded records bind root/catalog, logical target, original owner/incarnation, selected generation, opaque workspace entry and operation phase. Durably protect any potentially displaced body before destructive replacement; expose/page unfinished work after restart even if the original bucket disappeared. Commit synchronized fingerprints/generation and journal progress only after file and affected-parent durability. Test crash before/after copy, replacement, parent sync and progress commit, ENOSPC/ambiguous completion, protected conflicts and quota stops without automatic cleanup or blind rollback. |
+| `ObjectReader` descriptor transfer or duplication | Yield an owned descriptor for the already opened selected immutable blob, without exposing/reopening a storage path or hard-linking it to the tree. Pass it to `fsutil::clone_or_copy_into` on a dedicated worker. Test API overwrite/delete while a descriptor is retained, exact zero/binary bytes, fixed memory, unchanged source position and ownership through cancellation/drain. |
+
+The baseline captures a journal fence before scanning bounded current-state pages,
+then replays from that fence and handles any rescan indication; listing is not
+an atomic snapshot and must not be described as one. Durable pending operations
+are a prerequisite for replacement, deletion and conflict preservation. Startup,
+configuration and background tasks remain unchanged until those interfaces and
+their safety cases are available. No polling or best-effort marker substitute is
+introduced to bypass this dependency.
+
+### Marker and activation requirements
 
 The root marker is bounded to 4 KiB and contains version `1`, opaque `catalog_id`
 and opaque `root_id`. Reject unknown versions/fields, malformed IDs, symlinks
@@ -655,15 +686,15 @@ Reconciled `compatibility/gaps.json`: no open gap directly targets these design
 rows. Existing SPEC-008, SPEC-VERSION-DELETE-CONDITIONS and SPEC-EVENT-HOLD-WIRE
 remain open; sync uses existing conditional live deletion/hold behavior and
 claims no new provider wire parity. The onboarding findings' schema-13 note is
-historical: current main uses schema 14 and microseconds. No millisecond import
+historical: the current catalog uses schema 15 and microseconds. No millisecond import
 rounding or new identity-preservation mode is introduced.
 
 This document changes no owner decision. It makes the specified non-exchange
 race window explicit rather than claiming an unattainable cross-filesystem/SQL
 atomic transaction. Runtime cases, process-kill/platform tests, official SDKs,
 containers and notification behavior have not been executed for this contract.
-Performance is **unmeasured**. Following the local-development scale policy in
-the Shared state contract, the runtime slice records one full-rescan timing at
+Performance is **unmeasured**. Ordinary runtime slices require no benchmark or
+measurement; a slice whose purpose is performance may record one short run at
 about 1,000 entries as a fact, without a regression gate. Bounded pages and the
 stat-first rescan remain design requirements enforced by tests and review. No
 speed or memory improvement is claimed.
@@ -684,3 +715,69 @@ No runtime tests, `just check`, dependency freshness run, SDK suite, container
 build or performance measurement was run for this document-only slice. The
 coordinator owns full `just check` after local-main integration. No new passing
 runtime evidence or feature-status promotion is recorded by these document checks.
+
+### Lexical mapping implementation checks
+
+Verified on 2026-10-25. `src/sync/mapping.rs` exposes the shared `PathMapping`
+and explicit reasons, `name_to_path` and `path_to_name`. Both directions use
+the shared validated `BucketName` and `ObjectName` types. The forward function
+produces a **lexical candidate**, not permission to write a filesystem entry.
+It applies native bucket/object validation, rejects empty/dot/NUL segments and
+reserved components at every depth, and shares
+`source_tree::is_ignored_regular_file` for final components. Matching prefix
+directories remain eligible. Literal percent and Unicode bytes are unchanged;
+Unix backslashes stay literal and Windows-invalid components are rejected.
+The reverse function compares raw OS strings rather than normalized `Path`
+equality, so an alternate spelling cannot be silently cleaned into another name.
+
+`cargo test --locked --offline --lib sync::mapping` passed five tests, including
+two property tests for arbitrary names/paths and the Windows restriction
+predicate. The path strategy generates valid bucket/component pairs on every
+iteration, checks both decoded identities and exact raw path spelling, and
+rejects a dot-segment variation of each generated path.
+`cargo test --locked --offline --test sync_mapping` passed two public
+API tests: the exact 1024-byte name boundary/overflow and invalid Unix UTF-8.
+The Windows predicate follows Microsoft's
+[file naming conventions](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions),
+checked on 2026-10-25; testing that pure predicate on Unix does not verify native
+Windows path handling or actual filesystem representability.
+`cargo xtask dependencies check` passed with Rust 1.99.1 and every checked input
+current at Unix time 1792901168. No dependency or lockfile changed.
+
+Actual-root aliases, host component/path limits, API file/directory collisions,
+no-follow root/ancestor checks, notifications, activation, marker persistence,
+write-back and restart recovery are still pending. Runtime configuration and
+startup remain unchanged. Their storage prerequisites and acceptance handoffs
+are listed above; no narrower implementation is presented as complete sync.
+Replacing seed's duplicate path conversion with this shared mapper is deferred
+to `import-seed-adapter`.
+SDK/container/guide runs are unnecessary for this source-only utility and
+contract change; no HTTP, container or runnable guide behavior changed.
+No performance measurement was performed or result claimed.
+
+The final source was checked once with `just check` and localhost-capable permissions. Formatting,
+workspace clippy with warnings denied and the initial shell checks passed, but
+the library test stage failed in an unchanged resumable timing test:
+
+```text
+storage::resumable_http_tests::final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget
+assertion `left == right` failed
+  left: 503
+ right: 200
+test result: FAILED. 363 passed; 1 failed
+```
+
+The exact isolated rerun,
+`cargo test --locked --offline --lib storage::resumable_http_tests::final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget -- --exact`,
+passed: one test, zero failures. Concurrent-load sensitivity is known to the
+integration coordinator; the cause remains unconfirmed. No condition, test or
+storage implementation was changed. Per the coordinator's instruction, the
+full check was not repeated; its remaining integration/shell stages were not
+reached on this final source. The coordinator owns the merged full check.
+
+Standalone ledger/generated-view checks and Markdownlint passed with the existing
+MD013 table exception. Both English and Japanese matrices were regenerated and
+remain byte-identical because parent statuses are unchanged:
+DESIGN-062/072/074 stay PARTIAL and DESIGN-076 stays IMPLEMENTED. Only the new
+`sync-lexical-name-mapping` case passes; `sync-api-writeback` explicitly records
+the pending runtime and its shared-interface dependencies.

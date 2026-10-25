@@ -18,6 +18,7 @@ pub mod seed;
 pub mod server;
 pub mod source_tree;
 pub mod storage;
+pub mod sync;
 #[cfg(test)]
 mod test_support;
 pub mod tls;
