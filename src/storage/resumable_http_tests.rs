@@ -1,3 +1,4 @@
+use super::catalog::test_support::replace_resumable_cleanup_obstacle;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};
@@ -1859,8 +1860,7 @@ async fn failed_finalization_and_cancel_cleanup_retry_before_session_deadline() 
             assert!(tokio::time::Instant::now() < deadline);
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        std::fs::remove_dir(&stage).unwrap();
-        std::fs::write(&stage, b"uncommitted tail").unwrap();
+        replace_resumable_cleanup_obstacle(&h.state.catalog, stage.clone()).await;
         while stage.exists() || h.state.catalog.resumable_maintenance_error().is_some() {
             assert!(tokio::time::Instant::now() < deadline);
             tokio::time::sleep(Duration::from_millis(5)).await;
