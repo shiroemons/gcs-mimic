@@ -245,7 +245,8 @@ async fn serve_connection(
                 break;
             },
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                if result.is_err() { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport"})); }
+                // hyper's Display names only the failure kind (body stream, write, parse), never the wrapped I/O detail.
+                if let Err(error) = result { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport","cause":error.to_string()})); }
                 break;
             }
             _ = &mut deadline, if !current.awaiting_catalog => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"})); break; },
