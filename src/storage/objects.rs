@@ -1,13 +1,13 @@
 use super::{Catalog, MAX_UPLOADS, system_time_micros, unavailable, unix_micros};
 use crate::{
     bucket::{BucketAccess, CatalogError},
+    hashing::{Hasher, Hashes},
     object::{
         ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord,
         UploadChunk,
     },
 };
 use bytes::Bytes;
-use md5::{Digest, Md5};
 use rusqlite::{
     Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params, types::Type,
 };
@@ -151,14 +151,9 @@ pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
 }
 
 pub(super) fn blob_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    if id.len() != 32
-        || !id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(ObjectError::Unavailable("invalid opaque blob ID".into()));
-    }
-    Ok(data_dir.join("blobs").join(&id[..2]).join(id))
+    super::super::blob_id::BlobId::parse(id)
+        .map(|id| id.blob_path(data_dir))
+        .ok_or_else(|| ObjectError::Unavailable("invalid opaque blob ID".into()))
 }
 
 #[cfg(unix)]
@@ -633,11 +628,10 @@ impl Catalog {
         // Cancellation must not release directory ownership during publication or cleanup.
         tokio::spawn(async move {
             let _permit = permit;
-            let mut random = [0; 16];
-            getrandom::fill(&mut random).map_err(object_unavailable)?;
-            let id: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
-            let stage = catalog.0.data_dir.join("staging").join(&id);
-            let published = blob_path(&catalog.0.data_dir, &id)?;
+            let blob = super::super::blob_id::BlobId::generate().map_err(object_unavailable)?;
+            let id = blob.to_hex();
+            let stage = blob.staging_path(&catalog.0.data_dir);
+            let published = blob.blob_path(&catalog.0.data_dir);
             let source = stage.clone();
             let destination = published.clone();
             let file = tokio::task::spawn_blocking(move || -> io::Result<File> {
@@ -1098,8 +1092,7 @@ async fn write_body(
     mut cancellation: oneshot::Receiver<()>,
 ) -> Result<(u64, [u8; 16], u32), ObjectError> {
     let mut size = 0_u64;
-    let mut md5 = Md5::new();
-    let mut crc32c = 0;
+    let mut hasher = Hasher::default();
     loop {
         let chunk = tokio::select! {
             biased;
@@ -1137,12 +1130,11 @@ async fn write_body(
             .filter(|size| *size <= max_bytes)
             .ok_or(ObjectError::TooLarge)?;
         for part in chunk.chunks(CHUNK_SIZE) {
-            md5.update(part);
-            crc32c = crc32c::crc32c_append(crc32c, part);
+            hasher.update(part);
             file.write_all(part).await.map_err(object_unavailable)?;
         }
     }
-    let md5: [u8; 16] = md5.finalize().into();
+    let Hashes { md5, crc32c } = hasher.finish();
     if expected.md5.is_some_and(|value| value != md5)
         || expected.crc32c.is_some_and(|value| value != crc32c)
     {

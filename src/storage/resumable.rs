@@ -120,6 +120,7 @@ impl From<CatalogError> for ResumableError {
 /// A nonqueued exclusive operation on one session; dropping always releases admission.
 pub(crate) struct SessionLease {
     pub session: ResumableSession,
+    blob_id: super::super::blob_id::BlobId,
     guard: WriterGuard,
 }
 pub(super) struct WriterGuard {
@@ -144,19 +145,14 @@ impl Drop for WriterGuard {
 }
 impl SessionLease {
     pub(crate) fn staging_path(&self) -> PathBuf {
-        self.guard
-            .catalog
-            .0
-            .data_dir
-            .join("staging")
-            .join(&self.session.blob_id)
+        self.blob_id.staging_path(&self.guard.catalog.0.data_dir)
     }
 }
 
 fn random_id<const N: usize>() -> Result<String, CatalogError> {
     let mut bytes = [0; N];
     getrandom::fill(&mut bytes).map_err(unavailable)?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+    Ok(crate::hashing::encode_lower(&bytes))
 }
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
@@ -208,12 +204,13 @@ impl Catalog {
             if count >= MAX_SESSIONS as i64 { return Err(unavailable("retained upload session limit reached").into()); }
             let incarnation: String = transaction.query_row("SELECT incarnation FROM bucket_incarnations WHERE bucket = ?1", [&bucket], |r| r.get(0)).optional().map_err(unavailable)?.ok_or(ObjectError::BucketNotFound)?;
             let id = random_id::<32>()?;
-            let blob_id = random_id::<16>()?;
+            let blob = super::super::blob_id::BlobId::generate().map_err(unavailable)?;
+            let blob_id = blob.to_hex();
             let now = unix_millis(catalog.0.clock.now())?;
             let deadline = now.checked_add(SESSION_LIFETIME.as_millis() as i64).ok_or_else(|| unavailable("upload deadline overflow"))?;
             let encoded = encode_options(&options).to_string();
             let total = total.map(i64::try_from).transpose().map_err(unavailable)?;
-            let path = catalog.0.data_dir.join("staging").join(&blob_id);
+            let path = blob.staging_path(&catalog.0.data_dir);
             let file = fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(unavailable)?;
             let synced=(|| -> std::io::Result<()> {file.sync_all()?;
             #[cfg(unix)]
@@ -269,7 +266,13 @@ impl Catalog {
     ) -> Result<SessionLease, ResumableError> {
         let guard = self.try_resumable_writer(id)?;
         let session = self.resumable_session(id, bucket).await?;
-        Ok(SessionLease { session, guard })
+        let blob_id = super::super::blob_id::BlobId::parse(&session.blob_id)
+            .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
+        Ok(SessionLease {
+            session,
+            blob_id,
+            guard,
+        })
     }
 
     pub(super) fn try_resumable_writer(&self, id: &str) -> Result<WriterGuard, CatalogError> {

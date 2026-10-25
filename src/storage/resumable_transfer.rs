@@ -6,8 +6,8 @@ use super::{
     objects::{self, authorized_bucket, check_publication, lookup},
     system_time_micros, unix_micros,
 };
+use crate::hashing::{Hasher, Hashes};
 use crate::object::{ObjectError, ObjectRecord, UploadChunk};
-use md5::{Digest, Md5};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 use std::io;
@@ -222,8 +222,7 @@ impl Catalog {
         file.seek(io::SeekFrom::Start(0))
             .await
             .map_err(unavailable)?;
-        let mut md5 = Md5::new();
-        let mut crc = 0;
+        let mut hasher = Hasher::default();
         let mut length = 0_u64;
         let mut buffer = [0; 64 * 1024];
         loop {
@@ -231,11 +230,10 @@ impl Catalog {
             if n == 0 {
                 break;
             }
-            md5.update(&buffer[..n]);
-            crc = crc32c::crc32c_append(crc, &buffer[..n]);
+            hasher.update(&buffer[..n]);
             length += n as u64;
         }
-        let md5: [u8; 16] = md5.finalize().into();
+        let Hashes { md5, crc32c: crc } = hasher.finish();
         if options.expected.md5.is_some_and(|v| v != md5)
             || options.expected.crc32c.is_some_and(|v| v != crc)
         {

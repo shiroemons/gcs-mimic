@@ -78,6 +78,8 @@ pub(super) fn clean_session_files(
     data_dir: &Path,
     blob_id: &str,
 ) -> Result<(), CatalogError> {
+    let blob = super::super::blob_id::BlobId::parse(blob_id)
+        .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
     let live: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
@@ -85,10 +87,10 @@ pub(super) fn clean_session_files(
             |row| row.get(0),
         )
         .map_err(unavailable)?;
-    unlink(&data_dir.join("staging").join(blob_id))?;
+    unlink(&blob.staging_path(data_dir))?;
     // A completed object outlives its capability and must never be reclaimed with it.
     if !live {
-        unlink(&data_dir.join("blobs").join(&blob_id[..2]).join(blob_id))?;
+        unlink(&blob.blob_path(data_dir))?;
     }
     connection
         .execute(
@@ -288,5 +290,29 @@ impl Catalog {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_session_blob_ids_cannot_select_cleanup_or_recovery_paths() {
+        let dir = crate::test_support::TestDir::new();
+        let data_dir = dir.0.join("data");
+        fs::create_dir_all(data_dir.join("staging")).unwrap();
+        let protected = dir.0.join("protected");
+        fs::write(&protected, b"keep").unwrap();
+        let connection = Connection::open_in_memory().unwrap();
+        for id in ["", "a", "../../protected", &"A".repeat(32), &"é".repeat(16)] {
+            let cleanup = clean_session_files(&connection, &data_dir, id).unwrap_err();
+            let recovery =
+                super::super::resumable_recovery::recover_prefix(&connection, &data_dir, id, 0)
+                    .unwrap_err();
+            assert!(cleanup.to_string().contains("invalid opaque blob ID"));
+            assert!(recovery.to_string().contains("invalid opaque blob ID"));
+            assert_eq!(fs::read(&protected).unwrap(), b"keep");
+        }
     }
 }

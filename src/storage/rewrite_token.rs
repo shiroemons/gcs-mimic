@@ -8,9 +8,7 @@ impl RewriteToken {
     pub fn generate() -> Result<Self, getrandom::Error> {
         let mut bytes = [0; 32];
         getrandom::fill(&mut bytes)?;
-        Ok(Self(
-            bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
-        ))
+        Ok(Self(crate::hashing::encode_lower(&bytes)))
     }
 
     pub fn parse(value: &str) -> Option<Self> {

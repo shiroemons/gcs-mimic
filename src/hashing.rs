@@ -94,6 +94,20 @@ pub(crate) fn encode_lower(bytes: &[u8]) -> String {
 }
 
 impl Hasher {
+    // Derived transfers predate the versioned envelope and persist these fields separately.
+    pub(crate) fn from_md5_state(state: &[u8], crc32c: u32, bytes: u64) -> io::Result<Self> {
+        let state = SerializedState::<Md5>::try_from(state).map_err(|_| invalid_state())?;
+        Ok(Self {
+            md5: Md5::deserialize(&state).map_err(|_| invalid_state())?,
+            crc32c,
+            bytes,
+        })
+    }
+
+    pub(crate) fn md5_state(&self) -> ([u8; MD5_STATE_BYTES], u32) {
+        (self.md5.serialize().into(), self.crc32c)
+    }
+
     pub fn update(&mut self, bytes: &[u8]) {
         // Object-size admission bounds callers far below the u64 byte-count limit.
         debug_assert!(self.bytes.checked_add(bytes.len() as u64).is_some());
@@ -159,5 +173,29 @@ mod tests {
     #[test]
     fn encode_lower_preserves_leading_zeroes() {
         assert_eq!(encode_lower(&[0, 15, 16, 255]), "000f10ff");
+    }
+
+    #[test]
+    fn derived_checkpoint_preserves_raw_md5_bytes_and_resumes() {
+        for offset in [0, 1, 63, 64, 65, 65_537] {
+            let bytes = vec![17; offset];
+            let mut previous = Md5::new();
+            previous.update(&bytes);
+            let state = previous.serialize();
+            let crc = crc32c::crc32c(&bytes);
+            let mut hash = Hasher::from_md5_state(state.as_slice(), crc, offset as u64).unwrap();
+            assert_eq!(hash.md5_state(), (state.into(), crc));
+            hash.update(b"tail");
+            previous.update(b"tail");
+            assert_eq!(
+                hash.finish(),
+                Hashes {
+                    md5: previous.finalize().into(),
+                    crc32c: crc32c::crc32c_append(crc, b"tail"),
+                }
+            );
+        }
+        assert!(Hasher::from_md5_state(&[0; 87], 0, 0).is_err());
+        assert!(Hasher::from_md5_state(&[0; 89], 0, 0).is_err());
     }
 }

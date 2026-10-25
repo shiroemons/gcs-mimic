@@ -1,7 +1,7 @@
 //! Bounded, local V4 RSA query signing and verification. No Google IAM calls.
 
 use super::{Auth, Caller};
-use crate::{clock::Clock, json};
+use crate::{clock::Clock, hashing::encode_lower, json};
 use hyper::{HeaderMap, Method, Uri};
 use ring::{digest, rand::SystemRandom, signature};
 use std::{
@@ -382,15 +382,8 @@ fn canonical_query(query: &BTreeMap<String, String>) -> String {
 fn string_to_sign(date: &str, scope: &str, canonical: &str) -> String {
     format!(
         "{ALGORITHM}\n{date}\n{scope}\n{}",
-        hex(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
+        encode_lower(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
     )
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut s, b| {
-        write!(s, "{b:02x}").unwrap();
-        s
-    })
 }
 
 fn unhex(raw: &str) -> Result<Vec<u8>, Failure> {
@@ -556,6 +549,6 @@ pub fn sign_url(
         uri.authority().unwrap(),
         uri.path(),
         canonical_query(&query),
-        hex(&bytes)
+        encode_lower(&bytes)
     ))
 }

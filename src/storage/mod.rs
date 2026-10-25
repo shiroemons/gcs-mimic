@@ -1,3 +1,4 @@
+mod blob_id;
 mod catalog;
 #[cfg(test)]
 mod catalog_tests;

@@ -17,14 +17,8 @@ pub fn encode_page_token(
     // Native listing must retain cursors for source-only names after a profile switch.
     validate_bucket_name_for_profile(last_name, CompatProfile::LegacyEmulator)?;
     let payload = serde_json::json!(["b1", project, prefix, last_name]).to_string();
-    let mut token = String::with_capacity(payload.len() * 2 + 17);
-    for byte in payload.bytes() {
-        use std::fmt::Write;
-        write!(token, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    use std::fmt::Write;
-    write!(token, ".{:016x}", checksum(payload.as_bytes())).expect("writing to String cannot fail");
-    Ok(token)
+    let encoded = crate::hashing::encode_lower(payload.as_bytes());
+    Ok(format!("{encoded}.{:016x}", checksum(payload.as_bytes())))
 }
 
 pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<String, JsonError> {
@@ -85,7 +79,7 @@ pub(super) fn encode_object_page_token(
         cursor.generation
     ])
     .to_string();
-    let encoded: String = payload.bytes().map(|byte| format!("{byte:02x}")).collect();
+    let encoded = crate::hashing::encode_lower(payload.as_bytes());
     format!("{encoded}.{:016x}", checksum(payload.as_bytes()))
 }
 

@@ -41063,6 +41063,21 @@
           ]
         },
         {
+          "command": "RUST_TEST_THREADS=4 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-blob-id.md",
+          "test_ids": [
+            "obj_http_round_trip_exact_metadata_media_headers_and_nonempty_bucket",
+            "obj_multipart_http_round_trip_metadata_hashes_and_restart",
+            "xml_put_metadata_hashes_empty_and_encoded_paths_round_trip",
+            "copy_cross_bucket_same_object_history_fields_and_restart_preserve_bytes",
+            "compose_order_checksums_metadata_fields_and_restart",
+            "rewrite_progress_retry_restart_and_completion_replay_publish_once",
+            "retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation"
+          ]
+        },
+        {
           "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-25",
@@ -41718,6 +41733,21 @@
             "publication_file_staging_does_not_wait_for_shared_blocking_pool",
             "publication_cancelled_renamed_batch_cleans_before_shutdown_unlocks",
             "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=4 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-blob-id.md",
+          "test_ids": [
+            "callback_source_deletion_rolls_back_with_destination_and_checks_holds",
+            "committed_mutations_succeed_when_reclaim_is_deferred_to_restart",
+            "recovery_restores_renamed_uncommitted_output_and_empty_sources",
+            "rewrite_process_kill_recovers_acknowledged_prefix_and_discards_uncommitted_tail",
+            "obj_http_sigkill_after_blob_rename_before_commit_and_after_success",
+            "resumable_sigkill_after_final_rename_restores_staging_and_preserves_old_object",
+            "resumable_sigkill_after_final_commit_preserves_object_and_completion_snapshot"
           ]
         },
         {

@@ -6,11 +6,8 @@ use super::{
 };
 use crate::{
     bucket::BucketAccess,
+    hashing::{Hasher, Hashes},
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectMetadataUpdate, ObjectRecord},
-};
-use md5::{
-    Digest, Md5,
-    digest::common::hazmat::{SerializableState, SerializedState},
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
@@ -55,14 +52,15 @@ fn unavailable(error: impl std::fmt::Display) -> ObjectError {
 }
 
 fn random_id() -> Result<String, ObjectError> {
-    let mut bytes = [0; 16];
-    getrandom::fill(&mut bytes).map_err(unavailable)?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    super::super::blob_id::BlobId::generate()
+        .map(|id| id.to_hex())
+        .map_err(unavailable)
 }
 
 fn stage_path(data_dir: &Path, id: &str) -> Result<PathBuf, ObjectError> {
-    objects::blob_path(data_dir, id)?;
-    Ok(data_dir.join("staging").join(id))
+    super::super::blob_id::BlobId::parse(id)
+        .map(|id| id.staging_path(data_dir))
+        .ok_or_else(|| unavailable("invalid opaque blob ID"))
 }
 
 /// A metadata snapshot and independent link to immutable bytes, including after source deletion.
@@ -216,7 +214,7 @@ fn transfer(
     connection: &Connection,
     id: &str,
     now: i64,
-) -> Result<(DerivedTransfer, Md5, u32), ObjectError> {
+) -> Result<(DerivedTransfer, Hasher), ObjectError> {
     let (total, offset, state, crc, created, deadline): (i64, i64, Vec<u8>, u32, i64, i64) = connection
         .query_row(
             "SELECT total, offset, md5_state, crc32c, created, deadline FROM derived_transfers WHERE id = ?1",
@@ -229,8 +227,7 @@ fn transfer(
     if now >= deadline {
         return Err(ObjectError::DerivedTransferExpired);
     }
-    let state = SerializedState::<Md5>::try_from(state.as_slice()).map_err(unavailable)?;
-    let md5 = Md5::deserialize(&state).map_err(unavailable)?;
+    let hasher = Hasher::from_md5_state(&state, crc, offset as u64).map_err(unavailable)?;
     Ok((
         DerivedTransfer {
             id: id.into(),
@@ -239,8 +236,7 @@ fn transfer(
             created: system_time_millis(created).map_err(unavailable)?,
             deadline: system_time_millis(deadline).map_err(unavailable)?,
         },
-        md5,
-        crc,
+        hasher,
     ))
 }
 
@@ -478,7 +474,7 @@ impl Catalog {
                         params![
                             id,
                             total as i64,
-                            Md5::new().serialize().as_slice(),
+                            Hasher::default().md5_state().0.as_slice(),
                             ephemeral, created, deadline
                         ],
                     )
@@ -588,10 +584,10 @@ impl Catalog {
             let query = id.clone();
             let data_dir = catalog.0.data_dir.clone();
             let now = unix_millis(catalog.0.clock.now()).map_err(unavailable)?;
-            let (mut progress, mut md5, mut crc, sources) = catalog.run_upload(move |connection| {
-                let (progress, md5, crc) = transfer(connection, &query, now)?;
+            let (mut progress, mut hasher, sources) = catalog.run_upload(move |connection| {
+                let (progress, hasher) = transfer(connection, &query, now)?;
                 restore_stage(&data_dir, &query)?;
-                Ok((progress, md5, crc, inputs(connection, &query)?))
+                Ok((progress, hasher, inputs(connection, &query)?))
             }).await?;
             let path = stage_path(&catalog.0.data_dir, &id)?;
             let mut output = tokio::fs::OpenOptions::new().write(true).open(path).await.map_err(unavailable)?;
@@ -612,15 +608,15 @@ impl Catalog {
                     let length = remaining.min(BUFFER_SIZE as u64) as usize;
                     input.read_exact(&mut buffer[..length]).await.map_err(unavailable)?;
                     output.write_all(&buffer[..length]).await.map_err(unavailable)?;
-                    md5.update(&buffer[..length]);
-                    crc = crc32c::crc32c_append(crc, &buffer[..length]);
+                    hasher.update(&buffer[..length]);
                     progress.offset += length as u64;
                     remaining -= length as u64;
                 }
             }
             output.sync_all().await.map_err(unavailable)?;
             catalog.run_upload(move |connection| {
-                connection.execute("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5.serialize().as_slice(), crc]).map_err(unavailable)?;
+                let (md5_state, crc) = hasher.md5_state();
+                connection.execute("UPDATE derived_transfers SET offset = ?2, md5_state = ?3, crc32c = ?4 WHERE id = ?1", params![id, progress.offset as i64, md5_state.as_slice(), crc]).map_err(unavailable)?;
                 Ok(progress)
             }).await
         }).await.map_err(unavailable)?
@@ -683,10 +679,10 @@ impl Catalog {
             let data_dir = catalog.0.data_dir.clone();
             let clock = catalog.0.clock.clone();
             let result = catalog.run_upload_admitted(execution, move |connection| {
-                let (progress, md5, crc32c) = transfer(connection, &query, unix_millis(clock.now()).map_err(unavailable)?)?;
+                let (progress, hasher) = transfer(connection, &query, unix_millis(clock.now()).map_err(unavailable)?)?;
                 let sources = inputs(connection, &query)?;
                 if progress.offset != progress.total { return Err(ObjectError::DerivedTransferIncomplete); }
-                let md5: [u8; 16] = md5.finalize().into();
+                let Hashes { md5, crc32c } = hasher.finish();
                 restore_stage(&data_dir, &query)?;
                 let stage = stage_path(&data_dir, &query)?;
                 objects::publish_blob(&stage, &objects::blob_path(&data_dir, &query)?).map_err(unavailable)?;
@@ -924,7 +920,7 @@ pub(super) fn recover(
             continue;
         }
         let validity = (|| {
-            let (progress, saved_md5, saved_crc) = transfer(connection, &id, now)?;
+            let (progress, saved_hash) = transfer(connection, &id, now)?;
             let sources = inputs(connection, &id)?;
             if sources.is_empty()
                 || sources.len() > 32
@@ -944,19 +940,17 @@ pub(super) fn recover(
             output.set_len(progress.offset).map_err(unavailable)?;
             output.sync_all().map_err(unavailable)?;
             // A same-length corrupted prefix must not inherit the acknowledged hash state.
-            let mut md5 = Md5::new();
-            let mut crc = 0;
+            let mut hasher = Hasher::default();
             let mut remaining = progress.offset;
             let mut buffer = [0; BUFFER_SIZE];
             while remaining > 0 {
                 let length = remaining.min(BUFFER_SIZE as u64) as usize;
                 std::io::Read::read_exact(&mut output, &mut buffer[..length])
                     .map_err(unavailable)?;
-                md5.update(&buffer[..length]);
-                crc = crc32c::crc32c_append(crc, &buffer[..length]);
+                hasher.update(&buffer[..length]);
                 remaining -= length as u64;
             }
-            if md5.finalize() != saved_md5.finalize() || crc != saved_crc {
+            if hasher.finish() != saved_hash.finish() {
                 return Err(unavailable(
                     "derived prefix checksum differs from checkpoint",
                 ));
@@ -987,6 +981,7 @@ mod tests {
     use super::*;
     use crate::{bucket::BucketRecord, object::UploadChunk};
     use bytes::Bytes;
+    use md5::{Digest, Md5, digest::common::hazmat::SerializableState};
     use std::io::Write;
     use std::time::UNIX_EPOCH;
     use tokio::sync::mpsc;

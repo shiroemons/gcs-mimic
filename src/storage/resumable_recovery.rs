@@ -30,8 +30,10 @@ pub(super) fn recover_prefix(
     blob_id: &str,
     offset: u64,
 ) -> Result<(), CatalogError> {
-    let stage = data_dir.join("staging").join(blob_id);
-    let blob = objects::blob_path(data_dir, blob_id).map_err(unavailable)?;
+    let id = super::super::blob_id::BlobId::parse(blob_id)
+        .ok_or_else(|| unavailable("invalid opaque blob ID"))?;
+    let stage = id.staging_path(data_dir);
+    let blob = id.blob_path(data_dir);
     let live: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
