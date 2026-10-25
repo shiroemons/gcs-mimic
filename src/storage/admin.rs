@@ -316,6 +316,16 @@ pub struct Admin {
     catalog: Catalog,
     grant: AdminGrant,
 }
+
+pub struct BucketEntry {
+    pub bucket: BucketRecord,
+    pub incarnation: String,
+}
+
+pub struct BucketPage {
+    pub items: Vec<BucketEntry>,
+    pub has_more: bool,
+}
 impl Catalog {
     /// Operator-owned input only; API handlers must continue through their auth profile.
     pub fn admin(&self, origin: Origin) -> Admin {
@@ -383,9 +393,12 @@ impl Catalog {
             let (_admission, _execution) = (admission, execution);
             let result = match inner.resources.lock() {
                 Ok(mut resources) => match resources.as_mut() {
-                    Some(resources) => {
-                        operation(&mut resources.connection).map_err(AdminError::from)
-                    }
+                    Some(resources) => super::change_journal::notify_on_write(
+                        &mut resources.connection,
+                        &inner.change_wake,
+                        operation,
+                    )
+                    .map_err(AdminError::from),
                     None => Err(AdminError::Closed),
                 },
                 Err(error) => Err(AdminError::Corrupt(error.to_string())),
@@ -532,6 +545,56 @@ impl Admin {
         self.catalog
             .run_admin(move |connection| {
                 super::bucket_list_page(connection, project, String::new(), after, limit)
+            })
+            .await
+    }
+
+    /// Binary keyset across every owner; continue after the last returned bucket name.
+    pub async fn list_all_buckets(
+        &self,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<BucketPage, AdminError> {
+        if !(1..=MAX_PAGE).contains(&limit) {
+            return Err(AdminError::Invalid(
+                "management page limit must be 1..=256".into(),
+            ));
+        }
+        let after = after.unwrap_or("").to_owned();
+        self.catalog
+            .run_admin(move |connection| {
+                let mut statement = connection
+                    .prepare(&format!(
+                        "SELECT {COLUMNS}, i.incarnation FROM buckets
+                 LEFT JOIN bucket_incarnations i ON i.bucket = buckets.name
+                 WHERE name > ?1 ORDER BY name LIMIT ?2"
+                    ))
+                    .map_err(unavailable)?;
+                let mut rows = statement
+                    .query(rusqlite::params![after, limit as i64 + 1])
+                    .map_err(unavailable)?;
+                let mut items = Vec::new();
+                let mut remaining = super::BUCKET_LIST_METADATA_BUDGET;
+                let mut has_more = false;
+                while let Some(row) = rows.next().map_err(unavailable)? {
+                    let incarnation = row
+                        .get_ref(13)
+                        .map_err(unavailable)?
+                        .as_str()
+                        .map_err(unavailable)?;
+                    let charge = super::bucket_metadata_charge(row)?
+                        .saturating_add(incarnation.len().saturating_mul(8));
+                    if items.len() == limit || (!items.is_empty() && charge > remaining) {
+                        has_more = true;
+                        break;
+                    }
+                    items.push(BucketEntry {
+                        bucket: read_bucket(row).map_err(unavailable)?,
+                        incarnation: incarnation.to_owned(),
+                    });
+                    remaining = remaining.saturating_sub(charge);
+                }
+                Ok(BucketPage { items, has_more })
             })
             .await
     }

@@ -329,6 +329,7 @@ struct Inner {
     publication_requests: Arc<Semaphore>,
     file_workers: admin::FileWorkers,
     admin_shutdown: Notify,
+    change_wake: Notify,
     data_dir: PathBuf,
     clock: Arc<dyn Clock>,
     session_writers: Mutex<std::collections::HashSet<String>>,
@@ -555,6 +556,7 @@ impl Catalog {
                 publication_requests: Arc::new(Semaphore::new(2)),
                 file_workers: admin::FileWorkers::new().map_err(unavailable)?,
                 admin_shutdown: Notify::new(),
+                change_wake: Notify::new(),
                 data_dir,
                 clock,
                 session_writers: Mutex::new(Default::default()),
@@ -675,7 +677,11 @@ impl Catalog {
             let (_admission, _execution) = (admission, execution);
             let result = match inner.resources.lock() {
                 Ok(mut resources) => match resources.as_mut() {
-                    Some(resources) => operation(&mut resources.connection),
+                    Some(resources) => change_journal::notify_on_write(
+                        &mut resources.connection,
+                        &inner.change_wake,
+                        operation,
+                    ),
                     None => Err(CatalogError::Unavailable("catalog is closed".into())),
                 },
                 Err(error) => Err(unavailable(error.to_string())),
@@ -1089,16 +1095,7 @@ fn bucket_list_page(
     let mut has_more = false;
     while let Some(row) = rows.next().map_err(unavailable)? {
         // Charge typed rules, JSON values and serialization before allocating any of them.
-        let mut charge = 4096usize;
-        for (column, multiplier) in [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)] {
-            let bytes = row
-                .get_ref(column)
-                .map_err(unavailable)?
-                .as_str()
-                .map_err(unavailable)?
-                .len();
-            charge = charge.saturating_add(bytes.saturating_mul(multiplier));
-        }
+        let charge = bucket_metadata_charge(row)?;
         if records.len() == limit || (!records.is_empty() && charge > remaining) {
             has_more = !records.is_empty();
             break;
@@ -1110,6 +1107,20 @@ fn bucket_list_page(
         items: records,
         has_more,
     })
+}
+
+fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
+    let mut charge = 4096usize;
+    for (column, multiplier) in [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)] {
+        let bytes = row
+            .get_ref(column)
+            .map_err(unavailable)?
+            .as_str()
+            .map_err(unavailable)?
+            .len();
+        charge = charge.saturating_add(bytes.saturating_mul(multiplier));
+    }
+    Ok(charge)
 }
 
 fn insert_bucket_in_transaction(

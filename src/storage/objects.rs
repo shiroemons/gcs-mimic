@@ -472,7 +472,11 @@ impl Catalog {
             let resources = resources
                 .as_mut()
                 .ok_or_else(|| object_unavailable("catalog is closed"))?;
-            operation(&mut resources.connection)
+            super::change_journal::notify_on_write(
+                &mut resources.connection,
+                &inner.change_wake,
+                operation,
+            )
         })
         .await
         .map_err(object_unavailable)?

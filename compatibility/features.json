@@ -39138,11 +39138,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. At initializer delivery, schema stayed 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-owner-inventory",
+          "description": "Bounded all-owner bucket pages include empty buckets, stored owner and incarnation, preserve binary keysets and metadata budgets across project/recreation boundaries. Storage-only scope: docs/en/slices/shared-sync-observation.md.",
+          "result": "PASS",
+          "test_ids": ["sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors","sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation","sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead"]
+        },
         {
           "id": "shared-sync-root-activation",
           "description": "Persist root identity and activating/complete associations; validate bounded markers, resume and explicitly reinitialize missing markers without changing API/seed data. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
@@ -39357,6 +39363,9 @@
         }
       ],
       "test_ids": [
+        "sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors",
+        "sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation",
+        "sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead",
         "sync_root_activation_baseline_reopen_and_reinitialize_preserve_data",
         "sync_root_interrupted_activation_requires_explicit_missing_marker_recovery",
         "sync_root_sql_failures_never_publish_marker_or_complete_baseline",
@@ -39415,6 +39424,13 @@
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-observation.md",
+          "test_ids": ["sync_observation_all_owner_pages_include_empty_buckets_and_legacy_cursors","sync_observation_owner_inventory_recreation_preserves_keyset_and_incarnation","sync_observation_owner_pages_share_metadata_budget_and_bounded_lookahead"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
           "result": "PASS",
@@ -39598,7 +39614,7 @@
         "Manifest/sidecar metadata import is unavailable. Complete its declared fields, validation and behavior with passing evidence before marking this broader fixture requirement IMPLEMENTED.",
         "Root activation and ownership primitives pass the native adapter-facing cases in docs/en/slices/shared-sync-root.md. Runtime directory synchronization settings/startup, watcher, initial merge, bidirectional ingestion and write-back remain unimplemented."
       ],
-      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
+      "implemented_in": "71c5fe87007067819e1e6ea74efcb192b4087231",
       "last_verified": "2026-10-25"
     },
     {
@@ -40749,11 +40765,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
+      "notes": "Schema v3 adds indexed live-object/blob references, pending deletions and a persistent generation counter; recovery uses 128-row keyset pages. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Read-only filesystem dry-run now provides bounded typed records, source observations, xattr/sidecar decoding and optional streamed body verification without writes; evidence: docs/en/evidence/import-dry-run.md. Shared ownership and bounded import observations are defined in docs/en/slices/onboarding-state-contract.md; sync and broader adapter-state hooks remain pending. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md. Existing publication routes share generation allocation, retirement, insertion and post-commit reclamation; evidence: docs/en/slices/shared-publication-commit.md. Schema 15 adds the transactional origin-bearing change journal, bounded retention/pages/fences, activation/restart/gap rescan and durable parent-PAP invalidation through Catalog APIs; runtime Sync/event consumers remain pending. Evidence: docs/en/slices/onboarding-state-contract.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, catalog-bound file staging on two dedicated OS workers and bounded SAVEPOINT batches are verified on native macOS ARM64 in docs/en/slices/shared-publication-modes.md; parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-change-observation",
+          "description": "Observe durable journal fence changes without lost wakeups or polling across all mutation/epoch paths, gap/future/restart cursors, multiple waiters and saturated API admission; preserve finite page fences. Scope: docs/en/slices/shared-sync-observation.md.",
+          "result": "PASS",
+          "test_ids": ["sync_observation_commits_before_during_and_after_registration_are_not_lost","sync_observation_every_committed_mutation_wakes_all_waiters","sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan"]
+        },
         {
           "id": "shared-sync-root-ownership",
           "description": "Exclusive root inode ownership across catalogs and file-job-owned lease/catalog lifetime, root replacement and lock-file replacement rejection. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
@@ -41100,6 +41122,9 @@
         }
       ],
       "test_ids": [
+        "sync_observation_commits_before_during_and_after_registration_are_not_lost",
+        "sync_observation_every_committed_mutation_wakes_all_waiters",
+        "sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan",
         "sync_root_trailing_separators_and_dots_do_not_follow_symlinks",
         "sync_root_selected_parent_alias_retarget_stops_owned_jobs",
         "sync_root_exclusive_inode_ownership_blocks_catalogs_and_lock_replacement",
@@ -41206,6 +41231,13 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-observation.md",
+          "test_ids": ["sync_observation_commits_before_during_and_after_registration_are_not_lost","sync_observation_every_committed_mutation_wakes_all_waiters","sync_observation_invalid_gap_disabled_epoch_and_restart_cursors_require_rescan"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
           "result": "PASS",
@@ -41484,7 +41516,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented."
       ],
-      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
+      "implemented_in": "71c5fe87007067819e1e6ea74efcb192b4087231",
       "last_verified": "2026-10-25"
     },
     {
@@ -41734,11 +41766,17 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending.",
+      "notes": "Locked startup reconciles staging/orphans and pending deletion journal entries in bounded pages, refusing missing/truncated live blobs. Windows uses file flushes and same-volume write-through publication without a Unix directory-fsync or OS-crash/power-loss namespace guarantee. Scope: docs/en/slices/json-object-media.md; native platform contract: docs/en/binary-distribution.md; verification/remaining scope: docs/en/evidence/object-media.md. Startup shutdown now races all asynchronous pre-bind phases, drains owned recovery/PAP/seed work before unlocking and explicitly closes after PAP/bind failures; docs/en/slices/startup-phases.md. Synchronous preflight and unbounded recovery duration remain unchanged. Broader crash injection, typed adapter-state hooks and imported hold cases remain pending in docs/en/slices/onboarding-state-contract.md. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; the delivered schema-15 change journal is recorded in docs/en/slices/onboarding-state-contract.md. Shared publication preserves transactional completion, derived recovery, rewrite tokens and deferred reclamation; evidence: docs/en/slices/shared-publication-commit.md. Shared publication I/O flushes new shard parents, fences recovered shards, and reclaims retired IDs in bounded pages outside SQLite execution while preserving session cleanup ownership; native evidence and platform limitations: docs/en/slices/shared-publication-io.md. Publication modes, 256-handle SAVEPOINT batches, dedicated file staging, actual DiskFull rollback and cancellation/shutdown cleanup are verified on macOS ARM64 in docs/en/slices/shared-publication-modes.md. Parent status remains PARTIAL. Schema 19 provides adapter-facing root identity/association, exclusive directory-inode leases, bounded version-1 markers, fail-closed activation/reinitialization and explicit baseline completion; native tests and limitations are in docs/en/slices/shared-sync-root.md. Runtime configuration, mirror, write-back and startup integration remain pending. All-owner bucket keyset pages with owner/incarnation and bounded metadata expansion, plus cancellable JournalFence change waits, are verified in docs/en/slices/shared-sync-observation.md. Commit/register races, mutation/epoch wakeups, false/rollback signals, restart/gap/future cursors and permit-free shutdown are covered; no runtime synchronization consumer is started.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-sync-observation-cancellation",
+          "description": "Effect-free waits retain no catalog permits while asleep, tolerate false/rollback signals without false changes or busy loops, cancel safely and return Closed on shutdown. Scope: docs/en/slices/shared-sync-observation.md.",
+          "result": "PASS",
+          "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
+        },
         {
           "id": "shared-sync-root-recovery",
           "description": "Fail closed at marker validation and activation interruption boundaries; missing-marker-only explicit reinitialization preserves data. Adapter-only scope: docs/en/slices/shared-sync-root.md.",
@@ -41953,6 +41991,7 @@
         }
       ],
       "test_ids": [
+        "sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits",
         "sync_root_marker_invalid_foreign_and_size_boundaries_are_preserved",
         "sync_root_activation_failure_boundaries_preserve_reservation_and_refuse_partial_marker",
         "sync_root_interrupted_activation_requires_explicit_missing_marker_recovery",
@@ -42019,6 +42058,13 @@
         "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib sync_observation",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-observation.md",
+          "test_ids": ["sync_observation_cancel_rollback_false_wake_and_shutdown_hold_no_permits"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- sync_root sync_state import_publication import_journal change_journal storage::catalog_tests storage::object_tests::v1",
           "result": "PASS",
@@ -42220,7 +42266,7 @@
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented.",
         "Deferred blob reclamation retries at startup; a repeated failure names the blob ID and blocks readiness until fixed. No background retry scheduler is implemented. Current scope clarification: This describes ordinary blob reclamation; resumable terminal cleanup has explicit scheduled maintenance."
       ],
-      "implemented_in": "2ce4de17630de272e35fe1009d1dba3121b446a8",
+      "implemented_in": "71c5fe87007067819e1e6ea74efcb192b4087231",
       "last_verified": "2026-10-25"
     },
     {

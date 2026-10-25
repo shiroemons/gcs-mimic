@@ -12,6 +12,44 @@ use crate::{
 };
 use rusqlite::{Connection, params};
 
+#[cfg(test)]
+struct WaitHook {
+    phase: &'static str,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    used: std::sync::atomic::AtomicBool,
+    checks: std::sync::atomic::AtomicUsize,
+}
+#[cfg(test)]
+tokio::task_local! { static WAIT_HOOK: std::sync::Arc<WaitHook>; }
+#[cfg(test)]
+async fn wait_checkpoint(phase: &str) {
+    if let Ok(hook) = WAIT_HOOK.try_with(std::sync::Arc::clone)
+        && hook.phase == phase
+    {
+        hook.checks
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if !hook.used.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            hook.entered.notify_one();
+            hook.release.notified().await;
+        }
+    }
+}
+
+pub(super) fn notify_on_write<T, E>(
+    connection: &mut Connection,
+    notify: &tokio::sync::Notify,
+    operation: impl FnOnce(&mut Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    let before = connection.total_changes();
+    let result = operation(connection);
+    // Rollbacks/unrelated writes may signal, so consumers must recheck the committed fence.
+    if connection.total_changes() != before {
+        notify.notify_waiters();
+    }
+    result
+}
+
 pub const MAX_RECORDS: i64 = 65_536;
 pub const MAX_PAGE: usize = 256;
 pub(super) const SCHEMA: &str = "CREATE TABLE change_journal_state (
@@ -103,6 +141,18 @@ pub struct ChangePage {
     pub fence: JournalFence,
     pub has_more: bool,
     pub rescan_required: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChangeObservation {
+    pub fence: JournalFence,
+    pub rescan_required: bool,
+}
+
+fn valid_cursor(cursor: JournalFence, current: JournalFence, floor: i64) -> bool {
+    cursor.revision == current.revision
+        && cursor.sequence >= JournalSeq(floor as u64)
+        && cursor.sequence <= current.sequence
 }
 
 pub(super) fn migrate(connection: &mut Connection) -> Result<(), CatalogError> {
@@ -219,6 +269,46 @@ fn state(connection: &Connection) -> Result<(JournalFence, i64, bool), CatalogEr
 }
 
 impl Catalog {
+    /// Effect-free and cancellable; no catalog permits are retained while asleep.
+    pub async fn wait_for_changes(
+        &self,
+        after: JournalFence,
+    ) -> Result<ChangeObservation, AdminError> {
+        loop {
+            #[cfg(test)]
+            wait_checkpoint("before-register").await;
+            let changed = self.0.change_wake.notified();
+            let shutdown = self.0.admin_shutdown.notified();
+            tokio::pin!(changed, shutdown);
+            changed.as_mut().enable();
+            shutdown.as_mut().enable();
+            #[cfg(test)]
+            wait_checkpoint("registered").await;
+            let observation = self
+                .run_admin(move |connection| {
+                    let (current, floor, enabled) = state(connection)?;
+                    Ok(ChangeObservation {
+                        fence: current,
+                        rescan_required: !enabled || !valid_cursor(after, current, floor),
+                    })
+                })
+                .await?;
+            #[cfg(test)]
+            wait_checkpoint("checked").await;
+            if !self.is_healthy() {
+                return Err(AdminError::Closed);
+            }
+            if observation.rescan_required || observation.fence != after {
+                return Ok(observation);
+            }
+            tokio::select! {
+                biased;
+                _ = shutdown => return Err(AdminError::Closed),
+                _ = changed => {},
+            }
+        }
+    }
+
     /// Startup configuration belongs to consumers; activation always requires a fresh scan.
     pub async fn set_change_journal_enabled(
         &self,
@@ -245,7 +335,7 @@ impl Catalog {
         self.run_admin(move |connection| {
             let (current, floor, enabled) = state(connection)?;
             let target = fence.unwrap_or(current);
-            let valid = |f: JournalFence| f.revision == current.revision && f.sequence >= JournalSeq(floor as u64) && f.sequence <= current.sequence;
+            let valid = |f: JournalFence| valid_cursor(f, current, floor);
             let rescan = !enabled || after.is_none_or(|a| !valid(a)) || !valid(target) || after.is_some_and(|a| a.sequence > target.sequence);
             if rescan { return Ok(ChangePage {items: vec![], next: current, fence: current, has_more: false, rescan_required: true}); }
             let start = after.ok_or_else(|| unavailable("missing journal cursor"))?;

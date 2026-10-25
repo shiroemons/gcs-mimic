@@ -8,6 +8,9 @@ use crate::{
 };
 use bytes::Bytes;
 
+#[path = "sync_observation_tests.rs"]
+mod observation;
+
 fn bucket(name: &str) -> BucketDefinition {
     BucketDefinition::default_for(&BucketName::new(name).unwrap(), "project", &SystemClock).unwrap()
 }
