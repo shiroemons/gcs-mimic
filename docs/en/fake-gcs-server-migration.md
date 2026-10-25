@@ -128,6 +128,7 @@ assume that changing the image name is sufficient.
 | `-data` | `--seed-dir`, `GCS_MIMIC_SEED_DIR` | Initial import into a fresh catalog, not startup replay or live synchronization |
 | `-filesystem-root` | `--data-dir`, `GCS_MIMIC_DATA_DIR` | Persistent destination with a different format; cannot reuse the source root directly |
 | `-cert-location`, `-private-key-location` | `--tls-cert`, `--tls-key` | Both PEM paths are required for custom TLS |
+| `-log-level` | `--log-level`, `GCS_MIMIC_LOG_LEVEL`, JSON `log_level` | Minimum runtime stderr severity; default info; debug/info/warn/error and warning alias; diagnostics and stdout lifecycle are unfiltered |
 | `-cors-headers` | Bucket `cors` through the JSON API | Source setting extends globally allowed request headers; gcs-mimic XML rules are per bucket, JSON defaults are fixed |
 | `-backend memory` | None | Current backend is persistent SQLite metadata plus files |
 
@@ -153,7 +154,7 @@ arbitrary host rewrites.
 
 Source: pinned [configuration](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/internal/config/config.go)
 and [routes and URL helpers](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/fakestorage/server.go).
-The table is not a complete flag inventory; event, logging and
+The table is not a complete flag inventory; event and
 other source-only settings still need individually scoped decisions.
 
 Use native names where they already express the intended role. Retaining every

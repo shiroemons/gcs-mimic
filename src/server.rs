@@ -130,8 +130,8 @@ pub async fn serve_with_tls(
                             _ = stopping.changed() => return,
                             result = handshake => match result {
                                 Ok(Ok(stream)) => stream,
-                                Ok(Err(error)) => { eprintln!("TLS handshake error: {error}"); return; }
-                                Err(_) => { eprintln!("TLS handshake deadline exceeded"); return; }
+                                Ok(Err(_)) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_failed", serde_json::json!({"message":"TLS handshake failed; check client protocol and trust configuration"})); return; }
+                                Err(_) => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "tls_handshake_timeout", serde_json::json!({"message":"TLS handshake deadline exceeded"})); return; }
                             }
                         };
                         serve_connection(stream, state, config, stopping).await;
@@ -142,6 +142,11 @@ pub async fn serve_with_tls(
             }
         }
     };
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
+        "stopping",
+        serde_json::json!({}),
+    );
     state.ready.store(false, Ordering::Release);
     drop(listeners);
     stop.send_replace(true);
@@ -211,14 +216,14 @@ async fn serve_connection(
                 deadline.as_mut().reset(tokio::time::Instant::now() + timeout);
             },
             _ = tokio::time::sleep_until(current.deadline.unwrap_or_else(tokio::time::Instant::now)), if current.deadline.is_some() && !current.awaiting_catalog => {
-                eprintln!("object request deadline exceeded");
+                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "object_request_timeout", serde_json::json!({"message":"object request deadline exceeded"}));
                 break;
             },
             result = std::future::poll_fn(|cx| connection.poll_without_shutdown(cx)) => {
-                if let Err(error) = result { eprintln!("connection error: {error}"); }
+                if result.is_err() { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_failed", serde_json::json!({"message":"connection failed; check client request framing and transport"})); }
                 break;
             }
-            _ = &mut deadline, if !current.awaiting_catalog => { eprintln!("connection deadline or object body inactivity timeout exceeded"); break; },
+            _ = &mut deadline, if !current.awaiting_catalog => { crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "connection_timeout", serde_json::json!({"message":"connection deadline or object body inactivity timeout exceeded"})); break; },
             _ = stopping.changed(), if !draining => {
                 std::pin::Pin::new(&mut connection).graceful_shutdown();
                 draining = true;
@@ -234,6 +239,11 @@ async fn serve_connection(
         tokio::io::copy(&mut stream.take(256 * 1024), &mut tokio::io::sink()),
     )
     .await;
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Debug,
+        "connection_closed",
+        serde_json::json!({}),
+    );
 }
 
 pub(crate) type ResponseBody = UnsyncBoxBody<Bytes, io::Error>;

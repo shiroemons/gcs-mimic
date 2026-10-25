@@ -1422,7 +1422,11 @@ pub(super) fn publish_in_transaction<T>(
 impl Catalog {
     pub(super) async fn reclaim_after_commit(&self) {
         if let Err(error) = self.reclaim_pending().await {
-            eprintln!("deferred blob reclamation: {error}");
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "blob_reclaim_deferred",
+                serde_json::json!({"message":format!("deferred blob reclamation: {error}")}),
+            );
         }
     }
 
@@ -1482,7 +1486,7 @@ impl Catalog {
                             .or_default()
                             .push(id),
                         Err(error) => {
-                            eprintln!("deferred blob reclaim {id}: {error}");
+                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "blob_reclaim_deferred", serde_json::json!({"message":format!("deferred blob reclaim {id}: {error}")}));
                             failure = Some(object_unavailable(error));
                         }
                     }
@@ -1493,7 +1497,7 @@ impl Catalog {
                     if shard.exists()
                         && let Err(error) = sync_dir(&shard)
                     {
-                        eprintln!("deferred blob reclaim directory: {error}");
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "blob_reclaim_deferred", serde_json::json!({"message":format!("deferred blob reclaim directory: {error}")}));
                         failure = Some(object_unavailable(error));
                         continue;
                     }

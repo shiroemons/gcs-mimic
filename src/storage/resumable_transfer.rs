@@ -200,7 +200,11 @@ impl Catalog {
                     .maintenance_error
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
-                eprintln!("invalid upload cleanup failed; maintenance will retry: {error}");
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "upload_cleanup_deferred",
+                    serde_json::json!({"message":format!("invalid upload cleanup failed; maintenance will retry: {error}")}),
+                );
             }
         }
         self.0.maintenance_wake.notify_one();

@@ -49,7 +49,11 @@ pub async fn import(
         admin.finish_seed().await.map_err(io::Error::other)?;
         return Ok(SeedOutcome::Disabled);
     };
-    eprintln!("{{\"event\":\"seeding\"}}");
+    crate::diagnostics::emit(
+        crate::diagnostics::LogLevel::Info,
+        "seeding",
+        serde_json::json!({}),
+    );
     let result = import_directory(&admin, config, clock, root).await;
     result.map_err(|error| io::Error::other(format!("seed import: {error}")))
 }

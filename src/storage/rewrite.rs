@@ -493,7 +493,11 @@ impl Catalog {
                 )
                 && let Err(cleanup) = self.cancel_derived(&session.id).await
             {
-                eprintln!("terminal rewrite cleanup failed: {cleanup}");
+                crate::diagnostics::emit(
+                    crate::diagnostics::LogLevel::Warn,
+                    "rewrite_cleanup_deferred",
+                    serde_json::json!({"message":format!("terminal rewrite cleanup failed: {cleanup}")}),
+                );
             }
             return Err(error.into());
         }

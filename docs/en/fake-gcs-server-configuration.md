@@ -92,7 +92,8 @@ generally mean “use the default.” See the
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
 | Bucket CORS | JSON bucket API | Per-bucket XML rules; separate fixed JSON defaults |
 | Bucket location | JSON bucket API; `GCS_MIMIC_DEFAULT_LOCATION` / `--default-location` / JSON `default_location` | Native `US` default; exact `US`, `EU`, `ASIA`; explicit API/initializer location wins; existing buckets stay unchanged |
-| Memory backend, event publisher, log-level selection | No current equivalent | Missing capabilities remain on the roadmap |
+| Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Structured stderr minimum severity; debug/info/warn/error, warning aliases warn; validation diagnostics and stdout ready/stopped are unfiltered |
+| Memory backend, event publisher | No current equivalent | Missing capabilities remain on the roadmap |
 
 The legacy profile rejects explicit `default_location`. Its create API accepts
 only case-insensitive `US-CENTRAL1` when location is explicit, stores `US` and

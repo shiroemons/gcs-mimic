@@ -43678,7 +43678,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Bound-address API defaults, Compose host-port resumable traversal and dual HTTP/HTTPS listeners with shared catalog/admission, HTTPS-primary origin, all-or-nothing bind and shutdown pass. Parent status remains PARTIAL for independent contract review, log levels, memory and events in docs/en/slices/configuration-workflows.md.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Bound-address API defaults, Compose host-port resumable traversal and dual HTTP/HTTPS listeners with shared catalog/admission, HTTPS-primary origin, all-or-nothing bind and shutdown pass. Effective structured stderr log levels, native precedence, warning alias, legacy migration advice and unfiltered validation/lifecycle events are verified in docs/en/slices/configuration-workflows.md. Parent status remains PARTIAL for independent contract review, memory and events.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43813,9 +43813,16 @@
         },
         {
           "id": "UX-003-LOG-LEVEL",
-          "description": "config-log-level: structured stderr events have effective debug/info/warn/error filtering, warning alias and invalid-level rejection, while fatal diagnostics and stdout ready/stopped stay visible at all levels.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "config-log-level: convert production stderr events to newline-delimited JSON with debug/info/warn/error severity and effective minimum-level filtering; default info, warning alias, CLI > environment > file precedence and invalid/empty level rejection before catalog access. Cover debug connection completion, info seed/stop, warning transport/deferred cleanup and error lock release. Keep complete validation batches (warnings and errors) and stdout ready/stopped unfiltered at every level; preserve startup order and redact transport error details. Legacy LOG_LEVEL inputs still fail with effective native migration advice.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
+            "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
+            "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
+            "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
+            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
+          ]
         },
         {
           "id": "UX-003-REMAINING-SETTINGS",
@@ -43840,6 +43847,10 @@
       ],
       "test_ids": [
         "container-host-peer-bucket-crud",
+        "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
+        "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
+        "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
+        "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
         "config::tests::default_location_validates_precedence_and_native_profile",
         "config_input::tests::legacy_location_advice_uses_effective_native_setting",
         "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
@@ -43895,6 +43906,20 @@
         "tls_handshake_admission_timeout_shutdown_and_strict_permissions"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "config::tests::log_level_defaults_precedence_alias_and_invalid_values",
+            "diagnostics::tests::event_thresholds_filter_each_severity_and_escape_json",
+            "log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings",
+            "invalid_log_levels_and_legacy_diagnostics_fail_before_catalog",
+            "config_input::tests::legacy_inventory_and_all_flag_forms_are_diagnosed_even_when_empty",
+            "config_input::tests::legacy_advice_uses_values_precedence_defaults_and_redacts_unsafe_urls"
+          ]
+        },
         {
           "command": "cargo test --lib location --locked --offline; cargo test --test bucket_http --test bucket_initialization --locked --offline; cargo test --test bucket_http default_location_preserves_strict_create_authorization --locked --offline",
           "result": "PASS",

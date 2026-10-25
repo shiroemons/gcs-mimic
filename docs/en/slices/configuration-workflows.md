@@ -3,9 +3,9 @@
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 Contract established on **2026-10-24** for `configuration-workflows`; independent
-review results remain in the ledger. The legacy-input diagnostics, public-origin
-and dual-listener slices implement the input/preflight, shared diagnostic,
-public Host/helper and simultaneous HTTP/HTTPS contracts below; reserved
+review results remain in the ledger. The legacy-input diagnostics, public-origin,
+dual-listener and log-level slices implement the input/preflight, shared diagnostic,
+public Host/helper, simultaneous HTTP/HTTPS and stderr filtering contracts below; reserved
 settings remain unavailable until their named slices deliver effective behavior.
 DESIGN-055 and UX-003 remain PARTIAL; DESIGN-064 and DESIGN-065 retain their
 implemented precedence and single-listener TLS scopes. The
@@ -205,7 +205,7 @@ are `port`, `port-http`, `backend`, `filesystem-root`, `public-host`,
 `event.object-prefix`, `event.list`, `location`, `cert-location`,
 `private-key-location`, and `log-level`. Unknown single-hyphen options receive
 native syntax guidance. A native `--name VALUE` spelling takes precedence when
-identical (`serve --scheme VALUE`, and `serve --log-level VALUE` once delivered);
+identical (`serve --scheme VALUE` and `serve --log-level VALUE`);
 the indistinguishable valid native form must not be rejected as legacy. An
 equals form still receives native pair-syntax advice. Without `serve`, suggest
 the complete native command as well as reporting all detectable legacy inputs.
@@ -230,7 +230,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_PRIVATE_KEY_LOCATION` | Matching `GCS_MIMIC_TLS_KEY=certs/server-key.pem` and TLS_CERT; one-sided overrides fail | Diagnostics |
 | `FAKE_GCS_CORS_HEADERS` | Unsupported global setting. JSON preflight already echoes every syntactically valid requested header, so JSON-only callers can remove it. For XML/public URLs, configure each bucket's CORS `responseHeader` (e.g. `["X-Example"]`) with the required origins/methods; there is no global native replacement | Diagnostics |
 | `FAKE_GCS_LOCATION` | Rejected with migration advice: use `GCS_MIMIC_COMPAT_PROFILE=native` and `GCS_MIMIC_DEFAULT_LOCATION=EU` (or `US` / `ASIA`). Legacy regional defaults remain unsupported; do not silently map `US-CENTRAL1` to `US` | `config-remaining-settings`; BEHAVIOR-BUCKET-003 |
-| `FAKE_GCS_LOG_LEVEL` | Unsupported today; future `GCS_MIMIC_LOG_LEVEL=info` after structured events have levels | `config-log-level` |
+| `FAKE_GCS_LOG_LEVEL` | Reject legacy input; use effective `GCS_MIMIC_LOG_LEVEL=info` or `--log-level info`; supported `warning` normalizes to `warn` | `config-log-level` |
 | `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | Unsupported publisher; remove this key for current startup. Real project integration needs separate EXT-BEH-032 delivery | Separate event plan |
 | `FAKE_GCS_EVENT_PUBSUB_TOPIC` | Unsupported publisher; remove this key; do not suggest an ineffective native topic | Separate event plan |
 | `FAKE_GCS_EVENT_BUCKET` | Unsupported publisher filter; remove this key; no independent bucket policy is implied | Separate event plan |
@@ -259,6 +259,33 @@ conservative exception to the plan's warning rule because recommending native
 catalog data as seed causes a startup failure. On non-container hosts the same
 bounded existence/overlap checks apply; an unrelated `/data` is only a warning.
 These intentional changes land after 0.1.0 in a new minor release.
+
+## Log levels
+
+`UX-003-LOG-LEVEL` covers `log_level`, `--log-level` and
+`GCS_MIMIC_LOG_LEVEL`, with CLI > environment > file > `info` precedence.
+Accept exactly `debug`, `info`, `warn`, `warning` (normalized to `warn`) and
+`error`; reject empty, uppercase and other values before catalog access.
+The threshold is process-wide and set once after successful preflight, before
+runtime/catalog startup. It does not reorder startup phases or change storage.
+
+All production stderr events use one JSON object per line, with `event` and
+`level`. Debug records connection completion, info records seeding/stopping,
+warn records transport failures/timeouts, bind waiting and deferred cleanup,
+and error records failed data-directory lock release. Events below the selected
+minimum severity are suppressed. Transport events contain static explanations,
+never raw request errors, credentials, headers or signed/capability URLs.
+Diagnostic batches remain unfiltered, including warnings accompanying errors
+and standalone input warnings. Stdout `ready` and `stopped` retain their schema
+and are always emitted regardless of the selected level. Output is synchronous
+and best-effort for ordinary events, without a queue or retained history.
+
+Acceptance checks cover every threshold against every severity, JSON escaping,
+file/environment/CLI precedence, invalid and empty settings, the warning alias,
+process-level transport filtering, lifecycle visibility and fatal/legacy
+diagnostics without catalog creation. `FAKE_GCS_LOG_LEVEL` and `-log-level`
+remain errors; advice now names the effective native setting and normalizes
+supported `warning` to `warn`, without echoing invalid values.
 
 ## Shared diagnostics contract
 
@@ -781,7 +808,46 @@ It delivers the 19-name migration inventory, bounded aggregate configuration
 validation, independent TLS/identity preflight and the shared JSON renderer.
 The earlier contract-only verification record is historical; it does not
 describe newly reserved settings as implemented. Endpoint-default resolution,
-public-origin routing and dual listeners have since been delivered; log-level
-filtering remains a separate slice. Literal host `/data` is not modified by tests; isolated paths
+public-origin routing, dual listeners and log-level filtering have since been
+delivered. Literal host `/data` is not modified by tests; isolated paths
 exercise the production inspector. Runtime/signal allocation and simultaneous
 cleanup failures are not fault-injected, and performance remains unmeasured.
+
+### Log-level runtime verification
+
+Verified on 2026-10-25 with pinned Rust 1.99.1. `just check` passed once on
+the integrated final sources: fmt, clippy with denied warnings, 837 Rust tests including
+doctests (zero failures/ignored), ledger/generated views and shell/release checks.
+The focused config suite passed 31 tests, diagnostics passed 6 and the new
+log-level process suite passed 2. `cargo xtask dependencies check` reported every
+input CURRENT; no dependency was added. Markdownlint-cli2 0.24.0 passed the seven
+updated English/Japanese guide and contract files with zero issues.
+
+The process suite verifies debug connection completion, info seeding/stopping,
+warning transport failures, warning alias, error-level suppression, unfiltered
+input warnings and stdout lifecycle. The shared renderer checks all sixteen
+threshold/severity pairs and JSON escaping, including error severity. Native
+file/environment/CLI precedence, rejected empty/unknown levels, all legacy flag
+forms and value-safe migration advice also pass. Production stderr has no
+remaining free-form `eprintln!`; test-only fixture/platform notes are unchanged.
+Storage edits only replace existing logging calls; catalog logic and startup
+phase order are unchanged. Ordinary events share the diagnostic JSON renderer,
+while diagnostic batches deliberately bypass the runtime threshold.
+
+Integration with shared-publication-io preserves its asynchronous bounded
+reclamation and catalog/filesystem separation. Its three new reclamation
+warnings use the same warn-level event; storage logic and control flow remain
+unchanged. The six reclamation tests pass, including paged/live-reference
+validation, cancelled cleanup ownership, publication wait without catalog
+blocking, parallel media/derived/resumable publication and deferred retry.
+The log-level config test, six diagnostics tests and both process tests also
+pass after integration. The shared-publication-io ledger cases and generated
+matrices remain present alongside the log-level acceptance case.
+
+`UX-003-LOG-LEVEL` is PASS; UX-003 remains PARTIAL for independent contract
+review, memory and events. Failed lock-release OS operations are not
+fault-injected; their error-severity call and threshold are covered by source
+review and renderer tests. No benchmark or performance claim is included.
+SDK/container suites and the full guide journey were not rerun: HTTP API
+behavior, Docker inputs and executable walkthrough blocks did not change;
+the configuration text/table updates are covered by the process tests and lint.

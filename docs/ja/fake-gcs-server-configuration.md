@@ -82,6 +82,17 @@ stderrへ`source`・元の`key`・直し方の`fix`を持つJSONを、警告、�
 エラー時は非ゼロ終了し、ready通知もデータディレクトリ作成も起きません。
 値や秘密は表示せず、安全性を確認した接続先などに限って移行例へ反映します。
 未対応の将来設定を利用可能とは案内しません。
+
+`UX-003-LOG-LEVEL`では、stderrの運用ログを`event`と`level`を持つJSONに統一しています。
+JSONの`log_level`、環境変数`GCS_MIMIC_LOG_LEVEL`、CLIの`--log-level`で最小レベルを指定します。
+優先順位はCLI、環境変数、JSON、既定値`info`の順です。
+`debug`・`info`・`warn`・`error`を受け付け、`warning`は`warn`として扱います。
+`debug`には接続終了、`info`には初期読込と停止、`warn`には通信失敗・タイムアウト・後回しの後始末、
+`error`にはデータディレクトリのロック解放失敗を出します。
+空文字や未対応のレベルはカタログを開く前にエラーにします。
+入力の警告・エラー診断と、stdoutの`ready`・`stopped`はレベルに関係なく表示します。
+旧`FAKE_GCS_LOG_LEVEL`と`-log-level`は引き続きエラーにし、native設定への変更を案内します。
+
 未知の旧変数の値は解釈せず、非UTF-8でも警告のままです。
 既知変数・native設定の文字コード不正は、独立したCLIやファイルの不正とまとめて表示します。
 
@@ -116,7 +127,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | メモリ保存モード | なし | 未対応 |
 | イベント通知先・絞り込み | なし | 未対応 |
 | 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`、`US`・`EU`・`ASIA`に対応 |
-| ログレベル選択 | なし | 未対応 |
+| ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |
 
 HTTPとHTTPSを同時に受け付ける場合は、次のように起動します。
 

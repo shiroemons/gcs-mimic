@@ -246,7 +246,11 @@ fn shutdown_result(signal: io::Result<()>) -> io::Result<()> {
             "Cannot receive shutdown signal; check the runtime environment.",
         )
     })?;
-    eprintln!("{{\"event\":\"stopping\"}}");
+    gcs_mimic::diagnostics::emit(
+        gcs_mimic::diagnostics::LogLevel::Info,
+        "stopping",
+        serde_json::json!({}),
+    );
     Ok(())
 }
 
@@ -425,9 +429,10 @@ async fn bind_after_time_wait(
             return Err(original);
         }
         if !logged {
-            eprintln!(
-                "{}",
-                serde_json::json!({"event":"bind_wait","listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"})
+            gcs_mimic::diagnostics::emit(
+                gcs_mimic::diagnostics::LogLevel::Warn,
+                "bind_wait",
+                serde_json::json!({"listen":address.to_string(),"timeout_ms":65000,"reason":"address_in_use"}),
             );
             logged = true;
         }

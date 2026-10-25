@@ -21,6 +21,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
   --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
   --listen IP:PORT             127.0.0.1:4443
+  --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
@@ -233,6 +234,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             report.diagnostics.write(io::stderr().lock())?;
             let config = report.config;
+            gcs_mimic::diagnostics::set_log_level(config.log_level);
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(config.worker_threads)
                 .max_blocking_threads(config.max_blocking_threads)

@@ -3,7 +3,7 @@
 use crate::{
     auth::AuthMode,
     config_input::{Input, InputError, Inputs, NATIVE_KEYS},
-    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
+    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
 };
 use std::{
@@ -67,6 +67,7 @@ impl std::str::FromStr for Scheme {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub log_level: LogLevel,
     pub listen: SocketAddr,
     pub listen_http: Option<SocketAddr>,
     pub scheme: Scheme,
@@ -98,6 +99,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            log_level: LogLevel::Info,
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             listen_http: None,
             scheme: Scheme::Https,
@@ -330,6 +332,7 @@ impl Config {
             let value = input.value.clone();
             let result: Result<(), String> = (|| {
                 match key.as_str() {
+                    "log_level" => config.log_level = value.parse()?,
                     "scheme" => config.scheme = value.parse()?,
                     "listen_http" => {
                         config.listen_http = Some(value.parse().map_err(|_| {
@@ -805,6 +808,38 @@ mod tests {
         assert!(
             Config::load(&["--compat-profile".into(), "legacy-emulator".into()], &env).is_err()
         );
+    }
+
+    #[test]
+    fn log_level_defaults_precedence_alias_and_invalid_values() {
+        let empty = BTreeMap::new();
+        assert_eq!(Config::load(&[], &empty).unwrap().log_level, LogLevel::Info);
+        let directory = PublicConfigDir::new();
+        let file = directory.0.join("settings.json");
+        std::fs::write(&file, r#"{"log_level":"debug"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        assert_eq!(
+            Config::load(&args, &empty).unwrap().log_level,
+            LogLevel::Debug
+        );
+        let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), "error".into())]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().log_level,
+            LogLevel::Error
+        );
+        args.extend(["--log-level".into(), "warning".into()]);
+        assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
+        for invalid in ["", "trace", "off", "fatal", "INFO", "secret\n"] {
+            std::fs::write(&file, serde_json::json!({"log_level":invalid}).to_string()).unwrap();
+            let config_args = vec!["--config".into(), file.to_str().unwrap().into()];
+            assert!(Config::load(&config_args, &empty).is_err());
+            assert!(Config::load(&["--log-level".into(), invalid.into()], &empty).is_err());
+            let env = BTreeMap::from([("GCS_MIMIC_LOG_LEVEL".into(), invalid.into())]);
+            let report = Config::preflight(&[], &env);
+            assert_eq!(report.diagnostics.errors[0].key, "GCS_MIMIC_LOG_LEVEL");
+            assert!(!report.diagnostics.to_string().contains("secret"));
+            assert_eq!(Config::load(&args, &env).unwrap().log_level, LogLevel::Warn);
+        }
     }
 
     struct PublicConfigDir(PathBuf);

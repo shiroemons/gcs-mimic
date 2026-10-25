@@ -8,6 +8,7 @@ pub(crate) const MAX_KEY_BYTES: usize = 256;
 
 pub(crate) const NATIVE_KEYS: &[&str] = &[
     "config",
+    "log_level",
     "listen",
     "listen_http",
     "scheme",
@@ -359,8 +360,8 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "cors_headers" => "global CORS headers are unsupported. JSON preflight already echoes valid requested headers, so JSON-only callers can remove this setting. For XML/public URLs configure each bucket CORS responseHeader (for example X-Example) with its origins and methods; there is no global native replacement".into(),
         "location" if matches!(value, "US" | "EU" | "ASIA") => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={value} or --default-location {value}; applies only to new buckets without an explicit location; legacy regional defaults remain unsupported"),
         "location" => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION=US, EU or ASIA. US-CENTRAL1 is not translated to US and legacy regional defaults remain unsupported".into(),
-        "log_level" if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("log-level control is unsupported today; remove this setting; future GCS_MIMIC_LOG_LEVEL={} requires effective event filtering", if value == "warning" { "warn" } else { value }),
-        "log_level" => "log-level control is unsupported today; remove this setting. Future levels are debug, info, warn or error".into(),
+        "log_level" if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events, not validation diagnostics or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
+        "log_level" => "remove this legacy setting; use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
         _ => "event publishing and filters are unsupported; remove this setting; no native publisher alias is available".into(),
     };
     format!("Legacy input is unsupported; {advice}.")
@@ -506,12 +507,14 @@ mod tests {
                             vec![key.clone(), value.into()]
                         };
                         let report = crate::config::Config::preflight(&args, &BTreeMap::new());
-                        if key == "--scheme" {
+                        if key == "--scheme" || key == "--log-level" {
                             assert_eq!(report.diagnostics.errors[0].key, key);
                             assert!(report.diagnostics.errors[0].fix.contains(if equals {
                                 "--name VALUE pairs"
-                            } else {
+                            } else if key == "--scheme" {
                                 "scheme must"
+                            } else {
+                                "log_level must"
                             }));
                         } else {
                             assert_eq!(report.diagnostics.errors.len(), 1, "{args:?}");

@@ -1977,9 +1977,20 @@ warn, and native values preserve their existing precedence. See
 [migration diagnostics](fake-gcs-server-configuration.md#migration-diagnostics)
 for the bounded input, redaction and `/data` inspection rules.
 
+Runtime stderr is newline-delimited JSON with `event` and `level` fields.
+`log_level` in JSON, `GCS_MIMIC_LOG_LEVEL` or `--log-level` selects a minimum
+severity: `debug`, `info` (default), `warn` or `error`; `warning` aliases `warn`.
+Debug adds connection completion, info includes seeding/stopping, warn includes
+transport failures/timeouts and deferred cleanup, and error includes lock-release
+failure. Validation diagnostics, including input warnings, remain visible at
+every level. Stdout `ready` and `stopped` are always emitted for automation.
+Empty/unknown levels fail before catalog access. Legacy `FAKE_GCS_LOG_LEVEL`
+and `-log-level` remain errors with native migration advice.
+
 | CLI option | Environment | Default | Range |
 | --- | --- | --- | --- |
 | `--listen` | `GCS_MIMIC_LISTEN` | `127.0.0.1:4443` | Numeric IP:port; port 0 allowed |
+| `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |
 | `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
 | `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |
 | `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |

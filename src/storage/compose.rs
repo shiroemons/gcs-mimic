@@ -173,7 +173,11 @@ impl Catalog {
             if result.is_err() {
                 match catalog.cancel_derived(&transfer.id).await {
                     Ok(()) | Err(ObjectError::DerivedTransferNotFound) => {}
-                    Err(error) => eprintln!("deferred compose cleanup: {error}"),
+                    Err(error) => crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "compose_cleanup_deferred",
+                        serde_json::json!({"message":format!("deferred compose cleanup: {error}")}),
+                    ),
                 }
             }
             result

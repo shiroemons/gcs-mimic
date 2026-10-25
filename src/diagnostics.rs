@@ -4,7 +4,80 @@ use serde::Serialize;
 use std::{
     fmt,
     io::{self, Write},
+    sync::atomic::{AtomicU8, Ordering},
 };
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+#[repr(u8)]
+pub enum LogLevel {
+    Debug,
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
+
+impl std::str::FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "debug" => Ok(Self::Debug),
+            "info" => Ok(Self::Info),
+            "warn" | "warning" => Ok(Self::Warn),
+            "error" => Ok(Self::Error),
+            _ => Err("log_level must be debug, info, warn or error (warning aliases warn)".into()),
+        }
+    }
+}
+
+static LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
+
+/// Configure the process threshold after preflight and before starting workers.
+pub fn set_log_level(level: LogLevel) {
+    LOG_LEVEL.store(level as u8, Ordering::Relaxed);
+}
+
+#[derive(Serialize)]
+struct Event<'a, T> {
+    event: &'a str,
+    level: LogLevel,
+    #[serde(flatten)]
+    fields: T,
+}
+
+fn write_event(
+    mut writer: impl Write,
+    threshold: u8,
+    level: LogLevel,
+    event: &str,
+    fields: impl Serialize,
+) -> io::Result<()> {
+    if (level as u8) < threshold {
+        return Ok(());
+    }
+    serde_json::to_writer(
+        &mut writer,
+        &Event {
+            event,
+            level,
+            fields,
+        },
+    )?;
+    writeln!(writer)
+}
+
+/// Ordinary events must not turn a closed stderr pipe into a storage failure.
+pub fn emit(level: LogLevel, event: &str, fields: impl Serialize) {
+    let _ = write_event(
+        io::stderr().lock(),
+        LOG_LEVEL.load(Ordering::Relaxed),
+        level,
+        event,
+        fields,
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -60,19 +133,22 @@ impl Diagnostics {
     }
 
     pub fn write(&self, mut writer: impl Write) -> io::Result<()> {
-        for (level, records) in [("warn", &self.warnings), ("error", &self.errors)] {
+        for (level, records) in [
+            (LogLevel::Warn, &self.warnings),
+            (LogLevel::Error, &self.errors),
+        ] {
             if records.is_empty() {
                 continue;
             }
             let mut records: Vec<_> = records.iter().collect();
             records.sort_by(|a, b| (a.source, &a.key).cmp(&(b.source, &b.key)));
-            serde_json::to_writer(
+            write_event(
                 &mut writer,
-                &serde_json::json!({
-                    "event": "diagnostics", "level": level, "diagnostics": records
-                }),
+                LogLevel::Debug as u8,
+                level,
+                "diagnostics",
+                serde_json::json!({"diagnostics": records}),
             )?;
-            writeln!(writer)?;
         }
         Ok(())
     }
@@ -137,6 +213,38 @@ pub fn combine_shutdown_results(result: io::Result<()>, close: io::Result<()>) -
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn event_thresholds_filter_each_severity_and_escape_json() {
+        let levels = [
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ];
+        for threshold in levels {
+            for level in levels {
+                let mut bytes = Vec::new();
+                write_event(
+                    &mut bytes,
+                    threshold as u8,
+                    level,
+                    "operation",
+                    serde_json::json!({"message":"line\n\"quoted\""}),
+                )
+                .unwrap();
+                if level < threshold {
+                    assert!(bytes.is_empty());
+                } else {
+                    assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
+                    let event: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    assert_eq!(event["event"], "operation");
+                    assert_eq!(event["level"], serde_json::to_value(level).unwrap());
+                    assert_eq!(event["message"], "line\n\"quoted\"");
+                }
+            }
+        }
+    }
 
     #[test]
     fn batches_are_ordered_escaped_independent_and_do_not_replay_pages() {

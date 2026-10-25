@@ -78,7 +78,11 @@ impl Drop for DerivedSource {
         if let Some(path) = &self.path
             && let Err(error) = objects::unlink(path)
         {
-            eprintln!("deferred derived source cleanup: {error}");
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "derived_cleanup_deferred",
+                serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}),
+            );
         }
     }
 }
@@ -146,13 +150,13 @@ impl Drop for DerivedRequestGuard {
                             if let Err(error) = catalog.cleanup_derived(&id).await
                                 && error != ObjectError::DerivedTransferNotFound
                             {
-                                eprintln!("deferred abandoned derived cleanup: {error}");
+                                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}));
                             }
                             return;
                         }
                         Err(ObjectError::DerivedTransferBusy) => notified.await,
                         Err(error) => {
-                            eprintln!("deferred abandoned derived cleanup: {error}");
+                            crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred abandoned derived cleanup: {error}")}));
                             return;
                         }
                     }
@@ -718,7 +722,7 @@ impl Catalog {
                 transaction.commit().map_err(unavailable)?;
                 for source in sources {
                     if let Err(error) = objects::unlink(&stage_path(&data_dir, &source.id)?) {
-                        eprintln!("deferred derived source cleanup: {error}");
+                        crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived source cleanup: {error}")}));
                     }
                 }
                 Ok(record)
@@ -730,7 +734,7 @@ impl Catalog {
             // Check SQL references even after an ambiguous commit error before removing bytes.
             if matches!(&result, Err(error) if !error.is_backend_failure() && !matches!(error, ObjectError::DerivedTransferBusy | ObjectError::DerivedTransferIncomplete | ObjectError::DerivedTransferNotFound))
                 && let Err(error) = catalog.cleanup_derived(&id).await {
-                eprintln!("deferred derived cleanup: {error}");
+                crate::diagnostics::emit(crate::diagnostics::LogLevel::Warn, "derived_cleanup_deferred", serde_json::json!({"message":format!("deferred derived cleanup: {error}")}));
             }
             result
         }).await.map_err(unavailable)?
@@ -967,7 +971,11 @@ pub(super) fn recover(
             Ok::<_, ObjectError>(())
         })();
         if let Err(error) = validity {
-            eprintln!("discarding invalid derived transfer {id}: {error}");
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "derived_transfer_discarded",
+                serde_json::json!({"message":format!("discarding invalid derived transfer {id}: {error}")}),
+            );
             discard_record(connection, &id)?;
         }
     }

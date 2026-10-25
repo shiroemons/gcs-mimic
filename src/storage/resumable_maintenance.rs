@@ -138,7 +138,11 @@ impl Catalog {
                 .maintenance_error
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner()) = Some(error.to_string());
-            eprintln!("cancelled upload cleanup failed; maintenance will retry: {error}");
+            crate::diagnostics::emit(
+                crate::diagnostics::LogLevel::Warn,
+                "upload_cleanup_deferred",
+                serde_json::json!({"message":format!("cancelled upload cleanup failed; maintenance will retry: {error}")}),
+            );
         }
         drop(lease);
         self.0.maintenance_wake.notify_one();
@@ -267,7 +271,11 @@ impl Catalog {
                             .unwrap_or_default()
                     }),
                     Err(error) => {
-                        eprintln!("resumable maintenance failed; retrying: {error}");
+                        crate::diagnostics::emit(
+                            crate::diagnostics::LogLevel::Warn,
+                            "resumable_maintenance_retry",
+                            serde_json::json!({"message":format!("resumable maintenance failed; retrying: {error}")}),
+                        );
                         Some(RETRY_DELAY)
                     }
                 };

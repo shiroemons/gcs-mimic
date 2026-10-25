@@ -82,6 +82,10 @@ Google API全体やfake-gcs-serverとの完全互換を示すものではあり�
 0.1.0での無視から変更しています。
 [対応する設定](fake-gcs-server-configuration.md)を確認し、`GCS_MIMIC_*`を指定してください。
 
+stderrの運用ログはJSONです。`--log-level`または`GCS_MIMIC_LOG_LEVEL`で
+`debug`・`info`・`warn`・`error`を指定でき、既定値は`info`です。
+設定の診断とstdoutの`ready`・`stopped`は、どのレベルでも表示します。
+
 ## 次に読む
 
 - [Dockerでの使い方](container-usage.md)
