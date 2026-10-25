@@ -40707,6 +40707,18 @@
           ]
         },
         {
+          "id": "shared-imported-identity",
+          "description": "Publish trusted source generations and exact microsecond creation/update timestamps through the shared transaction with mandatory MD5/CRC32C verification; reject identity collisions, sub-microsecond precision and non-Replace modes that could discard source identity, advance the durable allocator without regression, preserve generation reads/conditions and restart identity, and fail automatic allocation safely at exhaustion. Contract: docs/en/slices/shared-imported-identity.md.",
+          "result": "PASS",
+          "test_ids": [
+            "imported_identity_rejects_lossy_precision",
+            "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
+            "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
+            "imported_identity_collision_is_atomic_and_exhaustion_is_safe",
+            "imported_identity_rejects_modes_that_could_discard_source_identity"
+          ]
+        },
+        {
           "id": "publication-io-bounds",
           "description": "Flush blobs parent only when establishing a shard, serialize concurrent shard durability, and reclaim durably retired immutable IDs in bounded pages outside SQLite execution after a serialized reference decision; fixed-buffer descriptor clone/copy preserves source offsets. Contract: docs/en/slices/shared-publication-io.md.",
           "result": "PASS",
@@ -41044,7 +41056,12 @@
         "arbitrary_names_round_trip_or_are_explicitly_rejected",
         "arbitrary_paths_never_clean_into_another_name",
         "mapping_preserves_the_api_name_byte_limit",
-        "non_utf8_paths_are_rejected_without_lossy_conversion"
+        "non_utf8_paths_are_rejected_without_lossy_conversion",
+        "imported_identity_rejects_lossy_precision",
+        "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
+        "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
+        "imported_identity_collision_is_atomic_and_exhaustion_is_safe",
+        "imported_identity_rejects_modes_that_could_discard_source_identity"
       ],
       "verification": [
         {
@@ -41226,11 +41243,37 @@
           "test_ids": [
             "shared-admin-native-regression"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline imported_identity --lib; cargo test --locked --offline --lib storage::catalog::admin::; just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-imported-identity.md",
+          "test_ids": [
+            "imported_identity_rejects_lossy_precision",
+            "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
+            "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
+            "imported_identity_collision_is_atomic_and_exhaustion_is_safe"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- storage::catalog::admin:: storage::catalog::derived:: storage::blob_id:: hashing:: retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_one_generation; cargo fmt --all --check; cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-imported-identity.md",
+          "test_ids": [
+            "imported_identity_rejects_lossy_precision",
+            "imported_identity_preserves_times_hashes_history_and_allocator_after_restart",
+            "imported_identity_rejects_bad_hashes_without_mutation_or_blob_leaks",
+            "imported_identity_collision_is_atomic_and_exhaustion_is_safe",
+            "imported_identity_rejects_modes_that_could_discard_source_identity"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
         "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
+        "Shared imported identity publication preserves positive generations, exact source microseconds and verified MD5/CRC32C through Admin::publish_imported_object; only the new shared-imported-identity acceptance case is complete. Import orchestration, batch/file publication, hold-default exceptions and import journals remain separately owned; no schema change or performance claim. Evidence: docs/en/slices/shared-imported-identity.md.",
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
         "Dry-run repeats bounded bucket-name decoding during preflight, duplicate classification and root validation; Blocked also represents an uninspected valid parent. All invalid-parent child findings and record suppression are tested. import-filesystem owns consolidation into a pending-state record with decoded names/failure material when integrating validated buckets with publication; avoiding that larger representation now preserves the tested diagnostic order. Walker::root_entries is documented and debug-guarded for use before the first next call.",
         "Read-only source inspection is verified on macOS/Linux ARM64. Native Windows runtime and file-ID/ctime observation are unverified; optional non-Unix identity fields remain absent. Dry-run cannot publish, resume, recover original normalized-away names or inspect memory history, and metadata-only reports never certify body bytes. Publication/journal benchmarks remain PENDING; no time/CPU/RSS result is claimed. shared-blob-id is requested to consolidate existing storage/JSON/authentication hex encoders with hashing::encode_lower while migrating hash loops.",

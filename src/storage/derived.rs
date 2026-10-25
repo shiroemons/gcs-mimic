@@ -696,7 +696,7 @@ impl Catalog {
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
-                let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
+                let (record, _retired, ()) = objects::publish_in_transaction(&transaction, micros, objects::GenerationAssignment::Automatic, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
                 let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {

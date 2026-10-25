@@ -32,6 +32,10 @@ pub const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MAX_BUCKETS: usize = 1000;
 pub const MAX_PAGE: usize = 256;
 
+#[path = "imported_identity.rs"]
+pub mod imported_identity;
+pub use imported_identity::ImportedIdentity;
+
 #[cfg(test)]
 #[path = "admin_tests.rs"]
 mod tests;
@@ -534,6 +538,18 @@ impl Admin {
         request: Publication,
         body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
     ) -> Result<ObjectRecord, AdminError> {
+        self.publish_with_identity(bucket, name, request, None, body)
+            .await
+    }
+
+    async fn publish_with_identity(
+        &self,
+        bucket: &BucketName,
+        name: &ObjectName,
+        request: Publication,
+        identity: Option<ImportedIdentity>,
+        body: mpsc::Receiver<Result<UploadChunk, io::Error>>,
+    ) -> Result<ObjectRecord, AdminError> {
         crate::object::validate_fixed_metadata("contentType", &request.content_type)
             .map_err(AdminError::from)?;
         request.metadata.validate().map_err(AdminError::from)?;
@@ -562,6 +578,7 @@ impl Admin {
                 request.metadata,
                 access,
                 request.mode,
+                identity,
             )
             .await
             .map_err(AdminError::from)

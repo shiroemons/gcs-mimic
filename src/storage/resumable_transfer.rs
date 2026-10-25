@@ -299,6 +299,7 @@ impl Catalog {
                 let (_, _retired, resource) = objects::publish_in_transaction(
                     &transaction,
                     micros,
+                    objects::GenerationAssignment::Automatic,
                     previous.as_ref(),
                     versioning,
                     &session.blob_id,

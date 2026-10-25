@@ -597,6 +597,7 @@ impl Catalog {
             metadata,
             access,
             super::admin::PublishMode::Replace,
+            None,
         )
         .await
     }
@@ -618,6 +619,7 @@ impl Catalog {
         metadata: ObjectMetadataUpdate,
         access: BucketAccess,
         mode: super::admin::PublishMode,
+        identity: Option<super::admin::ImportedIdentity>,
     ) -> Result<ObjectRecord, ObjectError> {
         crate::object::validate_fixed_metadata("contentType", &content_type)?;
         metadata.validate()?;
@@ -685,13 +687,18 @@ impl Catalog {
                                 .ok_or(ObjectError::ObjectNotFound);
                         }
                         let now = clock.now();
-                        now.duration_since(std::time::UNIX_EPOCH)
-                            .map_err(object_unavailable)?;
+                        if identity.is_none() {
+                            now.duration_since(std::time::UNIX_EPOCH)
+                                .map_err(object_unavailable)?;
+                        }
                         let micros = unix_micros(now).map_err(object_unavailable)?;
                         let time = system_time_micros(micros).map_err(object_unavailable)?;
                         let (record, _retired, ()) = publish_in_transaction(
                             &transaction,
                             micros,
+                            identity.map_or(GenerationAssignment::Automatic, |value| {
+                                GenerationAssignment::Imported(value.generation())
+                            }),
                             previous.as_ref(),
                             versioning,
                             &blob_id,
@@ -720,6 +727,10 @@ impl Catalog {
                                 };
                                 metadata.apply(&mut record)?;
                                 inherit_metadata(mode, previous.as_ref(), &mut record);
+                                if let Some(identity) = identity {
+                                    record.time_created = identity.time_created();
+                                    record.updated = identity.updated();
+                                }
                                 Ok((record, ()))
                             },
                         )?;
@@ -1451,10 +1462,21 @@ pub(super) fn inherit_metadata(
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum GenerationAssignment {
+    Automatic,
+    Imported(super::admin::Generation),
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Shared transaction receives generation assignment explicitly"
+)]
 /// The caller owns protocol-specific completion and commits before reclaiming retired bytes.
 pub(super) fn publish_in_transaction<T>(
     transaction: &Transaction<'_>,
     micros: i64,
+    assignment: GenerationAssignment,
     previous: Option<&(ObjectRecord, String)>,
     versioning: bool,
     blob_id: &str,
@@ -1468,26 +1490,39 @@ pub(super) fn publish_in_transaction<T>(
             |row| row.get(0),
         )
         .map_err(object_unavailable)?;
-    let generation = micros.max(
-        last.checked_add(1)
-            .ok_or_else(|| object_unavailable("generation exhausted"))?,
-    );
+    let generation = match assignment {
+        GenerationAssignment::Automatic => micros.max(
+            last.checked_add(1)
+                .ok_or_else(|| object_unavailable("generation exhausted"))?,
+        ),
+        GenerationAssignment::Imported(generation) => generation.get(),
+    };
     let (record, prepared) = prepare(generation)?;
+    if matches!(assignment, GenerationAssignment::Imported(_)) {
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
+            params![record.bucket, record.name, generation], |row| row.get(0),
+        ).map_err(object_unavailable)?;
+        if exists {
+            return Err(ObjectError::PreconditionFailed);
+        }
+    }
     let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
     let retired = retire_previous(transaction, previous, versioning, micros)?;
     transaction
         .execute(
             "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
-            [generation],
+            [last.max(generation)],
         )
         .map_err(object_unavailable)?;
     transaction.execute(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18)",
         params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
-            &record.md5[..], record.crc32c, record.storage_class, micros, blob_id,
+            &record.md5[..], record.crc32c, record.storage_class, unix_micros(record.time_created).map_err(object_unavailable)?, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
-            record.cache_control, metadata, record.event_based_hold, record.component_count],
+            record.cache_control, metadata, record.event_based_hold, record.component_count,
+            unix_micros(record.updated).map_err(object_unavailable)?],
     ).map_err(object_unavailable)?;
     super::change_journal::object(
         transaction,

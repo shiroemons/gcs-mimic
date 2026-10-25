@@ -635,6 +635,7 @@ fn publish_entry(
     let (record, _, ()) = objects::publish_in_transaction(
         transaction,
         micros,
+        objects::GenerationAssignment::Automatic,
         previous.as_ref(),
         versioning,
         id,
