@@ -219,6 +219,11 @@ fn parse(
         (&Method::GET, None) => {
             false_only(&mut query, "softDeleted")?;
             false_only(&mut query, "returnPartialSuccess")?;
+            if profile == CompatProfile::LegacyEmulator {
+                query
+                    .entry("project".into())
+                    .or_insert_with(|| seed_project.into());
+            }
             let project = project(&mut query)?;
             let projection = projection(&mut query)?;
             let page_cap = if projection == Projection::Full {
@@ -356,7 +361,7 @@ fn project(query: &mut BTreeMap<String, String>) -> Result<String, JsonError> {
         JsonError::new(
             StatusCode::BAD_REQUEST,
             "required",
-            "Missing required project",
+            "Missing required project; add ?project=local-project to the bucket collection URL",
         )
     })?;
     validate_project(&project)?;

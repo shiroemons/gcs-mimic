@@ -138,6 +138,23 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn healthcheck_url(&self) -> String {
+        let mut listen = self.effective_listen_http().unwrap_or(self.listen);
+        if listen.ip().is_unspecified() {
+            listen.set_ip(if listen.is_ipv4() {
+                std::net::Ipv4Addr::LOCALHOST.into()
+            } else {
+                std::net::Ipv6Addr::LOCALHOST.into()
+            });
+        }
+        let scheme = if self.scheme == Scheme::Https {
+            "https"
+        } else {
+            "http"
+        };
+        format!("{scheme}://{listen}/_internal/ready")
+    }
+
     pub fn effective_listen_http(&self) -> Option<SocketAddr> {
         (self.scheme == Scheme::Both).then(|| {
             self.listen_http

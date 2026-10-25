@@ -135,8 +135,10 @@ equals values, including a Compose command that omits `serve`. Native
 `serve --scheme http` remains valid; native options require `--name VALUE`,
 so `--scheme=http` receives syntax advice. Native value positions such as
 `url public --object -data` retain their meaning. Compose `command` replaces
-the image CMD: include `serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic`
-or the corresponding operator-selected bind and volume paths.
+the image CMD: include `serve` when supplying server arguments. The image's
+`GCS_MIMIC_LISTEN=0.0.0.0:4443` and `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`
+environment defaults retain network access and persistence; override these values
+to change them while keeping the automatic healthcheck on the same listener.
 
 `GCS_MIMIC_PORT`, `GCS_MIMIC_IMAGE` and `GCS_MIMIC_TLS_DIR` are Compose-only
 interpolation variables; keep them outside the native server environment.

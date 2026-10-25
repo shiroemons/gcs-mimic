@@ -12,7 +12,7 @@ use startup::phase;
 
 const HELP: &str = "gcs-mimic — local Cloud Storage emulator foundation
 Usage: gcs-mimic serve [--config PATH] [OPTIONS]
-       gcs-mimic healthcheck --url URL [--ca-cert PATH]
+       gcs-mimic healthcheck [--url URL] [--ca-cert PATH]
        gcs-mimic tls ca
        gcs-mimic url public --base-url URL --bucket NAME --object NAME
        gcs-mimic url sign --base-url URL --bucket NAME --object NAME --method GET --expires 15m --signer ID --private-key PATH
@@ -58,6 +58,9 @@ Clients must trust the issuing CA and match a certificate SAN; public test keys 
 identity protection outside isolated local development. Healthcheck HTTPS trusts the embedded
 development CA by default; --ca-cert PATH replaces that trust with a supplied CA bundle.
 HTTP healthcheck rejects --ca-cert. Probes accept /_internal/health or /_internal/ready.
+Without --url, healthcheck reads GCS_MIMIC_* and the selected JSON config, uses ready,
+maps wildcard listeners to loopback and prefers HTTP for scheme=both. Server CLI
+overrides require an explicit --url or matching environment/configuration settings.
 Authentication is permissive by default; strict mode checks local bearer tokens and grants.";
 
 const URL_PUBLIC_HELP: &str =
@@ -161,9 +164,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         [command, rest @ ..] if command == "healthcheck" => {
-            healthcheck(rest).map_err(|error| Diagnostics::error(DiagnosticSource::Cli, "--url",
-                if error.kind() == io::ErrorKind::TimedOut { "probe deadline exceeded; check the local endpoint and CA trust." }
-                else { "Healthcheck failed; require HTTP 200 from a complete local probe response, and verify the URL and CA trust (including 403 access denial)." }))?;
+            healthcheck(rest)?;
             Ok(())
         }
         [command, kind] if command == "tls" && kind == "ca" => {
@@ -441,13 +442,52 @@ fn url_sign(args: &[String], configured: Option<String>) -> Result<String, Strin
     )
 }
 
-fn healthcheck(args: &[String]) -> io::Result<()> {
+fn healthcheck(args: &[String]) -> Result<(), Diagnostics> {
+    let repair = |url: &str| {
+        format!(
+            "Verify the server settings and retry with healthcheck --url {url}{}.",
+            if url.starts_with("https://") {
+                " --ca-cert ./tls/ca.pem (use the issuing CA for custom TLS; omit --ca-cert for the embedded development CA)"
+            } else {
+                ""
+            }
+        )
+    };
+    let explicit_url = args
+        .chunks(2)
+        .find_map(|pair| (pair.len() == 2 && pair[0] == "--url").then(|| pair[1].clone()));
+    let url = if let Some(url) = explicit_url {
+        url
+    } else {
+        let mut report = Config::preflight_os(&[], std::env::vars_os());
+        let url = report.config.healthcheck_url();
+        if report.diagnostics.is_err() {
+            report.diagnostics.errors.push(Diagnostic::new(
+                DiagnosticSource::Cli,
+                "healthcheck",
+                format!(
+                    "Cannot derive a reliable probe URL (candidate {url}); fix configuration. {}",
+                    repair(&url)
+                ),
+            ));
+            return Err(report.diagnostics);
+        }
+        url
+    };
+    probe(args, &url).map_err(|error| Diagnostics::error(
+        DiagnosticSource::Cli,
+        "healthcheck",
+        format!("Healthcheck {url} failed: {error}; require HTTP 200 and verify CA trust (including 403 access denial). {}", repair(&url)),
+    ))
+}
+
+fn probe(args: &[String], url: &str) -> io::Result<()> {
     let mut options = BTreeMap::new();
     for pair in args.chunks(2) {
         if pair.len() != 2 || !matches!(pair[0].as_str(), "--url" | "--ca-cert") {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "healthcheck requires --url URL [--ca-cert PATH]",
+                "healthcheck accepts [--url URL] [--ca-cert PATH]",
             ));
         }
         if pair[1].is_empty() || options.insert(pair[0].as_str(), pair[1].as_str()).is_some() {
@@ -457,12 +497,6 @@ fn healthcheck(args: &[String]) -> io::Result<()> {
             ));
         }
     }
-    let url = options.get("--url").ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "healthcheck requires --url URL",
-        )
-    })?;
     let invalid = || {
         io::Error::new(
             io::ErrorKind::InvalidInput,

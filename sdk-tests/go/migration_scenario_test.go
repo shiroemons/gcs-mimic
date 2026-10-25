@@ -3,16 +3,44 @@ package gcsmimic_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
 	"cloud.google.com/go/storage"
 )
+
+func TestMigrationAppScenarioBucketList(t *testing.T) {
+	ctx, _, httpClient, endpoint := newEmulatorClient(t)
+	status := http.StatusOK
+	if os.Getenv("GCS_MIMIC_COMPAT_PROFILE") != "legacy-emulator" {
+		status = http.StatusBadRequest
+	}
+	_, body := migrationHTTP(t, ctx, httpClient, http.MethodGet, endpoint.String()+"/storage/v1/b", "", nil, status)
+	if status == http.StatusBadRequest {
+		if !strings.Contains(string(body), "?project=local-project") {
+			t.Fatalf("missing project repair example: %s", body)
+		}
+		return
+	}
+	var listed struct{ Items []struct{ Name string } }
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, bucket := range listed.Items {
+		found[bucket.Name] = true
+	}
+	if !found["assets"] || !found["exports"] {
+		t.Fatalf("omitted project must list seed project buckets: %s", body)
+	}
+}
 
 func TestMigrationAppScenarioGo(t *testing.T) {
 	ctx, _, httpClient, _ := newEmulatorClient(t)

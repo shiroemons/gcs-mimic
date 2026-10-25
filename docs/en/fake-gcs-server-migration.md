@@ -38,9 +38,9 @@ API uploads have no separate concurrency quota. `max_connections` (default 32)
 bounds active connections; excess connections wait. Raising it to 64 permits
 64 simultaneous uploads without an upload-admission 503. Upload prechecks and
 resumable session creation/read/checkpoint wait for catalog admission within
-the existing catalog deadline; other catalog operations can still return 503 when their
-32-operation admission limit is saturated. Bodies retain 64 KiB chunks and a
-depth-two channel, without collecting the whole object in memory.
+the existing catalog deadline; other catalog operations can still return 503
+when their 32-operation admission limit is saturated. Bodies retain 64 KiB chunks
+and a depth-two channel, without collecting the whole object in memory.
 
 Shutdown waits for active uploads and cleanup within `shutdown_timeout_ms`.
 Disconnecting before EOF aborts publication and cleans staging. New uploads
@@ -117,6 +117,9 @@ executable contract; these examples are not the entire inventory.
 | --- | --- | --- |
 | Startup | Flags and `FAKE_GCS_*` environment variables; flags take precedence | Provide documented equivalent uses with native `GCS_MIMIC_*` settings; identical option names are not required |
 | Listener/TLS | HTTPS by default; HTTP and dual-listener modes, certificate settings | Existing scheme/ports/trust configuration continue to work |
+| Container readiness | Existing HTTP deployments need a probe matching their listener | `gcs-mimic healthcheck` and the image probe derive readiness from `GCS_MIMIC_*` and the selected JSON file; wildcard addresses use loopback and both prefers HTTP. HTTPS trusts the development CA; custom CAs use `--ca-cert`. CLI-only server overrides need matching environment/file settings or an explicit probe `--url`. |
+| Image listener and data defaults | Source supplies startup defaults through its entrypoint | The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and `GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic` as environment defaults, which override JSON file values (file < environment < CLI). Use, for example, `GCS_MIMIC_LISTEN: 0.0.0.0:8080` and `GCS_MIMIC_DATA_DIR: /custom-data` in Compose, and adjust the published port and volume mount accordingly. |
+| Bucket listing without project | Source allows `GET /storage/v1/b` without project | `legacy-emulator` defaults to `seed_project`, as creation does; native returns 400 with `?project=local-project`. Explicit project validation, filtering and authorization remain active. |
 | Endpoints | Public/virtual-host and API routes, external upload URLs and mutable internal configuration | Preserve client-visible host/path/query behavior; map advertised addresses explicitly |
 | HTTP semantics | JSON/XML, uploads, ranges, conditions, metadata, ACLs, batching and error shapes | Run the same client scenarios and negative cases against both implementations |
 | Permissive signed URLs | Signature/expiry are not validated; callers can rewrite hosts | Preserve tested legacy behavior only in an explicitly selected compatibility profile |

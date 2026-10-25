@@ -117,8 +117,10 @@ JSONの`log_level`、環境変数`GCS_MIMIC_LOG_LEVEL`、CLIの`--log-level`で�
 
 旧フラグはハイフン1本・2本、値の分離・`=`形式を検出します。
 nativeの`serve --scheme http`や`--object -data`の値はそのまま扱います。
-Composeの`command`はCMDを置き換えるため、nativeへ移すときも
-`serve --listen 0.0.0.0:4443 --data-dir /var/lib/gcs-mimic`相当の待受・永続化指定が必要です。
+Composeの`command`はCMDを置き換えるため、サーバー引数を渡す場合は`serve`を含めてください。
+イメージの環境変数`GCS_MIMIC_LISTEN=0.0.0.0:4443`と
+`GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`で待受と永続化の既定値を保ちます。
+変更する場合は環境変数を上書きすると、自動ヘルスチェックも同じ待受を使います。
 `GCS_MIMIC_PORT`・`GCS_MIMIC_IMAGE`・`GCS_MIMIC_TLS_DIR`はCompose呼び出し側だけに渡してください。
 
 seed未指定で無関係な`/data`に中身がある場合は、一度だけのseed取込設定を警告します。

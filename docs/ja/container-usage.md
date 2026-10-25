@@ -18,16 +18,31 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  --no-healthcheck \
   ghcr.io/shiroemons/gcs-mimic:0.1.0
-docker exec gcs-mimic gcs-mimic healthcheck \
-  --url http://127.0.0.1:4443/_internal/ready
+docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
 readinessの確認に成功したら、READMEの保存・取得コマンドを実行します。
 起動中で失敗した場合は、readinessのコマンドを再実行してください。
-このHTTP例ではイメージ既定のHTTPSヘルスチェックを無効にしています。
-Compose例ではHTTP用の自動ヘルスチェックを設定しています。
+イメージのヘルスチェックは`GCS_MIMIC_SCHEME`、`GCS_MIMIC_LISTEN`と
+`GCS_MIMIC_CONFIG`で選んだJSON設定に従うため、HTTPでも上書きは不要です。
+ワイルドカードの待受にはループバックで接続し、`both`ではHTTP側を確認します。
+HTTPSでは組み込みの開発用CAを信頼します。独自CAは`--ca-cert PATH`で指定します。
+サーバーのCLI引数は別プロセスから読めません。設定を環境変数やファイルで共有するか、
+`healthcheck --url URL`で接続先を明示してください。
+イメージは`GCS_MIMIC_LISTEN=0.0.0.0:4443`と
+`GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`を環境変数で設定します。
+ポートや保存先を変える場合は、この環境変数を上書きしてください。
+nativeと同じく、環境変数はJSON設定より優先します。
+例えば`-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`で
+待受と公開ポートを変えます。
+保存先は`-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data`で変えます。
+JSONの`listen`や`data_dir`だけでは、イメージの環境変数を上書きできません。
+
+移行時のバケット一覧では、`legacy-emulator`はprojectを省略すると
+`seed_project`を使います。nativeは400を返し、`?project=local-project`の例を示します。
+明示したprojectの検証・絞り込み・認可は維持します。
+対象はDESIGN-067、DESIGN-058、JSON-BUCKETS-006です。
 
 `docker stop gcs-mimic`で停止し、`docker start gcs-mimic`で再開できます。
 停止したコンテナを削除しても、名前付きボリュームのデータは残ります。

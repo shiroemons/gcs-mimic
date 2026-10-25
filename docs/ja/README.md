@@ -32,8 +32,6 @@ services:
       GCS_MIMIC_API_BASE_URL: http://localhost:4443
     volumes:
       - gcs-data:/var/lib/gcs-mimic
-    healthcheck:
-      test: [CMD, gcs-mimic, healthcheck, --url, "http://127.0.0.1:4443/_internal/ready"]
 volumes:
   gcs-data:
 ```

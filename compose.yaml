@@ -19,11 +19,5 @@ services:
         soft: 1024
         hard: 1024
     stop_grace_period: 15s
-    healthcheck:
-      test: [CMD, gcs-mimic, healthcheck, --url, "https://localhost:4443/_internal/ready"]
-      interval: 2s
-      timeout: 2s
-      start_period: 2s
-      retries: 15
 volumes:
   gcs-data:

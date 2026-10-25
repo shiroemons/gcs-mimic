@@ -128,6 +128,50 @@ fn raw(address: &str, request: &str) -> Reply {
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
 #[test]
+fn bucket_list_omitted_project_obeys_profile_and_seed_project() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let mut server = Server::start_options(
+            &dir,
+            &[
+                "--compat-profile",
+                profile,
+                "--seed-project",
+                "migration-project",
+            ],
+        );
+        assert_eq!(
+            server
+                .insert("migration-bucket", "migration-project")
+                .status,
+            200
+        );
+        assert_eq!(server.insert("other-bucket", "other-project").status, 200);
+        let listed = server.request("GET", "/storage/v1/b", "");
+        if profile == "legacy-emulator" {
+            assert_eq!(listed.status, 200, "{}", listed.body);
+            assert_eq!(listed.json()["items"].as_array().unwrap().len(), 1);
+            assert_eq!(listed.json()["items"][0]["name"], "migration-bucket");
+        } else {
+            listed.error(400, "required");
+            assert!(
+                listed.json()["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("?project=local-project")
+            );
+        }
+        server
+            .request("GET", "/storage/v1/b?project=", "")
+            .error(400, "invalidParameter");
+        let listed = server.request("GET", "/storage/v1/b?project=other-project", "");
+        assert_eq!(listed.status, 200);
+        assert_eq!(listed.json()["items"][0]["name"], "other-bucket");
+        server.stop();
+    }
+}
+
+#[test]
 fn bucket_put_replaces_omitted_fields_and_preserves_resources() {
     for profile in PROFILES {
         let dir = TestDir::new();

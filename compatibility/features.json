@@ -4592,7 +4592,7 @@
       ],
       "source_checked_at": "2026-10-23",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Expanded metadata admission can shorten a page independently of fields; select nextPageToken to traverse all results. Final bounded-list evidence: docs/en/evidence/cors.md and docs/en/evidence/cors-memory.txt. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged.",
+      "notes": "Indexed project/prefix-scoped keyset pages with lookahead, uint32 page size, 1000 noAcl/200 full caps and scope-bound opaque tokens. Profile list resources now use the active profile and native carry-over page cursors preserve source-only names; project scoping, empty-item omission and native paging remain intentional differences. Evidence: docs/en/evidence/bucket-core-parity.md. Fields selection and scoped read-ETag acceptance/evidence: docs/en/evidence/basic-json-fields-etag.md. Broader pending cases and PARTIAL status remain. Expanded metadata admission can shorten a page independently of fields; select nextPageToken to traverse all results. Final bounded-list evidence: docs/en/evidence/cors.md and docs/en/evidence/cors-memory.txt. PAP contribution: inherited/enforced metadata and fields, effective local-parent enforcement, preserved/overridden public IAM and signed access pass in docs/en/evidence/public-access-prevention.md. Whole-method PARTIAL status and broader pending cases remain unchanged. Legacy omitted-project listing now defaults to seed_project; native returns 400 with ?project=local-project. Explicit project validation, scoping and authorization remain active. Evidence: docs/en/slices/migrate-defaults.md.",
       "dependencies": [
         "DESIGN-072",
         "DESIGN-076"
@@ -4600,6 +4600,18 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "buckets-list-without-project-legacy",
+          "description": "Legacy omitted-project listing uses seed_project with project filtering; explicit invalid projects fail. Contract: docs/en/slices/migrate-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["bucket_list_omitted_project_obeys_profile_and_seed_project", "TestMigrationAppScenarioBucketList"]
+        },
+        {
+          "id": "buckets-list-without-project-native",
+          "description": "Native omitted-project listing returns 400 required with ?project=local-project; explicit projects remain validated and scoped.",
+          "result": "PASS",
+          "test_ids": ["bucket_list_omitted_project_obeys_profile_and_seed_project", "TestMigrationAppScenarioBucketList"]
+        },
         {
           "id": "BKT-LST-001",
           "description": "Zero/default/boundary limits and unexpanded lookahead obey 1000 noAcl/200 full parser caps; resource-shortened HTTP pages still enumerate all 1001 buckets.",
@@ -4783,6 +4795,8 @@
       ],
       "test_ids": [
         "bkt_http_list_clamps_to_1000_with_lookahead",
+        "bucket_list_omitted_project_obeys_profile_and_seed_project",
+        "TestMigrationAppScenarioBucketList",
         "bkt_http_sorted_scoped_pagination_and_limits",
         "bkt_lst_002_token_tampering_and_invalid_shapes",
         "auth_http_strict_rejects_anonymous_and_unsupported_credentials",
@@ -4836,6 +4850,13 @@
             "bkt_http_sorted_scoped_pagination_and_limits",
             "bkt_lst_002_token_tampering_and_invalid_shapes"
           ]
+        },
+        {
+          "command": "cargo test --locked --offline --test bucket_http bucket_list_omitted_project; just check-sdk; GCS_MIMIC_COMPAT_PROFILE=legacy-emulator GCS_MIMIC_GO_TEST_RUN=TestMigrationAppScenarioBucketList bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-defaults.md",
+          "test_ids": ["bucket_list_omitted_project_obeys_profile_and_seed_project", "TestMigrationAppScenarioBucketList"]
         },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
@@ -5019,7 +5040,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-25",
       "http_method": "GET",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -38793,13 +38814,19 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Source-built Distroless cc Docker/Compose preserves UID/GID 10001, read-only-root and persistent bucket/object media CRUD across restart/recreation. Container symbols are stripped; complete-image compressed layers are about 60% smaller than the Debian baseline. See docs/en/evidence/distroless.md.",
+      "notes": "Source-built Distroless cc Docker/Compose preserves UID/GID 10001, read-only-root and persistent bucket/object media CRUD across restart/recreation. Container symbols are stripped; complete-image compressed layers are about 60% smaller than the Debian baseline. See docs/en/evidence/distroless.md. Image probes now follow environment/config without an HTTP override; Docker listener/data defaults are environment settings shared with the probe. Default HTTPS and HTTP were healthy on local ARM64. Evidence: docs/en/slices/migrate-defaults.md.",
       "dependencies": [
         "DESIGN-064"
       ],
       "dependency_status": "RESOLVED",
       "acceptance_status": "COMPLETE",
       "acceptance_cases": [
+        {
+          "id": "healthcheck-container-defaults",
+          "description": "HTTP, HTTPS, both and changed ports use the image healthcheck without a URL override; final container checks cover HTTP and default HTTPS.",
+          "result": "PASS",
+          "test_ids": ["healthcheck_defaults_follow_http_https_both_and_changed_ports", "container-migration-defaults"]
+        },
         {
           "id": "DESIGN-058-A1",
           "description": "Build both platform images, verify non-root/read-only/resource settings, probe locally and through host/peer DNS, reject unsupported routes and exit zero on SIGINT/SIGTERM.",
@@ -38828,9 +38855,18 @@
       "test_ids": [
         "container-foundation-smoke",
         "container-bucket-smoke",
-        "container-object-media-smoke"
+        "container-object-media-smoke",
+        "healthcheck_defaults_follow_http_https_both_and_changed_ports",
+        "container-migration-defaults"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test healthcheck_defaults; docker build -t gcs-mimic:migrate-defaults .; run read-only default HTTPS and HTTP containers and inspect automatic health status",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-defaults.md",
+          "test_ids": ["healthcheck_defaults_follow_http_https_both_and_changed_ports", "container-migration-defaults"]
+        },
         {
           "command": "bash scripts/smoke-containers.sh linux/arm64 linux/amd64",
           "result": "PASS",
@@ -38864,7 +38900,7 @@
       "sdk_evidence": [],
       "known_deviations": [],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-059",
@@ -40100,11 +40136,23 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Object schema validation, referenced-blob recovery and exclusive ownership finish before bind/readiness; cancelled uploads retain directory ownership until cleanup. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Final source verifies same-port restart and exclusivity: Linux/Android SO_REUSEADDR; other Unix uses a 250 ms bind retry bounded to 65 seconds with one bind_wait event and live-listener detection; Windows behavior is unchanged. See docs/en/evidence/public-object-reads.md. Wildcard loopback probes may miss a specific non-loopback listener and wait to the 65-second EADDRINUSE deadline without hijacking traffic. SIGINT/SIGTERM cancel bind_wait promptly and release catalog ownership.",
+      "notes": "Object schema validation, referenced-blob recovery and exclusive ownership finish before bind/readiness; cancelled uploads retain directory ownership until cleanup. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Final source verifies same-port restart and exclusivity: Linux/Android SO_REUSEADDR; other Unix uses a 250 ms bind retry bounded to 65 seconds with one bind_wait event and live-listener detection; Windows behavior is unchanged. See docs/en/evidence/public-object-reads.md. Wildcard loopback probes may miss a specific non-loopback listener and wait to the 65-second EADDRINUSE deadline without hijacking traffic. SIGINT/SIGTERM cancel bind_wait promptly and release catalog ownership. Migration defaults derive the ready probe from environment/config, map wildcard listeners to loopback and prefer HTTP for both; failures include the URL and repair. Evidence: docs/en/slices/migrate-defaults.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "healthcheck-default-url",
+          "description": "Healthcheck derives readiness URL from environment/config with wildcard loopback and both HTTP preference, trusts the development CA and preserves explicit URL behavior. Contract: docs/en/slices/migrate-defaults.md.",
+          "result": "PASS",
+          "test_ids": ["healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin", "healthcheck_defaults_follow_http_https_both_and_changed_ports"]
+        },
+        {
+          "id": "healthcheck-failure-diagnostic",
+          "description": "Configuration and connection failures identify the derived candidate URL, preserve the cause and show an explicit URL or environment repair example.",
+          "result": "PASS",
+          "test_ids": ["healthcheck_config_failure_explains_candidate_url_and_explicit_override", "healthcheck_defaults_follow_http_https_both_and_changed_ports"]
+        },
         {
           "id": "DESIGN-067-A1",
           "description": "Verify GET/HEAD health/ready, not-ready 503, injected unix_time=42 and unrelated/unimplemented namespaces 404.",
@@ -40241,6 +40289,9 @@
       ],
       "test_ids": [
         "wire_probes_clock_and_unimplemented_routes",
+        "healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin",
+        "healthcheck_defaults_follow_http_https_both_and_changed_ports",
+        "healthcheck_config_failure_explains_candidate_url_and_explicit_override",
         "healthcheck_exit_status_tracks_readiness",
         "healthcheck_rejects_truncated_malformed_and_oversized_responses",
         "connection_limit_deadline_and_shutdown_release_idle_clients",
@@ -40269,6 +40320,13 @@
         "live_wildcard_and_specific_listeners_are_exclusive"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --test healthcheck_defaults",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/migrate-defaults.md",
+          "test_ids": ["healthcheck_default_url_maps_wildcards_and_ignores_advertised_origin", "healthcheck_defaults_follow_http_https_both_and_changed_ports", "healthcheck_config_failure_explains_candidate_url_and_explicit_override"]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -40336,7 +40394,7 @@
         "Only .DS_Store and ._* OS metadata entries are ignored; other invalid entries prevent startup with a path diagnostic."
       ],
       "implemented_in": "c4c839034b46bfc0adb7ebea97331232a40d691c",
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-25"
     },
     {
       "id": "DESIGN-068",

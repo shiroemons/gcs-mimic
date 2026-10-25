@@ -17,15 +17,26 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  --no-healthcheck \
   ghcr.io/shiroemons/gcs-mimic:0.1.0
-docker exec gcs-mimic gcs-mimic healthcheck \
-  --url http://127.0.0.1:4443/_internal/ready
+docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
 Once the readiness command succeeds, run the README's bucket and object commands.
-This HTTP example disables the image's HTTPS probe and checks readiness directly;
-the Compose example provides automatic health checks.
+The image healthcheck follows `GCS_MIMIC_SCHEME`, `GCS_MIMIC_LISTEN` and the
+JSON file selected by `GCS_MIMIC_CONFIG`; HTTP needs no probe override.
+Wildcard listeners connect through loopback; `both` probes its HTTP listener.
+HTTPS trusts the embedded development CA. Custom CAs require `--ca-cert PATH`.
+Server CLI overrides are private to that process: use the same environment/file
+settings for probes, or specify `healthcheck --url URL` explicitly.
+The image supplies `GCS_MIMIC_LISTEN=0.0.0.0:4443` and
+`GCS_MIMIC_DATA_DIR=/var/lib/gcs-mimic`; override these environment values to
+change the bind port or persistent location. Environment values take precedence
+over a JSON file, as they do in native startup.
+For example, `-e GCS_MIMIC_LISTEN=0.0.0.0:8080 -p 127.0.0.1:8080:8080`
+changes the listener and published port. Use
+`-e GCS_MIMIC_DATA_DIR=/custom-data -v gcs-mimic-data:/custom-data` to change
+the persistent location; setting only `listen` or `data_dir` in JSON does not
+override the image environment.
 Stop with `docker stop gcs-mimic` and resume with `docker start gcs-mimic`.
 The named volume keeps data when a stopped container is removed.
 
