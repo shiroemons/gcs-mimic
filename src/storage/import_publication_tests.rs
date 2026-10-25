@@ -410,7 +410,7 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
     catalog.close().await.unwrap();
     let mut connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
-        .execute_batch("DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; ALTER TABLE import_journal DROP COLUMN failure; PRAGMA user_version = 17;")
+        .execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; ALTER TABLE import_journal DROP COLUMN failure; PRAGMA user_version = 17;")
         .unwrap();
     {
         let transaction = connection.transaction().unwrap();
@@ -434,6 +434,6 @@ async fn import_publication_failure_schema_rolls_back_and_reopens_preserved_stat
         .unwrap();
     reopened.close().await.unwrap();
     let connection = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    super::super::super::validate_schema(&connection, 20).unwrap();
+    super::super::super::validate_schema(&connection, 21).unwrap();
     assert!(super::super::super::validate_schema_version(18, 17).is_err());
 }

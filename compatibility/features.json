@@ -40787,6 +40787,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-export-interfaces",
+          "description": "Descriptor-relative cross-directory replacement and durable root-bound findings with idempotent generation checks, bounded keyset pages and conditional removal. Shared APIs only; runtime mirroring remains pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
+          "result": "PASS",
+          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations"]
+        },
+        {
           "id": "shared-sync-pending-protection",
           "description": "Bounded root/catalog-bound pending pages retain original owner/incarnation and actual workspace charges/stops after bucket deletion; ObjectReader transfers its opened immutable descriptor without path reopen/hardlink. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
@@ -41144,6 +41150,10 @@
         }
       ],
       "test_ids": [
+        "export_directory_walk_rejects_redirects_and_unsafe_components",
+        "export_replace_between_directories_retains_displaced_entries",
+        "sync_findings_idempotent_pages_conditional_removal_and_restart",
+        "sync_findings_reject_foreign_bindings_and_stale_incarnations",
         "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
         "writeback_pending_pages_survive_bucket_deletion_recreation_and_restart",
         "writeback_protected_sparse_body_exceeds_quota_without_cleanup_or_false_ack",
@@ -41258,6 +41268,13 @@
         "filesystem_import_limits_open_source_files_under_a_low_descriptor_limit"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-export-interfaces.md",
+          "test_ids": ["export_directory_walk_rejects_redirects_and_unsafe_components","export_replace_between_directories_retains_displaced_entries","sync_findings_idempotent_pages_conditional_removal_and_restart","sync_findings_reject_foreign_bindings_and_stale_incarnations"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
           "result": "PASS",
@@ -41539,6 +41556,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
+        "Schema 21 and shared descriptor-relative export/finding APIs are verified on macOS ARM64; runtime mirror/configuration/control, Linux/Windows execution and host power loss remain pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
         "Recovery and lookup are indexed. Broader catalog growth/resource behavior remains unverified beyond the six native onboarding workloads in docs/en/evidence/onboarding-state-benchmark.md; startup-10000 CPU calibration, sync and cgroup measurements remain pending. The measured source is 60a4f03, not the later integration target.",
         "Shared imported identity publication preserves positive generations, exact source microseconds and verified MD5/CRC32C through Admin::publish_imported_object; only the new shared-imported-identity acceptance case is complete. Import orchestration, batch/file publication, hold-default exceptions and import journals remain separately owned; no schema change or performance claim. Evidence: docs/en/slices/shared-imported-identity.md.",
         "Publication I/O primitives and bounded reclamation are verified on macOS ARM64; Linux runtime and native Windows execution remain unverified. Windows fsutil metadata compilation passes, but whole-crate cross-check requires the unavailable MinGW compiler; existing-target Windows exchange returns Unsupported for Sync's checked-replace policy. Orphan scanning stays before bind. See docs/en/slices/shared-publication-io.md.",
@@ -41806,6 +41824,12 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-sync-export-durability",
+          "description": "Sync both replacement parents before receipt/state commit, retain displaced entries, reject symlink traversal and preserve findings/API/root/writeback state across transactional schema migration and restart. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
+          "result": "PASS",
+          "test_ids": ["writeback_export_cross_directory_publication_precedes_state_and_retains_displacement","writeback_export_parent_sync_failure_cannot_commit_state","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
+        },
+        {
           "id": "shared-sync-writeback-durability",
           "description": "Private durable receipts gate atomic sync-state/progress/completion; stale/hold/root/owner failures, protected entries, ENOSPC, restart and cancelled/drained work retain intent and ownership. Scope: docs/en/slices/shared-sync-writeback.md.",
           "result": "PASS",
@@ -42031,6 +42055,9 @@
         }
       ],
       "test_ids": [
+        "writeback_export_cross_directory_publication_precedes_state_and_retains_displacement",
+        "writeback_export_parent_sync_failure_cannot_commit_state",
+        "sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback",
         "writeback_workspace_replacement_keeps_owned_bytes_and_blocks_completion_after_restart",
         "writeback_other_operation_success_cannot_clear_failed_entry_or_target_validation",
         "writeback_cancelled_job_serializes_separate_handles_until_protected_body_is_recorded",
@@ -42107,6 +42134,13 @@
         "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib -- export sync_findings writeback sync_state sync_root sync_observation",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-sync-export-interfaces.md",
+          "test_ids": ["writeback_export_cross_directory_publication_precedes_state_and_retains_displacement","writeback_export_parent_sync_failure_cannot_commit_state","sync_findings_migration_rolls_back_and_preserves_catalog_root_and_writeback"]
+        },
         {
           "command": "CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 RUST_TEST_THREADS=4 cargo test --locked --offline --lib writeback",
           "result": "PASS",
@@ -42313,6 +42347,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
+        "Shared cross-directory export flushes both parents before receipt/state completion, retains displaced bodies and persists incarnation-bound findings in schema 21; mirror orchestration, conflict transfer, controls and host-power-loss verification remain pending. Scope: docs/en/slices/shared-sync-export-interfaces.md.",
         "Not every instruction boundary has a process-kill test: fsync/deletion windows use recovery-state fixtures; host power loss unverified.",
         "Publication I/O and concurrent media/derived/resumable reclamation are verified on macOS ARM64. Linux/Windows runtime, unsupported-filesystem capability branches and host power loss remain unverified; Windows exchange is explicitly Unsupported. Native batch/mutable-file staging is covered in docs/en/slices/shared-publication-modes.md; exhaustive batch/file crash injection and post-ready orphan scanning remain later scopes. See docs/en/slices/shared-publication-io.md.",
         "Startup CancelSafe is a nominal audit marker, not a compiler proof; new phases require documented side-effect ownership and production-path interruption/owned-effect tests before marking their waits safe. See docs/en/slices/startup-phases.md.",

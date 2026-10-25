@@ -102,6 +102,29 @@ pub fn directory_at(directory: &File, name: &std::ffi::OsStr, create: bool) -> i
     }
 }
 
+/// Walks an exact relative spelling without following redirects; creation syncs each parent.
+pub fn directory_path_at(
+    directory: &File,
+    path: &std::path::Path,
+    create: bool,
+) -> io::Result<File> {
+    let text = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
+    if text.is_empty() || text.split('/').any(|part| matches!(part, "" | "." | "..")) {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let mut current = directory.try_clone()?;
+    for part in text.split('/') {
+        validate_name(part.as_ref())?;
+        let next = directory_at(&current, part.as_ref(), create)?;
+        if create {
+            next.sync_all()?;
+            current.sync_all()?;
+        }
+        current = next;
+    }
+    Ok(current)
+}
+
 #[derive(Debug)]
 pub enum FsError {
     Io(io::Error),
@@ -486,9 +509,49 @@ pub fn durable_replace(
     destination_name: &std::ffi::OsStr,
     expected: Option<&FileIdentity>,
 ) -> Result<ReplaceOutcome, FsError> {
+    durable_replace_between(
+        directory,
+        staged_name,
+        directory,
+        destination_name,
+        expected,
+    )
+}
+
+#[cfg(test)]
+pub(crate) static FAIL_REPLACE_SYNC: std::sync::Mutex<Option<(u64, u64)>> =
+    std::sync::Mutex::new(None);
+
+fn sync_replace_parent(directory: &File) -> io::Result<()> {
+    #[cfg(test)]
+    {
+        let identity = stat_identity(directory).map_err(|e| io::Error::other(e.to_string()))?;
+        if *FAIL_REPLACE_SYNC
+            .lock()
+            .map_err(|_| io::Error::other("sync injection poisoned"))?
+            == Some((identity.device, identity.inode))
+        {
+            return Err(io::Error::other("injected replacement parent sync failure"));
+        }
+    }
+    directory.sync_all()
+}
+
+/// Retains displaced bytes under the source name; errors after rename require reconciliation.
+pub fn durable_replace_between(
+    source_directory: &File,
+    staged_name: &std::ffi::OsStr,
+    destination_directory: &File,
+    destination_name: &std::ffi::OsStr,
+    expected: Option<&FileIdentity>,
+) -> Result<ReplaceOutcome, FsError> {
     validate_name(staged_name)?;
     validate_name(destination_name)?;
-    if staged_name == destination_name {
+    let source_identity = stat_identity(source_directory)?;
+    let destination_identity = stat_identity(destination_directory)?;
+    let same_directory = source_identity.device == destination_identity.device
+        && source_identity.inode == destination_identity.inode;
+    if same_directory && staged_name == destination_name {
         return Err(
             io::Error::new(io::ErrorKind::InvalidInput, "replacement names must differ").into(),
         );
@@ -498,22 +561,22 @@ pub fn durable_replace(
         use std::os::fd::AsRawFd;
         let staged = component(staged_name)?;
         let destination = component(destination_name)?;
-        open_at(directory, &staged, false)?.sync_all()?;
+        open_at(source_directory, &staged, false)?.sync_all()?;
         let before = if expected.is_some() {
-            identity_at(directory, &destination)?
+            identity_at(destination_directory, &destination)?
         } else {
             None
         };
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            // SAFETY: both validated components are relative to the same live directory descriptor.
+            // SAFETY: validated components are relative to their respective live directory descriptors.
             let result = unsafe {
                 #[cfg(target_os = "linux")]
                 {
                     libc::renameat2(
-                        directory.as_raw_fd(),
+                        source_directory.as_raw_fd(),
                         staged.as_ptr(),
-                        directory.as_raw_fd(),
+                        destination_directory.as_raw_fd(),
                         destination.as_ptr(),
                         if expected.is_some() {
                             libc::RENAME_EXCHANGE
@@ -525,9 +588,9 @@ pub fn durable_replace(
                 #[cfg(target_os = "macos")]
                 {
                     libc::renameatx_np(
-                        directory.as_raw_fd(),
+                        source_directory.as_raw_fd(),
                         staged.as_ptr(),
-                        directory.as_raw_fd(),
+                        destination_directory.as_raw_fd(),
                         destination.as_ptr(),
                         if expected.is_some() {
                             libc::RENAME_SWAP
@@ -547,11 +610,14 @@ pub fn durable_replace(
                 }
                 return Err(error.into());
             }
-            directory.sync_all()?;
+            sync_replace_parent(source_directory)?;
+            if !same_directory {
+                sync_replace_parent(destination_directory)?;
+            }
             let Some(expected) = expected else {
                 return Ok(ReplaceOutcome::Created);
             };
-            let displaced = identity_at(directory, &staged)?;
+            let displaced = identity_at(source_directory, &staged)?;
             if let Some(displaced) = displaced
                 && before.as_ref() == Some(expected)
                 && expected.same_displaced_file(&displaced)
@@ -568,9 +634,11 @@ pub fn durable_replace(
     }
     #[cfg(windows)]
     {
-        let root = directory_path(directory)?;
-        let source = root.join(staged_name);
-        let target = root.join(destination_name);
+        if !same_directory {
+            return Err(FsError::Unsupported);
+        }
+        let source = directory_path(source_directory)?.join(staged_name);
+        let target = directory_path(destination_directory)?.join(destination_name);
         File::open(&source)?.sync_all()?;
         if let Some(expected) = expected {
             let observed = stat_identity(&File::open(&target)?)?;
@@ -839,6 +907,99 @@ mod tests {
             std::fs::symlink_metadata(directory.0.join("stage"))
                 .unwrap()
                 .is_symlink()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_directory_walk_rejects_redirects_and_unsafe_components() {
+        let directory = super::test_support::SourceDir::new();
+        let root = open_directory_nofollow(&directory.0).unwrap();
+        let nested = directory_path_at(&root, "bucket/nested".as_ref(), true).unwrap();
+        assert_eq!(
+            stat_identity(&nested).unwrap(),
+            stat_identity(&open_directory_nofollow(&directory.0.join("bucket/nested")).unwrap())
+                .unwrap()
+        );
+        std::os::unix::fs::symlink("bucket", directory.0.join("alias")).unwrap();
+        std::os::unix::fs::symlink("nested", directory.0.join("bucket/link")).unwrap();
+        std::fs::write(directory.0.join("regular"), b"not a directory").unwrap();
+        for path in [
+            "/absolute",
+            "../outside",
+            "bucket/./child",
+            "bucket//child",
+            "bucket/",
+            "alias/child",
+            "bucket/link/child",
+            "regular/child",
+        ] {
+            assert!(
+                directory_path_at(&root, path.as_ref(), true).is_err(),
+                "{path}"
+            );
+        }
+        assert!(!directory.0.join("bucket/nested/child").exists());
+        assert!(!directory.0.join("bucket/child").exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn export_replace_between_directories_retains_displaced_entries() {
+        let directory = super::test_support::SourceDir::new();
+        let root = open_directory_nofollow(&directory.0).unwrap();
+        let workspace = directory_path_at(&root, "work".as_ref(), true).unwrap();
+        let target = directory_path_at(&root, "bucket/nested".as_ref(), true).unwrap();
+        std::fs::write(directory.0.join("work/body"), b"first").unwrap();
+        assert_eq!(
+            durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None)
+                .unwrap(),
+            ReplaceOutcome::Created
+        );
+        assert!(!directory.0.join("work/body").exists());
+        std::fs::write(directory.0.join("work/body"), b"second").unwrap();
+        assert!(
+            matches!(durable_replace_between(&workspace, "body".as_ref(), &target, "body".as_ref(), None), Err(FsError::Io(e)) if e.kind()==io::ErrorKind::AlreadyExists)
+        );
+        let expected = stat_identity(&open_regular_at(&target, "body".as_ref()).unwrap()).unwrap();
+        assert!(matches!(
+            durable_replace_between(
+                &workspace,
+                "body".as_ref(),
+                &target,
+                "body".as_ref(),
+                Some(&expected)
+            )
+            .unwrap(),
+            ReplaceOutcome::Replaced { .. }
+        ));
+        assert_eq!(
+            std::fs::read(directory.0.join("work/body")).unwrap(),
+            b"first"
+        );
+        assert_eq!(
+            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
+            b"second"
+        );
+        std::fs::write(directory.0.join("work/body"), b"third").unwrap();
+        assert!(matches!(
+            durable_replace_between(
+                &workspace,
+                "body".as_ref(),
+                &target,
+                "body".as_ref(),
+                Some(&expected)
+            )
+            .unwrap(),
+            ReplaceOutcome::Conflict { displaced: Some(_) }
+        ));
+        assert_eq!(
+            std::fs::read(directory.0.join("work/body")).unwrap(),
+            b"second"
+        );
+        assert_eq!(
+            std::fs::read(directory.0.join("bucket/nested/body")).unwrap(),
+            b"third"
         );
     }
 

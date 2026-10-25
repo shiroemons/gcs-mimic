@@ -5,6 +5,11 @@ PARTIAL; UX-002 seed remains unchanged. This slice supplies typed storage APIs,
 not target replacement, mirror/watch startup, conflict registration or HTTP
 recovery/discard controls.
 
+The later [shared export interfaces](shared-sync-export-interfaces.md) add
+descriptor-relative workspace-to-target replacement, both-parent fsync and
+durable findings in schema 21. They preserve the receipt/protection protocol
+below; mirror orchestration and conflict transfer remain pending.
+
 ## Acceptance contract
 
 - Schema 20 persists catalog/root-bound pending operations, original bucket

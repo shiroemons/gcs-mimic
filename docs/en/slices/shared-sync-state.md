@@ -48,6 +48,10 @@ upgrade; restore the complete backup with its matching executable to roll back.
 Executables supporting at most schema 19 reject schema 20; do not edit
 `user_version` to downgrade.
 
+Schema 21 adds root-bound mapping findings through
+[shared export interfaces](shared-sync-export-interfaces.md), without changing
+the synchronized-object acknowledgment contract.
+
 ## Verification
 
 On 2026-10-25, `cargo test --locked --offline --lib sync_state` passed all four

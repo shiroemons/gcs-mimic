@@ -125,6 +125,238 @@ async fn writeback_durable_receipts_atomically_ack_fingerprints_progress_and_com
     catalog.close().await.unwrap();
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn writeback_export_cross_directory_publication_precedes_state_and_retains_displacement() {
+    let (_data, root, catalog, lease, writeback, bucket) = setup().await;
+    let name = ObjectName::new("nested/body").unwrap();
+    let record = publish(&catalog, &bucket, name.as_str(), b"\0\xffexport").await;
+    let pending = prepare(&writeback, &catalog, &bucket, name.as_str(), &record).await;
+    let armed = writeback.arm(pending.token).await.unwrap();
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    assert!(
+        catalog
+            .sync_state()
+            .get_path(binding.clone(), "test-bucket/nested/body".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let (_, reader) = catalog
+        .admin(Origin::SyncIngest)
+        .open_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    let source = reader.into_file().await;
+    let entry = armed.workspace_entry.name().to_owned();
+    writeback
+        .file_job(armed.token.clone(), move |root, workspace| {
+            fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
+                |e| match e {
+                    fsutil::FsError::Io(e) => AdminError::from(e),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                },
+            )?;
+            let parent = fsutil::directory_path_at(root, "test-bucket/nested".as_ref(), true)?;
+            fsutil::durable_replace_between(
+                workspace,
+                entry.as_ref(),
+                &parent,
+                "body".as_ref(),
+                None,
+            )
+            .map_err(|e| match e {
+                fsutil::FsError::Io(e) => AdminError::from(e),
+                _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+            })?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        fs::read(root.0.join("test-bucket/nested/body")).unwrap(),
+        b"\0\xffexport"
+    );
+    assert!(
+        catalog
+            .sync_state()
+            .get_path(binding.clone(), "test-bucket/nested/body".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let receipt = writeback.durable(armed.token).await.unwrap();
+    assert!(
+        catalog
+            .sync_state()
+            .get_path(binding.clone(), "test-bucket/nested/body".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    writeback.acknowledge(receipt, None).await.unwrap();
+    assert_eq!(
+        catalog
+            .sync_state()
+            .get_path(binding, "test-bucket/nested/body".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .generation
+            .get(),
+        record.generation
+    );
+    writeback.resume().await.unwrap();
+    let replacement = publish(&catalog, &bucket, name.as_str(), b"new API bytes").await;
+    let pending = prepare(&writeback, &catalog, &bucket, name.as_str(), &replacement).await;
+    let armed = writeback.arm(pending.token).await.unwrap();
+    let (_, reader) = catalog
+        .admin(Origin::SyncIngest)
+        .open_object(&bucket, &name, None)
+        .await
+        .unwrap();
+    let source = reader.into_file().await;
+    let entry = armed.workspace_entry.name().to_owned();
+    writeback
+        .file_job(armed.token.clone(), move |root, workspace| {
+            fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).map_err(
+                |e| match e {
+                    fsutil::FsError::Io(e) => AdminError::from(e),
+                    _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                },
+            )?;
+            let parent = fsutil::directory_path_at(root, "test-bucket/nested".as_ref(), false)?;
+            let expected =
+                fsutil::stat_identity(&fsutil::open_regular_at(&parent, "body".as_ref())?)
+                    .map_err(|e| match e {
+                        fsutil::FsError::Io(e) => AdminError::from(e),
+                        _ => AdminError::Io(std::io::ErrorKind::Unsupported),
+                    })?;
+            assert!(matches!(
+                fsutil::durable_replace_between(
+                    workspace,
+                    entry.as_ref(),
+                    &parent,
+                    "body".as_ref(),
+                    Some(&expected)
+                )
+                .unwrap(),
+                fsutil::ReplaceOutcome::Replaced { .. }
+            ));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        writeback.durable(armed.token).await,
+        Err(Error::Protected)
+    ));
+    assert_eq!(
+        fs::read(
+            root.0
+                .join(crate::sync::mapping::WORKSPACE)
+                .join(armed.workspace_entry.name())
+        )
+        .unwrap(),
+        b"\0\xffexport"
+    );
+    let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+    assert_eq!(
+        catalog
+            .sync_state()
+            .get_path(binding, "test-bucket/nested/body".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .generation
+            .get(),
+        record.generation
+    );
+    drop(writeback);
+    drop(lease);
+    catalog.close().await.unwrap();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn writeback_export_parent_sync_failure_cannot_commit_state() {
+    for fail_source in [true, false] {
+        let (_data, root, catalog, lease, writeback, bucket) = setup().await;
+        let name = ObjectName::new("body").unwrap();
+        let record = publish(&catalog, &bucket, name.as_str(), b"durable output").await;
+        let pending = prepare(&writeback, &catalog, &bucket, name.as_str(), &record).await;
+        let armed = writeback.arm(pending.token).await.unwrap();
+        let (_, reader) = catalog
+            .admin(Origin::SyncIngest)
+            .open_object(&bucket, &name, None)
+            .await
+            .unwrap();
+        let source = reader.into_file().await;
+        let entry = armed.workspace_entry.name().to_owned();
+        let result: Result<(), Error> = writeback
+            .file_job(armed.token.clone(), move |root, workspace| {
+                fsutil::clone_or_copy_into(&source, workspace, entry.as_ref()).unwrap();
+                let parent = fsutil::directory_path_at(root, "test-bucket".as_ref(), true)?;
+                let identity =
+                    fsutil::stat_identity(if fail_source { workspace } else { &parent }).unwrap();
+                *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() =
+                    Some((identity.device, identity.inode));
+                let result = fsutil::durable_replace_between(
+                    workspace,
+                    entry.as_ref(),
+                    &parent,
+                    "body".as_ref(),
+                    None,
+                );
+                *fsutil::FAIL_REPLACE_SYNC.lock().unwrap() = None;
+                match result {
+                    Err(fsutil::FsError::Io(error)) => Err(error.into()),
+                    _ => panic!("parent sync must fail"),
+                }
+            })
+            .await;
+        assert!(matches!(result, Err(Error::Admin(AdminError::Io(_)))));
+        assert_eq!(
+            fs::read(root.0.join("test-bucket/body")).unwrap(),
+            b"durable output"
+        );
+        assert_eq!(
+            writeback
+                .get(armed.workspace_entry.name())
+                .await
+                .unwrap()
+                .phase,
+            Phase::Armed
+        );
+        assert_eq!(writeback.status().await.unwrap().stop, Stop::IoFailure);
+        let binding = catalog.sync_state().binding(&bucket).await.unwrap();
+        assert!(
+            catalog
+                .sync_state()
+                .get_path(binding.clone(), "test-bucket/body".into())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let receipt = writeback.durable(armed.token).await.unwrap();
+        writeback.acknowledge(receipt, None).await.unwrap();
+        assert_eq!(
+            catalog
+                .sync_state()
+                .get_path(binding, "test-bucket/body".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .generation
+                .get(),
+            record.generation
+        );
+        drop(writeback);
+        drop(lease);
+        catalog.close().await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn writeback_pending_pages_survive_bucket_deletion_recreation_and_restart() {
     let (data, root, catalog, lease, writeback, bucket) = setup().await;
@@ -764,7 +996,7 @@ async fn writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_ro
     let seed: i64 = c
         .query_row("SELECT complete FROM startup_seed", [], |r| r.get(0))
         .unwrap();
-    c.execute_batch("DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; PRAGMA user_version=19; CREATE TABLE sync_writeback_ops(collision)").unwrap();
+    c.execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; PRAGMA user_version=19; CREATE TABLE sync_writeback_ops(collision)").unwrap();
     assert!(migrate(&mut c).is_err());
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
