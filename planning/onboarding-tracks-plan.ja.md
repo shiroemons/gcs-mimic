@@ -3,7 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": false, "MD024": {"siblings_only": true}} -->
 
 2026-10-24 作成。対象は [detailed delivery plan](../docs/en/delivery-plan.md#parallel-work-and-acceptance) の
-「Parallel work and acceptance」表のうち First / Next の 6 トラックです。
+「Parallel work and acceptance」表のうち First / Next の 6 トラックと、2026-10-25 に実利用アプリの調査から足した
+fake-gcs-server からの移行トラック（第 9 節）です。
 
 実装状態の正本は [`compatibility/features.json`](../compatibility/features.json) です。この計画は状態・fidelity・証跡を
 変更しません。調査の詳細とコードの根拠は [調査メモ](onboarding-tracks-findings.ja.md) にあります。
@@ -827,14 +828,113 @@ fake-gcs-server の 3 つの形式（seed ディレクトリ、filesystem backen
 
 ---
 
-## 9. 実装者への依頼テンプレート
+## 9. fake-gcs-server からの移行（実利用の検証）
+
+### 目的と対象
+
+fake-gcs-server を使っている既存のアプリが、Compose の `gcs` サービスの書き換えだけで gcs-mimic へ移れるようにする。
+利用者が触るのは image・environment・volume だけで、`STORAGE_EMULATOR_HOST` もアプリのコードもそのまま、というのが**目標**。
+達成したと言えるのは、`migrate-app-scenario` が公式 SDK で通ってから。調査の時点では curl で同じ形のリクエストを送っただけで、
+SDK では確かめていない。
+
+対象は実利用アプリ 1 件の調査で見つかった不足（[調査メモ 第 10 節](onboarding-tracks-findings.ja.md#10-実利用アプリの移行調査2026-10-25)）。
+fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-server-migration.md) の full-superset）はこの節の対象外で、
+代表的なアプリの流れが通ることを優先する。
+
+### 着手前チェック
+
+- 第 1 節と、調査メモ 第 10 節の表を読む。表の「移行への影響」が「なし」の行は、回帰させないことだけを守る。
+- `migrate-upload-admission` は Shared state のスライス（`src/storage/` を触る）。同時に 1 本の制約に従う。
+- 「本当に止まっているもの」を最初に直す。調査で移行を止めると分かったのは、並行アップロードの即 503 の 1 件だけ。
+  残りは既定値と手順の問題で、小さく 1 本にまとめる。
+- **最初に `migrate-app-scenario` を入れる**。机の上で挙げた不足ではなく、実際に落ちたケースを直すため。
+  ほかの `migrate-*` は、それぞれ自分の受け入れケースをこのシナリオに足して終える。
+
+### 決定
+
+- アプリのコード変更を移行の前提にしない。移行手順は Compose の書き換えと buckets file の追加だけ。
+  永続データの取り込みは手順に含めない（調べたアプリの永続データはほぼ空で、作り直す方が早い。下の「保留」）。
+- fake-gcs-server の起動フラグと `FAKE_GCS_*` は、今の診断（置き換え先を示して起動しない）のままにする。別名として受け付けない。
+- 参考アプリの名前・固有の値は、リポジトリに書かない。シナリオは一般化した名前（例: `assets`、`exports`）で書く。
+
+### 設計の要件
+
+- **既定値で動く**: HTTP で起動しただけで healthcheck が通り、別オリジンのブラウザからのアップロードと読み取りが通る。
+  利用者が足す設定は `GCS_MIMIC_SCHEME`・`GCS_MIMIC_LISTEN`・`GCS_MIMIC_API_BASE_URL`・buckets file の範囲に収める。
+- **落とし穴は手順の側で塞ぐ**: 読まれにくい起動ログの警告に頼らない。コンテナ間の resumable の Location のように設定が要るものは、
+  移行ガイドの Compose の例に最初から書いておく。
+- **並行アップロードは待って通す**: アプリの通常の並行度（ブラウザの複数ファイル、数本のワーカー）で、アップロードが
+  即 503 にならない。枠は残すが、空くまで上限時間つきで待つ（第 1 節の共通部品「待機付きで上限時間のある同時実行枠」を使う）。
+  待っても空かなければ 503 に `Retry-After` と、原因（同時アップロード数の上限）と直し方を示すメッセージを付ける。
+  本文はストリーミングのままで、待機中に本文を読まない。
+- **失敗は直し方まで出す**（第 1 節）: 移行で踏みやすいエラー（project のない一覧、アップロードの枠の超過）は、
+  応答のメッセージに原因と置き換え先を示す。
+- **軽さを保つ**: 起動の bind 前に件数比例の処理を足さない。待機はタイマーのポーリングではなく、枠の解放で起こす。
+
+### 未決（各スライスの slice 文書で決める。推奨案つき）
+
+| 項目 | 推奨 | 決める場所 |
+| --- | --- | --- |
+| アップロードの枠の数 | 既定を `max_connections`（32）と同じにする。本文は上限つきのバッファでストリーミングするので、枠を増やしてもメモリは本数 × バッファで収まる。設定キーは足さない | `migrate-upload-admission` |
+| 待機の上限時間 | 既存の `catalog_wait_timeout_ms`（既定 30 秒）を使い、新しい設定を足さない | `migrate-upload-admission` |
+| `api_base_url` を明示しないときの Location | 今のまま（bind したアドレスから導出）とし、移行ガイドの Compose の例に `GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書く。起動時の警告は足さない。リクエストの Host から組む案は `config-api-origin-default` の決定を変えるので、シナリオで困る例が出たときにオーナーへ上げる | `migrate-guide-compose` |
+| project のない `buckets.list` | `legacy-emulator` では作成と同じく `seed_project` で補う。native は 400 のまま、メッセージに `?project=local-project` の例を足す | `migrate-defaults` |
+
+### スライス
+
+| スライス | 内容 | 対象機能 ID（台帳の該当行） | 主に触るファイル |
+| --- | --- | --- | --- |
+| `migrate-app-scenario` | 代表的なアプリの流れ（下の表）を、既存の SDK テストに足す。Go SDK とブラウザの代わりの生の HTTP は `sdk-tests/go`（CI の `sdk-go` で毎回動く）、Ruby SDK は `sdk-tests/ruby`（`just check-sdk`）。**今通るケースだけで入れる**。着手時に流して落ちたケースは、直すスライスを決めて slice 文書に書き、そのスライスに渡す（調査で分かっている落ちるケースは、並行アップロードと project のない一覧）。同じシナリオを fake-gcs-server に対しても手元で 1 回流し、移行元で通ること（シナリオが実利用を表していること）を確かめて、結果を 1 行書く | DESIGN-082、DESIGN-083、UX-003、UX-007 | `sdk-tests/go`、`sdk-tests/ruby`、slice 文書 |
+| `migrate-upload-admission` | API のアップロードの枠を待機付きにし、既定の数を見直す。超過時の 503 に `Retry-After` と直し方。受け入れケース: 12 本の同時アップロードがすべて成功（シナリオに足す）、待機の上限で 503 + `Retry-After`、待機中のクライアント切断で枠も一時ファイルも残らない、待機中の shutdown | DESIGN-071、DESIGN-070 | `src/storage/catalog.rs`、`src/storage/objects.rs`、`src/json/error.rs`、テスト |
+| `migrate-defaults` | 移行で踏む既定値を 2 つ直す。(1) `gcs-mimic healthcheck` を `--url` なしで呼んだとき、`GCS_MIMIC_SCHEME`・`GCS_MIMIC_LISTEN`（と設定ファイル）から URL を組み、Dockerfile の HEALTHCHECK をそれに変えて `compose.http.yaml` と README の上書きを外す。(2) project のない `buckets.list`（上の未決の推奨）。受け入れケース: HTTP・HTTPS・both・ポート変更で上書きなしに healthy、legacy で project なしの一覧が返る（シナリオに足す）、native は 400 + 直し方。Dockerfile を変えるので、コンテナの確認は最終ソースで 1 回 | DESIGN-067、DESIGN-058、JSON-BUCKETS-006 | `src/main.rs`（CLI のみ。起動順序は触らない）、`Dockerfile`、`compose*.yaml`、README、`src/json/query.rs` |
+| `migrate-guide-compose` | 移行ガイドに「fake-gcs-server の Compose を置き換える」節を足す: よく使う 5 フラグの書き換え前後、`GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書いた Compose の例とその理由（resumable の Location）、空ディレクトリでのバケット作成 → buckets file（seed は初回だけ動き、後から足したディレクトリは作られない）、別オリジンのブラウザ、resumable の取り消しが 499 を返すこと、作業ツリーごとのポート。ガイドの手順は 1 回通して確かめる。`docs/ja` も追従 | UX-012、DESIGN-061 | `docs/en/fake-gcs-server-migration.md`、`docs/en/container-usage.md`、`docs/ja/*` |
+
+`migrate-app-scenario` で通すアプリの流れ:
+
+| 呼び出し元 | 操作 |
+| --- | --- |
+| Go SDK | `NewWriter` の既定（resumable、`ChunkSize` を変えない）と `ChunkSize = 0`、`Attrs`（CRC32C・世代）、`NewReader`、`CopierFrom` + 元の世代 + `DoesNotExist`（再実行は 412）、世代指定の `Delete` |
+| 生の HTTP（サーバー側） | resumable セッションの作成（`X-Upload-Content-Type`）、`DELETE` での取り消し |
+| ブラウザの代わり（生の HTTP、`Origin` つき） | preflight、`uploadType=media` への `POST`、サーバーが作ったセッションへ Host を変えて `PUT` + `Content-Range`、`?alt=media` と path-style の匿名読み取り、複数本の並行アップロード |
+| Ruby SDK | `endpoint` 指定の anonymous クライアントで `bucket.file`、`create_file`、`delete` |
+| 接続 | `STORAGE_EMULATOR_HOST` での接続、HTTP、buckets file で作ったバケット |
+
+### 依存
+
+```mermaid
+flowchart TD
+  migrate-app-scenario --> migrate-upload-admission --> migrate-guide-compose
+  migrate-app-scenario --> migrate-defaults --> migrate-guide-compose
+```
+
+- `migrate-app-scenario` を最初に入れる。`migrate-upload-admission` と `migrate-defaults` はその後に並行できる
+  （触るファイルが重ならない）。`migrate-upload-admission` は移行を止めるので、ほかのトラックの機能を増やすスライスより先に入れる。
+- `migrate-guide-compose` は最後。ガイドには、シナリオで確かめた手順と既定値だけを書く。
+
+### 保留（困る例が出たら着手する）
+
+| 候補 | 内容 | 保留の理由 |
+| --- | --- | --- |
+| seed の既存カタログでの警告 | 既存のカタログで `seed_dir` を指定したとき、カタログにないバケットディレクトリを列挙して buckets file を勧める | ガイドで buckets file を使う手順にすれば踏まない。ログの警告は読まれにくい |
+| fake-gcs-server の永続データの取り込みの補強 | 削除後の空ディレクトリと、ディレクトリのない `.bucketMetadata` を含む fixture での `import fake-gcs-server --dry-run` | 調べたアプリの永続データはほぼ空で、作り直す方が早い。データを持ち越したい利用者が出たら着手する |
+| Location をリクエストの Host から組む | `api_base_url` を明示しないときの既定を変える | `config-api-origin-default` の決定を変える。ガイドの例で足りなければオーナーへ上げる |
+
+### 完了条件と対象外
+
+- 完了: `migrate-app-scenario` のすべてのケースが gcs-mimic で通り（CI の `sdk-go` と `just check-sdk`）、fake-gcs-server でも
+  通ることを 1 回確かめ、移行ガイドの手順だけで Compose を置き換えられる。この時点で初めて「アプリのコードを変えずに移れる」と書く。
+- 対象外: fake-gcs-server のフラグの別名、Go 埋め込み、memory backend、full-superset の主張、性能の比較のための測定の仕組み。
+
+---
+
+## 10. 実装者への依頼テンプレート
 
 各スライスを依頼するときは、[機能単位のプロンプト](prompts/02-implement-feature.ja.md) に次を足して渡してください。
 
 ```text
 gcs-mimic の AGENTS.md と planning/prompts/00-master.ja.md に従い、次の 1 スライスだけを実装してください。
 
-トラック: <Distribution / Configuration / Shared state integration / Bucket initializer / Directory synchronization / Seed and source import>
+トラック: <Distribution / Configuration / Shared state integration / Bucket initializer / Directory synchronization / Seed and source import / fake-gcs-server migration>
 スライス: <計画書のスライス名。例: init-parser>
 対象機能ID: <FEATURE_IDS>
 
@@ -847,7 +947,7 @@ planning/onboarding-tracks-findings.ja.md の該当箇所がまだ正しいか�
 完了時は、変更した機能ID、確認した振る舞い、実行したコマンドと結果、残る制限、台帳の更新内容、次のスライスを日本語で報告してください。
 ```
 
-## 10. 範囲外の問題
+## 11. 範囲外の問題
 
 - `docs/en/getting-started-spec.md` は存在しない `config/development.toml` を参照している（実在は `config/development.json`）。
   `dist-release-notes` で直す。

@@ -265,3 +265,61 @@ feature、保守状況、出典 URL、SHA-256、解決の制約を書く。配�
 - Windows でのファイル監視（rename の原子性は、計画書で「Windows は競合の時間窓を契約に書く」と方針を決めた）。
 - memory backend の内部構造（稼働中の状態のエクスポートで必要。このトラック群の対象外）。
 - `cargo test` は計画の作成とレビューの過程で実行していない。
+
+## 10. 実利用アプリの移行調査（2026-10-25）
+
+fake-gcs-server を使っている実在のアプリ 1 件（Go の API とワーカー、Ruby の管理画面、ブラウザからの直接アップロード、
+画像プロキシ）の利用状況を読み、同じ形のリクエストを main（`f9b8833`）の debug ビルドに送って確かめた。アプリ固有の名前は書かない。
+計画は [計画書 第 9 節](onboarding-tracks-plan.ja.md#9-fake-gcs-server-からの移行実利用の検証)。
+
+### 利用の形
+
+- 起動: `-scheme http -public-host gcs:4443 -external-url http://gcs:4443 -data /data -filesystem-root /storage`。
+  healthcheck なし。`/data` には空のバケットディレクトリだけを置き、作業ツリーの起動スクリプトがそれを `mkdir -p` する。
+- 接続: コンテナ間は `STORAGE_EMULATOR_HOST=gcs:4443`、ブラウザ向けにはアプリ独自の変数で `http://localhost:{割り当てたポート}`。
+  作業ツリーごとにホスト側のポートが変わる。
+- Go SDK: `NewWriter`（resumable の Location が届かない問題の回避として `ChunkSize = 0`）、`CopierFrom` + 元の世代指定 +
+  `DoesNotExist`、`Attrs`（CRC32C・世代）、`NewReader`、世代指定の `Delete`。
+- 生の HTTP: resumable セッションの作成と `DELETE` での取り消し。サーバー側で作ったセッション URI のホストを、ブラウザ向けの
+  オリジンに書き換えて渡す（同じセッションを別の Host で使う）。
+- Ruby SDK: `endpoint` を指定した anonymous クライアントで `bucket.file`、`create_file`、`delete`。
+- ブラウザ: 別オリジンから `uploadType=media` の URL へ `POST`、resumable のセッション URI へ `PUT` + `Content-Range`（1 回で全体）。
+  複数ファイルを並行に送る。表示は `?alt=media`、保存済みの URL は path-style（`http://gcs:4443/{bucket}/{object}`）。
+- エミュレーター使用時は署名付き URL を作らず、`uploadType=media` の URL を代わりに返している。
+
+### 実際に送った結果
+
+| 操作 | 結果 | 移行への影響 |
+| --- | --- | --- |
+| 起動（HTTP、空のバケットディレクトリ 2 つを seed） | 約 0.2 秒で ready、バケット 2 つを作成 | なし |
+| `GET /storage/v1/b`（project なし） | 400 `Missing required project`（`legacy-emulator` でも同じ。作成は seed_project を補う） | 開発者の確認コマンドが失敗する |
+| 別オリジンの preflight と `POST uploadType=media` | 200、CORS 応答あり | なし |
+| resumable 作成 → Host を変えて `PUT` + `Content-Range`（preflight 含む） | 200 | なし |
+| path-style（`Host: gcs:4443`）と `?alt=media` の匿名読み取り | 200 | なし |
+| rewrite（`sourceGeneration` + `ifGenerationMatch=0`）、同じ操作の再実行 | 成功、再実行は 412 | なし |
+| 世代指定の削除、resumable の `DELETE` | 204、499 の後 410（Google と同じ） | なし |
+| 4 MiB のアップロードを 12 本同時 | **8 本成功、4 本が即 503**（`backendError`、`Object storage is unavailable`、Retry-After なし） | **移行を止める**。ブラウザの並行アップロードとワーカーが失敗する。fake-gcs-server に上限はない |
+| 遅いダウンロードを 40 本同時（`max_connections` 32） | 全件 200（待たされる） | なし |
+| fake-gcs-server の command をそのまま渡す | 起動せず、5 フラグすべてに置き換え先つきの診断 | 診断は良い。Compose の書き換えは必要 |
+| イメージの既定 HEALTHCHECK | `https://localhost:4443` 固定 | HTTP で動かすと上書きしない限り unhealthy |
+| アイドル時の RSS（debug ビルド） | 約 36 MB | なし（参考値） |
+
+### コードの根拠
+
+- アップロードの枠: `src/storage/catalog.rs` の `uploads: Semaphore::new(MAX_UPLOADS)`（8）を `try_acquire` で取り、空きがなければ
+  即失敗する（第 3 節「受付枠」）。設定で変えられない。エラーは利用者に原因と直し方を示さない。
+- project の必須: `src/json/query.rs` の `project()`。`legacy-emulator` の補完は `POST`（作成）だけにある。
+- resumable の Location: `src/server/resumable.rs` が `api_base_url` から作る。既定は bind したアドレスからの導出で、
+  `0.0.0.0` は loopback になる。コンテナ内では `GCS_MIMIC_API_BASE_URL` を明示しないと、ほかのコンテナから届かない
+  （上流で `-external-url` を省いたときと同じ落とし穴）。
+- seed は新しいカタログのときだけ動く（`src/seed.rs`）。初回の起動の後に足したバケットディレクトリは作られず、知らせもない。
+  上流は起動のたびに作る。`--buckets-file` は毎回「無いものだけ作る」ので、こちらが代わりになる。
+- HEALTHCHECK: `Dockerfile` が `--url https://localhost:4443/_internal/ready` を固定し、`compose.http.yaml` と README が上書きしている。
+
+### 未確認
+
+- 永続データ（`-filesystem-root`）の取り込み: 調べたアプリのデータは、削除後の空ディレクトリと、ディレクトリのない
+  `.bucketMetadata` だけだった。`import fake-gcs-server --dry-run` がこの形を受け付けるかは試していない。
+  macOS の Docker Desktop のバインドマウント上の xattr の扱いも未確認。
+- Go SDK と Ruby SDK そのものでの実行（上の結果は curl で同じリクエストを送ったもの）。
+- fake-gcs-server と同じ条件での速度・メモリの比較（方針により測定の仕組みは作らない）。
