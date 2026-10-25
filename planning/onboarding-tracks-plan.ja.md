@@ -68,7 +68,7 @@
 | 上限付きのディレクトリのイテレーター（件数と深さの上限、整列、専用スレッドで動かす）と、無視するファイルの判定関数（OS のメタデータ `.DS_Store`・`._*` と、同期のエディタの一時ファイル。取り込み側の無視と、書き出し側の「表現不可」の両方で同じ関数を使う） | `seed.rs` の走査、`objects.rs` の `os_metadata`（seed はこの判定を使っていない） | seed、Sync、Import | `import-dry-run` | **走査の方針はそれぞれ別に持つ**: seed は失敗で閉じる 1 回きり、Sync は stat の差分による増分と無視パターン・大文字小文字の衝突の判定、Import はサイドカーと `.bucketMetadata` の除外と `PathUnescape` |
 | ファイルパスとオブジェクト名の対応（表現できるかの判定を含む） | `seed.rs` がパスの要素を `/` で結合して検証 | Sync、seed、Import | `sync-contract` で規則を決め、最初に使うスライスで作る | 上流の永続形式のバケット名の `PathEscape` は、その形式の読み取り側に置く |
 | 拡張子から MIME を決める表 | まだない | Import（seed）、Sync（新しいファイル） | `import-seed-adapter` | 使うかどうかの設定 |
-| TLS コネクターと CA の読み込み | `main.rs` の `healthcheck` と `tls.rs` | Sync（`gcs-mimic sync`） | `sync-control` | **HTTP クライアントは共通にしない**: `healthcheck` は 2 秒ごとに走る GET だけの最小実装（2 秒・16 KiB の上限）のまま残し、`sync` の CLI は POST・長い待機・strict の認証を持つ別のクライアントにする |
+| TLS コネクターと CA の読み込み | `main.rs` の `healthcheck` と `tls.rs` | Sync（`gcs-mimic sync`） | `sync-control-min` | **HTTP クライアントは共通にしない**: `healthcheck` は 2 秒ごとに走る GET だけの最小実装（2 秒・16 KiB の上限）のまま残し、`sync` の CLI は POST・長い待機・strict の認証を持つ別のクライアントにする |
 | 名前からの既定バケットの作成 | `seed.rs` が `{"name": ...}` を組み立てて検証 | Initializer、Sync（新しいディレクトリ）、seed | `shared-admin-interface`（`ensure_bucket` と並べる） | 所有プロジェクトの決め方 |
 | ローカルのファイルからの公開（専用スレッドでのクローンかコピー、ハッシュ 1 回、確定処理への受け渡し） | まだない（seed は `mpsc` で `put_object` に流している） | seed、Sync（取り込み）、Import | `shared-publication-modes`（`publish_from_file`） | 確定時のモード（`Replace`・`InheritFromReplaced`・`SkipIfSameHash`） |
 
@@ -207,10 +207,10 @@ flowchart TD
   sync-contract --> sync-mirror
   shared-change-journal --> sync-mirror
   shared-publication-io --> sync-mirror
-  sync-mirror --> sync-control --> sync-ingest
-  shared-sync-state --> sync-ingest
-  shared-publication-modes --> sync-ingest
-  sync-ingest --> sync-watcher --> sync-recovery
+  sync-mirror --> sync-live-export --> sync-live-ingest --> sync-control-min
+  sync-control-min --> sync-conflicts --> sync-deletion-guard --> sync-watcher
+  shared-sync-state --> sync-live-ingest
+  shared-publication-modes --> sync-live-ingest
 
   import-contract --> import-dry-run --> import-seed-adapter
   shared-publication-modes --> import-seed-adapter
@@ -227,6 +227,8 @@ flowchart TD
   宛先に書き込むスライスから Shared state に依存する。
 - リリース順: 現在の `main` で `0.1.0` を出し、Configuration の互換性変更・Initializer・Sync・Import はそれぞれ別の
   `0.x` マイナーで出す（[release policy](../docs/en/release-policy.md#progress-through-0x)）。
+- Sync の利用可能という案内は、`sync-control-min` がマージされて端から端まで動いてからリリースノートと README に載せる。
+  途中の状態の制限は slice 文書と台帳に書く。
 
 ---
 
@@ -602,7 +604,7 @@ Initializer、Sync、Import が同じ境界の上で独立に作業できるよ�
 
 ### 着手前チェック
 
-- `sync-contract` は Shared state を待たずに進められる。`sync-mirror` は `shared-change-journal` と `shared-publication-io`、`sync-ingest` は
+- `sync-contract` は Shared state を待たずに進められる。`sync-mirror` は `shared-change-journal` と `shared-publication-io`、`sync-live-ingest` は
   `shared-sync-state` と `shared-publication-modes` の完了が前提。
 - 第 5 節の「起動順序」「readiness」「管理インターフェース」、第 1 節の「受付枠」と「`data_dir` の禁止事項」を読む。
 - オブジェクト名の実態は [調査メモ 第 5 節](onboarding-tracks-findings.ja.md#5-オブジェクト名sync-の前提)、
@@ -664,13 +666,18 @@ Initializer、Sync、Import が同じ境界の上で独立に作業できるよ�
 
 | 止まる理由 | どう気づくか | どう解消するか |
 | --- | --- | --- |
-| 大量削除の承認待ち | `gcs-mimic sync status`、`/_internal/sync`、`/_internal/ready` の本文の同期の要約、stderr の event | `gcs-mimic sync approve`（取り込む）か、作業ツリーを戻して `gcs-mimic sync rescan` |
+| 大量削除の停止 | `gcs-mimic sync status`、`/_internal/sync`、`/_internal/ready` の本文の同期の要約、stderr の event | 作業ツリーを戻して `gcs-mimic sync rescan`。`sync-deletion-guard` 以降は `gcs-mimic sync approve` でも取り込める |
 | マーカーの不一致 | 起動失敗の診断（解消方法も出す） | マウントを直す。作業ツリーを作り直す場合は、一度だけ初回の有効化をやり直す起動オプションを使う |
 | 競合の退避 | `gcs-mimic sync conflicts` | `gcs-mimic sync resolve`（作業ツリーに戻すか、破棄する） |
 | 表現できない名前 | `gcs-mimic sync status` | API でオブジェクト名を変える。同期対象外のまま使い続けてもよい |
 | 削除の失敗（保留中など） | `gcs-mimic sync status` | API で保留を外してから、ファイルを消し直す |
 
 `/_internal/ready` は同期の状態で状態コードを変えない（ready は API が使えることだけを意味する）が、本文に同期の要約を出す。
+
+`sync-live-ingest` では、削除保護の既定値（100 件以上かつ 50% 超）に達した外部の削除を取り込まずに止め、status に理由と解消方法を出す。
+この段階では作業ツリーを戻して rescan する方法だけを提供し、承認待ちと approve は `sync-deletion-guard` で足す。
+status・rescan の API・CLI は `sync-control-min` で提供する。strict 認証モードでは、`sync-conflicts` で基本の認証が入るまで、
+sync の有効化を起動時に診断付きで拒否する。
 
 ### 未決（`sync-contract` で決める）
 
@@ -686,32 +693,61 @@ Initializer、Sync、Import が同じ境界の上で独立に作業できるよ�
 
 - **`sync-contract`**: `docs/en/slices/directory-synchronization.md` に設定キー、上の決定・要件、止まる理由の表を確定させ、
   台帳に acceptance case を足す。
-- **`sync-mirror`**（API → ファイル）: 変更ジャーナルを読んで作業ツリーに反映する。マーカーと初回の有効化（カタログにデータが
-  ある場合の書き出し）を実装する。ready の後に、`list_objects` と同じ keyset のページ単位で全体を整合させ、SQLite の
-  直列実行を長く占有しない。テスト: 複数バケットでの作成・上書き・削除・copy・compose、表現できない名前、ディスクフル時の
-  再試行と報告、再起動後の整合、マーカーの不一致で起動が止まり診断が出ること。
-- **`sync-control`**: `/_internal/sync`（状態、適用済みのジャーナル連番と未処理の件数、承認、競合の一覧と解消、再走査、待機）と
-  `gcs-mimic sync status|approve|conflicts|resolve|rescan|wait` を実装する。CLI は `healthcheck` と同じく URL と CA を受け取る。
-  利用ガイドに、テストで「ファイルを書いてから `gcs-mimic sync wait --timeout 10s` で待って API で読む」例を載せる。
-  テスト: 各操作、strict での認証、待機のタイムアウト。
-- **`sync-ingest`**（ファイル → API、再走査ベース）: 起動後と再走査で、外部の作成・上書き・削除・rename を `InheritFromReplaced` と
-  `SkipIfSameHash` で取り込む。本文は `publish_from_file` で渡す。rename は「削除＋作成」として扱う。カタログが空のときの
-  初回取り込みは `publish_objects` を使ってここで実装する。同期状態と一致しないファイルは、まず現在の live 世代のハッシュと比べ、
-  同じなら同期状態だけをその世代に進めて競合にしない（書き戻しで同期状態をコミットする直前にクラッシュした場合、作業ツリーには
-  新しい世代、同期状態には古い世代が残るため）。
-  テスト: 書き戻しのコミット直前の kill の後に競合が出ないこと、部分書き込み、エディタの置換保存と一時ファイル、API と外部の編集の競合、取り込みと metadata patch が重なっても
-  メタデータが消えないこと、同じハッシュで世代を作らないこと、取り込んだ変更が書き戻されないこと、大量削除が承認待ちになり
-  承認で進むこと、少数の削除では止まらないこと、消したバケットディレクトリが空で戻ること。
-- **`sync-watcher`**: OS 通知で再走査の対象を絞り、取りこぼし・オーバーフロー時は全体の再走査に戻る。処理がないときはポーリング
-  しない。テスト: 重複通知、自分の書き込みの通知、取りこぼし、Docker bind mount での動作。
-- **`sync-recovery`**: 書き戻し・取り込みの途中でのプロセス kill、ディスクフル、カタログと作業ツリーの食い違いからの復旧を
-  確かめる。黙ってデータを失わないこと。
+- **`sync-mirror`**（前半、実装中）: 設定・起動前のマーカー確認と root の排他的な所有、ready 後のページ単位の全体書き出しを実装する。
+  `list_objects` と同じ keyset を使い、SQLite の直列実行を長く占有しない。初回の baseline はまだ完了させない。
+  別のカタログを指すマーカーで止まる診断に「コミットされたマーカーの可能性」のヒントを加える（前半で実装中）。
+  テスト: マーカー不一致と root の二重所有で起動が止まり、診断にヒントが出ること、複数バケット・空バケットと空・バイナリ本文の全体書き出し。
+- **`sync-live-export`**: `wait_for_changes` で待ち、ジャーナル差分を継続して書き出す。同じオブジェクトへの連続した変更は最後の 1 回にまとめ、ギャップ時は再整合する。
+  着手時に、契約（`docs/en/slices/directory-synchronization.md`）の受け入れケースの担当スライス名をこの計画の新しい名前に付け替える（Local-development scope は `sync-mirror` 前半で作成済み）。
+  作業ツリーの相手ファイルが記録と違えば書き出さずに報告する。ディスクフルも報告し、再試行する。
+  テスト: API の作成・上書き・削除・copy・compose、連続変更、ギャップ、外部本文の保持、ディスクフルからの再試行、待機中のポーリングがないこと。
+- **`sync-live-ingest`**: 起動後と再走査で差分を検出し、作成・上書き・削除・rename（削除＋作成）を取り込む。`publish_from_file`、`InheritFromReplaced`、`SkipIfSameHash` を使い、同期記録と違う本文は live 世代のハッシュと比較し、同じなら同期状態だけを進める。
+  初回の空カタログへの取り込みは `publish_objects` を使い、external-only の取り込みと baseline の完了、往復の抑止を実装する。未完了の baseline から削除を取り込まない。
+  削除保護の件数・割合の閾値を満たす外部の削除は取り込まずに止め、status 用の状態に理由と「作業ツリーを戻して rescan」を記録する。approve はまだ提供しない。
+  strict で sync を有効にする設定は、認証が未対応であることと直し方を示して起動時に拒否する。
+  テスト: 作成・上書き・削除・rename、初回の取り込みと baseline の完了、自己変更の書き戻し抑止、部分書き込み・置換保存・一時ファイル、同じハッシュで世代を作らないこと、metadata patch との競合、API 本文の保持、baseline 中断後の削除抑止、削除保護の件数・割合の境界と大量削除の停止・少数削除、strict での sync 有効化の拒否。
+- **`sync-control-min`**: `/_internal/sync` の status・rescan・wait と `gcs-mimic sync status|rescan|wait`（URL・CA 対応）を実装する。
+  表現できない名前と停止理由・解消方法を status に表示し、「ファイルを書く → gcs-mimic sync wait → API で読む」を端から端まで動かす。
+  下の利用ガイドと Docker bind mount（virtiofs を含む）の動作確認もここで完成させる。利用可能という案内はこのスライスのマージ後に出す。
+  テスト: 上の往復、status の停止理由・解消方法、作業ツリーを戻して rescan した後の再開、待機のタイムアウト、URL・CA の検証、bind mount 上の公開と取り込み。
+- **`sync-conflicts`**: 上限付きの競合退避と conflicts・resolve を API・CLI に追加する。
+  strict の基本の認証を全 sync 管理操作に実装し、strict での sync 有効化の拒否を外す。退避 owner の細かな認可は先送りのまま残す。
+  テスト: API 優先と退避本文の保持・上限、競合の解消、strict で認証済みの操作が通ること、状態の表示を含む全管理操作で未認証・無効な認証を拒否すること。
+- **`sync-deletion-guard`**: 大量削除の停止を承認待ちへ拡張し、approve を API・CLI に追加する。
+  保留による削除失敗を status に表示し、消されたファイルとバケットディレクトリを書き戻す。
+  テスト: 大量削除の件数・割合の境界と承認、少数削除、保留による削除失敗と書き戻し、消したバケットディレクトリの復元。
+- **`sync-watcher`**: OS 通知で再走査の対象を絞り、取りこぼし・オーバーフロー時は全体の再走査に戻る。処理がないときはポーリングしない。
+  ファイル通知ライブラリの追加はオーナー承認を前提とする。
+  テスト: 重複通知、自分の書き込みの通知、取りこぼし・オーバーフロー、Docker bind mount 上の通知、処理がないときの待機。
+- **`sync-recovery`**（先送り）: 最小構成では上の各実装スライスに再起動後の整合テストを含める。
+  全命令境界での kill の網羅は、契約の Local-development scope に PENDING として残す。
+
+### 利用ガイドと動作環境の確認
+
+利用ガイドは `sync-control-min` で書く。`sync_dir` 1 つでの有効化、Docker Compose の例、テストでの
+「ファイルを書く → gcs-mimic sync wait → API で読む」、止まったときの直し方を載せる。
+大量削除は作業ツリーを戻して rescan すること、strict では `sync-conflicts` まで sync を有効にできないことも明記する。
+作業ツリーの `.gcs-mimic-sync.json` と `.gcs-mimic-sync-work` を Git にコミットしないよう、`.gitignore` への追加も案内する。
+
+Docker bind mount の基本動作の確認は `sync-watcher` から `sync-control-min` に前倒しする。
+特に macOS Docker Desktop の virtiofs 上の Linux コンテナを対象に、`sync-control-min` の最終ソースでコンテナを 1 回だけ起動し、
+bind mount 上で root の排他所有、exchange/no-replace 公開、書き出しと取り込みが通ることを確かめる。
+通らない環境では黙って弱い方法に落とさず、起動時の診断に原因と named volume などの代替を出す。`sync-watcher` には bind mount 上の通知の確認だけを残す。
+
+### 共有部品の追加
+
+sync のスライスは直列に 1 本ずつ進めるため、第 1 節の共有部分の担当ルールの例外として、使う側のスライスが
+`src/fsutil.rs` と `src/storage/` に追加だけの API（既存の関数・スキーマの挙動を変えないもの）を足してよい。
+既存の挙動や起動順序を変える場合は、従来どおり Shared state の担当とする。
 
 ### 完了条件と対象外
 
 - 完了条件: 台帳 `directory-synchronization` の 3 条件と `filesystem_sync_contract.acceptance_targets` の 5 項目。
   「監視するがメタデータが整合しない」状態は未完了。
 - 対象外: 一度だけの seed・取り込み、初期化ファイル、公開 Host の設定。
+- 最小構成の完了条件: 日常の開発で双方向同期が動き、外部の削除を推論せず、API の本文を潰さず、未完了の baseline から削除を取り込まないこと。各実装スライスで再起動後の整合も確認する。
+- 最小構成で完了としても、台帳の `directory-synchronization` と `DESIGN-062`・`DESIGN-072`・`DESIGN-074` は PARTIAL のままにする。先送りの受け入れケースは PENDING として残す。
+- 全命令境界での kill の網羅、1 TiB 級の sparse 退避、strict での退避 owner の細かな認可、Linux 以外の OS の競合対策は先送りし、契約の Local-development scope で PENDING として管理する。
 
 ---
 
