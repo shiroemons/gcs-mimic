@@ -294,58 +294,43 @@ impl Catalog {
                 now.duration_since(std::time::UNIX_EPOCH)
                     .map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
-                let last: i64 = transaction
-                    .query_row(
-                        "SELECT last_generation FROM object_generation WHERE singleton = 1",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .map_err(unavailable)?;
-                let generation = micros.max(
-                    last.checked_add(1)
-                        .ok_or_else(|| unavailable("generation exhausted"))?,
-                );
-                transaction
-                    .execute(
-                        "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
-                        [generation],
-                    )
-                    .map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
-                let mut record = ObjectRecord {
-                    bucket: session.bucket,
-                    name: session.name,
-                    generation,
-                    metageneration: 1,
-                    content_type: options.content_type,
-                    content_encoding: None,
-                    content_disposition: None,
-                    content_language: None,
-                    cache_control: None,
-                    metadata: Default::default(),
-                    size: length,
-                    md5,
-                    crc32c: crc,
-                    component_count: None,
-                    storage_class,
-                    time_created: time,
-                    updated: time,
-                    time_deleted: None,
-                    event_based_hold: default_hold,
-                };
-                options.metadata.apply(&mut record)?;
-                let custom = serde_json::to_string(&record.metadata).map_err(unavailable)?;
-                let resource = render(&record)?;
-                let retired =
-                    objects::retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
-                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![record.bucket,record.name,generation,1,record.content_type,i64::try_from(length).map_err(unavailable)?,&md5[..],crc,record.storage_class,micros,micros,session.blob_id,record.content_encoding,record.content_disposition,record.content_language,record.cache_control,custom,record.event_based_hold]).map_err(unavailable)?;
+                let (_, retired, resource) = objects::publish_in_transaction(
+                    &transaction,
+                    micros,
+                    previous.as_ref(),
+                    versioning,
+                    &session.blob_id,
+                    |generation| {
+                        let mut record = ObjectRecord {
+                            bucket: session.bucket,
+                            name: session.name,
+                            generation,
+                            metageneration: 1,
+                            content_type: options.content_type,
+                            content_encoding: None,
+                            content_disposition: None,
+                            content_language: None,
+                            cache_control: None,
+                            metadata: Default::default(),
+                            size: length,
+                            md5,
+                            crc32c: crc,
+                            component_count: None,
+                            storage_class,
+                            time_created: time,
+                            updated: time,
+                            time_deleted: None,
+                            event_based_hold: default_hold,
+                        };
+                        options.metadata.apply(&mut record)?;
+                        let resource = render(&record)?;
+                        Ok((record, resource))
+                    },
+                )?;
                 transaction.execute("UPDATE resumable_sessions SET state = 'COMPLETE', completion = ?1 WHERE id = ?2 AND state = 'ACTIVE'",params![resource.to_string(),session.id]).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
-                if let Some(old_id) = retired
-                    && let Err(error) = objects::reclaim(connection, &data_dir, &old_id)
-                {
-                    eprintln!("deferred blob reclaim {old_id}: {error}");
-                }
+                objects::reclaim_after_commit(connection, &data_dir, retired);
                 Ok(resource)
             };
         self.run_upload(move |connection| Ok(publication(connection)))

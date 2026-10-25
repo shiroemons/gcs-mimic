@@ -688,9 +688,8 @@ impl Catalog {
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
-                let last: i64 = transaction.query_row("SELECT last_generation FROM object_generation WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
-                let generation = micros.max(last.checked_add(1).ok_or_else(|| unavailable("generation exhausted"))?);
                 let time = system_time_micros(micros).map_err(unavailable)?;
+                let (record, retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, |generation| {
                 let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {
@@ -704,10 +703,8 @@ impl Catalog {
                 destination.metadata.apply(&mut record)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
                 prepare(&transaction, &mut record)?;
-                let metadata = serde_json::to_string(&record.metadata).map_err(unavailable)?;
-                let retired = objects::retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
-                transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(unavailable)?;
-                transaction.execute("INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,1,?4,?5,?6,?7,?8,?9,?9,?10,?11,?12,?13,?14,?15,?16,?17)", params![record.bucket, record.name, generation, record.content_type, record.size as i64, &md5[..], crc32c, record.storage_class, micros, query, record.content_encoding, record.content_disposition, record.content_language, record.cache_control, metadata, record.event_based_hold, record.component_count]).map_err(unavailable)?;
+                Ok((record, ()))
+                })?;
                 complete(&transaction, &record)?;
                 transaction.execute("DELETE FROM derived_inputs WHERE transfer_id = ?1", [&query]).map_err(unavailable)?;
                 transaction.execute("DELETE FROM derived_transfers WHERE id = ?1", [&query]).map_err(unavailable)?;
@@ -717,7 +714,7 @@ impl Catalog {
                         eprintln!("deferred derived source cleanup: {error}");
                     }
                 }
-                if let Some(old) = retired && let Err(error) = objects::reclaim(connection, &data_dir, &old) { eprintln!("deferred blob reclaim {old}: {error}"); }
+                objects::reclaim_after_commit(connection, &data_dir, retired);
                 if let Err(error) = reclaim_derived_deletions(connection, &data_dir, Some(&query)) {
                     eprintln!("deferred derived source reclamation: {error}");
                 }
@@ -1209,7 +1206,13 @@ mod tests {
     async fn callback_source_deletion_rolls_back_with_destination_and_checks_holds() {
         let (catalog, path) = setup().await;
         let original = put(&catalog, "source", b"source").await;
-        put(&catalog, "target", b"original").await;
+        let target = put(&catalog, "target", b"original").await;
+        let connection = Connection::open(path.join("catalog.sqlite3")).unwrap();
+        let last_generation: i64 = connection
+            .query_row("SELECT last_generation FROM object_generation", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         let transfer = ready(&catalog, "source").await;
         let generation = original.generation;
         let result = catalog
@@ -1228,6 +1231,20 @@ mod tests {
         assert_eq!(result, Err(ObjectError::PreconditionFailed));
         assert_eq!(bytes(&catalog, "target").await, b"original");
         assert_eq!(bytes(&catalog, "source").await, b"source");
+        let (last_after_failure, pending): (i64, i64) = connection
+            .query_row(
+                "SELECT last_generation, (SELECT count(*) FROM pending_blob_deletions) FROM object_generation",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((last_after_failure, pending), (last_generation, 0));
+        let current = catalog
+            .get_object("bucket", "target", None, Default::default())
+            .await
+            .unwrap();
+        assert_eq!(current, target);
+        drop(connection);
         catalog
             .update_object_metadata(
                 "bucket",

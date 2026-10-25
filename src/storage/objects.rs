@@ -8,7 +8,9 @@ use crate::{
 };
 use bytes::Bytes;
 use md5::{Digest, Md5};
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params, types::Type};
+use rusqlite::{
+    Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params, types::Type,
+};
 use std::{
     fs::{self, File},
     io,
@@ -610,79 +612,118 @@ impl Catalog {
             let destination = published.clone();
             let file = tokio::task::spawn_blocking(move || -> io::Result<File> {
                 if destination.try_exists()? {
-                    return Err(io::Error::new(io::ErrorKind::AlreadyExists, "blob ID collision"));
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        "blob ID collision",
+                    ));
                 }
-                fs::OpenOptions::new().write(true).create_new(true).open(source)
-            }).await.map_err(object_unavailable)?.map_err(object_unavailable)?;
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(source)
+            })
+            .await
+            .map_err(object_unavailable)?
+            .map_err(object_unavailable)?;
             let result = async {
-                let (size, md5, crc32c) = write_body(tokio::fs::File::from_std(file), expected, max_bytes, body, cancellation).await?;
+                let (size, md5, crc32c) = write_body(
+                    tokio::fs::File::from_std(file),
+                    expected,
+                    max_bytes,
+                    body,
+                    cancellation,
+                )
+                .await?;
                 let source = stage.clone();
                 let destination = published.clone();
                 tokio::task::spawn_blocking(move || publish_blob(&source, &destination))
-                    .await.map_err(object_unavailable)?.map_err(object_unavailable)?;
+                    .await
+                    .map_err(object_unavailable)?
+                    .map_err(object_unavailable)?;
                 let data_dir = catalog.0.data_dir.clone();
                 let clock = catalog.0.clock.clone();
                 let blob_id = id.clone();
-                catalog.run_upload(move |connection| {
-                    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)
-                        .map_err(object_unavailable)?;
-                    let (storage_class, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
-                    let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &bucket).map_err(object_unavailable)?;
-                    let previous = lookup(&transaction, &bucket, &name)?;
-                    // Rechecked under the write lock so a concurrent create cannot be overwritten.
-                    check_publication(previous.as_ref(), conditions, allow_overwrite)?;
-                    let now = clock.now();
-                    now.duration_since(std::time::UNIX_EPOCH).map_err(object_unavailable)?;
-                    let micros = unix_micros(now).map_err(object_unavailable)?;
-                    let last: i64 = transaction.query_row("SELECT last_generation FROM object_generation WHERE singleton = 1", [], |row| row.get(0)).map_err(object_unavailable)?;
-                    let generation = micros.max(last.checked_add(1).ok_or_else(|| object_unavailable("generation exhausted"))?);
-                    transaction.execute("UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1", [generation]).map_err(object_unavailable)?;
-                    let time = system_time_micros(micros).map_err(object_unavailable)?;
-                    let mut record = ObjectRecord {
-                        bucket, name, generation, metageneration: 1,
-                        content_type, size, md5, crc32c, component_count: None, storage_class,
-                        content_encoding: None, content_disposition: None,
-                        content_language: None, cache_control: None, metadata: Default::default(),
-                        time_created: time, updated: time,
-                        time_deleted: None, event_based_hold: default_hold,
-                    };
-                    metadata.apply(&mut record)?;
-                    let custom_metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
-                    let retired = retire_previous(&transaction, previous.as_ref(), versioning, micros)?;
-                    transaction.execute(
-                        "INSERT INTO objects (bucket, name, generation, metageneration, content_type, size, md5, crc32c, storage_class, time_created, updated, blob_id, content_encoding, content_disposition, content_language, cache_control, metadata, event_based_hold) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
-                        params![record.bucket, record.name, record.generation, record.metageneration,
-                            record.content_type, i64::try_from(size).map_err(object_unavailable)?,
-                            &record.md5[..], record.crc32c, record.storage_class, micros, micros, blob_id,
-                            record.content_encoding, record.content_disposition, record.content_language,
-                            record.cache_control, custom_metadata, record.event_based_hold],
-                    ).map_err(object_unavailable)?;
-                    transaction.commit().map_err(object_unavailable)?;
-                    // Once committed, failure to reclaim must never remove the new live blob.
-                    if let Some(old_id) = retired
-                        && let Err(error) = reclaim(connection, &data_dir, &old_id) {
-                        eprintln!("deferred blob reclaim {old_id}: {error}");
-                    }
-                    Ok(record)
-                }).await
-            }.await;
+                catalog
+                    .run_upload(move |connection| {
+                        let transaction = connection
+                            .transaction_with_behavior(TransactionBehavior::Immediate)
+                            .map_err(object_unavailable)?;
+                        let (storage_class, allow_overwrite) =
+                            authorized_bucket(&transaction, &bucket, &access)?;
+                        let (versioning, default_hold) =
+                            Catalog::bucket_settings_in_transaction(&transaction, &bucket)
+                                .map_err(object_unavailable)?;
+                        let previous = lookup(&transaction, &bucket, &name)?;
+                        // Rechecked under the write lock so a concurrent create cannot be overwritten.
+                        check_publication(previous.as_ref(), conditions, allow_overwrite)?;
+                        let now = clock.now();
+                        now.duration_since(std::time::UNIX_EPOCH)
+                            .map_err(object_unavailable)?;
+                        let micros = unix_micros(now).map_err(object_unavailable)?;
+                        let time = system_time_micros(micros).map_err(object_unavailable)?;
+                        let (record, retired, ()) = publish_in_transaction(
+                            &transaction,
+                            micros,
+                            previous.as_ref(),
+                            versioning,
+                            &blob_id,
+                            |generation| {
+                                let mut record = ObjectRecord {
+                                    bucket,
+                                    name,
+                                    generation,
+                                    metageneration: 1,
+                                    content_type,
+                                    size,
+                                    md5,
+                                    crc32c,
+                                    component_count: None,
+                                    storage_class,
+                                    content_encoding: None,
+                                    content_disposition: None,
+                                    content_language: None,
+                                    cache_control: None,
+                                    metadata: Default::default(),
+                                    time_created: time,
+                                    updated: time,
+                                    time_deleted: None,
+                                    event_based_hold: default_hold,
+                                };
+                                metadata.apply(&mut record)?;
+                                Ok((record, ()))
+                            },
+                        )?;
+                        transaction.commit().map_err(object_unavailable)?;
+                        reclaim_after_commit(connection, &data_dir, retired);
+                        Ok(record)
+                    })
+                    .await
+            }
+            .await;
             if result.is_err() {
                 let data_dir = catalog.0.data_dir.clone();
                 // Probe the committed reference before cleanup: SQL commit errors can be ambiguous.
-                catalog.run_upload(move |connection| {
-                    unlink(&stage).map_err(object_unavailable)?;
-                    let referenced: bool = connection.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
-                        [&id], |r| r.get(0),
-                    ).map_err(object_unavailable)?;
-                    if !referenced {
-                        reclaim(connection, &data_dir, &id)?;
-                    }
-                    Ok(())
-                }).await?;
+                catalog
+                    .run_upload(move |connection| {
+                        unlink(&stage).map_err(object_unavailable)?;
+                        let referenced: bool = connection
+                            .query_row(
+                                "SELECT EXISTS(SELECT 1 FROM objects WHERE blob_id = ?1)",
+                                [&id],
+                                |r| r.get(0),
+                            )
+                            .map_err(object_unavailable)?;
+                        if !referenced {
+                            reclaim(connection, &data_dir, &id)?;
+                        }
+                        Ok(())
+                    })
+                    .await?;
             }
             result
-        }).await.map_err(object_unavailable)?
+        })
+        .await
+        .map_err(object_unavailable)?
     }
 
     #[cfg(test)]
@@ -1322,6 +1363,59 @@ pub(super) fn check_publication(
         return Err(ObjectError::ActiveHold);
     }
     Ok(())
+}
+
+/// The caller owns protocol-specific completion and commits before reclaiming retired bytes.
+pub(super) fn publish_in_transaction<T>(
+    transaction: &Transaction<'_>,
+    micros: i64,
+    previous: Option<&(ObjectRecord, String)>,
+    versioning: bool,
+    blob_id: &str,
+    prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
+) -> Result<(ObjectRecord, Option<String>, T), ObjectError> {
+    let last: i64 = transaction
+        .query_row(
+            "SELECT last_generation FROM object_generation WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(object_unavailable)?;
+    let generation = micros.max(
+        last.checked_add(1)
+            .ok_or_else(|| object_unavailable("generation exhausted"))?,
+    );
+    let (record, prepared) = prepare(generation)?;
+    let metadata = serde_json::to_string(&record.metadata).map_err(object_unavailable)?;
+    let retired = retire_previous(transaction, previous, versioning, micros)?;
+    transaction
+        .execute(
+            "UPDATE object_generation SET last_generation = ?1 WHERE singleton = 1",
+            [generation],
+        )
+        .map_err(object_unavailable)?;
+    transaction.execute(
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+        params![record.bucket, record.name, generation, record.metageneration,
+            record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
+            &record.md5[..], record.crc32c, record.storage_class, micros, blob_id,
+            record.content_encoding, record.content_disposition, record.content_language,
+            record.cache_control, metadata, record.event_based_hold, record.component_count],
+    ).map_err(object_unavailable)?;
+    Ok((record, retired, prepared))
+}
+
+pub(super) fn reclaim_after_commit(
+    connection: &Connection,
+    data_dir: &Path,
+    retired: Option<String>,
+) {
+    // Once committed, failure to reclaim must never remove the new live blob.
+    if let Some(id) = retired
+        && let Err(error) = reclaim(connection, data_dir, &id)
+    {
+        eprintln!("deferred blob reclaim {id}: {error}");
+    }
 }
 
 pub(super) fn retire_previous(
