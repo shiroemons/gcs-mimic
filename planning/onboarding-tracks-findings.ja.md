@@ -300,9 +300,29 @@ fake-gcs-server を使っている実在のアプリ 1 件（Go の API とワ�
 | 世代指定の削除、resumable の `DELETE` | 204、499 の後 410（Google と同じ） | なし |
 | 4 MiB のアップロードを 12 本同時 | **8 本成功、4 本が即 503**（`backendError`、`Object storage is unavailable`、Retry-After なし） | **移行を止める**。ブラウザの並行アップロードとワーカーが失敗する。fake-gcs-server に上限はない |
 | 遅いダウンロードを 40 本同時（`max_connections` 32） | 全件 200（待たされる） | なし |
+| 128 MiB のアップロード 8 本の最中に、別の接続で一覧と GET | 全件 200。応答は約 1 ms → 4〜8 ms（1 回の簡易確認） | なし。本文の書き込み（`tokio::fs`）とカタログ（`spawn_blocking`）が同じブロッキング用のプール（既定 2 本）を使うため、取り合いはあるが小さい |
 | fake-gcs-server の command をそのまま渡す | 起動せず、5 フラグすべてに置き換え先つきの診断 | 診断は良い。Compose の書き換えは必要 |
 | イメージの既定 HEALTHCHECK | `https://localhost:4443` 固定 | HTTP で動かすと上書きしない限り unhealthy |
 | アイドル時の RSS（debug ビルド） | 約 36 MB | なし（参考値） |
+
+### 実際の GCS の並行アップロードの制限
+
+公式ドキュメント（3 ページとも 2026-10-22 更新版を 2026-10-25 に確認）。GCS には同時アップロードの**本数**の上限がなく、
+制限はリクエストの**頻度**に対してかかる。
+
+| 対象 | 公式の記述 | 出典 |
+| --- | --- | --- |
+| 同時アップロードの本数 | 上限の記載なし（同じオブジェクトへの multipart uploads も Unlimited） | [Quotas & limits](https://docs.cloud.google.com/storage/quotas) |
+| 同じオブジェクト名への書き込み | 1 秒に 1 回。超えると throttling errors になりうる | [Quotas & limits](https://docs.cloud.google.com/storage/quotas) |
+| バケットの書き込み・読み取り | Unlimited。初期は毎秒約 1,000 書き込み・約 5,000 読み取りで、必要に応じて自動で増える。超える場合は「20 分で 2 倍」より速く増やさない | [Quotas & limits](https://docs.cloud.google.com/storage/quotas)、[Request rate](https://docs.cloud.google.com/storage/docs/request-rate) |
+| resumable セッション | 本数の上限の記載なし。開始から 7 日で期限切れ | [Quotas & limits](https://docs.cloud.google.com/storage/quotas) |
+| バケットのメタデータ更新 | 1 バケットにつき 1 秒に 1 回 | [Quotas & limits](https://docs.cloud.google.com/storage/quotas) |
+| 再試行 | 408・429・5xx は一時的な失敗として指数バックオフで再試行する。`objects.insert` は `ifGenerationMatch` を付けたときだけ冪等で、Go SDK の既定（`RetryIdempotent`）は条件のないアップロードを再試行しない | [Retry strategy](https://docs.cloud.google.com/storage/docs/retry-strategy) |
+
+gcs-mimic の固定 8 本・即 503 は、GCS に対応する制限ではなく、エミュレーター自身の資源を守る内部の枠。
+数本〜数十本の並行アップロードを GCS は断らない。しかも条件のないアップロードは Go SDK もブラウザの `fetch` も再試行しないので、
+この 503 はそのまま失敗になる。頻度の制限（429 や 503）の再現は、既定の振る舞いではなく、台帳の AUDIT-009
+（任意の quota モデル）と DESIGN-090（決定的な故障注入）で扱う。
 
 ### コードの根拠
 

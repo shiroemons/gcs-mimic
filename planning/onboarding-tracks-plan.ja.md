@@ -35,8 +35,9 @@ fake-gcs-server からの移行トラック（第 9 節）です。
 - **共有カタログは統合オーナーだけが変更する**: `src/storage/`（カタログ・スキーマ・公開経路）と `src/main.rs` の
   起動順序は Shared state の担当者が変更する。ほかのトラックは新しいモジュールとテストを持ち、共有部分の変更は依頼する。
   SQLite への直接書き込みや、条件・ハッシュ・世代の迂回は禁止。
-- **バックグラウンド処理は API の受付枠を使わない**: カタログ呼び出し（同時 32 件）とアップロード（同時 8 本）は、
-  空きがなければ待たずに失敗する。SQLite の実行は直列。同期・取り込みは管理インターフェース（第 5 節）を使う。
+- **バックグラウンド処理は API の受付枠を使わない**: カタログ呼び出し（同時 32 件）は、空きがなければ待たずに失敗する。
+  API のアップロード（今は同時 8 本で即失敗）は、`migrate-upload-admission`（第 9 節）で本数の枠をなくす。
+  SQLite の実行は直列。同期・取り込みは管理インターフェース（第 5 節）を使う。
 - **`data_dir` の `staging/` と `blobs/` に独自のファイルを置かない**: 起動時の復旧が、参照されていないものを消し、
   想定外のエントリでは起動を止める。
 - **診断は直し方まで出す**（Configuration・Initializer・Sync 共通）: 問題は 1 件ずつではなく全件まとめて出す。
@@ -219,14 +220,21 @@ flowchart TD
   shared-publication-modes --> import-filesystem
   shared-imported-identity --> import-filesystem
   shared-import-journal --> import-filesystem
+
+  migrate-app-scenario --> migrate-defaults --> migrate-guide-compose
+  migrate-app-scenario --> migrate-guide-compose
+  migrate-upload-admission --> migrate-guide-compose
 ```
 
 - `repo-lints` が入るまで、ほかのトラックのコードのスライスはマージしない（図には最初のコードのスライスへの辺だけを描いている）。
   文書だけのスライス（`*-contract`、`dist-release-notes`）は待たない。
+- **移行トラック（第 9 節）を、ほかのトラックより優先する**。`migrate-app-scenario` と `migrate-upload-admission` は前提がなく、
+  今すぐ並行に着手できる（後者は Shared state のスライスなので、同時に走る Shared state のスライスはこの 1 本だけにする）。
 - Distribution と Configuration は今すぐ並行に着手できる。
 - `init-contract`、`sync-contract`、`import-contract`、`import-dry-run` は Shared state を待たずに進められる。
   宛先に書き込むスライスから Shared state に依存する。
-- リリース順: 現在の `main` で `0.1.0` を出し、Configuration の互換性変更・Initializer・Sync・Import はそれぞれ別の
+- リリース順: `0.1.0` は `migrate-upload-admission` のマージ後の `main` で出すことを推奨する（先に出すと、最初の利用者が
+  並行アップロードの即 503 を踏む。対象コミットの決定はオーナー）。その後、Configuration の互換性変更・Initializer・Sync・Import はそれぞれ別の
   `0.x` マイナーで出す（[release policy](../docs/en/release-policy.md#progress-through-0x)）。
 - Sync の利用可能という案内は、`sync-control-min` がマージされて端から端まで動いてからリリースノートと README に載せる。
   途中の状態の制限は slice 文書と台帳に書く。
@@ -847,8 +855,11 @@ fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-s
 - `migrate-upload-admission` は Shared state のスライス（`src/storage/` を触る）。同時に 1 本の制約に従う。
 - 「本当に止まっているもの」を最初に直す。調査で移行を止めると分かったのは、並行アップロードの即 503 の 1 件だけ。
   残りは既定値と手順の問題で、小さく 1 本にまとめる。
-- **最初に `migrate-app-scenario` を入れる**。机の上で挙げた不足ではなく、実際に落ちたケースを直すため。
-  ほかの `migrate-*` は、それぞれ自分の受け入れケースをこのシナリオに足して終える。
+- **最初の波で `migrate-app-scenario` と `migrate-upload-admission` を並行に走らせる**（触るファイルが重ならない）。
+  分かっている唯一の問題は待たせず直し、シナリオで、机の上では見えなかった不足を探す。後続の `migrate-*` は、
+  それぞれ自分の受け入れケースをシナリオに足して終える。
+- 移行の入口はイメージ。公開（`dist-manual-dispatch` 以降）はオーナーの承認待ちで、このトラックでは扱わない。
+  公開までは、移行ガイドにソースからビルドする手順を載せる。
 
 ### 決定
 
@@ -863,20 +874,22 @@ fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-s
   利用者が足す設定は `GCS_MIMIC_SCHEME`・`GCS_MIMIC_LISTEN`・`GCS_MIMIC_API_BASE_URL`・buckets file の範囲に収める。
 - **落とし穴は手順の側で塞ぐ**: 読まれにくい起動ログの警告に頼らない。コンテナ間の resumable の Location のように設定が要るものは、
   移行ガイドの Compose の例に最初から書いておく。
-- **並行アップロードは待って通す**: アプリの通常の並行度（ブラウザの複数ファイル、数本のワーカー）で、アップロードが
-  即 503 にならない。枠は残すが、空くまで上限時間つきで待つ（第 1 節の共通部品「待機付きで上限時間のある同時実行枠」を使う）。
-  待っても空かなければ 503 に `Retry-After` と、原因（同時アップロード数の上限）と直し方を示すメッセージを付ける。
-  本文はストリーミングのままで、待機中に本文を読まない。
-- **失敗は直し方まで出す**（第 1 節）: 移行で踏みやすいエラー（project のない一覧、アップロードの枠の超過）は、
-  応答のメッセージに原因と置き換え先を示す。
+- **アップロードの本数を制限しない**（オーナー決定 2026-10-25）: API のアップロード専用の本数の枠をなくす。同時に動く本数を
+  決めるのは、すでにある接続数の上限（`max_connections`、既定 32）だけにする。接続数の上限は超えた分を待たせる（即失敗しない）ので、
+  アップロードも待たされるだけで 503 にならない。本文はストリーミングのまま（64 KiB のチャンク、深さ 2 のチャネル）なので、
+  メモリは接続数 × 数百 KiB で収まる。新しい設定キーは足さない。
+  理由: GCS には同時アップロードの本数の上限がなく、制限は頻度に対するものだけ（初期は毎秒約 1,000 書き込み、同じ名前は 1 秒に 1 回）。
+  条件のないアップロードは Go SDK もブラウザも再試行しない（[調査メモ 第 10 節](onboarding-tracks-findings.ja.md#実際の-gcs-の並行アップロードの制限)）。
+  GCS の頻度の制限の再現は既定にせず、AUDIT-009・DESIGN-090 に任せる。
+- **失敗は直し方まで出す**（第 1 節）: 移行で踏みやすいエラー（project のない一覧など）は、応答のメッセージに原因と置き換え先を示す。
+  内部では原因が分かっているのに、応答で潰しているものは先に直す（`src/json/error.rs` が、503 の原因をすべて
+  `Object storage is unavailable` の 1 文に置き換えている）。
 - **軽さを保つ**: 起動の bind 前に件数比例の処理を足さない。待機はタイマーのポーリングではなく、枠の解放で起こす。
 
 ### 未決（各スライスの slice 文書で決める。推奨案つき）
 
 | 項目 | 推奨 | 決める場所 |
 | --- | --- | --- |
-| アップロードの枠の数 | 既定を `max_connections`（32）と同じにする。本文は上限つきのバッファでストリーミングするので、枠を増やしてもメモリは本数 × バッファで収まる。設定キーは足さない | `migrate-upload-admission` |
-| 待機の上限時間 | 既存の `catalog_wait_timeout_ms`（既定 30 秒）を使い、新しい設定を足さない | `migrate-upload-admission` |
 | `api_base_url` を明示しないときの Location | 今のまま（bind したアドレスから導出）とし、移行ガイドの Compose の例に `GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書く。起動時の警告は足さない。リクエストの Host から組む案は `config-api-origin-default` の決定を変えるので、シナリオで困る例が出たときにオーナーへ上げる | `migrate-guide-compose` |
 | project のない `buckets.list` | `legacy-emulator` では作成と同じく `seed_project` で補う。native は 400 のまま、メッセージに `?project=local-project` の例を足す | `migrate-defaults` |
 
@@ -885,9 +898,9 @@ fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-s
 | スライス | 内容 | 対象機能 ID（台帳の該当行） | 主に触るファイル |
 | --- | --- | --- | --- |
 | `migrate-app-scenario` | 代表的なアプリの流れ（下の表）を、既存の SDK テストに足す。Go SDK とブラウザの代わりの生の HTTP は `sdk-tests/go`（CI の `sdk-go` で毎回動く）、Ruby SDK は `sdk-tests/ruby`（`just check-sdk`）。**今通るケースだけで入れる**。着手時に流して落ちたケースは、直すスライスを決めて slice 文書に書き、そのスライスに渡す（調査で分かっている落ちるケースは、並行アップロードと project のない一覧）。同じシナリオを fake-gcs-server に対しても手元で 1 回流し、移行元で通ること（シナリオが実利用を表していること）を確かめて、結果を 1 行書く | DESIGN-082、DESIGN-083、UX-003、UX-007 | `sdk-tests/go`、`sdk-tests/ruby`、slice 文書 |
-| `migrate-upload-admission` | API のアップロードの枠を待機付きにし、既定の数を見直す。超過時の 503 に `Retry-After` と直し方。受け入れケース: 12 本の同時アップロードがすべて成功（シナリオに足す）、待機の上限で 503 + `Retry-After`、待機中のクライアント切断で枠も一時ファイルも残らない、待機中の shutdown | DESIGN-071、DESIGN-070 | `src/storage/catalog.rs`、`src/storage/objects.rs`、`src/json/error.rs`、テスト |
+| `migrate-upload-admission` | API のアップロードの本数の枠（`MAX_UPLOADS` と `admit_object_upload` の `try_acquire`）をなくす。あわせて次の 2 つを直す。(1) shutdown: `Catalog::close` は今 `acquire_many_owned(MAX_UPLOADS)` で実行中のアップロードの終わりを待っているので、枠をなくしても実行中のアップロードを数えて待てる形にする（`shutdown_timeout_ms` の範囲で）。(2) 503 の原因: `src/json/error.rs` が潰している原因（`catalog is closed` など）を応答に出す。受け入れケース（Rust の結合テスト。シナリオへの追加は `migrate-guide-compose`）: `max_connections` 32 で 12 本と 40 本の同時アップロードがすべて成功、`max_connections` を 64 に上げて 64 本でも即 503 にならない（カタログの受付枠 32 で落ちるなら、この同じスライスで待たせる）、アップロード中の shutdown が完了を待ち、一時ファイルとロックが残らない、途中のクライアント切断で一時ファイルが残らない、503 の応答に原因が出る、40 本の同時アップロード中も別の接続の GET と一覧が成功する（本文の書き込みとカタログが同じブロッキング用のプール（既定 2 本）を使うため。応答時間の閾値は設けず、失敗しないことだけを見る。設計を変えるのは、このケースが落ちたときだけ）。第 1 節の受付枠の記述も同じスライスで今の挙動に合わせる | DESIGN-071、DESIGN-070 | `src/storage/catalog.rs`、`src/storage/objects.rs`、`src/json/error.rs`、テスト、この計画書の第 1 節 |
 | `migrate-defaults` | 移行で踏む既定値を 2 つ直す。(1) `gcs-mimic healthcheck` を `--url` なしで呼んだとき、`GCS_MIMIC_SCHEME`・`GCS_MIMIC_LISTEN`（と設定ファイル）から URL を組み、Dockerfile の HEALTHCHECK をそれに変えて `compose.http.yaml` と README の上書きを外す。(2) project のない `buckets.list`（上の未決の推奨）。受け入れケース: HTTP・HTTPS・both・ポート変更で上書きなしに healthy、legacy で project なしの一覧が返る（シナリオに足す）、native は 400 + 直し方。Dockerfile を変えるので、コンテナの確認は最終ソースで 1 回 | DESIGN-067、DESIGN-058、JSON-BUCKETS-006 | `src/main.rs`（CLI のみ。起動順序は触らない）、`Dockerfile`、`compose*.yaml`、README、`src/json/query.rs` |
-| `migrate-guide-compose` | 移行ガイドに「fake-gcs-server の Compose を置き換える」節を足す: よく使う 5 フラグの書き換え前後、`GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書いた Compose の例とその理由（resumable の Location）、空ディレクトリでのバケット作成 → buckets file（seed は初回だけ動き、後から足したディレクトリは作られない）、別オリジンのブラウザ、resumable の取り消しが 499 を返すこと、作業ツリーごとのポート。ガイドの手順は 1 回通して確かめる。`docs/ja` も追従 | UX-012、DESIGN-061 | `docs/en/fake-gcs-server-migration.md`、`docs/en/container-usage.md`、`docs/ja/*` |
+| `migrate-guide-compose` | 移行ガイドに「fake-gcs-server の Compose を置き換える」節を足す: よく使う 5 フラグの書き換え前後、`GCS_MIMIC_API_BASE_URL: http://gcs:4443` を最初から書いた Compose の例とその理由（resumable の Location）、空ディレクトリでのバケット作成 → buckets file（seed は初回だけ動き、後から足したディレクトリは作られない）、別オリジンのブラウザ、resumable の取り消しが 499 を返すこと、作業ツリーごとのポート、イメージの公開前にソースからビルドする手順。ガイドの手順は 1 回通して確かめる。`docs/ja` も追従。仕上げとして、シナリオに並行アップロードのケース（12 本同時）を足し、移行シナリオの全ケースがそろったことを確かめる | UX-012、DESIGN-061、UX-001 | `docs/en/fake-gcs-server-migration.md`、`docs/en/container-usage.md`、`docs/ja/*`、`sdk-tests/go` |
 
 `migrate-app-scenario` で通すアプリの流れ:
 
@@ -903,13 +916,17 @@ fake-gcs-server の全機能の再現（[migration target](../docs/en/fake-gcs-s
 
 ```mermaid
 flowchart TD
-  migrate-app-scenario --> migrate-upload-admission --> migrate-guide-compose
   migrate-app-scenario --> migrate-defaults --> migrate-guide-compose
+  migrate-app-scenario --> migrate-guide-compose
+  migrate-upload-admission --> migrate-guide-compose
 ```
 
-- `migrate-app-scenario` を最初に入れる。`migrate-upload-admission` と `migrate-defaults` はその後に並行できる
-  （触るファイルが重ならない）。`migrate-upload-admission` は移行を止めるので、ほかのトラックの機能を増やすスライスより先に入れる。
-- `migrate-guide-compose` は最後。ガイドには、シナリオで確かめた手順と既定値だけを書く。
+第 2 節の全体の依存図にも同じ辺を載せている。
+
+- 最初の波: `migrate-app-scenario` と `migrate-upload-admission`（前提なし、並行）。`migrate-upload-admission` は移行を止めるので、
+  ほかのトラックのどのスライスよりも先に入れる。
+- 次の波: `migrate-defaults`（シナリオに自分のケースを足すので、シナリオの後）。
+- 最後: `migrate-guide-compose`。ガイドには、シナリオで確かめた手順と既定値だけを書き、並行アップロードのケースをシナリオに足す。
 
 ### 保留（困る例が出たら着手する）
 
