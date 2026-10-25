@@ -301,6 +301,7 @@ impl Catalog {
                     previous.as_ref(),
                     versioning,
                     &session.blob_id,
+                    super::change_journal::origin(&options.access),
                     |generation| {
                         let mut record = ObjectRecord {
                             bucket: session.bucket,

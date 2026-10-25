@@ -5,6 +5,7 @@ mod lock;
 #[cfg(test)]
 mod object_tests;
 pub use catalog::admin;
+pub use catalog::change_journal;
 pub(crate) use catalog::rewrite;
 
 pub(crate) use catalog::ResumableChunk;

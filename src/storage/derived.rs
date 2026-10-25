@@ -300,6 +300,13 @@ impl Catalog {
             .execute("INSERT INTO pending_blob_deletions VALUES (?1)", [&id])
             .map_err(unavailable)?;
         connection.execute("INSERT INTO derived_deletions SELECT ?1, id FROM derived_transfers WHERE publishing = 1", [&id]).map_err(unavailable)?;
+        super::change_journal::object(
+            connection,
+            super::change_journal::origin(access),
+            super::change_journal::ChangeKind::Delete,
+            &object,
+        )
+        .map_err(unavailable)?;
         Ok(())
     }
 
@@ -689,7 +696,7 @@ impl Catalog {
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
                 let micros = unix_micros(now).map_err(unavailable)?;
                 let time = system_time_micros(micros).map_err(unavailable)?;
-                let (record, retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, |generation| {
+                let (record, retired, ()) = objects::publish_in_transaction(&transaction, micros, previous.as_ref(), versioning, &query, super::change_journal::origin(&destination.access), |generation| {
                 let storage_class = destination.storage_class.unwrap_or(default_class);
                 crate::bucket::validate_storage_class(&storage_class).map_err(|error| ObjectError::UnsupportedMetadata(error.to_string()))?;
                 let mut record = ObjectRecord {

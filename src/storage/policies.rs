@@ -126,8 +126,8 @@ impl Catalog {
             transaction
                 .execute("DELETE FROM parent_public_access_prevention", [])
                 .map_err(unavailable)?;
-            for project in projects {
-                crate::json::validate_project(&project).map_err(|_| {
+            for project in &projects {
+                crate::json::validate_project(project).map_err(|_| {
                     CatalogError::InvalidMetadata("Invalid parent policy project".into())
                 })?;
                 transaction
@@ -137,6 +137,7 @@ impl Catalog {
                     )
                     .map_err(unavailable)?;
             }
+            super::change_journal::parent_pap(&transaction, &projects)?;
             transaction.commit().map_err(unavailable)
         })
         .await
@@ -230,6 +231,13 @@ impl Catalog {
                     params![bucket, policy.bindings_json().to_string(), revision],
                 )
                 .map_err(unavailable)?;
+            super::change_journal::append(
+                &transaction,
+                super::change_journal::origin(&access),
+                super::change_journal::ChangeKind::Iam,
+                &bucket,
+                None,
+            )?;
             transaction.commit().map_err(unavailable)?;
             policy.etag = Some(crate::json::policy_etag(revision));
             Ok(policy)

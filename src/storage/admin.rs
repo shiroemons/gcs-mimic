@@ -435,6 +435,7 @@ impl Admin {
         if records.iter().any(|record| !names.insert(&record.0.name)) {
             return Err(AdminError::Invalid("duplicate bucket name".into()));
         }
+        let origin = self.origin();
         self.catalog
             .run_admin(move |connection| {
                 let transaction = connection
@@ -465,6 +466,13 @@ impl Admin {
                         continue;
                     }
                     super::insert_bucket_in_transaction(&transaction, &mut record)?;
+                    super::change_journal::append(
+                        &transaction,
+                        origin,
+                        super::change_journal::ChangeKind::BucketCreate,
+                        &record.name,
+                        None,
+                    )?;
                     results.push(EnsureBucket::Created(record));
                 }
                 transaction.commit().map_err(unavailable)?;

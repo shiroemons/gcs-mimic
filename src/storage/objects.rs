@@ -667,6 +667,7 @@ impl Catalog {
                             previous.as_ref(),
                             versioning,
                             &blob_id,
+                            super::change_journal::origin(&access),
                             |generation| {
                                 let mut record = ObjectRecord {
                                     bucket,
@@ -895,6 +896,13 @@ impl Catalog {
                     ],
                 )
                 .map_err(object_unavailable)?;
+            super::change_journal::object(
+                &transaction,
+                super::change_journal::origin(&access),
+                super::change_journal::ChangeKind::Metadata,
+                &record,
+            )
+            .map_err(object_unavailable)?;
             transaction.commit().map_err(object_unavailable)?;
             Ok(record)
         })
@@ -1023,6 +1031,13 @@ pub(super) fn delete_selected(
     }
     let (versioning, _) = Catalog::bucket_settings_in_transaction(&transaction, bucket)
         .map_err(object_unavailable)?;
+    super::change_journal::object(
+        &transaction,
+        super::change_journal::origin(access),
+        super::change_journal::ChangeKind::Delete,
+        &record,
+    )
+    .map_err(object_unavailable)?;
     let retired = retire_previous(
         &transaction,
         Some(&(record, id)),
@@ -1372,6 +1387,7 @@ pub(super) fn publish_in_transaction<T>(
     previous: Option<&(ObjectRecord, String)>,
     versioning: bool,
     blob_id: &str,
+    origin: super::admin::Origin,
     prepare: impl FnOnce(i64) -> Result<(ObjectRecord, T), ObjectError>,
 ) -> Result<(ObjectRecord, Option<String>, T), ObjectError> {
     let last: i64 = transaction
@@ -1402,6 +1418,13 @@ pub(super) fn publish_in_transaction<T>(
             record.content_encoding, record.content_disposition, record.content_language,
             record.cache_control, metadata, record.event_based_hold, record.component_count],
     ).map_err(object_unavailable)?;
+    super::change_journal::object(
+        transaction,
+        origin,
+        super::change_journal::ChangeKind::Publish,
+        &record,
+    )
+    .map_err(object_unavailable)?;
     Ok((record, retired, prepared))
 }
 

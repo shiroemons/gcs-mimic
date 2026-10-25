@@ -12,6 +12,8 @@ The first three rows map to the three original `onboarding-state-contract` deliv
 | --- | --- | --- |
 | onboarding-state-authority | DESIGN-062 | PASS: validated identity/authority and bounded management operations, unchanged strict API permissions, native seed 13/Linux seed 14 cases and permissive/strict SDK/container regressions. [Evidence](../evidence/shared-admin-interface.md). Initializer startup remains separate. |
 | onboarding-state-ownership | DESIGN-072 | Shared services own schema, conditions, hashes, generations and recovery; adapters use typed operations and transactional state hooks, never SQL/private blob paths; shared-admin-interface and shared-publication-modes. PENDING. |
+| shared-change-journal | DESIGN-072 | PASS: origin-bearing transactional mutations, bounded replay and retention, stable fences, rescan after activation/restart/gap/PAP change. Catalog API only; no runtime consumer configuration. See change journal evidence below. |
+| catalog-change-journal-migration | AUDIT-014 | PASS: atomic schema 14 to 15, partial-DDL rollback/retry, preserved objects/policies/active sessions, retained schema-14 catalog snapshot, complete bounded inventory and newer-format rejection. Full stopped-data restoration with older executables remains under catalog-upgrade-policy. |
 | onboarding-state-create-missing | DESIGN-062 | Preserve existing bucket settings/objects on restart, changed project and removed entries; initializer runs before seed, independent of synchronization/public URL settings; shared-startup-phases and init-create-missing. PENDING. |
 | onboarding-state-cancellation | DESIGN-074 | Interrupt every pre-bind phase; no ready event on failure, drain side effects before unlocking, remove definitely uncommitted files and retain possibly committed bodies; shared-startup-phases, shared-admin-interface and shared-publication-modes. PENDING. |
 | administrative-create-missing | DESIGN-062 | PASS: typed names/generations/authority, ordered create-missing up to 1000 records, preserved stored projects/settings, atomic rollback, competing callers and strict seed/API separation. Initializer startup remains separate. [Native evidence](../evidence/shared-admin-interface.md). |
@@ -112,6 +114,85 @@ Schema changes ship in **separate monotonically increasing versions per schema-o
 Change-journal retention is at most **65,536 committed change records** per catalog. Write only when a configured consumer exists. Record every object publication, metadata update and deletion (including compose source deletion), bucket create/update/delete and IAM change in the mutation transaction. Retain a durable increasing sequence and oldest retained position; enabling a consumer later or reading before the retained position requires a full rescan. Trim in bounded pages, without an O(N) operation in one transaction. Changes larger than the cap produce a gap, never false complete delivery.
 
 PAP's parent fixture is configuration loaded at startup, not a durable bucket mutation. Do not append one entry per affected object. On a changed parent-policy configuration or new consumer, invalidate that consumer's authorization view and require a full rescan before reporting caught-up. Bucket-local PAP updates remain ordinary bucket changes. Consumers must reconcile permissions from current policy, not replay old authorizations. This is a local fixture contract, not Google propagation simulation. shared-change-journal owns the durable detection/invalidation representation and its restart/gap tests.
+
+### Change journal acceptance
+
+`shared-change-journal` (DESIGN-072) covers atomic origin-bearing publication,
+metadata/deletion (including compose source deletion), bucket and IAM records;
+disabled logging, monotonic sequences, bounded retention/pages, stable fences,
+late activation, restart/gap rescan and durable parent-PAP invalidation.
+`catalog-change-journal-migration` (AUDIT-014) covers atomic schema 14 to 15,
+rollback/retry, preserved existing data, complete schema inventory validation,
+and rejection of newer formats. Broader feature rows remain PARTIAL.
+
+Schema 15 adds `change_journal_state` and `change_journal` in one transaction;
+it does not rescale schema-14 timestamps. The schema inventory reads at most
+257 entries and rejects catalogs exceeding 256, instead of comparing truncated
+32-entry inventories. Back up the entire stopped data directory before upgrading;
+schema 15 is rejected by executables supporting only schema 14. Never downgrade
+in place. The migration tests retain an unchanged catalog-only snapshot for
+schema-14 validation; that snapshot alone is not a usable data-directory backup.
+
+`Catalog::set_change_journal_enabled(true)` activates the aggregate consumer
+requirement and returns a baseline `JournalFence`. The consumer owner must keep
+logging enabled until its last reader stops. No CLI/environment/file setting is
+added. Reopening an enabled catalog disables logging and advances the durable
+revision; already disabled catalogs avoid an additional startup write. Restart
+therefore conservatively requires a full scan even for unchanged PAP.
+This avoids claiming continuity over an interval with no configured reader.
+Enabling/disabling advances revision only on a transition; repeated enable does
+not invalidate another reader. New readers pass `None` to `read_changes` and
+must scan current state before using the returned fence as their cursor.
+
+`read_changes(after, fence, limit)` accepts 1 through 256 records. Capture the
+first page's fence and reuse it for later pages; `next` advances only through
+that fence, excluding subsequent publications. Missing/invalid/future/reversed
+cursors, changed revisions, disabled logging and retention gaps return an empty
+page with `rescan_required=true` and a new baseline fence. A reader must never
+interpret that empty page as caught-up. Scan and reconcile current state, then
+consume changes after the captured baseline; if retention overtakes it, rescan
+again. Multiple readers retain independent cursors without per-reader SQL state.
+
+Records retain sequence, typed `Origin` and `ChangeKind`, bucket/project/incarnation,
+optional object/generation and metageneration. Deletion captures identity before
+the bucket is removed, so same-name recreation remains distinguishable. All
+publication protocols use the common commit function; compose source deletion
+shares the destination transaction. Rejected mutations roll back sequence and
+records together. Retention removes at most 256 oldest positions per append
+(normally zero or one), retaining at most 65,536 records even within a large
+transaction. The sequence is not reset on disable or restart. The shared feed
+can serve future EXT-BEH-032 consumers; provider event mapping, payload/filter
+semantics and delivery guarantees remain that feature's unimplemented scope.
+
+Parent PAP stores a canonical sorted/deduplicated project set and advances the
+same durable revision on change, in the transaction replacing the temporary
+effective fixture. Equal sets avoid a main-catalog write and do not invalidate readers. No object event is
+fabricated for a parent-policy change. Readers must consult current policy.
+
+### Change journal evidence
+
+Executed on 2026-10-25 with the locked Rust 1.99.1 dependency graph:
+
+| Test | Verified behavior |
+| --- | --- |
+| journal_records_atomic_origins_mutations_and_stable_pages | Disabled writes, all five origins, overwrite/metadata/delete, stable multi-page fence, injected journal failure rolls back bucket/sequence, page bounds. |
+| journal_retention_activation_restart_and_pap_require_rescan | Actual 65,536-record cap and one-over gap, 256-record pages, disable/re-enable, restart, persisted PAP invalidation and equivalent-set stability. This is a correctness boundary test, not a benchmark. |
+| journal_bucket_iam_compose_and_resumable_share_mutation_transactions | Bucket create/update/delete, IAM, compose destination/source deletion and resumable publication retain ordered identities/origins; additional schema entries are rejected. |
+| journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables | DDL collision after partial creation rolls back tables/version; retry succeeds; schema 15 cannot be accepted by a schema-14 version guard. |
+| journal_schema_upgrade_preserves_objects_policies_and_active_sessions | Real catalog 14-to-15 reopen retains object identity, policy and active session; original stopped catalog snapshot still validates as schema 14. |
+
+`cargo test --lib journal_ --locked --offline`: 7 passed, including the five
+new cases and two existing deletion/recovery regressions. The repaired v1
+migration regression and all 13 seed tests pass separately, including startup
+blocked on an external SQLite writer and shutdown drain. `cargo clippy --lib --tests --locked
+--offline -- -D warnings` passes. `cargo xtask dependencies check` reports all
+compiler, crate, SDK and container inputs CURRENT; no dependencies were changed.
+Final `just check` on source `49db033`: PASS, including formatting, workspace
+clippy/tests/doctests, ledger/matrix consistency and shell/release checks.
+SDK/container/guide
+journeys and performance measurements are not run because HTTP behavior,
+containers and guides are unchanged. Power-loss, older-executable full-directory
+restore and runtime Sync/event consumers remain outside this slice.
 
 ## Accepted Import requests
 
