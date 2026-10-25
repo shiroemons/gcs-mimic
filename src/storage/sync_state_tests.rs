@@ -442,7 +442,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
     let mut connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE sync_objects; DROP TABLE catalog_identity; PRAGMA user_version = 16;",
+            "ALTER TABLE import_journal DROP COLUMN failure; DROP TABLE sync_objects; DROP TABLE catalog_identity; PRAGMA user_version = 16;",
         )
         .unwrap();
     connection
@@ -510,7 +510,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        17
+        18
     );
     assert!(super::super::validate_schema_version(17, 16).is_err());
     connection

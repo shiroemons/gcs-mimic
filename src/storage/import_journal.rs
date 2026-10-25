@@ -22,6 +22,17 @@ CREATE TABLE import_observations (
 );
 PRAGMA user_version = 16;";
 
+pub(super) const FAILURE_SCHEMA: &str = "ALTER TABLE import_journal ADD COLUMN failure TEXT CHECK(failure IS NULL OR length(CAST(failure AS BLOB)) BETWEEN 1 AND 1024);
+PRAGMA user_version = 18;";
+
+pub(super) fn migrate_failure(connection: &mut Connection) -> Result<(), CatalogError> {
+    let transaction = connection.transaction().map_err(unavailable)?;
+    transaction
+        .execute_batch(FAILURE_SCHEMA)
+        .map_err(unavailable)?;
+    transaction.commit().map_err(unavailable)
+}
+
 #[cfg(test)]
 #[path = "import_journal_tests.rs"]
 mod tests;
@@ -46,6 +57,7 @@ pub struct ImportProgress {
     pub binding: ImportBinding,
     pub cursor: i64,
     pub active: bool,
+    pub failure: Option<String>,
 }
 
 #[derive(Clone)]
@@ -73,20 +85,21 @@ pub(super) fn validate(connection: &Connection) -> Result<(), CatalogError> {
 
 fn progress(connection: &Connection) -> Result<Option<ImportProgress>, CatalogError> {
     connection.query_row(
-        "SELECT source, fingerprint, expected, cursor, active FROM import_journal WHERE singleton = 1",
+        "SELECT source, fingerprint, expected, cursor, active, failure FROM import_journal WHERE singleton = 1",
         [], |row| Ok(ImportProgress {
             binding: ImportBinding { source: row.get(0)?, fingerprint: row.get(1)?, expected_elements: row.get(2)? },
             cursor: row.get(3)?, active: row.get(4)?,
+            failure: row.get(5)?,
         }),
     ).optional().map_err(unavailable)
 }
 
-fn matching(
+pub(super) fn matching(
     connection: &Connection,
     binding: &ImportBinding,
 ) -> Result<ImportProgress, CatalogError> {
     progress(connection)?
-        .filter(|state| state.active && &state.binding == binding)
+        .filter(|state| state.active && state.failure.is_none() && &state.binding == binding)
         .ok_or(CatalogError::PreconditionFailed)
 }
 
@@ -97,7 +110,149 @@ impl Catalog {
     }
 }
 
+pub(super) fn verify_destination(
+    connection: &Connection,
+    state: &ImportProgress,
+) -> Result<(), CatalogError> {
+    if state.active && state.failure.is_none() {
+        let count: i64 = connection
+            .query_row(
+                "SELECT (SELECT count(*) FROM buckets) + (SELECT count(*) FROM objects)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(unavailable)?;
+        if count != state.cursor {
+            return Err(CatalogError::PreconditionFailed);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn check_publication(
+    connection: &Connection,
+    binding: &ImportBinding,
+    cursor: i64,
+) -> Result<(), CatalogError> {
+    let state = matching(connection, binding)?;
+    verify_destination(connection, &state)?;
+    if state.cursor != cursor {
+        return Err(CatalogError::PreconditionFailed);
+    }
+    Ok(())
+}
+
+pub(super) fn record_outcomes(
+    transaction: &Transaction<'_>,
+    binding: &ImportBinding,
+    cursor: i64,
+    elements: &[ImportElement],
+    succeeded: &[bool],
+) -> Result<(), CatalogError> {
+    let state = matching(transaction, binding)?;
+    if state.cursor != cursor
+        || elements.is_empty()
+        || elements.len() > MAX_PAGE
+        || elements.len() != succeeded.len()
+    {
+        return Err(CatalogError::PreconditionFailed);
+    }
+    let prefix = succeeded.iter().take_while(|success| **success).count();
+    if prefix == succeeded.len() {
+        return record_in_transaction(transaction, binding, cursor, elements);
+    }
+    for (offset, (element, success)) in elements.iter().zip(succeeded).enumerate() {
+        let ordinal = cursor
+            .checked_add(offset as i64 + 1)
+            .filter(|ordinal| *ordinal <= binding.expected_elements)
+            .ok_or(CatalogError::PreconditionFailed)?;
+        if element.ordinal != ordinal {
+            return Err(CatalogError::PreconditionFailed);
+        }
+        if *success {
+            transaction
+                .execute(
+                    "INSERT INTO import_observations VALUES (?1,?2,?3,?4)",
+                    params![
+                        ordinal,
+                        element.fingerprint,
+                        element.inode.map(u64::to_be_bytes),
+                        element.ctime_ns.map(i128::to_be_bytes)
+                    ],
+                )
+                .map_err(unavailable)?;
+        }
+    }
+    transaction
+        .execute(
+            "UPDATE import_journal SET cursor = ?1, failure = ?2 WHERE singleton = 1",
+            params![
+                cursor + prefix as i64,
+                (prefix != succeeded.len()).then_some("element_rejected")
+            ],
+        )
+        .map_err(unavailable)?;
+    Ok(())
+}
+
+pub(super) fn validate_failure(connection: &Connection) -> Result<(), CatalogError> {
+    let valid: bool = connection.query_row(
+        "SELECT (SELECT count(*) FROM import_journal) <= 1
+         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NOT NULL AND active = 0)
+         AND NOT EXISTS(SELECT 1 FROM import_observations WHERE ordinal > coalesce((SELECT expected FROM import_journal),0))
+         AND (SELECT count(*) FROM import_observations WHERE ordinal <= coalesce((SELECT cursor FROM import_journal),0)) = coalesce((SELECT cursor FROM import_journal),0)
+         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE failure IS NULL AND (SELECT count(*) FROM import_observations) != cursor)
+         AND NOT EXISTS(SELECT 1 FROM import_journal WHERE active = 0 AND (SELECT complete FROM startup_seed) != 1)", [], |row| row.get(0),
+    ).map_err(unavailable)?;
+    if !valid {
+        return Err(unavailable("invalid import failure state"));
+    }
+    Ok(())
+}
+
 impl ImportJournal {
+    pub async fn progress(&self) -> Result<Option<ImportProgress>, AdminError> {
+        self.0
+            .run_admin(|connection| {
+                let state = progress(connection)?;
+                if let Some(state) = &state {
+                    verify_destination(connection, state)?;
+                }
+                Ok(state)
+            })
+            .await
+    }
+
+    pub async fn fail(
+        &self,
+        binding: ImportBinding,
+        reason: impl Into<String>,
+    ) -> Result<(), AdminError> {
+        let reason: String = reason.into().chars().take(256).collect();
+        let reason = if reason.is_empty() {
+            "adapter_failure".into()
+        } else {
+            reason
+        };
+        self.0
+            .run_admin(move |connection| {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                let state = progress(&transaction)?
+                    .filter(|state| state.active && state.binding == binding)
+                    .ok_or(CatalogError::PreconditionFailed)?;
+                if state.failure.is_none() {
+                    transaction
+                        .execute(
+                            "UPDATE import_journal SET failure = ?1 WHERE singleton = 1",
+                            [reason],
+                        )
+                        .map_err(unavailable)?;
+                }
+                transaction.commit().map_err(unavailable)
+            })
+            .await
+    }
+
     pub async fn in_progress(&self) -> Result<bool, AdminError> {
         self.0
             .run_admin(|connection| Ok(progress(connection)?.is_some_and(|state| state.active)))
@@ -114,7 +269,8 @@ impl ImportJournal {
         self.0.run_admin(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             if let Some(state) = progress(&transaction)? {
-                return if state.active && state.binding == binding { Ok(state) }
+                verify_destination(&transaction, &state)?;
+                return if state.active && state.failure.is_none() && state.binding == binding { Ok(state) }
                     else { Err(CatalogError::PreconditionFailed) };
             }
             let occupied: bool = transaction.query_row(
@@ -123,11 +279,11 @@ impl ImportJournal {
             ).map_err(unavailable)?;
             if occupied { return Err(CatalogError::PreconditionFailed); }
             transaction.execute(
-                "INSERT INTO import_journal VALUES (1, ?1, ?2, ?3, 0, 1)",
+                "INSERT INTO import_journal (singleton,source,fingerprint,expected,cursor,active) VALUES (1, ?1, ?2, ?3, 0, 1)",
                 params![binding.source, binding.fingerprint, expected],
             ).map_err(unavailable)?;
             transaction.commit().map_err(unavailable)?;
-            Ok(ImportProgress { binding, cursor: 0, active: true })
+            Ok(ImportProgress { binding, cursor: 0, active: true, failure: None })
         }).await
     }
 
@@ -186,6 +342,7 @@ impl ImportJournal {
             .run_admin(move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 let state = matching(&transaction, &binding)?;
+                verify_destination(&transaction, &state)?;
                 if state.cursor != binding.expected_elements {
                     return Err(CatalogError::PreconditionFailed);
                 }
@@ -208,14 +365,6 @@ impl ImportJournal {
 }
 
 /// Shared publication calls this inside the transaction that commits the same elements.
-// The importing publication adapter is delivered separately; keeping SQL crate-owned prevents bypasses.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Import publication integration is a separate slice"
-    )
-)]
 pub(crate) fn record_in_transaction(
     transaction: &Transaction<'_>,
     binding: &ImportBinding,

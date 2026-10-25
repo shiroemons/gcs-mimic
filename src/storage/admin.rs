@@ -36,6 +36,9 @@ pub const MAX_PAGE: usize = 256;
 pub mod imported_identity;
 pub use imported_identity::ImportedIdentity;
 
+#[path = "import_publication.rs"]
+mod import_publication;
+
 #[cfg(test)]
 #[path = "admin_tests.rs"]
 mod tests;
@@ -179,7 +182,9 @@ pub enum PublishMode {
 #[path = "publication.rs"]
 mod publication;
 pub(super) use publication::FileWorkers;
-pub use publication::{BatchPublication, BatchResult, StagedObject};
+pub use publication::{
+    BatchPublication, BatchResult, ImportedBatchResult, ImportedPublication, StagedObject,
+};
 
 pub struct Publication {
     pub content_type: String,

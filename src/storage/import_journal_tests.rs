@@ -33,6 +33,18 @@ async fn commit(
         .run_admin(move |connection| {
             let transaction = connection.transaction().map_err(unavailable)?;
             record_in_transaction(&transaction, &binding, cursor, &elements)?;
+            for element in &elements {
+                let input =
+                    serde_json::json!({"name": format!("import-element-{}", element.ordinal)})
+                        .to_string();
+                let mut record = crate::json::parse_insert(
+                    input.as_bytes(),
+                    "project",
+                    std::time::SystemTime::now(),
+                )
+                .unwrap();
+                super::super::insert_bucket_in_transaction(&transaction, &mut record)?;
+            }
             transaction.commit().map_err(unavailable)
         })
         .await
@@ -341,7 +353,7 @@ async fn import_journal_upgrade_preserves_native_state_and_stopped_snapshot() {
     assert!(!catalog.admin(Origin::Seed).seed_complete().await.unwrap());
     catalog.close().await.unwrap();
     let connection = Connection::open(&path).unwrap();
-    super::super::validate_schema(&connection, 17).unwrap();
+    super::super::validate_schema(&connection, 18).unwrap();
     assert!(super::super::validate_schema(&connection, 15).is_err());
     let snapshot = Connection::open(backup.0.join("catalog.sqlite3")).unwrap();
     super::super::validate_schema(&snapshot, 15).unwrap();

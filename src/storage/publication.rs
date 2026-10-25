@@ -86,6 +86,7 @@ pub struct StagedObject {
     hashes: crate::hashing::Hashes,
     published: bool,
     sync_update: Option<super::super::sync_state::SyncUpdate>,
+    import_identity: Option<ImportedIdentity>,
     runtime: tokio::runtime::Handle,
 }
 
@@ -145,6 +146,26 @@ pub struct BatchResult {
     pub results: Vec<Result<ObjectRecord, AdminError>>,
     pub unattempted: Vec<BatchPublication>,
     pub budget_exceeded: bool,
+}
+
+use super::super::import_journal::{self, ImportBinding, ImportElement};
+
+pub struct ImportedPublication {
+    pub publication: BatchPublication,
+    pub identity: ImportedIdentity,
+    pub element: ImportElement,
+}
+
+pub struct ImportedBatchResult {
+    pub results: Vec<Result<ObjectRecord, AdminError>>,
+    pub unattempted: Vec<ImportedPublication>,
+    pub budget_exceeded: bool,
+}
+
+struct ImportBatch {
+    binding: ImportBinding,
+    cursor: i64,
+    elements: Vec<ImportElement>,
 }
 
 fn fs_error(error: fsutil::FsError) -> AdminError {
@@ -327,6 +348,7 @@ impl Admin {
                 },
                 published: false,
                 sync_update: None,
+                import_identity: None,
                 runtime: tokio::runtime::Handle::current(),
             };
             let stage = catalog.0.data_dir.join("staging").join(&id);
@@ -398,6 +420,72 @@ impl Admin {
         entries: Vec<BatchPublication>,
         budget: Duration,
     ) -> Result<BatchResult, AdminError> {
+        self.publish_batch(entries, budget, None).await
+    }
+
+    pub async fn publish_import_objects(
+        &self,
+        binding: ImportBinding,
+        expected_cursor: i64,
+        entries: Vec<ImportedPublication>,
+    ) -> Result<ImportedBatchResult, AdminError> {
+        if entries.is_empty() || entries.len() > 256 {
+            return Err(AdminError::Invalid(
+                "import batch requires 1..=256 entries".into(),
+            ));
+        }
+        let elements = entries
+            .iter()
+            .map(|entry| entry.element.clone())
+            .collect::<Vec<_>>();
+        let publications = entries
+            .into_iter()
+            .map(|mut entry| {
+                entry.publication.staged.import_identity = Some(entry.identity);
+                entry.publication
+            })
+            .collect();
+        let batch = self
+            .publish_batch(
+                publications,
+                Duration::from_millis(20),
+                Some(ImportBatch {
+                    binding,
+                    cursor: expected_cursor,
+                    elements: elements.clone(),
+                }),
+            )
+            .await?;
+        let mut unattempted = Vec::new();
+        for (mut publication, element) in batch
+            .unattempted
+            .into_iter()
+            .zip(elements.into_iter().skip(batch.results.len()))
+        {
+            let identity = publication
+                .staged
+                .import_identity
+                .take()
+                .ok_or_else(|| AdminError::Backend("missing imported identity".into()))?;
+            unattempted.push(ImportedPublication {
+                publication,
+                identity,
+                element,
+            });
+        }
+        Ok(ImportedBatchResult {
+            results: batch.results,
+            unattempted,
+            budget_exceeded: batch.budget_exceeded,
+        })
+    }
+
+    async fn publish_batch(
+        &self,
+        entries: Vec<BatchPublication>,
+        budget: Duration,
+        import: Option<ImportBatch>,
+    ) -> Result<BatchResult, AdminError> {
         if entries.len() > 256 {
             return Err(AdminError::Invalid(
                 "publication batch exceeds 256 entries".into(),
@@ -430,8 +518,8 @@ impl Admin {
             entries,
             deadline,
             budget,
-            batch,
-            request,
+            (batch, request),
+            import,
         ))
         .await
         .map_err(|error| AdminError::Backend(error.to_string()))?
@@ -454,8 +542,8 @@ async fn run_batch(
     mut entries: Vec<BatchPublication>,
     deadline: tokio::time::Instant,
     budget: Duration,
-    _batch: OwnedSemaphorePermit,
-    _request: OwnedSemaphorePermit,
+    _ownership: (OwnedSemaphorePermit, OwnedSemaphorePermit),
+    import: Option<ImportBatch>,
 ) -> Result<BatchResult, AdminError> {
     let prepared = async {
         for entry in &mut entries {
@@ -498,7 +586,14 @@ async fn run_batch(
     let clock = catalog.0.clock.clone();
     let (outcome, mut entries) = catalog
         .run_upload_admitted(execution, move |connection| {
-            let outcome = commit_batch(connection, &entries, &grant, clock.as_ref(), budget);
+            let outcome = commit_batch(
+                connection,
+                &entries,
+                &grant,
+                clock.as_ref(),
+                budget,
+                import.as_ref(),
+            );
             Ok((outcome, entries))
         })
         .await
@@ -528,11 +623,20 @@ fn commit_batch(
     grant: &AdminGrant,
     clock: &dyn Clock,
     budget: Duration,
+    import: Option<&ImportBatch>,
 ) -> Result<CommittedBatch, ObjectError> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(objects_error)?;
     let started = std::time::Instant::now();
+    if let Some(import) = import {
+        import_journal::check_publication(&transaction, &import.binding, import.cursor).map_err(
+            |error| match error {
+                CatalogError::PreconditionFailed => ObjectError::PreconditionFailed,
+                error => objects_error(error),
+            },
+        )?;
+    }
     let mut results = Vec::new();
     for entry in entries {
         if !results.is_empty() && started.elapsed() >= budget {
@@ -566,6 +670,16 @@ fn commit_batch(
                 error => return Err(objects_error_admin(error)),
             },
         }
+    }
+    if let Some(import) = import {
+        import_journal::record_outcomes(
+            &transaction,
+            &import.binding,
+            import.cursor,
+            &import.elements[..results.len()],
+            &results.iter().map(Result::is_ok).collect::<Vec<_>>(),
+        )
+        .map_err(objects_error)?;
     }
     transaction.commit().map_err(objects_error)?;
     let attempted = results.len();
@@ -622,6 +736,14 @@ fn publish_entry(
         overwrite,
     )?;
     let staged = &entry.staged;
+    if staged.import_identity.is_some()
+        && (entry.request.expected.md5.is_none()
+            || entry.request.expected.crc32c.is_none()
+            || entry.request.mode != PublishMode::Replace
+            || entry.request.condition != Some(GenerationCondition::Absent))
+    {
+        return Err(ObjectError::InvalidMetadata);
+    }
     if objects::skip_same(
         entry.request.mode,
         previous.as_ref(),
@@ -649,7 +771,11 @@ fn publish_entry(
     let (record, _, ()) = objects::publish_in_transaction(
         transaction,
         micros,
-        objects::GenerationAssignment::Automatic,
+        staged
+            .import_identity
+            .map_or(objects::GenerationAssignment::Automatic, |identity| {
+                objects::GenerationAssignment::Imported(identity.generation())
+            }),
         previous.as_ref(),
         versioning,
         id,
@@ -674,10 +800,14 @@ fn publish_entry(
                 time_created: time,
                 updated: time,
                 time_deleted: None,
-                event_based_hold: default_hold,
+                event_based_hold: staged.import_identity.is_none() && default_hold,
             };
             entry.request.metadata.clone().apply(&mut record)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);
+            if let Some(identity) = staged.import_identity {
+                record.time_created = identity.time_created();
+                record.updated = identity.updated();
+            }
             Ok((record, ()))
         },
     )?;

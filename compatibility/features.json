@@ -40964,6 +40964,16 @@
           "test_ids": []
         },
         {
+          "id": "shared-import-publication-journal",
+          "description": "Commit bounded imported file/bucket publication and successful observations with contiguous cursor state; reject foreign/stale resumes and destination records outside the prefix across every project. Scope: docs/en/slices/shared-import-publication.md.",
+          "result": "PASS",
+          "test_ids": [
+            "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
+            "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
+            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+          ]
+        },
+        {
           "id": "shared-import-journal",
           "description": "Persist an exact source/export binding, bounded contiguous import cursor and active marker; reject changed/foreign resumes, refuse serve before startup mutations and atomically complete the matching import and startup_seed only at the expected count. Schema 15 to 16 migration, rollback/retry and retained stopped snapshots. Contract: docs/en/slices/shared-import-journal.md.",
           "result": "PASS",
@@ -41128,9 +41138,23 @@
         "imported_identity_rejects_modes_that_could_discard_source_identity",
         "sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen",
         "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
-        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
+        "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
+        "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
+        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-import-publication.md",
+          "test_ids": [
+            "import_publication_preserves_identity_settings_hold_and_atomic_prefix",
+            "import_publication_progress_rejects_foreign_project_records_and_failure_is_bounded",
+            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib sync_state",
           "result": "PASS",
@@ -41402,6 +41426,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "shared-import-file-identity",
+          "description": "Preserve staged body digests, explicit generation and exact microseconds; retain bucket settings/default hold without synthesizing imported object holds. Scope: docs/en/slices/shared-import-publication.md.",
+          "result": "PASS",
+          "test_ids": [
+            "import_publication_preserves_identity_settings_hold_and_atomic_prefix"
+          ]
+        },
+        {
           "id": "catalog-timestamp-writes",
           "description": "Persist bucket/object creation, update and retirement times as floor-to-microsecond signed Unix integers, including supported pre-epoch metadata and nanosecond inputs; media/resumable/derived publication retains 503 rejection of pre-epoch clocks and unchanged generation allocation. Preserve JSON millisecond rendering, XML supported range, ETags and internal deadlines. Scope: docs/en/slices/catalog-timestamp-precision.md.",
           "result": "PASS",
@@ -41489,9 +41521,19 @@
         "obj_http_queued_precheck_waits_past_body_inactivity_deadline",
         "timestamp_writes_floor_microseconds_across_publication_routes",
         "timestamp_migration_preserves_resources_etags_permissions_and_sessions",
-        "timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors"
+        "timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors",
+        "import_publication_preserves_identity_settings_hold_and_atomic_prefix"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-import-publication.md",
+          "test_ids": [
+            "import_publication_preserves_identity_settings_hold_and_atomic_prefix"
+          ]
+        },
         {
           "command": "cargo +1.99.1 test --workspace --locked --offline",
           "result": "PASS",
@@ -41582,6 +41624,16 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {
+          "id": "shared-import-terminal-publication",
+          "description": "Retain independent successes with atomic terminal rejection, forbid hole-filling resume/finish, roll back DiskFull without progress and drain accepted/cancelled staged publication safely. Scope: docs/en/slices/shared-import-publication.md.",
+          "result": "PASS",
+          "test_ids": [
+            "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
+            "import_publication_disk_full_rolls_back_records_observations_and_cursor",
+            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+          ]
+        },
         {
           "id": "shared-sync-transaction-hooks",
           "description": "Commit typed synchronization updates atomically with staged publication including same-hash skips and generation-conditioned deletion; rollback failures, preserve holds and leave baseline unchanged on ordinary API mutations. Scope: docs/en/slices/shared-sync-state.md.",
@@ -41836,9 +41888,23 @@
         "publication_shutdown_drains_accepted_batch_through_retired_blob_reclamation",
         "sync_state_publication_skip_rollback_and_conditional_delete_are_atomic",
         "sync_state_rejects_hash_path_identity_and_hold_conflicts_without_publication",
-        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob"
+        "sync_state_batch_path_conflict_isolates_the_failed_element_and_cleans_its_blob",
+        "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
+        "import_publication_disk_full_rolls_back_records_observations_and_cursor",
+        "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-import-publication.md",
+          "test_ids": [
+            "import_publication_keeps_independent_successes_and_terminal_failure_after_restart",
+            "import_publication_disk_full_rolls_back_records_observations_and_cursor",
+            "import_publication_cancelled_caller_drains_commit_and_busy_keeps_prefix"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib sync_state",
           "result": "PASS",
@@ -46924,6 +46990,14 @@
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
         {
+          "id": "catalog-import-failure-migration",
+          "description": "Atomically migrate schema 17 to 18 with bounded terminal failure state, rollback/retry and preserved catalog/journal identities. Scope: docs/en/slices/shared-import-publication.md.",
+          "result": "PASS",
+          "test_ids": [
+            "import_publication_failure_schema_rolls_back_and_reopens_preserved_state"
+          ]
+        },
+        {
           "id": "catalog-sync-state-migration",
           "description": "Atomically migrate schema 16 to 17 without changing existing objects; rollback partial DDL/version on failure, retry and reject invalid catalog identity/schema. Scope: docs/en/slices/shared-sync-state.md.",
           "result": "PASS",
@@ -46984,9 +47058,19 @@
         "timestamp_migration_preserves_versioned_json_get_and_xml_head",
         "journal_migration_is_atomic_and_inventory_cannot_hide_extra_tables",
         "journal_schema_upgrade_preserves_objects_policies_and_active_sessions",
-        "sync_state_schema_migration_rolls_back_retries_and_preserves_objects"
+        "sync_state_schema_migration_rolls_back_retries_and_preserves_objects",
+        "import_publication_failure_schema_rolls_back_and_reopens_preserved_state"
       ],
       "verification": [
+        {
+          "command": "cargo test --locked --offline --lib -- import_publication import_journal sync_state storage::catalog::admin::publication::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-import-publication.md",
+          "test_ids": [
+            "import_publication_failure_schema_rolls_back_and_reopens_preserved_state"
+          ]
+        },
         {
           "command": "cargo test --locked --offline --lib sync_state",
           "result": "PASS",
