@@ -136,6 +136,116 @@ fn counts(server: &Server, created: usize, existing: usize, mismatches: usize) {
 }
 
 #[test]
+fn default_location_applies_to_new_api_and_initializer_buckets_only() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([{"name":"default-bucket"},{"name":"explicit-bucket","location":"US"}]),
+    );
+    let server = Server::start(selected(&dir.0).args(["--default-location", "EU"]));
+    let initial = server.json("GET", "/storage/v1/b/default-bucket", Value::Null);
+    assert_eq!(initial["location"], "EU");
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/explicit-bucket", Value::Null)["location"],
+        "US"
+    );
+    let api = server.json(
+        "POST",
+        "/storage/v1/b?project=project-a",
+        json!({"name":"api-bucket"}),
+    );
+    assert_eq!(api["location"], "EU");
+    assert_eq!(
+        server.json(
+            "POST",
+            "/storage/v1/b?project=project-a",
+            json!({"name":"api-explicit-bucket","location":"ASIA"})
+        )["location"],
+        "ASIA"
+    );
+    for (index, location) in [json!("invalid"), json!(""), Value::Null]
+        .into_iter()
+        .enumerate()
+    {
+        let body =
+            json!({"name":format!("invalid-bucket-{index}"),"location":location}).to_string();
+        let reply = server.request("POST", "/storage/v1/b?project=project-a", "", &body);
+        assert!(matches!(reply.0, 400 | 501));
+        assert_eq!(
+            server
+                .request(
+                    "GET",
+                    &format!("/storage/v1/b/invalid-bucket-{index}"),
+                    "",
+                    ""
+                )
+                .0,
+            404
+        );
+    }
+    server.stop();
+    input(
+        &dir.0,
+        json!([{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"},{"name":"new-bucket"}]),
+    );
+    let server = Server::start(selected(&dir.0).args(["--default-location", "ASIA"]));
+    counts(&server, 1, 2, 0);
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/default-bucket", Value::Null),
+        initial
+    );
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/api-bucket", Value::Null),
+        api
+    );
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/explicit-bucket", Value::Null)["location"],
+        "US"
+    );
+    assert_eq!(
+        server.json("GET", "/storage/v1/b/new-bucket", Value::Null)["location"],
+        "ASIA"
+    );
+    server.stop();
+}
+
+#[test]
+fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
+    for options in [
+        vec!["--default-location", ""],
+        vec!["--default-location", "us"],
+        vec!["--default-location", "US-CENTRAL1"],
+        vec![
+            "--default-location",
+            "US",
+            "--compat-profile",
+            "legacy-emulator",
+        ],
+    ] {
+        let dir = TestDir::new();
+        let output = command(&dir.0).args(options).output().unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!dir.0.join("data").exists());
+        let event: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(event["diagnostics"][0]["key"], "--default-location");
+    }
+    let dir = TestDir::new();
+    let output = command(&dir.0)
+        .env("FAKE_GCS_LOCATION", "EU")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!dir.0.join("data").exists());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("GCS_MIMIC_DEFAULT_LOCATION=EU")
+    );
+}
+
+#[test]
 fn initialized_settings_are_independent_and_api_changes_survive_restart() {
     let dir = TestDir::new();
     input(

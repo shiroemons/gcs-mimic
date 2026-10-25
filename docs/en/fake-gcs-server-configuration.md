@@ -90,11 +90,13 @@ generally mean “use the default.” See the
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
 | Bucket CORS | JSON bucket API | Per-bucket XML rules; separate fixed JSON defaults |
-| Bucket location | JSON bucket API | Native `US`, `EU`, `ASIA`; no global location setting |
+| Bucket location | JSON bucket API; `GCS_MIMIC_DEFAULT_LOCATION` / `--default-location` / JSON `default_location` | Native `US` default; exact `US`, `EU`, `ASIA`; explicit API/initializer location wins; existing buckets stay unchanged |
 | Memory backend, event publisher, log-level selection | No current equivalent | Missing capabilities remain on the roadmap |
 
-The legacy profile's fixed `US-CENTRAL1` response does not implement configurable
-regional placement. A public URL helper does not establish `-public-host` parity.
+The legacy profile rejects explicit `default_location`. Its create API accepts
+only case-insensitive `US-CENTRAL1` when location is explicit, stores `US` and
+returns fixed `US-CENTRAL1`; it does not implement configurable regional placement.
+A public URL helper does not establish `-public-host` parity.
 See [option examples](fake-gcs-server-migration.md#startup-options-and-current-equivalents).
 
 `GCS_MIMIC_PORT` in the repository's source-build Compose file is a **Compose
@@ -120,7 +122,8 @@ For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
 `GCS_MIMIC_LISTEN=127.0.0.2:8080`. A safe external URL retains its proxy prefix.
 Public-host advice supplies `GCS_MIMIC_PUBLIC_BASE_URL` and the opt-in legacy
 profile; native path-style Host acceptance stays unrestricted.
-Unsupported dual listeners, global location/log settings,
+`FAKE_GCS_LOCATION` recommends native `GCS_MIMIC_DEFAULT_LOCATION=US`, `EU` or
+`ASIA`; regional values are not translated. Unsupported dual listeners/log settings,
 memory backend and event delivery are identified as unsupported; future names
 are not working replacements. JSON CORS callers can remove the old global
 header setting; XML/public callers configure bucket CORS `responseHeader`.

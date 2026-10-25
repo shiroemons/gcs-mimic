@@ -19,6 +19,7 @@ Usage: gcs-mimic serve [--config PATH] [OPTIONS]
        gcs-mimic --help | --version
 
 Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > default):
+  --default-location US|EU|ASIA  Native bucket creation default (US); explicit locations win
   --listen IP:PORT             127.0.0.1:4443
   --scheme MODE                https (http|https; one listener)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)

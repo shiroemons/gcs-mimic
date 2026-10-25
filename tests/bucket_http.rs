@@ -1788,7 +1788,7 @@ fn bucket_core_profile_lookup_names_and_json_framing() {
         let created = server.request(
             "POST",
             "/storage/v1/b?project=project",
-            r#"{"name":"framing-bucket","location":"EU"}"#,
+            &json!({"name":"framing-bucket","location": if profile == "native" { "EU" } else { "US-CENTRAL1" }}).to_string(),
         );
         assert_eq!(created.status, 200);
         assert_eq!(
@@ -1897,6 +1897,58 @@ fn bucket_core_native_restart_preserves_source_only_names_without_exposing_them(
                 .request("DELETE", &format!("/storage/v1/b/{name}"), "")
                 .body,
             "null\n"
+        );
+    }
+}
+
+#[test]
+fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
+    let dir = TestDir::new();
+    let mut server = profile_server(&dir, "legacy-emulator");
+    for (index, location) in [
+        json!("US-CENTRAL1"),
+        json!("us-central1"),
+        json!("Us-Central1"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let body = json!({"name":format!("region-bucket-{index}"),"location":location}).to_string();
+        let reply = server.request("POST", "/storage/v1/b?project=project", &body);
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        assert_eq!(reply.json()["location"], "US-CENTRAL1");
+    }
+    for (index, location) in [
+        json!("EU"),
+        json!("US"),
+        json!("ASIA"),
+        json!(""),
+        Value::Null,
+        json!(1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("invalid-region-{index}");
+        let body = json!({"name":name,"location":location}).to_string();
+        server
+            .request("POST", "/storage/v1/b?project=project", &body)
+            .error(501, "notImplemented");
+        assert_eq!(
+            server
+                .request("GET", &format!("/storage/v1/b/{name}"), "")
+                .status,
+            404
+        );
+    }
+    server.stop();
+    let server = Server::start_options(&dir, &["--default-location", "ASIA"]);
+    for index in 0..3 {
+        assert_eq!(
+            server
+                .request("GET", &format!("/storage/v1/b/region-bucket-{index}"), "")
+                .json()["location"],
+            "US"
         );
     }
 }
@@ -2263,7 +2315,7 @@ fn bucket_core_source_input_shape() {
         {
             let body = format!("{{\"name\":\"source-input-{index}\",{extra}}}");
             let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-            if profile == "native" {
+            if profile == "native" || index == 3 {
                 assert!(matches!(reply.status, 400 | 501), "{}", reply.body);
             } else {
                 assert_eq!(reply.status, 200, "{}", reply.body);
@@ -2624,6 +2676,36 @@ fn bucket_cors_concurrent_conditioned_updates_have_one_winner() {
     let resource = server.request("GET", "/storage/v1/b/cors-race", "").json();
     assert_eq!(resource["metageneration"], "2");
     assert_eq!(resource["cors"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn default_location_preserves_strict_create_authorization() {
+    let dir = TestDir::new();
+    let registry = dir.0.join("identities.json");
+    std::fs::write(&registry, json!({"identities":[
+        {"id":"admin@example.test","tokens":["admin"],"project_roles":{"project":["roles/storage.admin"]}},
+        {"id":"viewer@example.test","tokens":["viewer"],"project_roles":{"project":["roles/storage.bucketViewer"]}}
+    ]}).to_string()).unwrap();
+    let server = Server::start_options(
+        &dir,
+        &[
+            "--default-location",
+            "EU",
+            "--auth-mode",
+            "strict",
+            "--identity-file",
+            registry.to_str().unwrap(),
+        ],
+    );
+    let path = "/storage/v1/b?project=project";
+    let body = r#"{"name":"default-location-bucket"}"#;
+    server.request("POST", path, body).error(401, "required");
+    server
+        .authorized("viewer", "POST", path, body)
+        .error(403, "forbidden");
+    let reply = server.authorized("admin", "POST", path, body);
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.json()["location"], "EU");
 }
 
 #[test]

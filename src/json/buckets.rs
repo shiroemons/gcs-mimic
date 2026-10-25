@@ -90,7 +90,7 @@ pub fn parse_insert(
     project: &str,
     now: SystemTime,
 ) -> Result<BucketRecord, JsonError> {
-    parse_insert_with_profile(bytes, project, now, CompatProfile::Native)
+    parse_insert_with_profile(bytes, project, now, CompatProfile::Native, "US")
 }
 
 pub fn parse_insert_with_profile(
@@ -98,6 +98,7 @@ pub fn parse_insert_with_profile(
     project: &str,
     now: SystemTime,
     profile: CompatProfile,
+    default_location: &str,
 ) -> Result<BucketRecord, JsonError> {
     validate_project(project)?;
     let parsed = if profile == CompatProfile::LegacyEmulator {
@@ -178,9 +179,16 @@ pub fn parse_insert_with_profile(
     let default_event_based_hold =
         boolean(body.get("defaultEventBasedHold"), "defaultEventBasedHold")?;
     let location = if profile == CompatProfile::LegacyEmulator {
+        if body.get("location").is_some_and(|value| {
+            !value
+                .as_str()
+                .is_some_and(|location| location.eq_ignore_ascii_case(LEGACY_LOCATION))
+        }) {
+            return Err(JsonError::unsupported("location"));
+        }
         "US".into()
     } else {
-        string("location", Some("US"))?
+        string("location", Some(default_location))?
     };
     if !matches!(location.as_str(), "US" | "EU" | "ASIA") {
         return Err(JsonError::unsupported("location (supported: US, EU, ASIA)"));

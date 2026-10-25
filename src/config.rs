@@ -72,6 +72,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
+    pub default_location: String,
     pub buckets_file: Option<PathBuf>,
     pub api_base_url: Option<String>,
     pub public_base_url: Option<PublicOrigin>,
@@ -101,6 +102,7 @@ impl Default for Config {
             data_dir: PathBuf::from("data"),
             seed_dir: None,
             seed_project: "local-project".into(),
+            default_location: "US".into(),
             buckets_file: None,
             api_base_url: None,
             public_base_url: None,
@@ -377,6 +379,12 @@ impl Config {
                             .map_err(|error| format!("seed_project: {}", error.message))?;
                         config.seed_project = value;
                     }
+                    "default_location" => {
+                        if !matches!(value.as_str(), "US" | "EU" | "ASIA") {
+                            return Err("default_location must be US, EU or ASIA".into());
+                        }
+                        config.default_location = value;
+                    }
                     "buckets_file" => {
                         if value.is_empty() {
                             return Err("buckets_file must not be empty; use buckets.json or omit the setting".into());
@@ -436,6 +444,17 @@ impl Config {
             }
         }
         let config = &mut report.config;
+        if config.compat_profile == CompatProfile::LegacyEmulator
+            && let Some(input) = settings.get("default_location")
+            && !report.invalid.contains("default_location")
+        {
+            report.diagnostics.errors.push(Diagnostic::new(
+                input.source,
+                &input.key,
+                "default_location requires compat_profile=native; use --compat-profile native --default-location EU or remove the default_location setting.",
+            ));
+            report.invalid.insert("default_location".into());
+        }
         match config.scheme {
             Scheme::Http if tls_options_supplied && !report.invalid.contains("scheme") => {
                 for name in ["tls_cert", "tls_key", "tls_handshake_timeout_ms"] {
@@ -693,6 +712,49 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn default_location_validates_precedence_and_native_profile() {
+        let empty = BTreeMap::new();
+        assert_eq!(Config::load(&[], &empty).unwrap().default_location, "US");
+        let dir = PublicConfigDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        assert_eq!(Config::load(&args, &empty).unwrap().default_location, "EU");
+        let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
+        assert_eq!(Config::load(&args, &env).unwrap().default_location, "ASIA");
+        args.extend(["--default-location".into(), "US".into()]);
+        assert_eq!(Config::load(&args, &env).unwrap().default_location, "US");
+        for value in ["", "us", "US-CENTRAL1", " EU", "EU ", "unknown"] {
+            let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), value.into())]);
+            let errors = Config::load(&[], &env).unwrap_err();
+            assert_eq!(errors.errors[0].key, "GCS_MIMIC_DEFAULT_LOCATION");
+            assert!(errors.to_string().contains("US, EU or ASIA"));
+        }
+        for value in ["US", "EU", "ASIA"] {
+            let args = ["--default-location", value].map(str::to_owned);
+            assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
+            let mut args = args.to_vec();
+            args.extend(["--compat-profile".into(), "legacy-emulator".into()]);
+            assert!(
+                Config::load(&args, &empty)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("requires compat_profile=native")
+            );
+        }
+        let args = [
+            "--config".into(),
+            file.to_str().unwrap().into(),
+            "--compat-profile".into(),
+            "legacy-emulator".into(),
+        ];
+        assert!(Config::load(&args, &empty).is_err());
+        assert!(
+            Config::load(&["--compat-profile".into(), "legacy-emulator".into()], &env).is_err()
+        );
+    }
 
     struct PublicConfigDir(PathBuf);
 

@@ -795,6 +795,7 @@ fn native(field: &str, value: &Value, key: &str, now: SystemTime, diagnostics: &
         "local-project",
         now,
         CompatProfile::Native,
+        "US",
     )
     .is_err()
     {
@@ -983,16 +984,19 @@ pub async fn apply(
         return Ok(InitOutcome::Disabled);
     };
     let project = config.seed_project.clone();
-    let records = tokio::task::spawn_blocking(move || load(&path, &project, clock.as_ref()))
-        .await
-        .map_err(|_| {
-            std::io::Error::other(Diagnostics::error(
-                DiagnosticSource::Initializer,
-                "buckets_file",
-                "Cannot finish reading bucket initialization; inspect local resources and restart.",
-            ))
-        })?
-        .map_err(std::io::Error::other)?;
+    let default_location = config.default_location.clone();
+    let records = tokio::task::spawn_blocking(move || {
+        load(&path, &project, clock.as_ref(), &default_location)
+    })
+    .await
+    .map_err(|_| {
+        std::io::Error::other(Diagnostics::error(
+            DiagnosticSource::Initializer,
+            "buckets_file",
+            "Cannot finish reading bucket initialization; inspect local resources and restart.",
+        ))
+    })?
+    .map_err(std::io::Error::other)?;
     let projects: Vec<_> = records
         .iter()
         .map(|record| record.project.clone())
@@ -1055,6 +1059,7 @@ pub fn load(
     file: &Path,
     seed_project: &str,
     clock: &dyn Clock,
+    default_location: &str,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let read_failure = || {
         Diagnostics::error(
@@ -1080,7 +1085,7 @@ pub fn load(
             ReadError::Limit => "Bucket initialization file exceeds 1 MiB; reduce it to at most 1,048,576 bytes.",
             ReadError::Io(_) => "Cannot read bucket initialization file; select a readable local JSON file, for example buckets.json.",
         }))?;
-    parse(&bytes, seed_project, clock)
+    parse(&bytes, seed_project, clock, default_location)
 }
 
 /// Validate the entire document before returning any records, always using native semantics.
@@ -1088,6 +1093,7 @@ pub fn parse(
     bytes: &[u8],
     seed_project: &str,
     clock: &dyn Clock,
+    default_location: &str,
 ) -> Result<Vec<BucketRecord>, Diagnostics> {
     let failure = |key, fix| Diagnostics::error(DiagnosticSource::Initializer, key, fix);
     if bytes.len() > FILE_LIMIT {
@@ -1268,7 +1274,13 @@ pub fn parse(
             );
             continue;
         }
-        match parse_insert_with_profile(&encoded, &project, now, CompatProfile::Native) {
+        match parse_insert_with_profile(
+            &encoded,
+            &project,
+            now,
+            CompatProfile::Native,
+            default_location,
+        ) {
             Ok(record) => records.push(record),
             Err(_) => error(
                 &mut diagnostics,
@@ -1304,7 +1316,7 @@ mod tests {
     }
 
     fn parsed(document: &str) -> Result<Vec<BucketRecord>, Diagnostics> {
-        parse(document.as_bytes(), "seed-project", &FixedClock)
+        parse(document.as_bytes(), "seed-project", &FixedClock, "US")
     }
 
     fn keys(document: &str) -> Vec<String> {
@@ -1406,7 +1418,7 @@ mod tests {
     proptest! {
         #[test]
         fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
-            let result = parse(&bytes, "seed-project", &FixedClock);
+            let result = parse(&bytes, "seed-project", &FixedClock, "US");
             if let Err(errors) = result {
                 prop_assert!(errors.is_err());
                 let mut output = Vec::new();
@@ -1777,6 +1789,19 @@ mod tests {
     }
 
     #[test]
+    fn initializer_location_uses_default_only_when_omitted() {
+        let records = parse(br#"{"version":1,"buckets":[{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"}]}"#, "seed-project", &FixedClock, "ASIA").unwrap();
+        assert_eq!(records[0].location, "ASIA");
+        assert_eq!(records[1].location, "EU");
+        for value in [json!("invalid"), json!(""), Value::Null] {
+            let document =
+                json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
+                    .to_string();
+            assert!(parse(document.as_bytes(), "seed-project", &FixedClock, "ASIA").is_err());
+        }
+    }
+
+    #[test]
     fn malformed_documents_versions_and_shapes_fail_without_parser_leaks() {
         for bytes in [
             b"\xff".as_slice(),
@@ -1786,7 +1811,7 @@ mod tests {
             b"{/* secret */}",
             b"{\"secret-token\":",
         ] {
-            let errors = parse(bytes, "seed-project", &FixedClock).unwrap_err();
+            let errors = parse(bytes, "seed-project", &FixedClock, "US").unwrap_err();
             assert_eq!(errors.errors.len(), 1);
             assert_eq!(errors.errors[0].key, "buckets_file");
             assert!(!errors.to_string().contains("secret"));
@@ -1877,7 +1902,8 @@ mod tests {
                     entry.as_bytes(),
                     "local-project",
                     FixedClock.now(),
-                    CompatProfile::Native
+                    CompatProfile::Native,
+                    "US"
                 )
                 .is_ok()
             );
@@ -1978,7 +2004,8 @@ mod tests {
             parse(
                 br#"{"version":1,"buckets":[{"name":"example-bucket","location":"bad"}]}"#,
                 "bad project",
-                &FixedClock
+                &FixedClock,
+                "US"
             )
             .unwrap_err()
             .errors
@@ -2122,7 +2149,8 @@ mod tests {
                 permissive_api,
                 "local-project",
                 FixedClock.now(),
-                CompatProfile::Native
+                CompatProfile::Native,
+                "US"
             )
             .is_ok()
         );
@@ -2137,7 +2165,8 @@ mod tests {
                 legacy,
                 "local-project",
                 FixedClock.now(),
-                CompatProfile::LegacyEmulator
+                CompatProfile::LegacyEmulator,
+                "US"
             )
             .is_ok()
         );
@@ -2166,12 +2195,16 @@ mod tests {
         let root = &directory.0;
         let file = root.join("buckets.json");
         fs::write(&file, r#"{"version":1,"buckets":[]}"#).unwrap();
-        assert!(load(&file, "seed-project", &FixedClock).unwrap().is_empty());
-        assert!(load(root, "seed-project", &FixedClock).is_err());
-        assert!(load(&root.join("missing"), "seed-project", &FixedClock).is_err());
+        assert!(
+            load(&file, "seed-project", &FixedClock, "US")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(load(root, "seed-project", &FixedClock, "US").is_err());
+        assert!(load(&root.join("missing"), "seed-project", &FixedClock, "US").is_err());
         let relative = Path::new("Cargo.toml");
         assert_eq!(
-            load(relative, "seed-project", &FixedClock)
+            load(relative, "seed-project", &FixedClock, "US")
                 .unwrap_err()
                 .errors[0]
                 .key,
@@ -2180,11 +2213,13 @@ mod tests {
         let relative_directory = crate::test_support::TestDir::new_in(Path::new("."));
         let relative = relative_directory.0.join("buckets.json");
         fs::write(&relative, r#"{"version":1,"buckets":[]}"#).unwrap();
-        assert!(load(&relative, "seed-project", &FixedClock).is_ok());
+        assert!(load(&relative, "seed-project", &FixedClock, "US").is_ok());
         fs::remove_file(relative).unwrap();
         fs::write(&file, vec![b' '; FILE_LIMIT + 1]).unwrap();
         assert!(
-            load(&file, "seed-project", &FixedClock).unwrap_err().errors[0]
+            load(&file, "seed-project", &FixedClock, "US")
+                .unwrap_err()
+                .errors[0]
                 .fix
                 .contains("1 MiB")
         );
@@ -2194,10 +2229,10 @@ mod tests {
             let link = root.join("link.json");
             fs::write(&file, r#"{"version":1,"buckets":[]}"#).unwrap();
             symlink(&file, &link).unwrap();
-            assert!(load(&link, "seed-project", &FixedClock).is_ok());
+            assert!(load(&link, "seed-project", &FixedClock, "US").is_ok());
             fs::set_permissions(&file, fs::Permissions::from_mode(0o0)).unwrap();
             if std::fs::File::open(&file).is_err() {
-                assert!(load(&file, "seed-project", &FixedClock).is_err());
+                assert!(load(&file, "seed-project", &FixedClock, "US").is_err());
             } else {
                 eprintln!(
                     "Unreadable-file assertion not applicable: this principal can open mode 000 files."
@@ -2206,7 +2241,7 @@ mod tests {
             fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
             let fifo = root.join("fifo");
             crate::test_support::fifo(&fifo);
-            assert!(load(&fifo, "seed-project", &FixedClock).is_err());
+            assert!(load(&fifo, "seed-project", &FixedClock, "US").is_err());
         }
     }
 }

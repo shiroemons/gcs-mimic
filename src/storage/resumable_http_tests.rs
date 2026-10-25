@@ -108,6 +108,7 @@ impl Harness {
             clock: clock.clone(),
             catalog,
             api_base_url: base.trim_end_matches('/').into(),
+            default_location: "US".into(),
             auth,
         });
         let config = Config {
@@ -1904,6 +1905,7 @@ async fn acknowledged_prefix_resumes_through_router_after_restart_and_expired_wr
             .await
             .unwrap(),
         api_base_url: h.base.clone(),
+        default_location: "US".into(),
         auth: Auth::permissive(),
     });
     let config = Config {

@@ -16,6 +16,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "data_dir",
     "seed_dir",
     "seed_project",
+    "default_location",
     "buckets_file",
     "api_base_url",
     "public_base_url",
@@ -355,8 +356,8 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "backend" => "the backend selector and memory mode are unsupported; remove this setting and use the default disk-backed native catalog".into(),
         "cert_location" | "private_key_location" => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
         "cors_headers" => "global CORS headers are unsupported. JSON preflight already echoes valid requested headers, so JSON-only callers can remove this setting. For XML/public URLs configure each bucket CORS responseHeader (for example X-Example) with its origins and methods; there is no global native replacement".into(),
-        "location" if matches!(value, "US" | "EU" | "ASIA") => format!("global location is unsupported today; remove this setting; future native-profile GCS_MIMIC_DEFAULT_LOCATION={value} will select a supported default"),
-        "location" => "global location is unsupported today; remove this setting. Future native defaults allow US, EU or ASIA; US-CENTRAL1 is not translated to US and legacy regional defaults remain unsupported".into(),
+        "location" if matches!(value, "US" | "EU" | "ASIA") => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={value} or --default-location {value}; applies only to new buckets without an explicit location; legacy regional defaults remain unsupported"),
+        "location" => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION=US, EU or ASIA. US-CENTRAL1 is not translated to US and legacy regional defaults remain unsupported".into(),
         "log_level" if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("log-level control is unsupported today; remove this setting; future GCS_MIMIC_LOG_LEVEL={} requires effective event filtering", if value == "warning" { "warn" } else { value }),
         "log_level" => "log-level control is unsupported today; remove this setting. Future levels are debug, info, warn or error".into(),
         _ => "event publishing and filters are unsupported; remove this setting; no native publisher alias is available".into(),
@@ -799,6 +800,21 @@ mod tests {
         config.seed_dir = Some(legacy.clone());
         assert!(data_warning(&config, &legacy).is_empty());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_location_advice_uses_effective_native_setting() {
+        for value in ["US", "EU", "ASIA", "US-CENTRAL1", "us-central1", "secret"] {
+            let env = BTreeMap::from([("FAKE_GCS_LOCATION".into(), value.into())]);
+            let report = crate::config::Config::preflight(&[], &env);
+            assert!(report.diagnostics.is_err());
+            assert_eq!(report.diagnostics.errors[0].key, "FAKE_GCS_LOCATION");
+            let advice = report.diagnostics.to_string();
+            assert!(advice.contains("GCS_MIMIC_COMPAT_PROFILE=native"));
+            assert!(advice.contains("GCS_MIMIC_DEFAULT_LOCATION="));
+            assert!(!advice.contains("future"));
+            assert!(!advice.contains("secret"));
+        }
     }
 
     proptest! {

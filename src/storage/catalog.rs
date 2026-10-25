@@ -1424,6 +1424,7 @@ mod tests {
             clock: Arc::new(SystemClock),
             catalog: catalog.clone(),
             api_base_url: "http://127.0.0.1:4443".into(),
+            default_location: "US".into(),
             auth: Default::default(),
         };
         assert!(state.is_ready());

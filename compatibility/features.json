@@ -43581,7 +43581,7 @@
       "source_urls": [],
       "source_checked_at": "2026-10-21",
       "source_evidence": "PROPOSED_PROJECT_REQUIREMENT",
-      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Parent status remains PARTIAL; bound-address API defaults and Compose host-port resumable traversal now pass; independent contract review, dual listeners, log levels and remaining settings retain pending cases in docs/en/slices/configuration-workflows.md.",
+      "notes": "Host and peer-container bucket/object media CRUD use isolated Compose DNS/port and one explicit advertised origin. Scope: docs/en/slices/json-object-media.md; verification/remaining scope: docs/en/evidence/object-media.md. Basic API/CORS/HTTPS integration is verified in docs/en/evidence/cors.md; older descriptions of missing list/metadata/resumable or Ruby functionality are superseded for this frozen basic scope. The 19-variable/legacy-CLI migration, bounded shared JSON diagnostics, independent config/TLS/identity preflight and conservative /data warning are verified in docs/en/evidence/configuration-diagnostics.md. Public-origin helper receiver choices, native/legacy routing, selected-bucket CORS, strict signatures/PAP and DNS/IP/unset ready fields pass native process/wire checks in docs/en/evidence/configuration-public-origin.md. Native US/EU/ASIA default_location, explicit API/initializer precedence, restart preservation, legacy fixed-region validation and native-only migration guidance pass in docs/en/slices/configuration-workflows.md. Parent status remains PARTIAL; bound-address API defaults and Compose host-port resumable traversal pass; independent contract review, dual listeners, log levels, memory and events retain pending cases in that contract.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -43713,9 +43713,17 @@
         },
         {
           "id": "UX-003-REMAINING-SETTINGS",
-          "description": "config-remaining-settings: effective native US/EU/ASIA default_location with explicit API/initializer precedence and existing-bucket preservation; reject explicit legacy use while that profile rejects create locations other than case-insensitive US-CENTRAL1 (including us-central1) and accepts that value without storing it, rendering a fixed regional value.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "config-remaining-settings: native US default and exact US/EU/ASIA default_location via CLI > environment > JSON file > default; reject empty/invalid values. Apply only to omitted locations on new API/initializer buckets; explicit fields and create authorization remain authoritative, invalid explicit fields keep existing errors, and restart/default changes preserve existing buckets. Reject explicit defaults in legacy before catalog access; accept case-insensitive US-CENTRAL1 create locations without storing them and reject other explicit locations. FAKE_GCS_LOCATION fails with actionable native-only guidance without regional translation. Add no global CORS setting. Contract: docs/en/slices/configuration-workflows.md.",
+          "result": "PASS",
+          "test_ids": [
+            "config::tests::default_location_validates_precedence_and_native_profile",
+            "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+            "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
+            "default_location_applies_to_new_api_and_initializer_buckets_only",
+            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+            "default_location_preserves_strict_create_authorization",
+            "legacy_create_location_accepts_only_fixed_region_and_stores_native_us"
+          ]
         },
         {
           "id": "UX-003-MEMORY-EVENTS",
@@ -43726,6 +43734,13 @@
       ],
       "test_ids": [
         "container-host-peer-bucket-crud",
+        "config::tests::default_location_validates_precedence_and_native_profile",
+        "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+        "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
+        "default_location_applies_to_new_api_and_initializer_buckets_only",
+        "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+        "default_location_preserves_strict_create_authorization",
+        "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
         "guide-host-peer-object-media",
         "obj_http_early_rejections_survive_body_larger_than_socket_buffers",
         "ruby-basic-api",
@@ -43766,6 +43781,21 @@
         "ruby-api-default-https"
       ],
       "verification": [
+        {
+          "command": "cargo test --lib location --locked --offline; cargo test --test bucket_http --test bucket_initialization --locked --offline; cargo test --test bucket_http default_location_preserves_strict_create_authorization --locked --offline",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/configuration-workflows.md",
+          "test_ids": [
+            "config::tests::default_location_validates_precedence_and_native_profile",
+            "config_input::tests::legacy_location_advice_uses_effective_native_setting",
+            "bucket_init::tests::initializer_location_uses_default_only_when_omitted",
+            "default_location_applies_to_new_api_and_initializer_buckets_only",
+            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+            "default_location_preserves_strict_create_authorization",
+            "legacy_create_location_accepts_only_fixed_region_and_stores_native_us"
+          ]
+        },
         {
           "command": "just check",
           "result": "PASS",

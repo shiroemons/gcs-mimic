@@ -114,7 +114,7 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | バケットlocation | JSONバケットAPI | `US`・`EU`・`ASIA` |
 | メモリ保存モード | なし | 未対応 |
 | イベント通知先・絞り込み | なし | 未対応 |
-| 全体のlocation既定値 | なし | 未対応 |
+| 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`、`US`・`EU`・`ASIA`に対応 |
 | ログレベル選択 | なし | 未対応 |
 
 ネイティブCLIは`serve --scheme http`などの形式です。
@@ -154,7 +154,19 @@ XMLでは既存のlegacyバケット名規則に従い、Host全体をバケッ�
 URLヘルパー、API応答用URL、権限は引き続き別です。
 strict署名は最終的にクライアントが使うURLへ署名し、後からホストを書き換えません。
 DESIGN-055・UX-003はPARTIALのままです。trusted proxy由来のoriginはDESIGN-056の範囲外作業です。
-`legacy-emulator`の固定`US-CENTRAL1`応答も、locationの自由な設定を意味しません。
+`--default-location`・`GCS_MIMIC_DEFAULT_LOCATION`・JSONの`default_location`で、
+nativeの新規バケットのlocation既定値を選べます。既定は`US`で、値は大文字の`US`・`EU`・`ASIA`だけです。
+優先順位はCLI、環境変数、JSON設定、既定値の順です。
+APIと初期化ファイルでlocationを省略したときに適用し、明示値を優先します。
+設定を変えて再起動しても既存バケットは書き換えません。物理的な配置は再現しません。
+`legacy-emulator`では明示した既定値を拒否します。
+legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
+その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
+ほかの明示locationは拒否します。
+`FAKE_GCS_LOCATION`は引き続き起動エラーとし、nativeの設定を案内します。
+`US-CENTRAL1`を`US`へ自動変換する設定はありません。
+UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のUX-003はPARTIALです。
+グローバルCORS設定は追加しません。
 
 リポジトリのComposeで使う`GCS_MIMIC_PORT`はホスト側の公開ポート用です。
 サーバー自身の環境変数ではなく、バイナリへ渡しても待受設定にはなりません。

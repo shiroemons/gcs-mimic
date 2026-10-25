@@ -93,7 +93,7 @@ The following existing defaults and validation remain unchanged:
 | `public_base_url` | Unset (`config-public-origin`) | `--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL`; absolute HTTP(S) origin with optional port and root path only; no userinfo/query/fragment. Remove root/trailing slashes, lowercase DNS, omit scheme-default ports (HTTP 80/HTTPS 443), preserve other ports and bracket IPv6. Normalization is idempotent. Supplies the three effects below. |
 | `listen_http` | Only for `scheme=both`: primary bind IP with port `8000` (`config-dual-listener`) | `--listen-http` / `GCS_MIMIC_LISTEN_HTTP`; IP socket address, port 0 allowed; reject when scheme is not `both`. Primary `listen` serves HTTPS, second listener HTTP. Bind failure on either prevents ready and releases both listeners. |
 | `log_level` | `info` (`config-log-level`) | `--log-level` / `GCS_MIMIC_LOG_LEVEL`; `debug`, `info`, `warn`, `error`, accepting `warning` as `warn`. Reject other levels. Filtering must affect emitted events; fatal validation diagnostics and stdout lifecycle events remain visible. |
-| `default_location` | Native `US` (`config-remaining-settings`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION`; only existing supported `US`, `EU`, `ASIA`. Applies when creating a native bucket without explicit location; explicit API/initializer location wins. Never rewrites existing buckets or claims regional placement. Explicit use in `legacy-emulator` is rejected until effective legacy location support exists. |
+| `default_location` | Native `US` (implemented in `config-remaining-settings`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; only existing supported `US`, `EU`, `ASIA`. Applies when creating a native API/initializer bucket without explicit location; explicit API/initializer location wins. Never rewrites existing buckets or claims regional placement. Explicit use in `legacy-emulator` is rejected until effective legacy location support exists. |
 
 The location subset is deliberately native-only: the current legacy profile
 rejects create-time locations other than case-insensitive `US-CENTRAL1`
@@ -228,7 +228,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_CERT_LOCATION` | `GCS_MIMIC_TLS_CERT=certs/server.pem` together with `GCS_MIMIC_TLS_KEY=certs/server-key.pem` | Diagnostics |
 | `FAKE_GCS_PRIVATE_KEY_LOCATION` | Matching `GCS_MIMIC_TLS_KEY=certs/server-key.pem` and TLS_CERT; one-sided overrides fail | Diagnostics |
 | `FAKE_GCS_CORS_HEADERS` | Unsupported global setting. JSON preflight already echoes every syntactically valid requested header, so JSON-only callers can remove it. For XML/public URLs, configure each bucket's CORS `responseHeader` (e.g. `["X-Example"]`) with the required origins/methods; there is no global native replacement | Diagnostics |
-| `FAKE_GCS_LOCATION` | Unsupported global default today; future native-profile `GCS_MIMIC_DEFAULT_LOCATION=EU`. Legacy regional defaults remain unsupported; do not silently map `US-CENTRAL1` to `US` | `config-remaining-settings`; BEHAVIOR-BUCKET-003 |
+| `FAKE_GCS_LOCATION` | Rejected with migration advice: use `GCS_MIMIC_COMPAT_PROFILE=native` and `GCS_MIMIC_DEFAULT_LOCATION=EU` (or `US` / `ASIA`). Legacy regional defaults remain unsupported; do not silently map `US-CENTRAL1` to `US` | `config-remaining-settings`; BEHAVIOR-BUCKET-003 |
 | `FAKE_GCS_LOG_LEVEL` | Unsupported today; future `GCS_MIMIC_LOG_LEVEL=info` after structured events have levels | `config-log-level` |
 | `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | Unsupported publisher; remove this key for current startup. Real project integration needs separate EXT-BEH-032 delivery | Separate event plan |
 | `FAKE_GCS_EVENT_PUBSUB_TOPIC` | Unsupported publisher; remove this key; do not suggest an ineffective native topic | Separate event plan |
@@ -485,6 +485,66 @@ verified cases and remaining integration work. Parent DESIGN-055/UX-003 rows
 remain PARTIAL.
 
 ## Acceptance and delivery ownership
+
+### Remaining location settings acceptance
+
+`UX-003-REMAINING-SETTINGS` requires the following bounded native subset:
+
+- Default to `US`; accept only exact `US`, `EU`, or `ASIA` via
+  `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, or JSON `default_location`,
+  with CLI > environment > file > default precedence.
+- Apply the value only to new native API and initializer buckets with omitted
+  location. Explicit resource locations win; invalid explicit locations retain
+  their existing errors. Restarting with a changed default preserves existing
+  buckets, including initializer-created buckets.
+- Reject every explicitly supplied default in `legacy-emulator`, even `US`,
+  before catalog access. Keep case-insensitive `US-CENTRAL1` create input
+  accepted without storing it; reject other explicit legacy locations.
+- Keep project create authorization and initializer administrative authority
+  unchanged. Reject `FAKE_GCS_LOCATION` with actionable native migration advice;
+  do not translate regional values into multi-regions.
+- Add no global CORS setting: the existing JSON preflight and per-bucket XML
+  CORS contract already covers the intended use.
+
+### Remaining location settings verification
+
+Implemented in `1fc1d2f`, verified on 2026-10-25 with Rust 1.99.1 and locked
+dependencies. `default_location` flows through startup State into the shared
+bucket parser and through the initializer's native validation/publication path.
+The catalog, authorization and transaction implementation is unchanged; only
+three storage-test State literals gain the required default field.
+
+| Check | Result |
+| --- | --- |
+| `cargo test --lib location --locked --offline` | PASS, 6 tests, including settings precedence/validation/profile rejection, legacy migration guidance, explicit initializer precedence and existing resumable Location behavior |
+| `cargo test --test bucket_http --test bucket_initialization --locked --offline` | PASS, 70 tests; API/initializer defaults, explicit and invalid input, restart preservation, legacy fixed-region input/storage and existing CRUD/authorization behavior |
+| `cargo test --test bucket_http default_location_preserves_strict_create_authorization --locked --offline` | PASS, 1 test; anonymous/viewer create denied, authorized create uses `EU` |
+| `just check` | PASS, 814 tests across 34 result groups, fmt, Clippy with warnings denied, compatibility/generated views, release mocks and shell checks |
+| Go vet/test stages of `just check-sdk` | PASS, Go 1.27.3, Storage v1.70.0 and API v0.308.0; complete permissive/strict suite |
+| Ruby runner self-check, HTTP permissive and strict/V4 runs | PASS, Ruby 4.0.9, Bundler 4.0.23, Storage 1.62.1; isolated servers with `default_location=EU`, 6 bucket methods, 9 object methods, derived bytes and 3 resumable chunks; strict signing uses the runner's fixture public key |
+| `just check-containers` | PASS, linux/arm64 and linux/amd64 built once; existing CRUD, resumable origin traversal, CORS, persistence, seed and probe smoke checks |
+| `cargo xtask dependencies check` | PASS, every reported compiler/library/SDK/container input CURRENT; no dependency changes |
+| `cargo xtask compatibility render` / `cargo xtask compatibility check` | PASS, 591 rows; English/Japanese matrices regenerated from the same ledger |
+| `npx --yes markdownlint-cli2 docs/en/slices/configuration-workflows.md docs/en/fake-gcs-server-configuration.md docs/ja/fake-gcs-server-configuration.md` | PASS, 3 files, zero issues under the existing configuration |
+
+The emulator setting changes a local default, not provider placement or a
+Google API field. The official [insert reference](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/insert)
+and [locations reference](https://docs.cloud.google.com/storage/docs/locations)
+were fetched on 2026-10-25; HTML SHA-256 values are respectively
+`e7a9796a92dcac31efa78238858bc455f001350625b93d28e3d02de10217a65a` and
+`b9d97b71a42072d5e521533ec47c2aa34576f0a84b92a6ead3a7779aed58722c`.
+The pinned Discovery/protobuf provenance and native location subset remain in
+the [bucket CRUD contract](json-bucket-crud.md#sources-and-provenance).
+Existing bucket PATCH/PUT and placement gaps remain open; no new provider claim
+or regional placement simulation is introduced.
+The legacy create input guard above supersedes the original ignored-location
+local cases in the [core profile contract](bucket-core-parity.md); the pinned
+comparison implementation's behavior is unchanged.
+
+Parent `UX-003` remains PARTIAL for its other pending acceptance cases.
+Global CORS, legacy regional configuration, memory mode and events are outside
+this slice. No benchmark, browser or real-cloud request was performed. Runnable
+guide command blocks are unchanged, so the full guide was not replayed.
 
 ### API origin default acceptance
 

@@ -296,6 +296,7 @@ pub(crate) async fn serve(
         clock,
         catalog,
         api_base_url: ready_api_base_url,
+        default_location: config.default_location.clone(),
         auth,
     });
     println!("{ready}");

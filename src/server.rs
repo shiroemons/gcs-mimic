@@ -39,6 +39,7 @@ pub struct State {
     pub clock: Arc<dyn Clock>,
     pub catalog: Catalog,
     pub api_base_url: String,
+    pub default_location: String,
     pub auth: Auth,
 }
 
@@ -1377,6 +1378,7 @@ async fn bucket_response(
                 &params.project,
                 state.clock.now(),
                 profile,
+                &state.default_location,
             )?;
             let name = record.name.clone();
             let record = state
