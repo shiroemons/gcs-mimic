@@ -69,11 +69,14 @@ use policies::{check_access, insert_policy};
 #[path = "change_journal.rs"]
 pub mod change_journal;
 
+#[path = "import_journal.rs"]
+pub mod import_journal;
+
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
 const MAX_UPLOADS: usize = 8;
-const CATALOG_SCHEMA_VERSION: i64 = 15;
+const CATALOG_SCHEMA_VERSION: i64 = 16;
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -261,6 +264,12 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
             .execute_batch(change_journal::SCHEMA)
             .map_err(unavailable)?;
         change_journal::validate(connection)?;
+    }
+    if version >= 16 {
+        expected
+            .execute_batch(import_journal::SCHEMA)
+            .map_err(unavailable)?;
+        import_journal::validate(connection)?;
     }
     let inventory =
         |db: &Connection| -> Result<Vec<(String, String, String, String)>, CatalogError> {
@@ -487,6 +496,9 @@ impl Catalog {
             }
             if version < 15 {
                 change_journal::migrate(&mut connection)?;
+            }
+            if version < 16 {
+                import_journal::migrate(&mut connection)?;
             }
             let journal_enabled: bool = connection.query_row("SELECT enabled FROM change_journal_state WHERE singleton = 1", [], |row| row.get(0)).map_err(unavailable)?;
             if journal_enabled {
@@ -1554,7 +1566,7 @@ mod tests {
                     ("cache_size", -2048),
                     ("mmap_size", 0),
                     ("busy_timeout", 5000),
-                    ("user_version", 15),
+                    ("user_version", CATALOG_SCHEMA_VERSION),
                 ] {
                     assert_eq!(
                         connection

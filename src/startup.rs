@@ -161,6 +161,29 @@ async fn prepare_startup(
     clock: Arc<dyn Clock>,
     mut shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
 ) -> io::Result<PhaseResult<BoundStartup>> {
+    match race(
+        CancelSafe(catalog.import_journal().in_progress()),
+        shutdown.as_mut(),
+    )
+    .await?
+    {
+        PhaseResult::Complete(Ok(false)) => {}
+        PhaseResult::Complete(Ok(true)) => {
+            return Err(phase(
+                DiagnosticSource::Catalog,
+                "data_dir",
+                "Import is incomplete; resume the same unchanged source export with the import command before serving this destination. Do not remove the import marker.",
+            ));
+        }
+        PhaseResult::Complete(Err(_)) => {
+            return Err(phase(
+                DiagnosticSource::Catalog,
+                "data_dir",
+                "Cannot inspect import state; inspect the native catalog before restarting.",
+            ));
+        }
+        PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
+    }
     // PAP's submitted SQLite job owns its execution permit until completion.
     match race(
         CancelSafe(configure_catalog_policy(catalog, projects)),
@@ -468,6 +491,54 @@ mod tests {
         task::Poll,
         time::{Duration, SystemTime},
     };
+
+    #[tokio::test]
+    async fn unfinished_import_blocks_startup_before_policy_seed_and_bind() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let binding = gcs_mimic::storage::import_journal::ImportBinding {
+            source: [1; 32],
+            fingerprint: [2; 32],
+            expected_elements: 0,
+        };
+        catalog
+            .import_journal()
+            .begin(binding.clone())
+            .await
+            .unwrap();
+        let shutdown = std::future::pending();
+        tokio::pin!(shutdown);
+        let mut config = dir.config();
+        config.seed_dir = Some(dir.0.join("missing-seed"));
+        let failure = prepare_startup(
+            &catalog,
+            &config,
+            &vec!["project".into(); 65],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(failure.to_string().contains("Import is incomplete"));
+        finish_startup(&catalog, Err(failure)).await.unwrap_err();
+        assert!(!catalog.is_healthy());
+        let reopened = Catalog::open(&dir.0).await.unwrap();
+        assert!(reopened.import_journal().in_progress().await.unwrap());
+        reopened.import_journal().finish(binding).await.unwrap();
+        let started = prepare_startup(
+            &reopened,
+            &config,
+            &[],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(started, PhaseResult::Complete(_)));
+        drop(started);
+        reopened.close().await.unwrap();
+    }
 
     struct TestDir(std::path::PathBuf);
 

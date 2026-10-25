@@ -40918,9 +40918,24 @@
         },
         {
           "id": "onboarding-state-import-observations",
-          "description": "Persist paged per-element inode/ctime observations, atomically replace only verified drifted observations and validate repeated-resume/crash behavior without advancing progress. Import requests accepted in docs/en/slices/onboarding-state-contract.md; runtime owner shared-import-journal.",
+          "description": "Storage-side 256-element pages, compare-and-swap inode/ctime replacement, reopen and process-exit-before/after-commit baselines pass in shared-import-journal. Import adapter digest-gated revalidation, unchanged-body no-reread behavior and repeated-resume end-to-end evidence remain pending. Contract: docs/en/slices/shared-import-journal.md.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "shared-import-journal",
+          "description": "Persist an exact source/export binding, bounded contiguous import cursor and active marker; reject changed/foreign resumes, refuse serve before startup mutations and atomically complete the matching import and startup_seed only at the expected count. Schema 15 to 16 migration, rollback/retry and retained stopped snapshots. Contract: docs/en/slices/shared-import-journal.md.",
+          "result": "PASS",
+          "test_ids": [
+            "import_journal_binding_pages_prefix_and_reopen_are_bounded",
+            "import_journal_revalidation_is_atomic_without_advancing_progress",
+            "import_journal_completion_and_seed_rollback_together",
+            "import_journal_migration_rolls_back_and_retries_without_seed_changes",
+            "import_journal_upgrade_preserves_native_state_and_stopped_snapshot",
+            "import_journal_observation_crashes_preserve_committed_baselines",
+            "import_journal_progress_hook_rolls_back_with_its_owning_transaction",
+            "unfinished_import_blocks_startup_before_policy_seed_and_bind"
+          ]
         },
         {
           "id": "onboarding-state-benchmark",
@@ -41000,6 +41015,14 @@
         "journal_retention_activation_restart_and_pap_require_rescan",
         "journal_bucket_iam_compose_and_resumable_share_mutation_transactions",
         "startup-phases-native-startup",
+        "import_journal_binding_pages_prefix_and_reopen_are_bounded",
+        "import_journal_revalidation_is_atomic_without_advancing_progress",
+        "import_journal_completion_and_seed_rollback_together",
+        "import_journal_migration_rolls_back_and_retries_without_seed_changes",
+        "import_journal_upgrade_preserves_native_state_and_stopped_snapshot",
+        "import_journal_observation_crashes_preserve_committed_baselines",
+        "import_journal_progress_hook_rolls_back_with_its_owning_transaction",
+        "unfinished_import_blocks_startup_before_policy_seed_and_bind",
         "sidecar_inspection_is_read_only_and_distinguishes_body_verification",
         "escaped_bucket_aliases_invalid_escapes_suffix_collisions_and_platform_rules_block",
         "metadata_and_body_limits_empty_files_os_detritus_and_page_counts_are_explicit",
@@ -41130,6 +41153,22 @@
             "journal_records_atomic_origins_mutations_and_stable_pages",
             "journal_retention_activation_restart_and_pap_require_rescan",
             "journal_bucket_iam_compose_and_resumable_share_mutation_transactions"
+          ]
+        },
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/shared-import-journal.md",
+          "test_ids": [
+            "import_journal_binding_pages_prefix_and_reopen_are_bounded",
+            "import_journal_revalidation_is_atomic_without_advancing_progress",
+            "import_journal_completion_and_seed_rollback_together",
+            "import_journal_migration_rolls_back_and_retries_without_seed_changes",
+            "import_journal_upgrade_preserves_native_state_and_stopped_snapshot",
+            "import_journal_observation_crashes_preserve_committed_baselines",
+            "import_journal_progress_hook_rolls_back_with_its_owning_transaction",
+            "unfinished_import_blocks_startup_before_policy_seed_and_bind"
           ]
         },
         {

@@ -32,7 +32,7 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
 pub fn downgrade_timestamp_precision(connection: &rusqlite::Connection) {
     connection
         .execute_batch(
-            "DROP TABLE IF EXISTS change_journal; DROP TABLE IF EXISTS change_journal_state;",
+            "DROP TABLE IF EXISTS import_observations; DROP TABLE IF EXISTS import_journal; DROP TABLE IF EXISTS change_journal; DROP TABLE IF EXISTS change_journal_state;",
         )
         .unwrap();
     connection.execute_batch(
