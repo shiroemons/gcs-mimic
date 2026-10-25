@@ -240,6 +240,7 @@ fn process_shutdown_reports_stopped_and_releases_catalog_for_restart() {
                 "shutdown_timeout_ms",
                 "auth_mode",
                 "seed",
+                "buckets_file",
                 "scheme",
                 "tls_handshake_timeout_ms",
                 "public_base_url",

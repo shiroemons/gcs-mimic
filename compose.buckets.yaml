@@ -1,0 +1,6 @@
+services:
+  gcs:
+    environment:
+      GCS_MIMIC_BUCKETS_FILE: /buckets.json
+    volumes:
+      - ./config/buckets.json:/buckets.json:ro

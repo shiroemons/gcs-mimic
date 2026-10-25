@@ -72,6 +72,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     pub seed_dir: Option<PathBuf>,
     pub seed_project: String,
+    pub buckets_file: Option<PathBuf>,
     pub api_base_url: String,
     pub public_base_url: Option<PublicOrigin>,
     pub xml_virtual_host_domains: Vec<String>,
@@ -100,6 +101,7 @@ impl Default for Config {
             data_dir: PathBuf::from("data"),
             seed_dir: None,
             seed_project: "local-project".into(),
+            buckets_file: None,
             api_base_url: "https://127.0.0.1:4443".into(),
             public_base_url: None,
             xml_virtual_host_domains: Vec::new(),
@@ -175,7 +177,11 @@ impl Config {
             match read_config(&selector.value) {
                 Ok(values) => {
                     for (key, value) in values {
-                        let text = setting_text(&value);
+                        let text = if key == "buckets_file" {
+                            value.as_str().map(str::to_owned)
+                        } else {
+                            setting_text(&value)
+                        };
                         if !inputs.push(Input {
                             source: DiagnosticSource::Config,
                             key: key.clone(),
@@ -350,6 +356,12 @@ impl Config {
                         crate::json::validate_project(&value)
                             .map_err(|error| format!("seed_project: {}", error.message))?;
                         config.seed_project = value;
+                    }
+                    "buckets_file" => {
+                        if value.is_empty() {
+                            return Err("buckets_file must not be empty; use buckets.json or omit the setting".into());
+                        }
+                        config.buckets_file = Some(PathBuf::from(value));
                     }
                     "listen" => {
                         config.listen = value
@@ -710,7 +722,7 @@ mod tests {
     }
 
     #[test]
-    fn bucket_initializer_selectors_remain_unsupported_until_startup_integration() {
+    fn bucket_initializer_selectors_follow_precedence_and_reject_empty_paths() {
         let directory = crate::test_support::TestDir::new();
         let file = directory.0.join("config.json");
         std::fs::write(&file, r#"{"buckets_file":"file-buckets.json"}"#).unwrap();
@@ -734,15 +746,40 @@ mod tests {
                 BTreeMap::new(),
             ),
         ] {
+            let loaded = Config::load(&args, &env).unwrap();
+            assert!(loaded.buckets_file.is_some());
+            let args = if source == DiagnosticSource::Cli {
+                vec!["--buckets-file".into(), "".into()]
+            } else {
+                args
+            };
+            let env = if source == DiagnosticSource::Environment {
+                BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE".into(), "".into())])
+            } else {
+                env
+            };
+            if source == DiagnosticSource::Config {
+                std::fs::write(&file, r#"{"buckets_file":""}"#).unwrap();
+            }
             let errors = Config::load(&args, &env).unwrap_err();
             assert_eq!(errors.errors.len(), 1);
             assert_eq!(errors.errors[0].source, source);
             assert_eq!(errors.errors[0].key, key);
-            assert_eq!(
-                errors.errors[0].fix,
-                "Unknown setting; remove it and use --help for supported native settings. Reserved future settings are unsupported."
-            );
+            assert!(errors.errors[0].fix.contains("must not be empty"));
         }
+        std::fs::write(&file, r#"{"buckets_file":"file.json"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        let env = BTreeMap::from([("GCS_MIMIC_BUCKETS_FILE".into(), "env.json".into())]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().buckets_file,
+            Some("env.json".into())
+        );
+        args.extend(["--buckets-file".into(), "cli.json".into()]);
+        assert_eq!(
+            Config::load(&args, &env).unwrap().buckets_file,
+            Some("cli.json".into())
+        );
+        assert_eq!(Config::default().buckets_file, None);
     }
 
     #[test]

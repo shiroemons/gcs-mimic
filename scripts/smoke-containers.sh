@@ -178,6 +178,29 @@ for platform in "$@"; do
   project=
   echo "PASS: $platform build, isolated health, host/DNS access, bucket/object media CRUD, stop/start and down/up persistence, deliberate volume reset, resource limits, SIGINT and SIGTERM"
 
+  project="gcs-mimic-init-${arch}-$$"
+  init_compose=(docker compose -p "$project" -f compose.yaml -f compose.http.yaml -f compose.buckets.yaml)
+  "${init_compose[@]}" config --quiet
+  "${init_compose[@]}" up --detach --no-build --wait --wait-timeout 40
+  service=$("${init_compose[@]}" ps --quiet gcs)
+  address=$("${init_compose[@]}" port gcs 4443)
+  docker inspect "$service" | jq -e '.[0].Mounts | any(.Destination == "/buckets.json" and .RW == false)' >/dev/null
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:2,existing:0,project_mismatches:0})' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/initialized-assets" | jq -e '.versioning.enabled and .cors[0].origin == ["https://browser.example"]' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 -X PATCH \
+    -H 'Content-Type: application/json' --data '{"labels":{"owner":"api"}}' \
+    "http://$address/storage/v1/b/initialized-assets" >/dev/null
+  "${init_compose[@]}" stop --timeout 15
+  "${init_compose[@]}" up --detach --no-build --no-recreate --wait --wait-timeout 40
+  address=$("${init_compose[@]}" port gcs 4443)
+  docker logs "$service" | jq -se 'any(.event == "ready" and .buckets_file == {outcome:"applied",created:0,existing:2,project_mismatches:0})' >/dev/null
+  curl --disable --noproxy '*' --fail --silent --show-error --max-time 5 \
+    "http://$address/storage/v1/b/initialized-assets" | jq -e '.labels.owner == "api"' >/dev/null
+  "${init_compose[@]}" down --volumes
+  project=
+  echo "PASS: $platform read-only bucket initialization mount, ready counts and API mutation persistence"
+
   project="gcs-mimic-seed-${arch}-$$"
   seed_compose=(docker compose -p "$project" -f compose.yaml -f compose.http.yaml -f compose.seed.yaml)
   "${seed_compose[@]}" config --quiet

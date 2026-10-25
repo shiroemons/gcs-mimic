@@ -97,7 +97,8 @@ sources and verification limits, and the generated
 - Data persists in embedded SQLite metadata and separate object files.
   No database server is required. Internal filenames are not object names.
 - A `bucket/object` seed directory can be imported once. Live directory sync
-  and a file for initial per-bucket settings are not implemented yet.
+  is not implemented yet. A [versioned initialization file](docs/en/container-usage.md#initialize-bucket-settings)
+  creates missing buckets before seed, preserving existing settings and API changes.
 - Existing emulator backend metadata/history import is not implemented.
   Development builds reject the 19 known `FAKE_GCS_*` environment variables
   with migration advice and warn on unknown names; use the documented

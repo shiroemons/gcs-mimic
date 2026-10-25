@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-//! Versioned, side-effect-free bucket initialization input validation.
+//! Versioned bucket initialization with complete validation before create-missing.
 
 use crate::{
     bounded_file::{self, ReadError},
@@ -9,6 +9,10 @@ use crate::{
     config::CompatProfile,
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
     json::{parse_insert_with_profile, validate_project},
+    storage::{
+        Catalog,
+        admin::{AdminError, BucketDefinition, EnsureBucket, Origin},
+    },
 };
 use serde::{
     Deserialize, Serialize,
@@ -956,6 +960,94 @@ fn settings(
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum InitOutcome {
+    Disabled,
+    Applied {
+        created: usize,
+        existing: usize,
+        project_mismatches: usize,
+    },
+}
+
+/// Validate once, then publish missing buckets through local administrative authority.
+pub async fn apply(
+    catalog: &Catalog,
+    config: &crate::config::Config,
+    clock: std::sync::Arc<dyn Clock>,
+) -> std::io::Result<InitOutcome> {
+    let Some(path) = config.buckets_file.clone() else {
+        return Ok(InitOutcome::Disabled);
+    };
+    let project = config.seed_project.clone();
+    let records = tokio::task::spawn_blocking(move || load(&path, &project, clock.as_ref()))
+        .await
+        .map_err(|_| {
+            std::io::Error::other(Diagnostics::error(
+                DiagnosticSource::Initializer,
+                "buckets_file",
+                "Cannot finish reading bucket initialization; inspect local resources and restart.",
+            ))
+        })?
+        .map_err(std::io::Error::other)?;
+    let projects: Vec<_> = records
+        .iter()
+        .map(|record| record.project.clone())
+        .collect();
+    let failure = |error: AdminError| {
+        let reason = match error {
+            AdminError::DiskFull => "disk full",
+            AdminError::Busy { .. } => "administrative admission timed out",
+            AdminError::Closed => "catalog closed",
+            AdminError::Corrupt(_) => "catalog corrupt",
+            AdminError::Io(_) => "storage I/O failure",
+            AdminError::Invalid(_) => "invalid bucket definition",
+            _ => "catalog operation failed",
+        };
+        std::io::Error::other(Diagnostics::error(
+            DiagnosticSource::Initializer,
+            "buckets_file",
+            format!(
+                "Cannot initialize buckets ({reason}); inspect the native catalog and available disk space, then restart to retry create-missing."
+            ),
+        ))
+    };
+    let definitions = records
+        .into_iter()
+        .map(BucketDefinition::new)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(failure)?;
+    let results = catalog
+        .admin(Origin::BucketInit)
+        .ensure_buckets(definitions)
+        .await
+        .map_err(failure)?;
+    let mut created = 0;
+    let mut existing = 0;
+    let mut diagnostics = Diagnostics::default();
+    for (index, (result, project)) in results.iter().zip(projects).enumerate() {
+        match result {
+            EnsureBucket::Created(_) => created += 1,
+            EnsureBucket::Existing(record) => {
+                existing += 1;
+                if record.project != project {
+                    diagnostics.warnings.push(Diagnostic::new(
+                        DiagnosticSource::Initializer, format!("buckets[{index}].project"),
+                        "Existing bucket ownership is retained; align or remove this entry, or choose another bucket name, for example local-assets.",
+                    ));
+                }
+            }
+        }
+    }
+    diagnostics.write(std::io::stderr().lock())?;
+    Ok(InitOutcome::Applied {
+        created,
+        existing,
+        project_mismatches: diagnostics.warnings.len(),
+    })
 }
 
 /// Read one selected regular file; relative paths use the process working directory.

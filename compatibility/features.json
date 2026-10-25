@@ -951,7 +951,7 @@
         "completion_conditions": [
           "Use the version-1 JSON schema, --buckets-file / GCS_MIMIC_BUCKETS_FILE / buckets_file, CLI-over-env-over-config precedence and fixed 1 MiB/1000-entry/64 KiB limits in docs/en/slices/bucket-initialization.md. Resolve entry project over file project over seed_project, collect complete native validation diagnostics, reject unknown/IAM/lifecycle settings and authorize initialization as local administration in both auth modes before mutation.",
           "Create missing buckets only; verify independent CORS/versioning effects for two buckets and preserve API changes, existing objects and settings across restarts.",
-          "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime acceptance remains pending; contract review alone is not implementation."
+          "Removing an entry does not delete a bucket; one batched ensure_buckets lookup and one transaction atomically create the missing set. Precommit failure rolls back the set, postcommit failure preserves it, and retry converges. Existing project mismatches warn without mutation, and ready reports disabled or applied with created/existing/project_mismatches counts. Runtime cases map to BUCKET-INIT-INPUT, BUCKET-INIT-STARTUP, BUCKET-INIT-INDEPENDENT-SETTINGS, BUCKET-INIT-PRESERVE-API-CHANGES and BUCKET-INIT-ONBOARDING; broader instruction-level crash injection remains explicit under BUCKET-INIT-ATOMICITY."
         ],
         "deferred_scope": "Continuous file reconciliation of existing bucket policies is not the initializer contract. Directory synchronization and source-state import are independent tracks."
       },
@@ -1001,7 +1001,7 @@
       "storage_contract": "Prefer a transactional metadata catalog plus bounded opaque immutable files; keep foreign seed/filesystem/live-export readers separate from internal persistence. Preserve original data and identities, block lossy import, and validate coherent backup/recovery before cutover. SQLite is the current justified default, not a universal performance winner.",
       "configuration_contract": {
         "requirement": "Support familiar server configuration roles and independent per-bucket extensions without requiring identical fake-gcs-server option names. Keep listener, advertised API URL, public URL construction and host routing distinct.",
-        "current_boundary": "Native server options and per-bucket JSON APIs exist. A multi-bucket initialization file and a combined public-host option do not. This entry changes requirements only, not feature status.",
+        "current_boundary": "Native server options, per-bucket JSON APIs and a version-1 create-missing initialization file exist. A combined public-host option remains separate. This entry describes requirements; feature rows own implementation status.",
         "initialization_policy": "Use a file to create missing buckets with individual settings, then allow API changes. Preserve existing settings and objects on every restart; file changes do not overwrite existing buckets, and removing an entry does not delete a bucket.",
         "acceptance_targets": [
           "Validate the complete initialization input and reject duplicate bucket names before any mutation; reuse shared bucket field, authorization and unsupported-setting checks.",
@@ -1009,10 +1009,7 @@
           "Verify deterministic recovery/retry after partial initialization and document how missing buckets are completed without resetting existing state.",
           "Document source-to-native startup examples for scheme, listen, data, external-url and public-host roles without claiming aliases or equivalent host filtering."
         ],
-        "open_decisions": [
-          "Initialization file syntax, versioning and CLI entry point",
-          "Project ownership, strict-profile identity and credential handling for initialization"
-        ],
+        "open_decisions": [],
         "reference": "docs/en/fake-gcs-server-migration.md#configuration-compatibility-and-extensions"
       },
       "filesystem_sync_contract": {
@@ -2654,9 +2651,9 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-INIT-INDEPENDENT-SETTINGS",
-          "description": "Initialize two buckets with independent XML CORS allow/deny, version history, default holds and PAP; preserve native labels/location/class after legacy startup and native reopen without claiming legacy metageneration-1 rendering parity. Exercise strict/permissive subsequent API permission checks with no implicit grants. Contract: docs/en/slices/bucket-initialization.md; runtime owner init-create-missing, currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Initialized buckets independently enforce XML CORS allow/deny, version history, default holds and PAP rejection of public grants. Native labels/location/class survive legacy startup and native reopen without claiming legacy rendering parity. Strict/permissive API checks grant no implicit authority. Contract and evidence: docs/en/slices/bucket-initialization.md.",
+          "result": "PASS",
+          "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata"]
         },
         {
           "id": "BKT-GET-001",
@@ -2980,6 +2977,8 @@
         }
       ],
       "test_ids": [
+        "initialized_settings_are_independent_and_api_changes_survive_restart",
+        "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata",
         "TestBucketLifecycle",
         "TestBucketSettingsRoundTrip",
         "TestObjectMediaLifecycle",
@@ -3070,6 +3069,13 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {
+          "command": "cargo test --offline --test bucket_initialization",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata"]
+        },
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -5140,9 +5146,9 @@
       "acceptance_cases": [
         {
           "id": "BUCKET-INIT-PRESERVE-API-CHANGES",
-          "description": "After initialization, API PATCH settings/policies and object bytes/versions, conditions, microsecond timestamps and revisions survive restart and changed/removed file entries. Different-project recreation is Existing with warning and no mutation; explicit deletion can be recreated on next startup. Contract: docs/en/slices/bucket-initialization.md; runtime owner init-create-missing, currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "API PATCH metadata, IAM policy, exact object metadata/timestamps/revisions, bytes and versions survive restart and changed/removed entries. Stale conditions still fail. Different-project recreation warns without mutation; explicit deletion is recreated at next startup. Contract and evidence: docs/en/slices/bucket-initialization.md.",
+          "result": "PASS",
+          "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
         },
         {
           "id": "PATCH-LABELS",
@@ -5400,6 +5406,8 @@
         }
       ],
       "test_ids": [
+        "initialized_settings_are_independent_and_api_changes_survive_restart",
+        "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated",
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "TestBucketMetadataUpdate",
         "TestObjectMediaLifecycle",
@@ -5474,6 +5482,13 @@
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
+        {
+          "command": "cargo test --offline --test bucket_initialization",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["initialized_settings_are_independent_and_api_changes_survive_restart", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
+        },
         {
           "command": "just check",
           "result": "PASS",
@@ -39030,7 +39045,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness, without replay over mutations. Native and Linux tests plus the seeded Compose lifecycle pass. Manifest/sidecar metadata remains unimplemented; imported content uses the declared fixed octet-stream type. Scope: docs/en/slices/seed.md; evidence: docs/en/evidence/seed-platform.md. Pinned source formats and pending adapter cases: docs/en/slices/source-storage-contract.md. Typed bounded initializer parsing, native validation and count/byte-bounded shared diagnostics pass in docs/en/slices/bucket-initialization.md; selectors remain rejected until startup application exists. Shared typed administrative authority/create-missing operations are implemented under docs/en/slices/onboarding-state-contract.md; initializer startup application remains pending. Typed startup phases preserve recovery/PAP/seed/bind/readiness order and existing ReadyEvent fields; startup scope and tests: docs/en/slices/startup-phases.md. This does not claim fake-gcs-server metadata/seed equivalence. The typed administrative native subset and limits are verified in docs/en/evidence/shared-admin-interface.md; schema remains 14 and later publication modes/journals remain pending.",
+      "notes": "Read-only bucket-directory fixtures seed fresh catalogs before readiness without replay over mutations; docs/en/slices/seed.md and docs/en/evidence/seed-platform.md retain prior evidence. Version-1 bucket initialization now selects CLI/environment/config input, validates all entries with native semantics, invokes one administrative create-missing batch before seed and reports ready counts/project warnings. Existing API metadata, IAM, object bytes and versions survive restart, changed/removed entries and project mismatches; local initialization grants no API authority in either auth mode. Native process tests, pinned Go/Ruby SDK suites and both container architectures verify the supported scope in docs/en/slices/bucket-initialization.md. Schema stays 14; manifest/sidecar metadata, directory synchronization, source-state import and later publication modes/journals remain pending. Broader commit-boundary kill/ambiguous-result injection is explicitly pending under BUCKET-INIT-ATOMICITY. No performance measurement or complete fake-gcs-server fixture equivalence is claimed.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -39049,16 +39064,16 @@
         },
         {
           "id": "BUCKET-INIT-INPUT",
-          "description": "PENDING: selector parsing and CLI over env over config over unset, duplicate/empty/non-string paths and selected-path-only startup loading. Owner init-create-missing must deliver selectors with effective startup application; the current binary rejects all three surfaces as unknown settings.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Verify selector parsing and CLI over env over config over unset, duplicate/empty/non-string paths and selected-path-only startup loading together with effective startup application; startup failures must suppress ready and preserve complete diagnostics.",
+          "result": "PASS",
+          "test_ids": ["bucket_initializer_selectors_follow_precedence_and_reject_empty_paths", "selected_file_only_is_loaded_and_invalid_paths_fail_without_ready", "validation_reports_all_entries_before_seed_or_mutation"]
         },
         {
           "id": "BUCKET-INIT-PARSER-INPUT",
-          "description": "Parser API verifies working-directory relative paths, regular/symlink/nonregular/unreadable files; Unix opened-descriptor validation is nonblocking for FIFOs. UTF-8/BOM/JSON/trailing content, required integer version 1/root/buckets shapes and empty list pass. Current CLI/env/config selectors are rejected pending startup integration. Owner init-parser.",
+          "description": "Parser API verifies working-directory relative paths, regular/symlink/nonregular/unreadable files; Unix opened-descriptor validation is nonblocking for FIFOs. UTF-8/BOM/JSON/trailing content, required integer version 1/root/buckets shapes and empty list pass. Startup selectors are verified by BUCKET-INIT-INPUT.",
           "result": "PASS",
           "test_ids": [
-            "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
+            "bucket_initializer_selectors_follow_precedence_and_reject_empty_paths",
             "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
             "regular_files_relative_paths_symlinks_and_read_failures"
           ]
@@ -39108,7 +39123,7 @@
         },
         {
           "id": "BUCKET-INIT-DIAGNOSTICS",
-          "description": "Side-effect-free parser detects independent structural/semantic errors in up to 1000 entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Startup suppression awaits BUCKET-INIT-STARTUP integration.",
+          "description": "Side-effect-free parser detects independent structural/semantic errors in up to 1000 entries without existence lookup, including structural/name diagnostics for oversized entries while skipping their native value parsing. Shared initializer JSON sorting/escaping/redaction and suggestions/ties pass. Retention is capped at 256 records/64 KiB with exact omitted counts, always an error without records. Process-level startup suppression passes under BUCKET-INIT-STARTUP.",
           "result": "PASS",
           "test_ids": [
             "invalid_projects_do_not_hide_independent_native_errors",
@@ -39127,27 +39142,21 @@
         },
         {
           "id": "BUCKET-INIT-ATOMICITY",
-          "description": "Require ensure_buckets to perform one batched existing lookup and one transaction for up to 1000 records, return input-ordered Created/Existing and actual existing project, preserve all existing state, and serialize competing callers. Verify all-or-none precommit/disk-full/kill recovery, ambiguous commit retry convergence, injected microsecond Clock and shutdown drain/lock cleanup without choosing Shared state internals. Owners shared-admin-interface and init-create-missing; currently unimplemented.",
+          "description": "Existing shared-admin tests verify batched 1000-record creation, concurrent callers, rollback, ordered Created/Existing and owned SQL drain. Initializer process tests verify restart convergence after later seed/bind failures, and cancellation during validation publishes nothing. Instruction-level kill around commit, ambiguous-commit and initializer-specific disk-full injection remain pending with Shared state; this broader case is not promoted.",
           "result": "PENDING",
-          "test_ids": []
+          "test_ids": ["admin_ensure_batches_preserve_identity_order_and_rollback", "admin_ensure_full_batch_and_concurrent_creates_are_atomic", "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock", "shutdown_during_initializer_validation_never_publishes_or_runs_seed", "committed_initialization_survives_later_seed_and_bind_failures"]
         },
         {
           "id": "BUCKET-INIT-STARTUP",
-          "description": "Verify local administrative initialization in strict/permissive modes before seed, fresh/existing catalog and same-project seed plus separate seed-mismatch failure; disabled/empty/applied ready counts, Existing project-mismatch warnings, all-existing restart and no ready after later seed/bind failure while committed buckets remain. Owners init-create-missing and shared-startup-phases; currently unimplemented.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Local administrative initialization in strict/permissive modes precedes seed; fresh/existing catalogs, same-project seed and separate mismatch failure, disabled/empty/applied counts, project warning, all-existing restart, validation cancellation and no ready after later seed/bind failure pass. Committed buckets remain and retry creates only missing entries.",
+          "result": "PASS",
+          "test_ids": ["initializer_precedes_seed_and_empty_file_is_applied", "committed_initialization_survives_later_seed_and_bind_failures", "validation_reports_all_entries_before_seed_or_mutation", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated", "shutdown_during_initializer_validation_never_publishes_or_runs_seed"]
         },
         {
           "id": "BUCKET-INIT-ONBOARDING",
-          "description": "Execute native and read-only mounted Compose initialization, independent CORS/versioning journey, restart and project warning; update runnable English/Japanese guides, migration and README only after implementation. Owner init-create-missing; no initializer SDK/container/guide run claimed by the contract slice.",
-          "result": "PENDING",
-          "test_ids": []
-        },
-        {
-          "id": "BUCKET-INIT-RESOURCES",
-          "description": "Record one apply duration for a 1000-entry initialization file as a fact, without a regression gate, during init-create-missing. No timing value is recorded yet.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Native initializer process journeys and both source-built container architectures pass, including read-only Compose file mounts, ready counts and API-mutation persistence. Pinned Go and Ruby SDK suites pass; Ruby also runs after configured initialization in strict/permissive modes. English/Japanese guides, migration and README describe the delivered subset.",
+          "result": "PASS",
+          "test_ids": ["container-bucket-initialization", "initializer_precedes_seed_and_empty_file_is_applied", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated"]
         },
         {
           "id": "sync-initial-activation",
@@ -39235,11 +39244,19 @@
         }
       ],
       "test_ids": [
+        "bucket_initializer_selectors_follow_precedence_and_reject_empty_paths",
+        "selected_file_only_is_loaded_and_invalid_paths_fail_without_ready",
+        "validation_reports_all_entries_before_seed_or_mutation",
+        "initializer_precedes_seed_and_empty_file_is_applied",
+        "committed_initialization_survives_later_seed_and_bind_failures",
+        "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated",
+        "shutdown_during_initializer_validation_never_publishes_or_runs_seed",
+        "admin_cancelled_ensure_drains_the_owned_sql_job_before_unlock",
+        "container-bucket-initialization",
         "seeded_http_metadata_bytes_and_strict_administrative_import",
         "process_shutdown_reports_stopped_and_releases_catalog_for_restart",
         "probes_cannot_succeed_while_seed_publication_is_blocked",
         "container-seed-lifecycle",
-        "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
         "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
         "regular_files_relative_paths_symlinks_and_read_failures",
         "inclusive_limit_reads_only_one_extra_byte",
@@ -39274,6 +39291,20 @@
       ],
       "verification": [
         {
+          "command": "cargo test --offline --test bucket_initialization; cargo test --offline --lib bucket_initializer_selectors; cargo test --offline --bin gcs-mimic startup::tests",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["bucket_initializer_selectors_follow_precedence_and_reject_empty_paths", "selected_file_only_is_loaded_and_invalid_paths_fail_without_ready", "validation_reports_all_entries_before_seed_or_mutation", "initializer_precedes_seed_and_empty_file_is_applied", "committed_initialization_survives_later_seed_and_bind_failures", "project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated", "shutdown_during_initializer_validation_never_publishes_or_runs_seed"]
+        },
+        {
+          "command": "bash scripts/smoke-containers.sh --image gcs-mimic:bucket-smoke-arm64-31248 linux/arm64; bash scripts/smoke-containers.sh --image gcs-mimic:bucket-smoke-amd64-31243 linux/amd64",
+          "result": "PASS",
+          "verified_at": "2026-10-25",
+          "artifact": "docs/en/slices/bucket-initialization.md",
+          "test_ids": ["container-bucket-initialization"]
+        },
+        {
           "command": "just check",
           "result": "PASS",
           "verified_at": "2026-10-24",
@@ -39290,7 +39321,6 @@
           "verified_at": "2026-10-24",
           "artifact": "docs/en/slices/bucket-initialization.md",
           "test_ids": [
-            "bucket_initializer_selectors_remain_unsupported_until_startup_integration",
             "malformed_documents_versions_and_shapes_fail_without_parser_leaks",
             "regular_files_relative_paths_symlinks_and_read_failures",
             "inclusive_limit_reads_only_one_extra_byte",

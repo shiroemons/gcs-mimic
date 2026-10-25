@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "project": "local-project",
+  "buckets": [
+    {
+      "name": "initialized-assets",
+      "cors": [{"origin": ["https://browser.example"], "method": ["GET"]}],
+      "versioning": {"enabled": true}
+    },
+    {
+      "name": "initialized-private",
+      "project": "uploads-project",
+      "iamConfiguration": {"publicAccessPrevention": "enforced"}
+    }
+  ]
+}

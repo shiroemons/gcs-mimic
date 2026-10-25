@@ -2,7 +2,7 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Contract and parser updated on **2026-10-24** for `bucket-initialization`, with independent parser review accepted without required changes. The parser API is implemented; CLI/environment/config selectors remain unsupported until startup can apply the file. JSON-BUCKETS-002, JSON-BUCKETS-008 and DESIGN-062 remain PARTIAL. BEHAVIOR-BUCKET-009 retains its implemented API CORS scope without new pending initializer cases. The [feature ledger](../../../compatibility/features.json) owns all status and evidence.
+Startup application updated on **2026-10-25** for `bucket-initialization`. CLI/environment/config selectors load the bounded parser and invoke the existing administrative create-missing batch once before seed. JSON-BUCKETS-002, JSON-BUCKETS-008 and DESIGN-062 remain PARTIAL for their broader scope. BEHAVIOR-BUCKET-009 remains IMPLEMENTED. The [feature ledger](../../../compatibility/features.json) owns all status and evidence.
 
 ## Baseline, sources and ownership
 
@@ -16,9 +16,9 @@ Existing SPEC-PAP-EDGES, SPEC-CORS-EDGES, SPEC-SIGNED-BROWSER-CORS, SPEC-BUCKET-
 
 ## Input selection and limits
 
-The following selectors are reserved and **rejected as unknown settings** by the current binary. Their parsing/precedence remains PENDING for `init-create-missing`, which must deliver selection and startup application together; accepting an ineffective setting would violate the shared configuration rules. Use the bucket API today:
+The following selectors are implemented together with startup application:
 
-| Surface | Reserved input |
+| Surface | Input |
 | --- | --- |
 | CLI | `gcs-mimic serve --buckets-file PATH` |
 | Environment | `GCS_MIMIC_BUCKETS_FILE=PATH` |
@@ -119,7 +119,7 @@ Detect every independent occurrence in the inspected entries, rather than stoppi
 
 The file is trusted, operator-controlled local administrative input, with the same authority as seed. It bypasses API principal permissions in **both strict and permissive authentication modes**, through the Shared state administrative interface; no bearer token, signer key or cloud call belongs in the file. Subsequent API operations enforce their usual profile, IAM/PAP and CORS rules. Initializing a bucket never grants anonymous access, and CORS/public URL construction never grants permission.
 
-Required observable properties of `ensure_buckets`, to be delivered by `shared-admin-interface`:
+Observable properties of the existing `ensure_buckets` administrative interface:
 
 - Accept the fully validated bounded list, with no adapter SQL or direct catalog access. Use one batched existing-name lookup and one transaction for the missing set, not a loop of 1000 separately committed creates. Batch the durability work into one commit; measure actual sync behavior rather than asserting a physical fsync syscall count from the API shape.
 - Classify existence and publish missing buckets atomically, including races with other administrative callers. Return one `Created` or `Existing` result per input in input order; `Existing` must identify its actual owning project so the caller can detect mismatches without a second lookup. An existing record, policy, metageneration, timestamps, objects, versions and holds remain unchanged even if requested settings differ.
@@ -155,13 +155,15 @@ All file values follow native rules even under `compat_profile=legacy-emulator`;
 
 ## Acceptance and delivery
 
-These cases were recorded before implementation. Parser-only input, bounds, validation, diagnostics and lint checks now pass, and the coordinator accepted independent review without critical, major or required-change findings. Application, startup, onboarding and resource measurements remain PENDING. The existing API/seed cases and fidelity stay unchanged. Parser diagnostics tests prove bounded error returns with per-entry representatives/ranges and the existing renderer's JSON behavior; process-level suppression of seed/bind/ready remains part of startup integration. The broader contract acceptance remains PENDING for its owner and does not imply runtime delivery. User-guide updates remain with onboarding, including matching English/Japanese guidance only once startup application exists.
+Startup integration acceptance (recorded before implementation on 2026-10-25): enable all three selectors with existing configuration precedence; load and validate before one administrative batch; report disabled/applied counts and project warnings; preserve API mutations and objects across restart; fail without ready on validation, seed or bind failure; exercise independent CORS/versioning/holds/PAP, both auth modes, native preservation under legacy startup, and a read-only Compose mount. Performance measurement is excluded by the slice's delivery scope; no resource or timing claim will be made.
+
+These cases were recorded before implementation. Parser and startup process tests now cover selection, complete diagnostics without seed/bind/ready, independent settings, API changes, projects, auth/profile interactions and later seed/bind failure with committed initialization retained. The existing API/seed cases and fidelity stay unchanged. Broader shared-state fault-injection cases stay explicitly pending where not covered by its existing tests. Matching English/Japanese onboarding describes the supported subset.
 
 | Ledger row / case | Required verification | Owner |
 | --- | --- | --- |
 | DESIGN-062 / `BUCKET-INIT-CONTRACT` | Review schema/version, selectors, limits, project precedence, full diagnostics, ready, atomicity and API/profile differences; document checks succeed without runtime completion claims | `init-contract` |
-| DESIGN-062 / `BUCKET-INIT-INPUT` | PENDING selector parsing/precedence, unset/empty/invalid path and startup selection; selectors remain rejected until application is delivered | `init-create-missing` |
-| DESIGN-062 / `BUCKET-INIT-PARSER-INPUT` | Working-directory paths, regular/symlink/nonregular/unreadable input; UTF-8/BOM/JSON/trailing data; missing/null/wrong/unknown version/root/array; empty list; current selectors rejected | `init-parser` |
+| DESIGN-062 / `BUCKET-INIT-INPUT` | PASS selector parsing/precedence, unset/empty/non-string/invalid path and selected-path-only startup loading | `init-create-missing` |
+| DESIGN-062 / `BUCKET-INIT-PARSER-INPUT` | Working-directory paths, regular/symlink/nonregular/unreadable input; UTF-8/BOM/JSON/trailing data; missing/null/wrong/unknown version/root/array; empty list | `init-parser` |
 | DESIGN-062 / `BUCKET-INIT-BOUNDS` | Exactly/one-over 1 MiB, 1000 entries and raw/encoded 64 KiB entry/resource; whitespace/escapes/project accounting; bounded read/retention and no partial success | `init-parser` |
 | DESIGN-062 / `BUCKET-INIT-VALIDATION` | All supplied and inherited projects, entry override/default, global decoded duplicate names, repeated JSON members at every depth, nested unknown/typo/output fields, iam/policy/ACL and all lifecycle shapes, disabled UBLA rejection; native semantics in both compatibility profiles | `init-parser` |
 | DESIGN-062 / `BUCKET-INIT-PARSER-LINT` | The parser module denies `clippy::unwrap_used` and `clippy::expect_used`; exceptions are confined to its test module; clippy passes without changing API validation | `init-parser` |
@@ -173,25 +175,29 @@ These cases were recorded before implementation. Parser-only input, bounds, vali
 | JSON-BUCKETS-002 / `BUCKET-INIT-INDEPENDENT-SETTINGS` | Two initialized buckets independently enforce XML CORS allow/deny, version history, default holds and PAP; native metadata after legacy startup/reopen; strict/permissive subsequent API permission checks with no implicit grants | `init-create-missing` |
 | JSON-BUCKETS-008 / `BUCKET-INIT-PRESERVE-API-CHANGES` | API PATCH changes, policies, object bytes/versions, conditions, timestamps and revisions survive restart and edited/removed entries; different-project recreate warns and preserves; explicit delete can be recreated on next startup | `init-create-missing` |
 | DESIGN-062 / `BUCKET-INIT-ONBOARDING` | Read-only Compose file mount, native invocation, CORS/versioning journey, restart and project warning; update runnable English/Japanese guides, migration and README only when implemented | `init-create-missing` |
-| DESIGN-062 / `BUCKET-INIT-RESOURCES` | Record one apply duration for a 1000-entry file as a fact, without a regression gate | `init-create-missing` |
 
-Parser/apply duration, CPU, RSS, cgroup memory, disk and sync counts remain **PENDING**. The coordinator could not provide the shared contract's exclusive resource window during parallel work, so no timing values or regression comparison are recorded. `init-create-missing` will measure empty/1000-entry parsing and application together under the shared profile. Native parser tests do not substitute for those measurements or container/SDK/guide execution. No real Google project, cloud permissions, retention locking or publication is authorized.
+Parser/apply duration, CPU, RSS, cgroup memory, disk and sync counts are not measured. The current slice explicitly excludes benchmarking and resource evidence; the older measurement requirement is superseded by that delivery scope. Bounded input and one administrative transaction remain design requirements. No real Google project, cloud permissions, retention locking or publication is authorized.
 
-Verification on 2026-10-24 against the integrated source-import, public-origin and startup-phase baseline:
+Verification on 2026-10-25 against the integrated source-import, public-origin and startup-phase baseline:
 
 | Command / check | Result |
 | --- | --- |
-| `PATH="$HOME/.cargo/bin:$PATH" just check` | PASS, exit 0; 778 passed tests across 38 result groups, zero failures/ignored tests; includes formatting, workspace clippy/tests, compatibility and hermetic shell/publication checks |
-| `cargo test --lib --offline` | PASS, 223 tests, zero failures/ignored tests; includes 22 parser tests and common/config FIFO regressions |
-| `cargo test --offline --test sign_url_cli` | PASS, 7 tests, including exact key limits, FIFO private keys and final public-origin signing |
-| `cargo test --offline --test seed` | PASS, 13 tests, including fail-closed symlink/special-file input and startup/restart/shutdown regressions |
-| `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` | PASS within `just check`, including module-scoped unwrap/expect denial and test-only exceptions |
-| `npx --yes markdownlint-cli2 docs/en/slices/bucket-initialization.md` | PASS, zero issues; only long-line rule MD013 disabled for prose/tables, consistent with neighboring contracts |
-| `cargo xtask compatibility validate` | PASS, 591 feature rows; parameter/schema inventories remain separate |
-| `cargo xtask compatibility render` | English/Japanese views regenerated from parser acceptance results |
-| `cargo xtask compatibility check` | PASS, ledger and generated views agree |
-| `git diff --check` and scoped ledger comparison | PASS; only initializer cases and its delivery conditions changed; existing feature statuses/evidence and other tracks preserved |
+| `just check` | PASS, exit 0; formatting, workspace clippy/tests, ledger/generated views and hermetic shell/publication checks; zero test failures |
+| `cargo test --offline --test bucket_initialization` | PASS, 7 process tests: settings/CORS/versioning/holds/PAP, restart metadata/policy/bytes/versions/conditions, project ownership/recreation/warnings, complete diagnostics, later seed/bind failures, strict/legacy and selectors |
+| `cargo test --offline --bin gcs-mimic startup::tests` | PASS, 8 tests, including interruption during initializer validation without publication |
+| `cargo test --offline --test foundation` | PASS, 19 tests, including the additive ready key and existing startup/shutdown behavior |
+| `cargo test --offline --lib bucket_initializer_selectors` | PASS, configuration selection and empty-path diagnostics |
+| `just check-sdk` Go stage | PASS, Go 1.27.3, official Storage SDK v1.70.0, full Go vet/test suite against strict/permissive local HTTP servers |
+| Pinned Ruby `https.rb --self-check` and HTTP suites | PASS, Ruby 4.0.9, Bundler 4.0.23, google-cloud-storage 1.62.1; strict/permissive servers initialized from `config/buckets.json`; signed GET/PUT and response overrides included |
+| `just check-containers` build; `bash scripts/smoke-containers.sh --image IMAGE PLATFORM` smoke | PASS final Linux ARM64 and emulated AMD64 smoke, including read-only initializer mounts, ready counts, API mutation persistence and existing seed lifecycle; each image built once |
+| `cargo xtask dependencies check` | PASS, all compiler/library/SDK/container inputs CURRENT; no dependency changes |
+| Markdownlint on changed English/Japanese guides and contract | PASS, zero issues, following existing per-file rules |
+| `cargo xtask compatibility render` | PASS, 591 rows validated; English/Japanese views generated from the same ledger |
 
-Independent parser review passed; broader contract and runtime acceptance remain with their owners. SDK/container/guide execution was not run for this parser-only slice; startup application remains unavailable. The parser-slice dependency check verified Rust 1.99.1, libc 0.2.191 and other direct dependencies, but exited 1 for rusqlite 0.41.0 (then locked at 0.40.2), owned by Shared state/dependency updates, and the distroless image update, owned by Distribution. Both updates were assigned review by 2026-10-25. The subsequent [rusqlite migration](../evidence/rusqlite-update.md) adopts 0.41.0 and resolves that package drift; distroless remains open with Distribution and the 2026-10-25 review deadline. The locked image digest is `sha256:83b9b50586253821cf63ffcec87d3d94265a093ad30da232039af962dd8f4edf`; the detected digest is `sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e`. No freshness exception is claimed here. The existing planning document contains the absolute-path scan command's own search patterns; this slice adds no local paths. Mode-000 unreadability is asserted only when the process actually cannot open the file; privileged runs explicitly report that assertion as inapplicable. Unix FIFO fixtures use the `mkfifo` command to keep new unsafe code out of these modules; temporary inputs use cleanup guards independent of `CARGO_TARGET_DIR`. Wire tests and signing tests load that helper once through their existing common module, with short random directory names preserving macOS Unix-socket fixture capacity. Source-import, public-origin and startup-phase code, ledger cases and evidence remain preserved; the parser still has no startup call site.
+The checked process cases are `initialized_settings_are_independent_and_api_changes_survive_restart`, `project_mismatch_warns_without_mutation_and_deleted_buckets_are_recreated`, `validation_reports_all_entries_before_seed_or_mutation`, `committed_initialization_survives_later_seed_and_bind_failures`, `initializer_precedes_seed_and_empty_file_is_applied`, `strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata` and `selected_file_only_is_loaded_and_invalid_paths_fail_without_ready`. Startup cancellation uses `shutdown_during_initializer_validation_never_publishes_or_runs_seed`. These map respectively to the delivery gate's schema/diagnostics, settings/preservation and atomic create-missing/restart requirements. Existing shared-admin tests supply batch/rollback/cancellation evidence without adapter SQL or storage changes.
 
-Next is `init-create-missing`, after Shared state startup and administrative interfaces are available. It must call the parser before `ensure_buckets`, preserve its complete diagnostics and stop startup on error, then validate create-missing/restart/settings effects and onboarding. Continuous reconciliation, IAM policy bootstrap, lifecycle, directory synchronization, source import, additional settings/dependencies and other tracks' internals are outside this contract.
+The current dependency check verifies Rust 1.99.1 and rusqlite 0.41.0, with runtime image digest `sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e`. No benchmark, real-cloud differential test, Windows execution or instruction-level commit/kill fault injection is claimed. The existing Shared state tests cover 1000-entry/concurrent batch atomicity, injected precommit rollback and cancellation drain; the broader initializer atomicity case remains PENDING for its untested crash/disk-full boundaries. The absolute-path scan finds only the existing planning command's own patterns. Parser unreadability assertions retain their privilege-aware behavior.
+
+The implemented application uses one bounded blocking read/validation job, followed by one `ensure_buckets` call. Cancellation during validation drops its waiter without publishing; the blocking job has no catalog access and runtime teardown joins it. Cancellation of a submitted administrative wait leaves its owned SQLite permit intact; catalog close drains it before unlocking, as verified by Shared state's existing cancellation test. Project mismatches emit safe diagnostics without project values. The source and input files are never rewritten.
+
+Continuous reconciliation, IAM policy bootstrap, lifecycle, directory synchronization, source import, additional settings/dependencies and other tracks' internals remain outside this contract. The next independent slice is directory synchronization or source import; neither is implied by initialization delivery.

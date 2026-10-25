@@ -1982,6 +1982,7 @@ for the bounded input, redaction and `/data` inspection rules.
 | `--data-dir` | `GCS_MIMIC_DATA_DIR` | `data` relative to cwd | Nonempty path; exclusive catalog ownership |
 | `--seed-dir` | `GCS_MIMIC_SEED_DIR` | none | Stable read-only bucket-directory input; only before initial catalog completion |
 | `--seed-project` | `GCS_MIMIC_SEED_PROJECT` | `local-project` | Existing bucket project validation; administrative import |
+| `--buckets-file` | `GCS_MIMIC_BUCKETS_FILE` | none | JSON v1; validate all entries and create missing buckets before seed; existing buckets are preserved |
 | `--api-base-url` | `GCS_MIMIC_API_BASE_URL` | `https://127.0.0.1:4443` | Default scheme follows listener mode; explicit absolute HTTP(S) base remains independent; optional base path, no credentials/query/fragment |
 | `--max-connections` | `GCS_MIMIC_MAX_CONNECTIONS` | 32 | 1–1024 |
 | `--worker-threads` | `GCS_MIMIC_WORKER_THREADS` | 2 | 1–32 |
@@ -2038,6 +2039,31 @@ are rejected without changing their data; automatic recovery of deleted v2 gener
 unavailable. Recovery ignores `.DS_Store` and `._*` OS metadata; other invalid storage
 entries stop startup with a path diagnostic. Object `selfLink` addresses the current
 resource without a generation query; `mediaLink` selects the returned generation.
+
+## Initialize missing buckets from a file
+
+After building the binary, run this from the repository root:
+
+```sh
+target/debug/gcs-mimic serve --scheme http --buckets-file config/buckets.json
+```
+
+This creates `initialized-assets` with XML CORS and versioning and
+`initialized-private` in a different project with PAP enforced. The stdout ready
+event includes `buckets_file` with `created`, `existing` and `project_mismatches`.
+Without a selector its outcome is `disabled`; an empty list is `applied` with zeros.
+The selector also accepts `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`,
+using CLI > environment > config. Relative paths use the process working directory.
+
+Restart with the same data directory to retain API changes and object versions;
+only missing buckets are created, even if settings in the file change. Removed
+entries remain stored. Different existing projects warn without changing owners.
+Initialization runs before seed, using local administrative authority in strict
+and permissive modes, and grants no API permissions. Invalid entries stop startup
+with complete diagnostics and no ready event. IAM policies, ACLs, lifecycle, UBLA
+and unknown fields are rejected even when empty or disabled. Limits are 1 MiB,
+1000 buckets and 64 KiB per entry. See the [schema](slices/bucket-initialization.md)
+and [read-only Compose example](container-usage.md#initialize-bucket-settings).
 
 ## Seed a fresh native catalog and read a byte range
 

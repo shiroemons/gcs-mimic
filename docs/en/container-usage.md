@@ -105,12 +105,40 @@ Create another bucket with different rules, or change existing rules with
 `PATCH /storage/v1/b/BUCKET`. Bucket CORS governs XML object endpoints;
 JSON endpoints use fixed CORS defaults. CORS does not grant object permissions.
 
-A file that initializes missing buckets and their settings, alongside later
-API updates, is a planned capability. Existing settings will be preserved on
-restart; removing an entry will not delete a bucket. The initializer and its
-file syntax are not implemented. The current server JSON configuration and seed
-directory do not provide this feature. See the
-[configuration requirements](fake-gcs-server-migration.md#configuration-compatibility-and-extensions).
+## Initialize bucket settings
+
+For a source checkout, the supplied `config/buckets.json` creates two buckets
+with separate CORS, versioning and project settings. Start with its read-only mount:
+
+```sh
+docker compose -f compose.yaml -f compose.http.yaml -f compose.buckets.yaml \
+  up -d --build --wait
+curl --fail http://localhost:4443/storage/v1/b/initialized-assets
+```
+
+For another Compose file, add `GCS_MIMIC_BUCKETS_FILE: /buckets.json` to its
+environment and `./buckets.json:/buckets.json:ro` to its volumes. The file must
+exist before startup. Its JSON shape is:
+
+```json
+{"version":1,"project":"local-project","buckets":[
+  {"name":"web-assets","cors":[{"origin":["http://localhost:3000"],"method":["GET"]}]},
+  {"name":"private-uploads","versioning":{"enabled":true}}
+]}
+```
+
+Each startup validates the entire file, then creates only missing buckets before
+seed. Existing settings, IAM policies, timestamps and objects remain unchanged;
+edit them through the API. Removing an entry never deletes a bucket. A deleted
+bucket can be recreated at the next startup. A different existing project emits
+a warning and increments ready's `project_mismatches`, preserving its owner.
+
+Entry `project` overrides file `project`, then `GCS_MIMIC_SEED_PROJECT`
+(default `local-project`). Initializer v1 rejects IAM policies, ACLs, lifecycle,
+UBLA and unknown fields, including disabled or empty unsupported settings.
+Initialization is local administration in both auth modes and grants no API
+permissions. CORS applies to XML; JSON uses its fixed defaults.
+See the [schema, limits and ready counts](slices/bucket-initialization.md).
 
 ## Further setup
 

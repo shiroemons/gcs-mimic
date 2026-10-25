@@ -25,15 +25,15 @@ blocks another track; a higher-priority row does not make every later row wait.
 | --- | --- | --- | --- |
 | First | Pull an image and finish HTTP quick start | Release/platform gates and authorized publication | All implementation tracks |
 | First | Translate familiar CLI/environment settings and public-host behavior | Pinned option, URL and routing contracts | Image preparation and storage design |
-| Next | Initialize multiple buckets with independent settings from a file | Initialization identity/schema and shared mutation contract | Directory sync and import |
 | Next | Edit bucket/object files and see changes through the API in both directions | Conflict/name/recovery design and shared mutation contract | Initializer and import |
 | Next | Preserve fixture MIME/metadata and import existing filesystem data | Pinned source format, preservation and recovery contract | Initializer and directory sync |
 | Then | Run Rails and close remaining reference capabilities | Each API/profile contract; existing prerequisites in the detailed plan | Independent clients/protocols |
 | Final gate | Release a verified functional superset as 1.0.0 | Complete baseline, migration, named additions and release evidence | Gate combines completed tracks |
 
 Public image publication is pending; local ARM64 and emulated AMD64 images pass
-the [onboarding checks](evidence/container-onboarding.md). Initialization files,
-directory synchronization and source-state import are not implemented.
+the [onboarding checks](evidence/container-onboarding.md). Version-1 initialization
+files create missing buckets and preserve API changes; directory synchronization
+and source-state import are not implemented.
 
 Configuration work covers all [19 source environment variables](fake-gcs-server-configuration.md).
 Missing behavior includes combined public-host/routing configuration, dual
@@ -65,7 +65,8 @@ dependencies, acceptance cases and ownership boundaries.
 
 The bucket initialization file creates **missing buckets only**. Restart keeps
 existing settings and objects, including API changes. Removing a file entry
-does not delete a bucket. File syntax and initialization identity remain open.
+does not delete a bucket. Its [version-1 schema and local administrative authority](slices/bucket-initialization.md)
+are implemented; IAM policy bootstrap remains outside that schema.
 
 Directory sync must handle API/file conflicts, unusual names, partial writes,
 missed events and recovery. Those policies must be fixed before implementation.

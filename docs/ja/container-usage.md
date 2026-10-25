@@ -103,10 +103,41 @@ curl --fail -H 'Content-Type: application/json' \
 `PATCH /storage/v1/b/BUCKET`を使います。バケットCORSはXML用で、
 JSON APIは固定のCORSルールを使います。CORSを許可しても読み取り権限は増えません。
 
-複数バケットの初期設定ファイルは未実装です。
-予定している方式では、未作成のバケットだけを初期化し、以後はAPIで変更します。
+## 初期バケット設定ファイルを使う
+
+ソースから実行する場合、同梱の`config/buckets.json`を読み取り専用で渡せます。
+CORS・バージョニング・projectが異なる2バケットを作る例です。
+
+```sh
+docker compose -f compose.yaml -f compose.http.yaml -f compose.buckets.yaml up -d --build --wait
+curl --fail http://localhost:4443/storage/v1/b/initialized-assets
+```
+
+別のComposeには、既存のenvironmentへ`GCS_MIMIC_BUCKETS_FILE: /buckets.json`、
+volumesへ`./buckets.json:/buckets.json:ro`を追記します。ファイルは起動前に作ります。
+
+```json
+{"version":1,"project":"local-project","buckets":[
+  {"name":"web-assets","cors":[{"origin":["http://localhost:3000"],"method":["GET"]}]},
+  {"name":"private-uploads","versioning":{"enabled":true}}
+]}
+```
+
+毎回、全件を検証してからseedより先に未作成バケットだけを作り、以後はAPIで変更します。
 再起動時に既存設定を上書きせず、ファイルから項目を消してもバケットを削除しません。
-ファイル形式とCLIは未確定です。現在のサーバーJSON設定やseedでは代用できません。
+APIで削除したバケットは次回起動時に再作成します。既存projectが異なる場合は
+所有者を保ち、stderrで警告し、readyの`project_mismatches`へ件数を出します。
+
+選択順は`--buckets-file PATH`、`GCS_MIMIC_BUCKETS_FILE`、サーバーJSONの
+`buckets_file`です。エントリの`project`、ファイルの`project`、`seed_project`
+（既定`local-project`）の順に所有projectを決めます。
+strictでもローカル管理として初期化し、API権限は付与しません。
+IAMポリシー、ACL、lifecycle、UBLA、未知フィールドは空・無効でも拒否します。
+JSON APIの固定CORSとXMLのバケット別CORSは別です。
+上限はファイル1MiB、1000件、各64KiBです。
+JSON-BUCKETS-002、JSON-BUCKETS-008、DESIGN-062はPARTIAL、
+BEHAVIOR-BUCKET-009はIMPLEMENTEDを維持します。
+詳細は[英語の契約](../en/slices/bucket-initialization.md)を参照してください。
 
 ## 詳しい手順
 

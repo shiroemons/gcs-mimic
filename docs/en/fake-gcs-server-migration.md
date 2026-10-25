@@ -176,21 +176,21 @@ bucket through the shared bucket API and catalog. Do not create per-bucket
 environment-variable suffixes or overload a global public-host setting with
 bucket permissions or CORS.
 
-The agreed extension is an initialization file listing multiple buckets and
-their individual settings, with later API updates. On startup, create only
+The `--buckets-file PATH` extension reads a version-1 JSON initialization file
+listing multiple buckets and their individual settings. On startup, create only
 missing buckets. Existing bucket settings and objects survive unchanged, even
 when the file differs; removing an entry does not delete its bucket. This keeps
 restart from undoing API changes. Changing an existing bucket remains an API
-operation. This initializer is not implemented; the file syntax and CLI entry
-point are still to be designed.
+operation. Select it with `GCS_MIMIC_BUCKETS_FILE` or server JSON `buckets_file`;
+CLI overrides environment, then config. See the [runnable example](container-usage.md#initialize-bucket-settings).
 
-The initializer must use the same field validation, authorization, persistence
-and unsupported-setting errors as the bucket API. Validate the whole file before
-mutations, reject duplicate names, and verify retry behavior after interruption.
-Two buckets with different CORS/versioning rules must stay independent after
-API changes and restart. Do not claim that accepting a field implements its
-behavior. The planning record is
-`delivery_plan.migration.configuration_contract` in the feature ledger.
+The initializer always uses native field validation and local administrative
+authority, including in strict mode. It grants no subsequent API permissions.
+It validates the whole file before one atomic create-missing batch, rejects
+duplicate names, IAM policies, lifecycle and unknown fields, and retries without
+overwriting committed buckets. Existing project mismatches warn without moving
+ownership. This differs from API insertion and legacy response rendering;
+the [contract](slices/bucket-initialization.md) specifies limits and supported fields.
 
 ## Profiles and conflicting behavior
 

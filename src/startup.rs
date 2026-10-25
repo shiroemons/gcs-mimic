@@ -1,5 +1,6 @@
 use gcs_mimic::{
     auth::Auth,
+    bucket_init::InitOutcome,
     clock::{Clock, SystemClock},
     config::Config,
     diagnostics::{DiagnosticSource, Diagnostics, combine_shutdown_results as merge_close_result},
@@ -53,6 +54,7 @@ pub(crate) struct ReadyEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     identities: Option<usize>,
     seed: SeedOutcome,
+    buckets_file: InitOutcome,
     scheme: &'static str,
     tls_handshake_timeout_ms: u64,
     public_base_url: Option<String>,
@@ -60,7 +62,13 @@ pub(crate) struct ReadyEvent {
 }
 
 impl ReadyEvent {
-    pub(crate) fn new(config: &Config, auth: &Auth, listen: SocketAddr, seed: SeedOutcome) -> Self {
+    pub(crate) fn new(
+        config: &Config,
+        auth: &Auth,
+        listen: SocketAddr,
+        seed: SeedOutcome,
+        buckets_file: InitOutcome,
+    ) -> Self {
         Self {
             event: "ready",
             listen,
@@ -77,6 +85,7 @@ impl ReadyEvent {
             auth_mode: auth.mode().as_str(),
             identities: auth.identity_count(),
             seed,
+            buckets_file,
             scheme: config.scheme.as_str(),
             tls_handshake_timeout_ms: config.tls_handshake_timeout_ms,
             public_base_url: config
@@ -91,6 +100,7 @@ impl ReadyEvent {
 struct BoundStartup {
     listener: tokio::net::TcpListener,
     seed: SeedOutcome,
+    buckets_file: InitOutcome,
 }
 
 async fn open_catalog(
@@ -121,7 +131,7 @@ async fn prepare_startup(
     catalog: &Catalog,
     config: &Config,
     projects: &[String],
-    clock: &dyn Clock,
+    clock: Arc<dyn Clock>,
     mut shutdown: Pin<&mut impl Future<Output = io::Result<()>>>,
 ) -> io::Result<PhaseResult<BoundStartup>> {
     // PAP's submitted SQLite job owns its execution permit until completion.
@@ -134,11 +144,24 @@ async fn prepare_startup(
         PhaseResult::Complete(result) => result?,
         PhaseResult::Stopped => return Ok(PhaseResult::Stopped),
     }
-    // Future initializer/import/sync phases must define their own cancellation contract here.
+    // Loading has no effects; submitted administrative jobs retain their permits through close.
+    let PhaseResult::Complete(buckets_file) = race(
+        CancelSafe(gcs_mimic::bucket_init::apply(
+            catalog,
+            config,
+            clock.clone(),
+        )),
+        shutdown.as_mut(),
+    )
+    .await?
+    else {
+        return Ok(PhaseResult::Stopped);
+    };
+    let buckets_file = buckets_file?;
     // Seed drops only source reads/request waits; publication and cleanup own upload permits.
     let PhaseResult::Complete(seed) = race(
         CancelSafe(async {
-            gcs_mimic::seed::import(catalog, config, clock)
+            gcs_mimic::seed::import(catalog, config, clock.as_ref())
                 .await
                 .map_err(|error| phase(DiagnosticSource::Seed, "seed_dir", &seed_failure(&error)))
         }),
@@ -171,7 +194,11 @@ async fn prepare_startup(
         return Ok(PhaseResult::Stopped);
     };
     let listener = listener?;
-    Ok(PhaseResult::Complete(BoundStartup { listener, seed }))
+    Ok(PhaseResult::Complete(BoundStartup {
+        listener,
+        seed,
+        buckets_file,
+    }))
 }
 
 async fn close_startup(catalog: &Catalog, result: io::Result<()>) -> io::Result<()> {
@@ -212,11 +239,15 @@ pub(crate) async fn serve(
         PhaseResult::Complete(catalog) => catalog,
         PhaseResult::Stopped => return Ok(()),
     };
-    let BoundStartup { listener, seed } = match prepare_startup(
+    let BoundStartup {
+        listener,
+        seed,
+        buckets_file,
+    } = match prepare_startup(
         &catalog,
         &config,
         auth.public_access_prevention_projects(),
-        clock.as_ref(),
+        clock.clone(),
         shutdown.as_mut(),
     )
     .await
@@ -234,7 +265,14 @@ pub(crate) async fn serve(
             )
         })
         .and_then(|address| {
-            serde_json::to_string(&ReadyEvent::new(&config, &auth, address, seed)).map_err(|_| {
+            serde_json::to_string(&ReadyEvent::new(
+                &config,
+                &auth,
+                address,
+                seed,
+                buckets_file,
+            ))
+            .map_err(|_| {
                 phase(
                     DiagnosticSource::Runtime,
                     "ready",
@@ -565,7 +603,7 @@ mod tests {
                     &catalog,
                     &config,
                     &projects,
-                    &SystemClock,
+                    Arc::new(SystemClock),
                     shutdown.as_mut(),
                 );
                 tokio::pin!(work);
@@ -625,6 +663,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shutdown_during_initializer_validation_never_publishes_or_runs_seed() {
+        let dir = TestDir::new();
+        let mut config = dir.config();
+        config.data_dir = dir.0.join("data");
+        config.buckets_file = Some(dir.0.join("buckets.json"));
+        fs::write(
+            config.buckets_file.as_ref().unwrap(),
+            r#"{"version":1,"buckets":[{"name":"pending-bucket"}]}"#,
+        )
+        .unwrap();
+        let catalog = Catalog::open(&config.data_dir).await.unwrap();
+        let (entered, validating) = tokio::sync::oneshot::channel();
+        let (release, released) = mpsc::channel();
+        let clock = Arc::new(RecoveryClock {
+            entered: Mutex::new(Some(entered)),
+            release: Mutex::new(released),
+        });
+        let (signal, shutdown) = tokio::sync::oneshot::channel();
+        let shutdown = async { shutdown.await.map_err(io::Error::other) };
+        tokio::pin!(shutdown);
+        {
+            let work = prepare_startup(&catalog, &config, &[], clock, shutdown.as_mut());
+            tokio::pin!(work);
+            tokio::select! {
+                _ = validating => {},
+                _ = &mut work => panic!("startup completed before validation was released"),
+            }
+            signal.send(()).unwrap();
+            assert!(matches!(work.await, Ok(PhaseResult::Stopped)));
+        }
+        release.send(()).unwrap();
+        close_startup(&catalog, Ok(())).await.unwrap();
+        let reopened = Catalog::open(&config.data_dir).await.unwrap();
+        assert!(
+            reopened
+                .admin(gcs_mimic::storage::admin::Origin::BucketInit)
+                .get_bucket(&gcs_mimic::storage::admin::BucketName::new("pending-bucket").unwrap())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        reopened.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn startup_failures_close_catalog_even_with_live_handles() {
         let dir = TestDir::new();
         let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -636,7 +719,7 @@ mod tests {
             &catalog,
             &config,
             &vec!["project".into(); 65],
-            &SystemClock,
+            Arc::new(SystemClock),
             shutdown.as_mut(),
         )
         .await
@@ -660,10 +743,16 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut config = dir.config();
         config.listen = listener.local_addr().unwrap();
-        let failure = prepare_startup(&reopened, &config, &[], &SystemClock, shutdown.as_mut())
-            .await
-            .err()
-            .expect("bind failure");
+        let failure = prepare_startup(
+            &reopened,
+            &config,
+            &[],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .err()
+        .expect("bind failure");
         assert!(failure.to_string().contains("Address already in use"));
         finish_startup(&reopened, Err(failure)).await.unwrap_err();
         assert!(!reopened.is_healthy());

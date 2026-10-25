@@ -467,10 +467,11 @@ flowchart TD
 ```
 
 For settings, document equivalent uses through native `GCS_MIMIC_*` options;
-identical flag names and suffixes are not required. Plan a separate multi-bucket
-initialization file that creates missing buckets and preserves existing API
-settings on restart. The initializer and legacy-key diagnostics are not yet
-implemented. Seed input and persistent destination remain separate. Existing
+identical flag names and suffixes are not required. The version-1 multi-bucket
+initialization file creates missing buckets and preserves existing API settings
+on restart. See the [initializer contract](slices/bucket-initialization.md);
+broader shared-state crash injection remains pending. Seed input and persistent
+destination remain separate. Existing
 source-build Compose `GCS_MIMIC_PORT` publishes a host port; do not reinterpret
 it as the container listener. See the
 [configuration contract](fake-gcs-server-migration.md#configuration-compatibility-and-extensions).
