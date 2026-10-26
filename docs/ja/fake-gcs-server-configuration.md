@@ -3,8 +3,8 @@
 <!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
 
 fake-gcs-serverの設定は、名前を一括置換せず用途ごとに対応させます。
-開発版のgcs-mimicは既知19個の`FAKE_GCS_*`を移行案内付きのエラーにし、未知の名前は警告します。
-空の値もエラーです。別名としては使えません。0.1.0での無視から変更しています。
+gcs-mimicは既知19個の`FAKE_GCS_*`を移行案内付きのエラーにし、未知の名前は警告します。
+空の値もエラーです。別名としては使えません。
 
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)

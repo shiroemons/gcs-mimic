@@ -72,10 +72,9 @@ the help text. Event-list validation occurs only when notifications are enabled.
 
 ## Current gcs-mimic equivalents
 
-Use native names by role. **The development binary rejects all 19 known
+Use native names by role. **gcs-mimic rejects all 19 known
 `FAKE_GCS_*` variables**, including empty values, with migration instructions;
 they are not aliases. Unknown `FAKE_GCS_*` names warn without stopping startup.
-This intentionally changes 0.1.0's silent-ignore behavior for the next minor.
 Unknown `GCS_MIMIC_*` names fail validation, and an empty native value does not
 generally mean “use the default.” See the
 [native configuration reference](getting-started.md#native-binary-and-configuration).

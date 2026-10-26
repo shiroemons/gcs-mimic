@@ -97,10 +97,11 @@ sources and verification limits, and the generated
 - A `bucket/object` seed directory can be imported once. Live directory sync
   is not implemented yet. A [versioned initialization file](docs/en/container-usage.md#initialize-bucket-settings)
   creates missing buckets before seed, preserving existing settings and API changes.
-- Existing emulator backend metadata/history import is not implemented.
-  Development builds reject the 19 known `FAKE_GCS_*` environment variables
-  with migration advice and warn on unknown names; use the documented
-  `GCS_MIMIC_*` settings. This changes 0.1.0's silent-ignore behavior.
+- `gcs-mimic import fake-gcs-server` converts live objects from a stopped
+  fake-gcs-server filesystem snapshot; archived history is not imported.
+  The 19 known `FAKE_GCS_*` environment variables are rejected
+  with migration advice and unknown names warn; use the documented
+  `GCS_MIMIC_*` settings.
 - Runtime stderr uses JSON events, filtered by `--log-level` or
   `GCS_MIMIC_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
   Configuration diagnostics and stdout `ready` / `stopped` always remain visible.
