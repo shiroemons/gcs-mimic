@@ -2079,6 +2079,8 @@ async fn retryable_publish_and_commit_failures_preserve_the_prefix_and_allocate_
                 .body,
             chunk
         );
+        // Close the test's own catalog handle first; `stop` removes the directory.
+        drop(connection);
         h.stop().await;
     }
 }
@@ -2202,6 +2204,8 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
             .body,
         bytes
     );
+    // Close the test's own catalog handle first; `stop` removes the directory.
+    drop(database);
     h.stop().await;
 }
 

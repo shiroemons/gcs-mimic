@@ -707,7 +707,7 @@ fn xml_put_chunked_trailers_and_body_deadlines_cannot_publish() {
     let mut received = Vec::new();
     match stream.read_to_end(&mut received) {
         Ok(0) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+        Err(error) if common::closed_by_server(&error) => {}
         result => panic!("Expected a closed timed-out upload, got {result:?}"),
     }
     assert!(received.is_empty());
