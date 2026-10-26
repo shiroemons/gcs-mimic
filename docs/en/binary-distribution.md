@@ -1,20 +1,23 @@
 # Native binary distribution
 
-The distribution workflow is infrastructure for future releases. No public
-binary release has been created or verified across all platforms yet. The first
-release still requires the [roadmap's P1 and essential P2 scope](roadmap.md#first-useful-release).
-Do not infer platform support from a configured matrix alone.
+<!-- markdownlint-configure-file {"MD013": {"tables": false}} -->
+
+GitHub Releases from 0.1.0 publish native archives for the release-matrix
+targets below. Do not infer platform support from the supported packaging
+targets alone; only targets in the release matrix are built, tested and
+published.
 
 ## Target matrix
 
 Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
 
-**0.1.0 publishes only the four Linux targets.** The macOS and Windows native
-test suites do not pass yet: macOS TLS tests and several Windows catalog tests
-fail on GitHub runners. Those four rows stay supported by
+**Windows archives are not published yet.** 0.1.0 and 0.1.1 shipped only the
+four Linux targets; 0.1.2 adds both macOS targets after their native suites
+passed. Several Windows catalog, file-handle and sync tests still fail on
+GitHub runners, so the two Windows rows stay supported by
 `cargo xtask release prepare` but are removed from the release workflow matrix
-until Foundation CI's `portability` job passes on them.
+until Foundation CI's `portability` job passes on Windows.
 
 | OS / ABI | CPU | Rust target | Native runner | Archive |
 | --- | --- | --- | --- | --- |
@@ -84,8 +87,10 @@ Missing notice inputs stop packaging.
 The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must review
 and advance that version guard along with the bundled runtime's notices.
 
-Release assets include one archive per release-matrix target (four Linux
-archives in 0.1.0) and `SHA256SUMS`. Verify the selected
+Release assets include one archive per release-matrix target (six macOS and
+Linux archives from 0.1.2) and `SHA256SUMS`. Manual dispatch runs the publish
+job up to the asset list, so asset count and checksum failures appear before
+a tag; only a tag push creates the Release. Verify the selected
 archive after downloading both from the same release:
 
 ```sh
@@ -109,13 +114,14 @@ of origin.
    the reviewed version, lockfile and notes, then push through the agreed process.
 4. Run **Release binaries** using GitHub Actions' manual dispatch on that commit.
    It runs freshness checks, the reusable Foundation checks and every release
-   matrix target's native suite, then uploads verification archives as workflow artifacts. Manual
-   dispatch never creates a public release. Inspect the results and archives.
-5. When publication is authorized, create and push a new `vX.Y.Z` tag on the tested
-   commit. The tag must match Cargo's stable `X.Y.Z` exactly. Tag builds repeat all
-   gates and require the committed release notes before creating a normal GitHub
-   Release. Build jobs have read permissions; only the final publish job can
-   write release contents.
+   matrix target's native suite, uploads verification archives as workflow
+   artifacts and runs the publish job up to the asset list. Manual dispatch
+   never creates a public release. Inspect the results and archives.
+5. When publication is authorized, create and push a new `vX.Y.Z` tag on the
+   tested commit. The tag must match Cargo's stable `X.Y.Z` exactly. Tag builds
+   repeat all gates and require the committed release notes before creating a
+   normal GitHub Release. Build jobs have read permissions; only the final
+   publish job can write release contents.
 6. The publish job verifies archive count, checksums, unchanged remote tag SHA and
    absence of an existing release for the tag. Inspect the published assets and
    download checksums. Never replace an existing version's tag or assets; fixes

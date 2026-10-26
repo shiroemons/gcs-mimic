@@ -94,9 +94,9 @@ targets with `rustup`. C dependencies compile to empty stub objects there, so
 this catches `cfg` and platform-API mistakes but not link or runtime failures.
 Foundation CI's `portability` job runs the tests natively on one target per
 OS family on every push; the release matrix still runs only for release tags
-and manual dispatch. Release workflows skip `portability` while 0.1.0 ships
-Linux archives only, so its macOS and Windows failures stay visible on pushes
-without blocking Linux publication.
+and manual dispatch. Release workflows skip `portability` while Windows
+archives are excluded, so its Windows failures stay visible on pushes without
+blocking macOS and Linux publication; the release matrix tests those natively.
 
 Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
 with an adjacent `// SAFETY:` comment explaining why the operation is safe.

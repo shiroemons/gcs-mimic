@@ -53,9 +53,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macOS and Windows archives return once their native test suites pass;
-        # the Windows/macOS steps below stay so restoring a row is enough.
+        # Windows archives return once their native test suites pass; the Windows
+        # steps below stay so restoring its rows is enough. Asset counts in
+        # `publish` follow this matrix.
         include:
+          - target: aarch64-apple-darwin
+            host: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            host: x86_64-apple-darwin
+            runner: macos-15-intel
           - target: aarch64-unknown-linux-gnu
             host: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
@@ -181,8 +188,10 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
           compression-level: 0
+  # Manual dispatch runs this job as a dry run up to the asset list, so publication
+  # mistakes surface before an immutable tag; only tag pushes create the Release.
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
     needs: [validate, foundation, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -207,12 +216,22 @@ jobs:
           shopt -s nullglob
           archives=(dist/*.tar.gz dist/*.zip)
           checksums=(dist/*.sha256)
-          test "${#archives[@]}" = 4
-          test "${#checksums[@]}" = 4
+          test "${#archives[@]}" = 6
+          test "${#checksums[@]}" = 6
           cd dist
           cat ./*.sha256 > SHA256SUMS
           sha256sum --check SHA256SUMS
+      - name: List assets for the Release
+        shell: bash
+        run: |
+          # Windows .zip archives are absent until Windows returns; an unmatched glob would be passed literally.
+          shopt -s nullglob
+          assets=(dist/*.tar.gz dist/*.zip dist/SHA256SUMS)
+          test "${#assets[@]}" = 7
+          printf '%s\n' "${assets[@]}" | tee release-assets
+          test -s "docs/en/releases/$VERSION.md"
       - name: Publish verified tag
+        if: github.event_name == 'push'
         shell: bash
         run: |
           object=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")
@@ -232,9 +251,7 @@ jobs:
               exit 1
             fi
           done <<< "$releases"
-          # Linux-only releases have no Windows .zip; an unmatched glob would be passed literally.
-          shopt -s nullglob
-          assets=(dist/*.tar.gz dist/*.zip dist/SHA256SUMS)
+          mapfile -t assets < release-assets
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag --title "$RELEASE_TAG" --notes-file "docs/en/releases/$VERSION.md"
   publish-container:
