@@ -483,3 +483,51 @@ does not
 measure performance, run the eight-target release workflow, validate weekend
 schedules or create a latest-dependency candidate lane. Resource measurement,
 native archives and publication remain later separately scoped work.
+
+## Final tag candidate
+
+Pre-tag state recorded on 2026-10-26 for the Linux-only 0.1.0 release. The
+earlier sections remain historical preparation evidence.
+
+The behavior baseline is `fa7c3bb`. The tag candidate adds only release notes
+and documentation on top of it. Re-run immediately before tagging, with
+`<candidate>` replaced by the exact commit to tag; empty output is required:
+
+```sh
+git diff --name-only fa7c3bb <candidate> -- \
+  src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml \
+  .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ \
+  ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ \
+  compatibility/upstream/ compatibility/dependency-status.json LICENSE-MIT LICENSE-APACHE
+```
+
+The first manual **Release binaries** dispatch on the previous main
+(`cc5df0e`, run `40209212101`) failed: Windows did not compile because
+Unix-only APIs lacked `cfg` gates, musl archives failed to link `renameat2`,
+and macOS deadline tests failed on the runner. `954137d` and `8050452` fixed
+those failures. A second dispatch (`86d6bf2`, run `40211855017`) passed every
+Linux target and container check but still failed macOS TLS tests and Windows
+catalog tests, ending with a Windows test process abort. `5908b3c` therefore
+removed macOS and Windows from the release matrix for 0.1.0.
+
+The third dispatch (`84277b2`, run `40252492903`) succeeded: `validate`
+including dependency freshness, Foundation pinned/stable Rust, both Linux
+container smoke checks, the Go SDK suite and the four Linux GNU/musl
+build/test/package jobs. `publish` and `publish-container` were skipped as
+expected for a manual dispatch. The only later protected-input change,
+`fa7c3bb`, renames the Foundation input that skips the `portability` job in
+release workflows, because the previous condition also skipped it on pushes;
+release jobs and steps are otherwise unchanged.
+
+At this state:
+
+- `just check` passed on `86d6bf2` with the new cross-target Clippy step. The
+  later protected changes touch workflows and documentation only.
+- `cargo xtask dependencies check` reported every input CURRENT, including the
+  distroless runtime digest that blocked earlier preparation.
+- `docs/en/releases/0.1.0.md` contains no finalization markers; every
+  tag-pinned link targets an existing path and heading in the candidate tree.
+- Not run: `just pre-push` (local Ruby SDK and both container architectures),
+  a Linux re-run of the intermittent truncated copy download seen once in
+  run `40209212101` (60 local Linux container runs and 20 macOS runs passed),
+  and anonymous pulls, which belong to post-publication checks.
