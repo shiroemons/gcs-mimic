@@ -603,5 +603,8 @@ Recorded on main after publication, 2026-10-26.
     the workaround.
   - Main later writes the Windows entries with LF, rejects carriage returns in
     the publish job, and sends `GITHUB_TOKEN` to the GitHub API in the
-    freshness check. No release run has exercised those changes yet.
+    freshness check. Dry run `40296107317` on `07f9e38` passed every job:
+    `validate` passed with the token, both Windows checksum files contain no
+    carriage return and verify with macOS `shasum --check`, and the publish
+    job's line-ending and format checks passed for all eight entries.
 - Still not run: `just pre-push` and an identical-input manifest retry.

@@ -1331,8 +1331,8 @@
         },
         {
           "id": "DIST-001-CHECKSUM-FORMAT",
-          "description": "Publish SHA256SUMS with one LF-terminated digest and archive name per archive so GNU sha256sum and macOS shasum both verify every entry. The 0.1.3 file ends its two Windows entries with CRLF from PowerShell Set-Content; macOS shasum --check reports those archives unreadable, while every digest matches after removing carriage returns. Main now writes LF and the publish job rejects carriage returns; no release run has exercised that check yet.",
-          "result": "PENDING",
+          "description": "Publish SHA256SUMS with one LF-terminated digest and archive name per archive so GNU sha256sum and macOS shasum both verify every entry. The 0.1.3 file ends its two Windows entries with CRLF from PowerShell Set-Content; macOS shasum --check reports those archives unreadable, while every digest matches after removing carriage returns. The file is not replaced. Main writes LF and the publish job rejects carriage returns: dry run 40296107317 on 07f9e38 produced CR-free Windows checksum files that macOS shasum --check verifies, and its publish job passed the line-ending and format checks for all eight entries. The next tag publishes the first LF-only file.",
+          "result": "PASS",
           "test_ids": [
             "release-checksum-line-endings"
           ]
@@ -1397,6 +1397,15 @@
         {
           "command": "gh release download v0.1.3 -p SHA256SUMS; count carriage returns (2, both Windows entries); tr -d '\\r' then shasum -a 256 --ignore-missing --check",
           "result": "FAIL",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-checksum-line-endings"
+          ]
+        },
+        {
+          "command": "gh run view 40296107317 (Release binaries dry run, 07f9e38); gh run download -n binary-x86_64-pc-windows-msvc|binary-aarch64-pc-windows-msvc, count carriage returns (0) and shasum -a 256 --check on macOS",
+          "result": "PASS",
           "verified_at": "2026-10-26",
           "artifact": "docs/en/evidence/dist-release-notes.md",
           "test_ids": [
