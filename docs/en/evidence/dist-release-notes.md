@@ -570,5 +570,38 @@ Recorded on main after publication, 2026-10-26.
   anonymous pulls of both platforms report `gcs-mimic 0.1.2`. The downloaded
   `aarch64-apple-darwin` archive matched `SHA256SUMS` and reported its version.
   Main later raised the client hang guard to 30 s.
-- Still not run: `just pre-push`, an identical-input manifest retry and
-  native Windows archives.
+- **v0.1.3** (tag on `da88e35`, run `40288348986`): adds both Windows
+  archives, for eight archives in total, and Windows import detection of
+  source replacement by file identity. Every job passed on the first attempt.
+  `0.1.3`, `0.1` and `latest` resolve to
+  `sha256:e768868271be88ed7c51e21e0e750bf878ea70487a88175c2534841b9322a41d`;
+  anonymous pulls of both platforms report `gcs-mimic 0.1.3`.
+  - The first `v0.1.3` tag, on `08071ca` (run `40281431478`), published
+    nothing. Attempt 1 failed `validate` on the unauthenticated GitHub API
+    rate limit; attempts 2 and 3 failed deadline tests on Windows x86-64 and
+    macOS x86-64. The owner approved deleting the tag.
+
+    ```text
+    attempt 1  validate        fetch failed: https://api.github.com/repos/actions/upload-artifact/releases/latest: HTTP 403
+    attempt 2  windows x86-64  storage::resumable_http_tests::finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout
+    attempt 2  macos x86-64    obj_http_trickle_upload_deadline_releases_permits_without_publication
+    attempt 3  same two jobs and tests as attempt 2
+    ```
+
+  - `c25eeec` moved setup steps out of deadline assertions; its dry run
+    `40284098750` still failed
+    `final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget` on
+    aarch64 musl. `da88e35` runs release builds and `portability` suites with
+    `RUST_TEST_THREADS=2` as an interim guard until those tests use an
+    injected clock. Its dry run `40286704444` passed, and the tag was pushed
+    again on `da88e35`.
+  - The published `SHA256SUMS` ends its two Windows entries with CRLF because
+    PowerShell `Set-Content` wrote them. GNU `sha256sum` accepts them; macOS
+    `shasum --check` reports both Windows archives as unreadable. After
+    `tr -d '\r'`, every entry verifies, so the archives are intact. The file is
+    not replaced; [binary distribution](../binary-distribution.md) documents
+    the workaround.
+  - Main later writes the Windows entries with LF, rejects carriage returns in
+    the publish job, and sends `GITHUB_TOKEN` to the GitHub API in the
+    freshness check. No release run has exercised those changes yet.
+- Still not run: `just pre-push` and an identical-input manifest retry.
