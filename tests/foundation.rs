@@ -324,18 +324,24 @@ fn dual_tls_request(
     path: &str,
     args: &[&str],
 ) -> String {
-    let output = Command::new("curl")
-        .args([
-            "-q",
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--noproxy",
-            "*",
-            "--max-time",
-            "4",
-            "--cacert",
-        ])
+    let mut command = Command::new("curl");
+    command.args([
+        "-q",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--noproxy",
+        "*",
+        "--max-time",
+        "4",
+    ]);
+    // Windows curl (Schannel) checks revocation, which a local development CA
+    // cannot answer.
+    if cfg!(windows) {
+        command.arg("--ssl-no-revoke");
+    }
+    let output = command
+        .arg("--cacert")
         .arg(ca)
         .args(args)
         .arg(format!("https://{address}{path}"))
@@ -754,6 +760,9 @@ async fn wire_probes_clock_and_unimplemented_routes() {
     assert!(!state.ready.load(Ordering::Acquire));
 }
 
+// The witness relies on a duplicated listening socket staying usable after the
+// server's copy closes; Windows stops accepting on it, so connects time out.
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_stops_accepting_on_original_listener() {
     let dir = TestDir::new();
