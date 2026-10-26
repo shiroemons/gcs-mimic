@@ -489,12 +489,12 @@ native archives and publication remain later separately scoped work.
 Pre-tag state recorded on 2026-10-26 for the Linux-only 0.1.0 release. The
 earlier sections remain historical preparation evidence.
 
-The behavior baseline is `fa7c3bb`. The tag candidate adds only release notes
+The behavior baseline is `77a5da3`. The tag candidate adds only release notes
 and documentation on top of it. Re-run immediately before tagging, with
 `<candidate>` replaced by the exact commit to tag; empty output is required:
 
 ```sh
-git diff --name-only fa7c3bb <candidate> -- \
+git diff --name-only 77a5da3 <candidate> -- \
   src/ tests/ Cargo.toml Cargo.lock Dockerfile rust-toolchain.toml \
   .cargo/ .github/ .dockerignore Justfile distribution/ xtask/ scripts/ \
   ':(glob)compose*.yaml' config/ fixtures/ sdk-tests/ \
@@ -518,6 +518,13 @@ expected for a manual dispatch. The only later protected-input change,
 `fa7c3bb`, renames the Foundation input that skips the `portability` job in
 release workflows, because the previous condition also skipped it on pushes;
 release jobs and steps are otherwise unchanged.
+
+A first `v0.1.0` tag on `a00b950` (run `40254317371`) passed `validate`,
+Foundation and all four Linux builds, then failed in `publish` before creating
+anything: `gh release create` received the unmatched `dist/*.zip` glob
+literally. No GitHub Release, asset or container image existed. With the
+owner's approval that tag was deleted, `77a5da3` collects the existing assets
+with `nullglob`, and `v0.1.0` was recreated on the new candidate.
 
 At this state:
 
