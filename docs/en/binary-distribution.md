@@ -12,12 +12,10 @@ published.
 Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
 
-**Windows archives are not published yet.** 0.1.0 and 0.1.1 shipped only the
-four Linux targets; 0.1.2 adds both macOS targets after their native suites
-passed. Several Windows catalog, file-handle and sync tests still fail on
-GitHub runners, so the two Windows rows stay supported by
-`cargo xtask release prepare` but are removed from the release workflow matrix
-until Foundation CI's `portability` job passes on Windows.
+0.1.0 and 0.1.1 shipped only the four Linux targets, 0.1.2 added both macOS
+targets, and 0.1.3 adds both Windows targets once their native suites passed.
+Directory synchronization remains unsupported on Windows; `sync_dir` is
+rejected there with a diagnostic.
 
 | OS / ABI | CPU | Rust target | Native runner | Archive |
 | --- | --- | --- | --- | --- |
@@ -87,8 +85,8 @@ Missing notice inputs stop packaging.
 The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must review
 and advance that version guard along with the bundled runtime's notices.
 
-Release assets include one archive per release-matrix target (six macOS and
-Linux archives from 0.1.2) and `SHA256SUMS`. Manual dispatch runs the publish
+Release assets include one archive per release-matrix target (all eight from
+0.1.3) and `SHA256SUMS`. Manual dispatch runs the publish
 job up to the asset list, so asset count and checksum failures appear before
 a tag; only a tag push creates the Release. Verify the selected
 archive after downloading both from the same release:
@@ -126,7 +124,10 @@ Downloads through `curl` or `gh release download` carry no quarantine attribute.
    It runs freshness checks, the reusable Foundation checks and every release
    matrix target's native suite, uploads verification archives as workflow
    artifacts and runs the publish job up to the asset list. Manual dispatch
-   never creates a public release. Inspect the results and archives.
+   never creates a public release. Inspect the results and archives. Do not tag
+   until this dry run passes on the exact commit to tag, including its publish
+   job; any change to the release matrix, workflows or release scripts after it
+   needs a new dry run.
 5. When publication is authorized, create and push a new `vX.Y.Z` tag on the
    tested commit. The tag must match Cargo's stable `X.Y.Z` exactly. Tag builds
    repeat all gates and require the committed release notes before creating a

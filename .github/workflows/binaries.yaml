@@ -53,9 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows archives return once their native test suites pass; the Windows
-        # steps below stay so restoring its rows is enough. Asset counts in
-        # `publish` follow this matrix.
+        # Asset counts in `publish` follow this matrix.
         include:
           - target: aarch64-apple-darwin
             host: aarch64-apple-darwin
@@ -63,6 +61,12 @@ jobs:
           - target: x86_64-apple-darwin
             host: x86_64-apple-darwin
             runner: macos-15-intel
+          - target: aarch64-pc-windows-msvc
+            host: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+          - target: x86_64-pc-windows-msvc
+            host: x86_64-pc-windows-msvc
+            runner: windows-2025
           - target: aarch64-unknown-linux-gnu
             host: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
@@ -216,18 +220,18 @@ jobs:
           shopt -s nullglob
           archives=(dist/*.tar.gz dist/*.zip)
           checksums=(dist/*.sha256)
-          test "${#archives[@]}" = 6
-          test "${#checksums[@]}" = 6
+          test "${#archives[@]}" = 8
+          test "${#checksums[@]}" = 8
           cd dist
           cat ./*.sha256 > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: List assets for the Release
         shell: bash
         run: |
-          # Windows .zip archives are absent until Windows returns; an unmatched glob would be passed literally.
+          # nullglob keeps an unmatched archive glob from being passed literally.
           shopt -s nullglob
           assets=(dist/*.tar.gz dist/*.zip dist/SHA256SUMS)
-          test "${#assets[@]}" = 7
+          test "${#assets[@]}" = 9
           printf '%s\n' "${assets[@]}" | tee release-assets
           test -s "docs/en/releases/$VERSION.md"
       - name: Publish verified tag
