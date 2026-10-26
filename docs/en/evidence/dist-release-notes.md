@@ -538,3 +538,27 @@ At this state:
   a Linux re-run of the intermittent truncated copy download seen once in
   run `40209212101` (60 local Linux container runs and 20 macOS runs passed),
   and anonymous pulls, which belong to post-publication checks.
+
+## Publication results
+
+Recorded on main after publication, 2026-10-26.
+
+- **v0.1.0** (tag on `d29b4e7`, run `40255031827`): the GitHub Release with
+  four Linux archives and `SHA256SUMS` was created. One `aarch64` musl test
+  hit its 50 ms catalog budget on the first attempt and passed on rerun. The
+  container manifest job stopped twice: first because the new package was
+  private, then because `scripts/container-release.sh` accepted only SLSA v0.2
+  BuildKit provenance while BuildKit 0.34 records SLSA v1. Reruns use the
+  tag's script, so **0.1.0 has no container image**.
+- **v0.1.1** (tag on `abbe002`, run `40259191681`): every job passed on the
+  first attempt, including both native platform images, SBOM/provenance
+  checks, the multi-architecture index and the digest asset. Tags `0.1.1`,
+  `0.1` and `latest` resolve to
+  `sha256:6d2dafd0ce5e0c6ff2bceed8e2f2b0f50e8b8ae60e0d538cca3e2ec9689c8db4`.
+- Post-publication checks on a macOS ARM64 Docker Desktop host: anonymous
+  `docker pull` of `linux/amd64` and `linux/arm64` succeeded and the image
+  reports `gcs-mimic 0.1.1`. The README quick start and the fake-gcs-server
+  Compose replacement walkthrough both pass unchanged against the published
+  image.
+- Still not run: `just pre-push`, an identical-input manifest retry and
+  native macOS/Windows archives.

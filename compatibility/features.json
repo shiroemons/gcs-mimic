@@ -1179,7 +1179,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Configured v-tag binary Release success calls native amd64/arm64 container verification and GHCR publication. Exact versions remain immutable; minor/latest aliases advance by numeric stable version order. Images retain project/Cargo/Rust/native/OS notices, SPDX SBOM and SLSA provenance. The 0.1.0 preparation notes do not establish publication; see docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
+      "notes": "Configured v-tag binary Release success calls native amd64/arm64 container verification and GHCR publication. Exact versions remain immutable; minor/latest aliases advance by numeric stable version order. Images retain project/Cargo/Rust/native/OS notices, SPDX SBOM and SLSA provenance. ghcr.io/shiroemons/gcs-mimic:0.1.1 is the first published image; see docs/en/releases/0.1.1.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [
         "DIST-001",
         "DIST-002"
@@ -1206,7 +1206,15 @@
         },
         {
           "id": "DIST-003-PUBLICATION",
-          "description": "Observe the authorized GHCR workflow end to end: public visibility, both native platform checks, attested index publication, anonymous digest access, alias selection and identical-input retry.",
+          "description": "Observe the authorized GHCR workflow end to end: public visibility, both native platform checks, attested index publication, anonymous digest access and alias selection. v0.1.1 run 40259191681 passed every job; anonymous pulls of linux/amd64 and linux/arm64 succeeded and 0.1.1, 0.1 and latest resolve to sha256:6d2dafd0ce5e0c6ff2bceed8e2f2b0f50e8b8ae60e0d538cca3e2ec9689c8db4. The v0.1.0 manifest step had rejected valid SLSA v1 provenance, so 0.1.0 has no image.",
+          "result": "PASS",
+          "test_ids": [
+            "ghcr-tag-publication"
+          ]
+        },
+        {
+          "id": "DIST-003-RETRY",
+          "description": "Rerun an already completed manifest job with identical inputs and observe that it verifies the existing immutable tag and digest asset without republishing.",
           "result": "PENDING",
           "test_ids": []
         }
@@ -1214,7 +1222,8 @@
       "test_ids": [
         "aliases_never_move_backwards_and_zero_major_is_not_an_alias",
         "malformed_and_prerelease_versions_cannot_publish",
-        "notice_only_output_needs_neither_git_nor_an_executable"
+        "notice_only_output_needs_neither_git_nor_an_executable",
+        "ghcr-tag-publication"
       ],
       "verification": [
         {
@@ -1227,14 +1236,23 @@
             "malformed_and_prerelease_versions_cannot_publish",
             "notice_only_output_needs_neither_git_nor_an_executable"
           ]
+        },
+        {
+          "command": "gh run view 40259191681 (Release binaries, v0.1.1) and anonymous docker pull --platform linux/amd64|linux/arm64 ghcr.io/shiroemons/gcs-mimic:0.1.1",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "ghcr-tag-publication"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "GHCR authentication, package visibility setup, remote publication and anonymous registry access have not been exercised. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
+        "Identical-input manifest retry has not been exercised. SBOM/provenance are unsigned and do not establish vulnerability absence or byte-identical rebuilds."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-26"
     },
     {
       "id": "DIST-001",
@@ -1252,7 +1270,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Eight configured native targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. The 0.1.0 notes distinguish historical macOS ARM64 archive checks and native Linux container CI from unexecuted eight-target release verification. Windows restart/process-termination scope is not an OS-crash/power-loss guarantee; macOS power-loss and exhaustive crash boundaries remain unverified. See docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
+      "notes": "Eight supported packaging targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. The release matrix currently publishes the four Linux targets; macOS and Windows return once their native suites pass in Foundation's portability job. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. Windows restart/process-termination scope is not an OS-crash/power-loss guarantee; macOS power-loss and exhaustive crash boundaries remain unverified. See docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -1272,9 +1290,17 @@
         },
         {
           "id": "DIST-001-PLATFORMS",
-          "description": "Observe all eight native builds, full test suites, archive contents, Windows CRT imports, graceful shutdown and forced-termination recovery before publication.",
+          "description": "Observe all eight native builds, full test suites, archive contents, Windows CRT imports, graceful shutdown and forced-termination recovery before publication. macOS TLS tests and Windows catalog tests still fail on GitHub runners, so 0.1.0 and 0.1.1 ship Linux archives only.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "DIST-001-LINUX",
+          "description": "Observe the four Linux GNU/musl ARM64/x86-64 native builds, full test suites, packaging and published checksums. v0.1.1 run 40259191681 passed and the Release carries all four archives with SHA256SUMS.",
+          "result": "PASS",
+          "test_ids": [
+            "linux-release-matrix"
+          ]
         }
       ],
       "test_ids": [
@@ -1283,7 +1309,8 @@
         "all_root_notices_and_explicit_license_file_are_retained",
         "missing_notices_and_escaping_license_files_fail_closed",
         "native_notice_requirements_follow_the_target_runtime",
-        "reviewed_crc32c_sources_are_retained_and_new_versions_require_review"
+        "reviewed_crc32c_sources_are_retained_and_new_versions_require_review",
+        "linux-release-matrix"
       ],
       "verification": [
         {
@@ -1299,14 +1326,23 @@
             "native_notice_requirements_follow_the_target_runtime",
             "reviewed_crc32c_sources_are_retained_and_new_versions_require_review"
           ]
+        },
+        {
+          "command": "gh run view 40259191681 (Release binaries, v0.1.1)",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "linux-release-matrix"
+          ]
         }
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "All-platform native CI and public archives remain unverified; unsigned/unnotarized artifacts and changing hosted OS/system compiler inputs do not establish byte-identical or origin-authenticated builds."
+        "macOS and Windows archives are not published; unsigned/unnotarized artifacts and changing hosted OS/system compiler inputs do not establish byte-identical or origin-authenticated builds."
       ],
       "implemented_in": null,
-      "last_verified": "2026-10-22"
+      "last_verified": "2026-10-26"
     },
     {
       "id": "DIST-002",
@@ -1324,7 +1360,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Manual dispatch uploads verification artifacts only. Future vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and all eight native targets before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. Initial 0.1.0 notes and documentation consistency are prepared under docs/en/slices/dist-release-notes.md; manual/tag execution and publication remain pending. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is now recorded in docs/en/evidence/dist-resource-measurement.md. It is not tag-pinned resource revalidation or approval of the release source, and does not close the failing Release-body/local gates.",
+      "notes": "Manual dispatch uploads verification artifacts only. vX.Y.Z tags require matching Cargo version, committed release notes, freshness, Foundation CI and every release-matrix target before a write-scoped final job validates checksums/remote tag identity and creates a GitHub Release. v0.1.0 and v0.1.1 are published with four Linux archives; the final pre-publication local gate (just pre-push) was not run. Local ARM64 idle/1 GiB resource evidence for fixed source bb8dd5c is recorded in docs/en/evidence/dist-resource-measurement.md.",
       "dependencies": [
         "DIST-001"
       ],
@@ -1341,9 +1377,11 @@
         },
         {
           "id": "DIST-002-EXECUTION",
-          "description": "Observe manual eight-target artifacts and a separately authorized first tag release, including failure gates and downloaded checksums.",
-          "result": "PENDING",
-          "test_ids": []
+          "description": "Observe manual release-matrix artifacts and a separately authorized first tag release, including failure gates and downloaded checksums. Manual dispatch 40252492903 passed; failing dispatches 40209212101 and 40211855017 blocked publication. Tag releases v0.1.0 (run 40255031827) and v0.1.1 (run 40259191681) published four Linux archives and SHA256SUMS; a first v0.1.0 tag that failed before creating anything was deleted with owner approval.",
+          "result": "PASS",
+          "test_ids": [
+            "release-tag-execution"
+          ]
         },
         {
           "id": "DIST-002-RELEASE-NOTES",
@@ -1363,8 +1401,8 @@
         },
         {
           "id": "DIST-002-TAG-SOURCE-IDENTITY",
-          "description": "dist-tag-publication must confirm the 0.1.0 behavior baseline after main rebase and compare the exact tested notes/evidence-bearing tag candidate under its pending identity/diff/revalidation contract. Comparison with preparation baseline 71883c0 now includes repo-lints Cargo.toml/src/tests/xtask changes, config-contract's reference comparison script and import-contract's source-storage JSON/verifier; this slice neither selects the final baseline nor approves those differences. Final tag run IDs and gate results are recorded by dist-post-publication in the main-branch ledger, not in the tag's frozen preparation snapshot.",
-          "result": "PENDING",
+          "description": "Confirm the 0.1.0 behavior baseline and compare the exact tag candidate over the protected path set. Baseline 77a5da3 and tag commit d29b4e7 produced empty output; see docs/en/evidence/dist-release-notes.md#final-tag-candidate. v0.1.1 tags its own reviewed commit abbe002.",
+          "result": "PASS",
           "test_ids": [
             "release-tag-source-identity"
           ]
@@ -1395,8 +1433,8 @@
         },
         {
           "id": "DIST-002-RELEASE-BODY",
-          "description": "Render notes as a GitHub Release body without repository context; require statements true at publication, workflow-based tag gates without the tag's run ID, and absolute v0.1.0 links whose paths/anchors exist. FAIL while any finalize marker remains: source identity must confirm the behavior baseline and candidate comparison under the publication contract; resource measurements must include idle/1 GiB transfer RSS, separate cgroup memory and CPU seconds with tag-pinned dist-resource-measurement evidence; schedule text must state actual unverified weekend execution, weekly exception review and latest-dependency candidate status. Recheck final wording/links before tagging; live tag URLs can only be checked after tag creation.",
-          "result": "FAIL",
+          "description": "Render notes as a GitHub Release body without repository context; require statements true at publication, workflow-based tag gates without the tag's run ID, and absolute v0.1.0 links whose paths/anchors exist. FAIL while any finalize marker remains: source identity must confirm the behavior baseline and candidate comparison under the publication contract; resource measurements must include idle/1 GiB transfer RSS, separate cgroup memory and CPU seconds with tag-pinned dist-resource-measurement evidence; schedule text must state actual unverified weekend execution, weekly exception review and latest-dependency candidate status. Recheck final wording/links before tagging; live tag URLs can only be checked after tag creation. The final 0.1.0 notes contain no markers, render through the GitHub Markdown API with only v0.1.0-pinned links whose paths and headings exist, and are the published Release body.",
+          "result": "PASS",
           "test_ids": [
             "release-notes-body"
           ]
@@ -1428,9 +1466,37 @@
         "release-notes-body",
         "release-notes-scope",
         "release-doc-consistency",
-        "release-local-gates"
+        "release-local-gates",
+        "release-tag-execution"
       ],
       "verification": [
+        {
+          "command": "gh run view 40252492903 (manual dispatch) and gh run view 40255031827 / 40259191681 (v0.1.0 and v0.1.1 tags); gh release view v0.1.0 and v0.1.1",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-tag-execution"
+          ]
+        },
+        {
+          "command": "git diff --name-only 77a5da3 d29b4e7 -- <protected path set>",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-tag-source-identity"
+          ]
+        },
+        {
+          "command": "GitHub Markdown API render of docs/en/releases/0.1.0.md, marker grep and tag-pinned path/heading checks",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "release-notes-body"
+          ]
+        },
         {
           "command": "actionlint .github/workflows/ci.yaml .github/workflows/binaries.yaml .github/workflows/dependency-check.yaml",
           "result": "PASS",
