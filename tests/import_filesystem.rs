@@ -242,7 +242,9 @@ fn filesystem_import_resume_revalidates_inode_and_ctime_only_drift() {
     let modified = fs::metadata(&body).unwrap().modified().unwrap();
     let replacement = options.source.join("replacement");
     fs::write(&replacement, b"hello").unwrap();
-    File::open(&replacement)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&replacement)
         .unwrap()
         .set_times(FileTimes::new().set_modified(modified))
         .unwrap();
@@ -270,7 +272,10 @@ fn filesystem_import_source_replacement_during_publication_stays_unservable() {
                 let modified = fs::metadata(&self.body)?.modified()?;
                 let replacement = self.body.with_extension("replacement");
                 fs::write(&replacement, b"hello")?;
-                File::open(&replacement)?.set_times(FileTimes::new().set_modified(modified))?;
+                fs::OpenOptions::new()
+                    .write(true)
+                    .open(&replacement)?
+                    .set_times(FileTimes::new().set_modified(modified))?;
                 fs::rename(replacement, &self.body)?;
             }
             Ok(bytes.len())
@@ -307,7 +312,9 @@ fn filesystem_import_checksum_failure_is_terminal_even_after_source_repair() {
         0
     );
     fs::write(&body, b"hello").unwrap();
-    File::open(&body)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&body)
         .unwrap()
         .set_times(FileTimes::new().set_modified(modified))
         .unwrap();

@@ -2203,6 +2203,9 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
     h.stop().await;
 }
 
+// The injected file at the shard path fails cleanup with ENOTDIR on Unix; Windows
+// reports the missing parent as not found, which cleanup treats as already removed.
+#[cfg(unix)]
 #[tokio::test]
 async fn checksum_error_is_preserved_when_terminal_cleanup_fails_and_is_retried() {
     let h = Harness::start(1000, false, None).await;

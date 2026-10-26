@@ -557,7 +557,12 @@ async fn timestamp_migration_preserves_resources_etags_permissions_and_sessions(
         1234,
         253_402_300_799_999,
     ] {
-        let now = system_time_millis(millis).unwrap();
+        // Windows SystemTime starts in 1601, so year 0 cannot be built there.
+        let now = system_time_millis(millis);
+        assert!(now.is_ok() || cfg!(windows), "{millis}");
+        let Ok(now) = now else {
+            continue;
+        };
         let bucket = json::parse_insert(br#"{"name":"timestamp-bucket"}"#, "project", now).unwrap();
         let mut bucket = bucket;
         bucket.name = format!("timestamp-{}", millis.unsigned_abs());

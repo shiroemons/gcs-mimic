@@ -5,6 +5,7 @@ use gcs_mimic::{
     clock::Clock,
     object::{ExpectedHashes, ObjectConditions, ObjectError, ObjectRecord, UploadChunk},
     storage::{Catalog, ObjectReader},
+    test_support::live_len,
 };
 use md5::{Digest, Md5};
 use rusqlite::Connection;
@@ -44,8 +45,12 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        if self.0.exists() {
-            fs::remove_dir_all(&self.0).unwrap();
+        // A failing test may still hold catalog files open, which blocks removal on
+        // Windows; a second panic during unwinding would abort the whole test binary.
+        if self.0.exists()
+            && let Err(error) = fs::remove_dir_all(&self.0)
+        {
+            assert!(std::thread::panicking(), "fixture cleanup failed: {error}");
         }
     }
 }
@@ -986,7 +991,7 @@ async fn race_upload<T: Send + 'static>(
         loop {
             let written = fs::read_dir(dir.join("staging"))
                 .unwrap()
-                .any(|entry| entry.unwrap().metadata().unwrap().len() == 11);
+                .any(|entry| live_len(&entry.unwrap().path()) == 11);
             if written {
                 break;
             }
@@ -1276,7 +1281,10 @@ async fn recovery_ignores_os_metadata_and_names_other_stray_entries() {
         let dir = TestDir::new();
         let catalog = setup(&dir).await;
         catalog.close().await.unwrap();
-        let path = dir.0.join(stray);
+        // Join per component so the expected path uses the platform separator.
+        let path = stray
+            .split('/')
+            .fold(dir.0.clone(), |path, part| path.join(part));
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         if stray.starts_with("staging") {
             fs::create_dir(&path).unwrap();

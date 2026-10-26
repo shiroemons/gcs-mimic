@@ -32,8 +32,12 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        if self.0.exists() {
-            fs::remove_dir_all(&self.0).unwrap();
+        // Removal fails on Windows while a failing test still holds catalog files;
+        // panicking again during unwinding would abort the whole test binary.
+        if self.0.exists()
+            && let Err(error) = fs::remove_dir_all(&self.0)
+        {
+            assert!(std::thread::panicking(), "fixture cleanup failed: {error}");
         }
     }
 }
@@ -1242,7 +1246,12 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
 #[tokio::test]
 async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characters() {
     let dir = TestDir::new();
-    let directory = dir.0.join("catalog ?#%é");
+    // Windows file names cannot contain '?'; '#' and '%' still exercise URI escaping there.
+    let directory = dir.0.join(if cfg!(windows) {
+        "catalog #%é"
+    } else {
+        "catalog ?#%é"
+    });
     let catalog = Catalog::open(&directory).await.unwrap();
     catalog.close().await.unwrap();
     let path = directory.join("catalog.sqlite3");

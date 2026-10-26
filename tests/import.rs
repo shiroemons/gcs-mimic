@@ -664,7 +664,9 @@ fn export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift() {
     let modified = fs::metadata(&body).unwrap().modified().unwrap();
     let replacement = options.source.join("bucket-one/replacement");
     fs::write(&replacement, b"hello").unwrap();
-    fs::File::open(&replacement)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&replacement)
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(modified))
         .unwrap();
@@ -684,7 +686,9 @@ fn export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift() {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     );
     let body = options.source.join("bucket-one/body");
-    fs::File::open(&body)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&body)
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(1)))
         .unwrap();
@@ -692,7 +696,9 @@ fn export_fingerprint_tracks_layout_and_skips_but_separates_stat_drift() {
     assert_ne!(export_digest(&replaced), export_digest(&mtime));
     let stable_mtime = fs::metadata(&body).unwrap().modified().unwrap();
     fs::write(&body, b"hello world").unwrap();
-    fs::File::open(&body)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&body)
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(stable_mtime))
         .unwrap();

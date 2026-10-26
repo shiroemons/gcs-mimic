@@ -73,7 +73,10 @@ fn filesystem_import_xattr_revalidation_preserves_source_metadata() {
     let original = file.metadata().unwrap();
     let replacement = dir.0.join("replacement");
     fs::write(&replacement, b"hello").unwrap();
-    let file = fs::File::open(&replacement).unwrap();
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&replacement)
+        .unwrap();
     assert!(crate::fsutil::test_support::set_metadata(&file, ATTRS).unwrap());
     file.set_times(std::fs::FileTimes::new().set_modified(original.modified().unwrap()))
         .unwrap();

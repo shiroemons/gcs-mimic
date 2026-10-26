@@ -956,7 +956,8 @@ async fn sigterm_during_seed_body_and_precommit_cleans_only_uncommitted_files() 
                 .into_iter()
                 .flatten()
                 .any(|entry| {
-                    let size = entry.unwrap().metadata().unwrap().len();
+                    let size =
+                        fs::metadata(entry.unwrap().path()).map_or(0, |metadata| metadata.len());
                     // File publication may clone the complete source before hashing it.
                     size > 0 && size <= SIZE
                 });

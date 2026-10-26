@@ -1,5 +1,8 @@
 use super::*;
-use crate::{clock::SystemClock, test_support::TestDir};
+use crate::{
+    clock::SystemClock,
+    test_support::{TestDir, live_len},
+};
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::{fs, time::Duration};
@@ -906,7 +909,7 @@ async fn admin_cancelled_body_cleans_staging_before_unlock() {
     wait_for(|| {
         std::fs::read_dir(dir.0.join("staging"))
             .unwrap()
-            .any(|entry| entry.unwrap().metadata().unwrap().len() > 0)
+            .any(|entry| live_len(&entry.unwrap().path()) > 0)
     })
     .await;
     publish.abort();
@@ -946,7 +949,7 @@ async fn admin_shutdown_holds_lock_through_renamed_publication() {
     wait_for(|| {
         std::fs::read_dir(dir.0.join("staging"))
             .unwrap()
-            .any(|entry| entry.unwrap().metadata().unwrap().len() > 0)
+            .any(|entry| live_len(&entry.unwrap().path()) > 0)
     })
     .await;
     let execution = catalog.0.execution.clone().acquire_owned().await.unwrap();
