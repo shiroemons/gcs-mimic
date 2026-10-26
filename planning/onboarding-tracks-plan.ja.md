@@ -976,3 +976,6 @@ planning/onboarding-tracks-findings.ja.md の該当箇所がまだ正しいか�
   判定している。遅い runner で落ちるたびに余裕を広げる対応を繰り返したため、注入した時計（`FixedClock`・`TestClock`）を
   進めて判定する形へ移す（方針は `docs/en/development.md`）。スライス名は `test-deadline-clock`。困る例は 0.1.2 のタグの
   macOS Intel の再実行。
+  - 結果: 期限は `Clock` ではなく Tokio の時刻で測るため、期限の選び方は一時停止した Tokio の時刻の単体テストで固定した。
+    実際のソケットを使うテストで時刻を止めると、カーネル待ちの間に自動で進んで期限が切れるため使わない。結合テストは
+    ロックで待ちを保ち、無通信の期限を 500 ms 以上にし、準備段階の 503 を再試行する形にした。

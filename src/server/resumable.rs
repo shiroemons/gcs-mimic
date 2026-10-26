@@ -378,3 +378,108 @@ async fn await_session_upload<T>(
     activity.send_modify(|progress| progress.awaiting_catalog = false);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::{sync::oneshot, task::JoinHandle, time::advance};
+
+    const BUDGET: Duration = Duration::from_millis(200);
+    const REQUEST: Duration = Duration::from_secs(10);
+
+    // Returns once the task is waiting, so its deadlines start before any advance.
+    async fn wait(
+        waiting: bool,
+    ) -> (
+        JoinHandle<Result<(), JsonError>>,
+        watch::Sender<bool>,
+        oneshot::Sender<()>,
+    ) {
+        let (progress, updates) = watch::channel(waiting);
+        let (finish, finished) = oneshot::channel();
+        let deadline = tokio::time::Instant::now() + REQUEST;
+        let task = tokio::spawn(async move {
+            let (activity, _updates) = watch::channel(ObjectActivity::default());
+            let operation = async {
+                finished
+                    .await
+                    .map_err(|_| JsonError::from(ObjectError::Unavailable("dropped".into())))
+            };
+            await_session_upload(operation, updates, BUDGET, deadline, &activity).await
+        });
+        settle().await;
+        (task, progress, finish)
+    }
+
+    async fn settle() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    // Checks completion before awaiting: an idle paused runtime would otherwise
+    // auto-advance to whichever later deadline is pending.
+    async fn timed_out(task: JoinHandle<Result<(), JsonError>>) -> String {
+        settle().await;
+        assert!(task.is_finished());
+        let error = task.await.unwrap().unwrap_err();
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        error.message
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn work_outside_catalog_waits_uses_the_request_deadline() {
+        let (task, _progress, finish) = wait(false).await;
+        advance(BUDGET * 10).await;
+        settle().await;
+        assert!(!task.is_finished());
+        finish.send(()).unwrap();
+        task.await.unwrap().unwrap();
+
+        let (task, _progress, _finish) = wait(false).await;
+        advance(REQUEST - Duration::from_millis(1)).await;
+        settle().await;
+        assert!(!task.is_finished());
+        advance(Duration::from_millis(1)).await;
+        assert!(
+            timed_out(task)
+                .await
+                .contains("upload finalization timed out")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn catalog_wait_times_out_after_its_budget() {
+        let (task, _progress, _finish) = wait(true).await;
+        advance(BUDGET - Duration::from_millis(1)).await;
+        settle().await;
+        assert!(!task.is_finished());
+        advance(Duration::from_millis(1)).await;
+        assert!(
+            timed_out(task)
+                .await
+                .contains("upload catalog wait timed out")
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_catalog_wait_starts_a_new_budget() {
+        let (task, progress, _finish) = wait(true).await;
+        advance(BUDGET - Duration::from_millis(1)).await;
+        progress.send_replace(false);
+        settle().await;
+        advance(BUDGET * 5).await;
+        progress.send_replace(true);
+        settle().await;
+        advance(BUDGET - Duration::from_millis(1)).await;
+        settle().await;
+        assert!(!task.is_finished());
+        advance(Duration::from_millis(1)).await;
+        assert!(
+            timed_out(task)
+                .await
+                .contains("upload catalog wait timed out")
+        );
+    }
+}

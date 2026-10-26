@@ -218,7 +218,8 @@ impl Harness {
 async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
     mut request: impl FnMut() -> F,
 ) -> Reply {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // A hang guard: a loaded runner may need many retries before the catalog frees.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let reply = request().await;
         if reply.status != 503 || tokio::time::Instant::now() >= deadline {
@@ -226,6 +227,16 @@ async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+fn assert_catalog_wait_timeout(reply: &Reply) {
+    assert_eq!(reply.status, 503);
+    assert!(
+        reply.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("upload catalog wait timed out")
+    );
 }
 
 #[tokio::test]
@@ -2137,26 +2148,24 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
 
 #[tokio::test]
 async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
-    // The scan must take several times the catalog budget, while the budget
-    // itself must absorb catalog admission on a loaded CI runner.
+    // Which deadline applies during the scan is pinned in virtual time by the
+    // `await_session_upload` tests. Here a 32 MiB scan runs under a short catalog
+    // budget end to end; catalog steps that exceed it on a loaded runner are
+    // retried because a completed upload may still commit.
     let size = 32 * 1024 * 1024;
     let h = Harness::start_with_catalog_wait(size, false, None, 200).await;
-    let init = h.initiate("name=hash-scan", "", b"").await;
+    let init = retry_unavailable(|| h.initiate("name=hash-scan", "", b"")).await;
     let path = h.path(&init);
     let bytes = vec![b'h'; size as usize];
+    let range = format!("Content-Range: bytes 0-{}/*\r\n", size - 1);
     assert_eq!(
-        h.request(
-            "PUT",
-            &path,
-            &format!("Content-Range: bytes 0-{}/*\r\n", size - 1),
-            &bytes
-        )
-        .await
-        .status,
+        retry_unavailable(|| h.request("PUT", &path, &range, &bytes))
+            .await
+            .status,
         308
     );
     let started = tokio::time::Instant::now();
-    let completed = h
+    let mut completed = h
         .request(
             "PUT",
             &path,
@@ -2168,6 +2177,12 @@ async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
         "32 MiB final hash scan and publication: {:?}; catalog wait budget: 200 ms",
         started.elapsed()
     );
+    if completed.status == 503 {
+        assert_catalog_wait_timeout(&completed);
+        completed =
+            retry_unavailable(|| h.request("PUT", &path, "Content-Range: bytes */*\r\n", b""))
+                .await;
+    }
     assert_eq!(completed.status, 200);
     assert_eq!(completed.json()["size"], size.to_string());
     assert_eq!(
@@ -2200,26 +2215,26 @@ async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_t
     );
     let database = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    // The write lock holds the finalization in its catalog wait, so the wait's
+    // lower bound does not depend on runner speed. The error message shows the
+    // catalog budget, not the 900 s request deadline, ended it; the timeout is
+    // only a hang guard.
+    let started = tokio::time::Instant::now();
     let response = tokio::time::timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(30),
         h.request("PUT", &path, "Content-Range: bytes */262144\r\n", b""),
     )
     .await
     .unwrap();
-    assert_eq!(response.status, 503);
+    assert_catalog_wait_timeout(&response);
+    assert!(started.elapsed() >= Duration::from_millis(250));
     database.execute_batch("COMMIT;").unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-    loop {
-        let status = h
-            .request("PUT", &path, "Content-Range: bytes */*\r\n", b"")
-            .await;
-        if status.status != 503 {
-            assert_eq!(status.status, 200);
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::task::yield_now().await;
-    }
+    assert_eq!(
+        retry_unavailable(|| h.request("PUT", &path, "Content-Range: bytes */*\r\n", b""))
+            .await
+            .status,
+        200
+    );
     assert_eq!(
         h.request("GET", "/storage/v1/b/bucket/o/sql-wait?alt=media", "", b"")
             .await

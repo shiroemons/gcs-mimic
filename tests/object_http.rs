@@ -889,14 +889,17 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
 #[test]
 fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() {
     let dir = TestDir::new();
-    let server = Server::with_timeouts(&dir, 1000, 100, 5000, 600);
+    // The inactivity timeout stays below the catalog budget, so the waits prove
+    // that inactivity is suspended during them; 500 ms leaves room for server
+    // scheduling gaps outside the waits on a loaded runner.
+    let server = Server::with_timeouts(&dir, 1000, 500, 5000, 2000);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let started = Instant::now();
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committing HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
-    let published = Instant::now() + Duration::from_secs(2);
+    let published = Instant::now() + Duration::from_secs(30);
     while std::fs::read_dir(dir.0.join("blobs"))
         .unwrap()
         .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
@@ -908,9 +911,11 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
         thread::sleep(Duration::from_millis(5));
     }
     // The first commit owns the serialized catalog slot while the external lock is held.
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(250));
     let mut second = server.stream();
     second.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=queued HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\ntwo").unwrap();
+    // Both replies arrive while the lock is still held, so the catalog budget,
+    // not the lock release, ended both waits.
     for reply in [Reply::read(first), Reply::read(second)] {
         reply.error(503, "backendError");
         assert!(
@@ -926,14 +931,10 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
                 .contains("catalog_wait_timeout_ms")
         );
     }
-    assert!(started.elapsed() >= Duration::from_millis(500));
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "both waits bounded before lock release"
-    );
+    assert!(started.elapsed() >= Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
-    // GET response startup still has a 100 ms deadline; let SQLite's busy retry finish first.
-    let committed = Instant::now() + Duration::from_secs(2);
+    // GET response startup still has the inactivity deadline; let SQLite's busy retry finish first.
+    let committed = Instant::now() + Duration::from_secs(30);
     while !database
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = 'test-bucket' AND name = 'committing')",
@@ -958,13 +959,15 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
 #[test]
 fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 200);
+    // Holding the lock for four inactivity timeouts shows the completed body is
+    // exempt; 500 ms leaves room for server scheduling gaps before the commit wait.
+    let server = Server::start(&dir, 1000, 500);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut stream = server.stream();
     stream.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=committed&ifGenerationMatch=0 HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\nnew").unwrap();
-    thread::sleep(Duration::from_millis(700));
+    thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
     assert_eq!(Reply::read(stream).status, 200);
     assert_eq!(server.get("committed?alt=media").body, b"new");
@@ -973,13 +976,14 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
 #[test]
 fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let dir = TestDir::new();
-    let server = Server::start(&dir, 1000, 200);
+    // As above: four inactivity timeouts of queueing, with room for scheduling gaps.
+    let server = Server::start(&dir, 1000, 500);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     database.execute_batch("BEGIN IMMEDIATE").unwrap();
     let mut first = server.stream();
     first.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=first HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\none").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while std::fs::read_dir(dir.0.join("blobs"))
         .unwrap()
         .all(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap().count() == 0)
@@ -991,14 +995,14 @@ fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
         thread::sleep(Duration::from_millis(10));
     }
     // Let the first commit take the serialized catalog slot while SQLite is locked.
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(250));
     let mut second = server.stream();
     second.write_all(b"POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=second HTTP/1.1\r\nHost: local\r\nContent-Length: 3\r\n\r\ntwo").unwrap();
     let waiting = Instant::now();
-    thread::sleep(Duration::from_millis(700));
+    thread::sleep(Duration::from_secs(2));
     database.execute_batch("ROLLBACK").unwrap();
     assert_eq!(Reply::read(second).status, 200);
-    assert!(waiting.elapsed() >= Duration::from_millis(700));
+    assert!(waiting.elapsed() >= Duration::from_secs(2));
     assert_eq!(Reply::read(first).status, 200);
     assert_eq!(server.get("first?alt=media").body, b"one");
     assert_eq!(server.get("second?alt=media").body, b"two");

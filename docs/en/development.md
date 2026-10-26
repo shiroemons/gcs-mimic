@@ -98,14 +98,28 @@ and manual dispatch. Release workflows skip `portability` because their build
 matrix already tests every release target natively.
 
 Tests of deadlines and timeouts must not depend on how fast a shared CI runner
-is. Prefer the injected clock (`FixedClock`, `TestClock`) and advance it
-explicitly. When a test must use wall-clock time against a real server, keep
-each activity gap at most a quarter of the timeout it must not trigger, assert
-the observed close time rather than the client's remaining sleeps, accept
-`BrokenPipe`, `ConnectionReset` and `ConnectionAborted` as the server closing
-first, and use client socket timeouts only as hang guards. Several existing
-deadline tests still use wall-clock margins and are tracked for conversion to
-the injected clock.
+is. Timestamps come from the injected `Clock` (`FixedClock`, `TestClock`), but
+request, inactivity and catalog-wait deadlines use Tokio time. Test their
+selection logic in virtual time with `#[tokio::test(start_paused = true)]` and
+`tokio::time::advance`, as the `await_session_upload` tests do. Let the task
+reach its wait before advancing, and check completion before awaiting it: an
+idle paused runtime auto-advances to the next pending deadline.
+
+Do not pause time in tests that move data over real sockets. Tokio
+auto-advances whenever the runtime waits on the kernel, for example during TCP
+flow control, so a 32 MiB transfer can expire a 5 s inactivity deadline in
+virtual time. Blocking catalog work inhibits auto-advance instead, so a catalog
+wait never elapses on its own.
+
+When a test must use wall-clock time against a real server, hold the wait open
+with a lock or another explicit gate rather than a sleep, keep each activity gap
+at most a quarter of the timeout it must not trigger, and keep inactivity
+timeouts at 500 ms or more so server scheduling gaps on a loaded runner do not
+close the connection. Assert the observed close time rather than the client's
+remaining sleeps, accept `BrokenPipe`, `ConnectionReset` and
+`ConnectionAborted` as the server closing first, retry 503 responses from setup
+steps that run under a short catalog budget, and use client socket timeouts and
+retry deadlines only as hang guards.
 
 Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
 with an adjacent `// SAFETY:` comment explaining why the operation is safe.
