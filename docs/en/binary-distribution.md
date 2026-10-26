@@ -102,6 +102,16 @@ On macOS, use `shasum -a 256 <archive>`; on PowerShell, use
 Checksums detect corruption; they are not code signatures or independent proof
 of origin.
 
+macOS archives are unsigned and not notarized. When a browser downloads one,
+Gatekeeper blocks the extracted binary. After verifying the checksum, remove
+the quarantine attribute before the first run:
+
+```sh
+xattr -d com.apple.quarantine gcs-mimic
+```
+
+Downloads through `curl` or `gh release download` carry no quarantine attribute.
+
 ## Verification and release flow
 
 1. Update the root package version and Cargo.lock together according to the

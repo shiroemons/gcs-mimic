@@ -560,5 +560,15 @@ Recorded on main after publication, 2026-10-26.
   reports `gcs-mimic 0.1.1`. The README quick start and the fake-gcs-server
   Compose replacement walkthrough both pass unchanged against the published
   image.
+- **v0.1.2** (tag on `dd2f2d1`, run `40267644906`): adds both macOS archives.
+  The dry-run dispatch `40265461685` first passed all six builds and listed the
+  seven Release assets without publishing. On the tag, the x86-64 macOS job
+  failed two tests when the 5 s client read timeout expired under load; one
+  rerun passed, then publish and the container jobs succeeded. `0.1.2`, `0.1`
+  and `latest` resolve to
+  `sha256:567c27bc790b0951c921171921cf509fd4cfc7f770c1fa86a7eccdf32c76e69a`;
+  anonymous pulls of both platforms report `gcs-mimic 0.1.2`. The downloaded
+  `aarch64-apple-darwin` archive matched `SHA256SUMS` and reported its version.
+  Main later raised the client hang guard to 30 s.
 - Still not run: `just pre-push`, an identical-input manifest retry and
-  native macOS/Windows archives.
+  native Windows archives.

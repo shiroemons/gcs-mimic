@@ -1301,6 +1301,14 @@
           "test_ids": [
             "linux-release-matrix"
           ]
+        },
+        {
+          "id": "DIST-001-MACOS",
+          "description": "Observe the macOS ARM64 and x86-64 native builds, full test suites, packaging and published checksums. v0.1.2 run 40267644906 passed after one rerun of the x86-64 job, whose client read timeout expired under load; the Release carries both archives, and the ARM64 archive's checksum and --version were verified on a macOS host. Archives are unsigned and not notarized.",
+          "result": "PASS",
+          "test_ids": [
+            "macos-release-matrix"
+          ]
         }
       ],
       "test_ids": [
@@ -1310,7 +1318,8 @@
         "missing_notices_and_escaping_license_files_fail_closed",
         "native_notice_requirements_follow_the_target_runtime",
         "reviewed_crc32c_sources_are_retained_and_new_versions_require_review",
-        "linux-release-matrix"
+        "linux-release-matrix",
+        "macos-release-matrix"
       ],
       "verification": [
         {
@@ -1334,6 +1343,15 @@
           "artifact": "docs/en/evidence/dist-release-notes.md",
           "test_ids": [
             "linux-release-matrix"
+          ]
+        },
+        {
+          "command": "gh run view 40267644906 (Release binaries, v0.1.2); gh release download v0.1.2 and shasum -c plus --version of the aarch64-apple-darwin archive",
+          "result": "PASS",
+          "verified_at": "2026-10-26",
+          "artifact": "docs/en/evidence/dist-release-notes.md",
+          "test_ids": [
+            "macos-release-matrix"
           ]
         }
       ],
