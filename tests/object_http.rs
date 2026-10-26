@@ -87,11 +87,13 @@ impl Server {
 
     fn stream(&self) -> TcpStream {
         let stream = TcpStream::connect(&self.address).unwrap();
+        // A hang guard, not a latency bound: concurrent suites on slow x86 macOS
+        // runners exceeded 5 s for ordinary responses.
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
+            .set_read_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
+            .set_write_timeout(Some(Duration::from_secs(30)))
             .unwrap();
         stream
     }

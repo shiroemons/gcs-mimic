@@ -16,7 +16,6 @@ fn simultaneous_uploads_follow_the_connection_limit_and_keep_reads_working() {
                 let server = &server;
                 uploads.push(scope.spawn(move || {
                     let mut stream = server.stream();
-                    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
                     stream.write_all(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=parallel-{index} HTTP/1.1\r\nHost: local\r\nContent-Length: 131072\r\n\r\n").as_bytes()).unwrap();
                     start.wait();
                     for _ in 0..2 {
