@@ -971,3 +971,8 @@ planning/onboarding-tracks-findings.ja.md の該当箇所がまだ正しいか�
   `dist-release-notes` で直す。
 - CI（`ci.yaml`）は Ruby SDK を実行しない。最初のリリースの Ruby 証跡はローカル実行の記録に頼っている。CI への追加は Rails
   トラックで扱う。
+- 期限・タイムアウトの結合テストの一部（`tests/object_http.rs`、`tests/tls.rs`、`tests/object_multipart_http.rs`、
+  `tests/auth_http/xml_put.rs` の細切れの送信と無通信のテスト、`obj_http_catalog_wait_deadlines_...`）は、実時間の余裕で
+  判定している。遅い runner で落ちるたびに余裕を広げる対応を繰り返したため、注入した時計（`FixedClock`・`TestClock`）を
+  進めて判定する形へ移す（方針は `docs/en/development.md`）。スライス名は `test-deadline-clock`。困る例は 0.1.2 のタグの
+  macOS Intel の再実行。

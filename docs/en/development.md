@@ -94,9 +94,18 @@ targets with `rustup`. C dependencies compile to empty stub objects there, so
 this catches `cfg` and platform-API mistakes but not link or runtime failures.
 Foundation CI's `portability` job runs the tests natively on one target per
 OS family on every push; the release matrix still runs only for release tags
-and manual dispatch. Release workflows skip `portability` while Windows
-archives are excluded, so its Windows failures stay visible on pushes without
-blocking macOS and Linux publication; the release matrix tests those natively.
+and manual dispatch. Release workflows skip `portability` because their build
+matrix already tests every release target natively.
+
+Tests of deadlines and timeouts must not depend on how fast a shared CI runner
+is. Prefer the injected clock (`FixedClock`, `TestClock`) and advance it
+explicitly. When a test must use wall-clock time against a real server, keep
+each activity gap at most a quarter of the timeout it must not trigger, assert
+the observed close time rather than the client's remaining sleeps, accept
+`BrokenPipe`, `ConnectionReset` and `ConnectionAborted` as the server closing
+first, and use client socket timeouts only as hang guards. Several existing
+deadline tests still use wall-clock margins and are tracked for conversion to
+the injected clock.
 
 Keep `#[allow(unsafe_code)]` on each necessary unsafe statement or its binding,
 with an adjacent `// SAFETY:` comment explaining why the operation is safe.
