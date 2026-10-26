@@ -886,6 +886,89 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
     assert_eq!(server.get("large").json()["size"], size.to_string());
 }
 
+// Truncating a file the server holds open is Unix-only; Windows denies the resize.
+#[cfg(unix)]
+#[test]
+fn obj_http_media_read_failure_after_headers_names_its_cause() {
+    let dir = TestDir::new();
+    let mut child = common::server_command()
+        .args([
+            "serve",
+            "--scheme",
+            "http",
+            "--listen",
+            "127.0.0.1:0",
+            "--data-dir",
+        ])
+        .arg(&dir.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = child.stderr.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    let server = Server {
+        child,
+        address: ready["listen"].as_str().unwrap().into(),
+        stdout,
+    };
+    server.bucket();
+    let size = 8 * 1024 * 1024;
+    assert_eq!(
+        server.upload("name=large", "", &vec![b'r'; size]).status,
+        200
+    );
+    let blob = std::fs::read_dir(dir.0.join("blobs"))
+        .unwrap()
+        .flat_map(|shard| std::fs::read_dir(shard.unwrap().path()).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .next()
+        .unwrap();
+    let mut stream = server.stream();
+    stream
+        .write_all(
+            b"GET /storage/v1/b/test-bucket/o/large?alt=media HTTP/1.1\r\nHost: local\r\n\r\n",
+        )
+        .unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut headers = Vec::new();
+    while !headers.ends_with(b"\r\n\r\n") {
+        assert_ne!(reader.read_until(b'\n', &mut headers).unwrap(), 0);
+    }
+    assert!(headers.starts_with(b"HTTP/1.1 200"));
+    let mut chunk = vec![0; 64 * 1024];
+    let mut received = reader.read(&mut chunk).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&blob)
+        .unwrap()
+        .set_len(0)
+        .unwrap();
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => received += read,
+            Err(error) if closed_by_server(&error) => break,
+            Err(error) => panic!("{error}"),
+        }
+    }
+    assert!(received < size, "truncated media: {received}/{size}");
+    drop(server);
+    let mut events = String::new();
+    stderr.read_to_string(&mut events).unwrap();
+    let failure = events
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["event"] == "object_body_read_failed")
+        .unwrap_or_else(|| panic!("no body read event in {events}"));
+    assert_eq!(failure["level"], "warn");
+    assert_eq!(failure["cause"], "unexpected end of file");
+    assert!(!events.contains(dir.0.to_str().unwrap()));
+}
+
 #[test]
 fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() {
     let dir = TestDir::new();

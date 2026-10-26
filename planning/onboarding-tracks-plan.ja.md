@@ -979,3 +979,9 @@ planning/onboarding-tracks-findings.ja.md の該当箇所がまだ正しいか�
   - 結果: 期限は `Clock` ではなく Tokio の時刻で測るため、期限の選び方は一時停止した Tokio の時刻の単体テストで固定した。
     実際のソケットを使うテストで時刻を止めると、カーネル待ちの間に自動で進んで期限が切れるため使わない。結合テストは
     ロックで待ちを保ち、無通信の期限を 500 ms 以上にし、準備段階の 503 を再試行する形にした。
+- 未解決: macOS ARM の `portability`（Foundation run `40296101467`、`07f9e38`）で
+  `signing::pap::pap_copy_rewrite_compose_recheck_public_source_and_destination_grants` が 1 回失敗した。
+  応答の本文が `Content-Length` に届かず（`UnexpectedEof`）、サーバーは `connection_failed`（`user body write aborted`）を
+  記録した。サーバーが本文の読み込みに失敗して送信を中断したことを示すが、当時は読み込みのエラーを記録していなかった。
+  手元では `auth_http` を 6 本同時に 3 回流しても再現しない。読み込みの失敗は今後 `object_body_read_failed` の
+  `cause` に出るので、再発したらその値から調べる。不安定なテストとして片付けず、製品の不具合の可能性を前提に扱う。

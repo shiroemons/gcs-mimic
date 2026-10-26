@@ -1153,6 +1153,15 @@ fn object_body(
                 }
                 Ok(None) => break,
                 Err(error) => {
+                    // hyper reports only that the body was aborted; name the read failure.
+                    crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Warn,
+                        "object_body_read_failed",
+                        serde_json::json!({
+                            "message": "object data read failed after the response started; the client receives a truncated body",
+                            "cause": error.kind().to_string(),
+                        }),
+                    );
                     sender.abort(error);
                     break;
                 }
