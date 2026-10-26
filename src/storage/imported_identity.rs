@@ -168,17 +168,19 @@ mod tests {
             ));
         }
         for micros in [i64::MIN, 0, i64::MAX] {
-            let time = super::super::super::system_time_micros(micros).unwrap();
+            // Windows SystemTime spans only 1601-30828, so the extremes cannot be built there.
+            let time = super::super::super::system_time_micros(micros);
+            assert!(time.is_ok() || cfg!(windows), "{micros}");
+            let Ok(time) = time else {
+                continue;
+            };
             assert!(ImportedIdentity::new(generation, time, time).is_ok());
         }
-        assert!(
-            ImportedIdentity::new(
-                generation,
-                UNIX_EPOCH + Duration::from_micros(i64::MAX as u64 + 1),
-                UNIX_EPOCH
-            )
-            .is_err()
-        );
+        let beyond = UNIX_EPOCH.checked_add(Duration::from_micros(i64::MAX as u64 + 1));
+        assert!(beyond.is_some() || cfg!(windows));
+        if let Some(beyond) = beyond {
+            assert!(ImportedIdentity::new(generation, beyond, UNIX_EPOCH).is_err());
+        }
     }
 
     #[tokio::test]
