@@ -322,7 +322,12 @@ fn extension_mime_is_explicit_and_existing_os_metadata_objects_survive_restart()
         ("foo.", "application/octet-stream"),
         ("literal%2F.bin", "application/octet-stream"),
     ];
-    for (name, _) in cases {
+    // Windows strips a trailing dot from file names, so "foo." cannot be a fixture there.
+    let cases: Vec<_> = cases
+        .into_iter()
+        .filter(|(name, _)| !(cfg!(windows) && name.ends_with('.')))
+        .collect();
+    for &(name, _) in &cases {
         fixture(&seed, &format!("local-bucket/{name}"), b"fixture");
     }
     let before = fs::metadata(seed.join("local-bucket/NOTE.TXT")).unwrap();

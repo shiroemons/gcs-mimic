@@ -1253,8 +1253,9 @@ fn obj_multipart_http_deadline_cancels_admitted_bodies_and_releases_all_slots() 
         let mut response = Vec::new();
         match stream.read_to_end(&mut response) {
             Ok(_) => {}
-            // Closing an incomplete request can reset TCP if a trickle arrives after FIN.
-            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset),
+            // Closing an incomplete request can reset TCP if a trickle arrives after FIN;
+            // Windows reports the same close as an aborted connection.
+            Err(error) => assert!(common::closed_by_server(&error), "{error}"),
         }
         assert!(response.is_empty());
     }

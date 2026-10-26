@@ -127,7 +127,9 @@ async fn sync_state_identity_index_pages_and_exact_fingerprints_survive_reopen()
             .len(),
         3
     );
-    let (_, other, _, _) = setup().await;
+    // Keep the second directory until its catalog closes; `_` would delete it at
+    // once, which Windows refuses while the catalog holds its files.
+    let (_other_dir, other, _, _) = setup().await;
     assert_ne!(other.sync_state().catalog_id().await.unwrap(), id);
     assert_eq!(
         other.sync_state().page(binding, String::new(), 1).await,

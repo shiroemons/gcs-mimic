@@ -24,13 +24,15 @@ use tokio::{
 };
 
 struct Harness {
-    dir: TestDir,
     address: String,
     base: String,
     state: Arc<State>,
     clock: Arc<TestClock>,
     stop: oneshot::Sender<()>,
     server: JoinHandle<std::io::Result<()>>,
+    // Fields drop in order; the directory must outlive the catalog in `state`,
+    // because Windows cannot delete files the catalog still holds.
+    dir: TestDir,
 }
 struct Reply {
     status: u16,
