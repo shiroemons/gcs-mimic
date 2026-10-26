@@ -890,8 +890,9 @@ fn obj_http_trickle_download_stops_at_absolute_deadline() {
 fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() {
     let dir = TestDir::new();
     // The inactivity timeout stays below the catalog budget, so the waits prove
-    // that inactivity is suspended during them; 500 ms leaves room for server
-    // scheduling gaps outside the waits on a loaded runner.
+    // that inactivity is suspended during them. It also bounds the header read of
+    // every request, including setup; at 100 ms a CPU-starved runner closed the
+    // bucket request before its headers were dispatched.
     let server = Server::with_timeouts(&dir, 1000, 500, 5000, 2000);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -960,7 +961,7 @@ fn obj_http_catalog_wait_deadlines_return_backend_error_and_commit_can_finish() 
 fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
     let dir = TestDir::new();
     // Holding the lock for four inactivity timeouts shows the completed body is
-    // exempt; 500 ms leaves room for server scheduling gaps before the commit wait.
+    // exempt; 500 ms keeps setup header reads clear of CPU starvation.
     let server = Server::start(&dir, 1000, 500);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
@@ -976,7 +977,7 @@ fn obj_http_completed_body_waits_for_commit_past_inactivity_deadline() {
 #[test]
 fn obj_http_queued_precheck_waits_past_body_inactivity_deadline() {
     let dir = TestDir::new();
-    // As above: four inactivity timeouts of queueing, with room for scheduling gaps.
+    // As above: four inactivity timeouts of queueing, and 500 ms for header reads.
     let server = Server::start(&dir, 1000, 500);
     server.bucket();
     let database = rusqlite::Connection::open(dir.0.join("catalog.sqlite3")).unwrap();

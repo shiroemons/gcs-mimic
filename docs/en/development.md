@@ -114,8 +114,9 @@ wait never elapses on its own.
 When a test must use wall-clock time against a real server, hold the wait open
 with a lock or another explicit gate rather than a sleep, keep each activity gap
 at most a quarter of the timeout it must not trigger, and keep inactivity
-timeouts at 500 ms or more so server scheduling gaps on a loaded runner do not
-close the connection. Assert the observed close time rather than the client's
+timeouts at 500 ms or more. The inactivity timeout also bounds each request's
+header read, setup requests included; at 100 ms, CPU starvation on a loaded
+host closed connections before their headers were dispatched. Assert the observed close time rather than the client's
 remaining sleeps, accept `BrokenPipe`, `ConnectionReset` and
 `ConnectionAborted` as the server closing first, retry 503 responses from setup
 steps that run under a short catalog budget, and use client socket timeouts and
