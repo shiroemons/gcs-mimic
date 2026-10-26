@@ -117,6 +117,41 @@ impl Fingerprint {
             device,
         })
     }
+    /// Fingerprint of an open file. std metadata has no file identity or change
+    /// time on Windows, so take the volume, file index and change time from the
+    /// handle there; otherwise a same-size, same-mtime replacement goes unnoticed.
+    pub fn of_file(file: &File) -> io::Result<Self> {
+        let fingerprint = Self::of(&file.metadata()?)?;
+        #[cfg(windows)]
+        let fingerprint = {
+            let identity = crate::fsutil::stat_identity(file)
+                .map_err(|error| io::Error::other(error.to_string()))?;
+            Self {
+                ctime_ns: Some(identity.changed_ns),
+                inode: Some(identity.inode),
+                device: Some(identity.device),
+                ..fingerprint
+            }
+        };
+        Ok(fingerprint)
+    }
+    /// Fingerprint of the entry a path names now, without following a symlink.
+    pub fn of_path(path: &Path) -> io::Result<Self> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::{
+                FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+            };
+            let file = OpenOptions::new()
+                .access_mode(FILE_READ_ATTRIBUTES)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+                .open(path)?;
+            Self::of_file(&file)
+        }
+        #[cfg(not(windows))]
+        Self::of(&fs::symlink_metadata(path)?)
+    }
     pub fn check(&self, other: &Self) -> Result<(), ImportFailure> {
         let mut fields = Vec::new();
         if self.size != other.size {
@@ -175,7 +210,7 @@ pub struct BodyStream {
 impl BodyStream {
     pub fn open(path: &Path, max_bytes: u64) -> Result<Self, ImportFailure> {
         let file = open_regular(path)?;
-        let before = Fingerprint::of(&file.metadata()?)?;
+        let before = Fingerprint::of_file(&file)?;
         if before.size > max_bytes {
             return Err(ImportFailure::corrupt(
                 "Size",
@@ -221,8 +256,8 @@ impl BodyStream {
     pub fn check_unchanged(&self) -> Result<(), ImportFailure> {
         let mut changed = Vec::new();
         for after in [
-            Fingerprint::of(&self.file.metadata()?)?,
-            Fingerprint::of(&fs::symlink_metadata(&self.path)?)?,
+            Fingerprint::of_file(&self.file)?,
+            Fingerprint::of_path(&self.path)?,
         ] {
             if let Err(ImportFailure::SourceChanged { fields }) = self.before.check(&after) {
                 changed.extend(fields);
@@ -240,7 +275,7 @@ impl BodyStream {
 
 fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
     let mut file = open_regular(path)?;
-    let before = Fingerprint::of(&file.metadata()?)?;
+    let before = Fingerprint::of_file(&file)?;
     let mut bytes = Vec::new();
     (&mut file)
         .take((SOURCE_METADATA_CAP + 1) as u64)
@@ -252,14 +287,14 @@ fn read_json_file(path: &Path) -> Result<Vec<u8>, ImportFailure> {
             "Restore a metadata record of at most 65536 bytes from the original export; do not truncate JSON.",
         ));
     }
-    before.check(&Fingerprint::of(&file.metadata()?)?)?;
-    before.check(&Fingerprint::of(&fs::symlink_metadata(path)?)?)?;
+    before.check(&Fingerprint::of_file(&file)?)?;
+    before.check(&Fingerprint::of_path(path)?)?;
     Ok(bytes)
 }
 
 fn compare_json_file(path: &Path, expected: &[u8]) -> Result<(), ImportFailure> {
     let mut file = open_regular(path)?;
-    let before = Fingerprint::of(&file.metadata()?)?;
+    let before = Fingerprint::of_file(&file)?;
     let mut buffer = [0; 4096];
     let mut offset = 0;
     loop {
@@ -279,8 +314,8 @@ fn compare_json_file(path: &Path, expected: &[u8]) -> Result<(), ImportFailure> 
             fields: vec![ChangedField::Metadata],
         });
     }
-    before.check(&Fingerprint::of(&file.metadata()?)?)?;
-    before.check(&Fingerprint::of(&fs::symlink_metadata(path)?)?)?;
+    before.check(&Fingerprint::of_file(&file)?)?;
+    before.check(&Fingerprint::of_path(path)?)?;
     Ok(())
 }
 
