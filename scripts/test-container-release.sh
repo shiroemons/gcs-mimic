@@ -103,7 +103,8 @@ elif [[ "$format" == --format ]]; then
     '{{json .Provenance}}')
       if [[ "$GHCR_TEST_PROVENANCE" == missing ]]; then echo '{}'
       elif [[ "$GHCR_TEST_PROVENANCE" == v0.2 ]]; then echo '{"SLSA":{"buildType":"https://mobyproject.org/buildkit@v1"}}'
-      else echo '{"SLSA":{"buildDefinition":{"buildType":"https://mobyproject.org/buildkit@v1"}}}'; fi ;;
+      elif [[ "$GHCR_TEST_PROVENANCE" == foreign ]]; then echo '{"SLSA":{"buildDefinition":{"buildType":"https://example.invalid/builder"}}}'
+      else echo '{"SLSA":{"buildDefinition":{"buildType":"https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"}}}'; fi ;;
     *) exit 93 ;;
   esac
 else exit 94; fi
@@ -164,6 +165,9 @@ export GHCR_TEST_SBOM=missing
 fail_before_mutation
 reset_case
 export GHCR_TEST_PROVENANCE=missing
+fail_before_mutation
+reset_case
+export GHCR_TEST_PROVENANCE=foreign
 fail_before_mutation
 reset_case
 export GHCR_TEST_PROVENANCE=v0.2

@@ -92,7 +92,12 @@ for architecture in amd64 arm64; do
   docker buildx imagetools inspect --format '{{json .SBOM}}' "$reference" > "$work/$architecture-sbom.json"
   jq -e '.SPDX.spdxVersion | type == "string" and startswith("SPDX-")' "$work/$architecture-sbom.json" > /dev/null
   docker buildx imagetools inspect --format '{{json .Provenance}}' "$reference" > "$work/$architecture-provenance.json"
-  jq -e '(.SLSA.buildDefinition.buildType // .SLSA.buildType) | type == "string" and startswith("https://mobyproject.org/buildkit")' "$work/$architecture-provenance.json" > /dev/null
+  # SLSA v0.2 provenance names BuildKit by mobyproject.org; SLSA v1 (BuildKit 0.34)
+  # names it by its attestation definitions document.
+  jq -e '(.SLSA.buildDefinition.buildType // .SLSA.buildType) | type == "string" and
+    (startswith("https://mobyproject.org/buildkit")
+      or . == "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md")' \
+    "$work/$architecture-provenance.json" > /dev/null
 done
 jq -S -s '[.[].manifests[]] | unique_by(.digest) | sort_by(.digest)' \
   "$work/amd64.json" "$work/arm64.json" > "$work/expected-descriptors.json"
