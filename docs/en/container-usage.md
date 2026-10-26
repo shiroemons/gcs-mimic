@@ -1,7 +1,7 @@
 # Use the Docker image
 
 The first public image is pending. The planned reference is
-`ghcr.io/shiroemons/gcs-mimic:0.1.0`; it cannot be pulled yet. Build the local
+`ghcr.io/shiroemons/gcs-mimic:0.1.1`; it cannot be pulled yet. Build the local
 image from a source checkout before running the commands below:
 
 ```sh

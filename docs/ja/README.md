@@ -13,7 +13,7 @@ Google Cloudのアカウントなしで、バケット作成やファイルの�
 Docker Composeとcurlを使います。ソースの取得、Rust、証明書の準備は不要です。
 
 **イメージは未公開です。** 初回公開予定の
-`ghcr.io/shiroemons/gcs-mimic:0.1.0`は、まだpullできません。
+`ghcr.io/shiroemons/gcs-mimic:0.1.1`は、まだpullできません。
 以下は公開後、またはローカルで検証したイメージに置き換えて使う手順です。
 [0.1.0のリリースノート（英語）](../en/releases/0.1.0.md)に対象範囲、
 [準備の証跡（英語）](../en/evidence/dist-release-notes.md#remaining-gates)に公開前の確認項目を記載しています。
@@ -24,7 +24,7 @@ Docker Composeとcurlを使います。ソースの取得、Rust、証明書の�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.1.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:

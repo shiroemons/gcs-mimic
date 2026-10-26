@@ -12,8 +12,8 @@ Requires Docker with Compose and curl. No checkout, Rust toolchain or certificat
 setup is needed for this HTTP example.
 
 **Image publication is pending.** The example targets the planned first image,
-`ghcr.io/shiroemons/gcs-mimic:0.1.0`; it cannot be pulled yet.
-The [0.1.0 release notes](docs/en/releases/0.1.0.md) describe the selected scope;
+`ghcr.io/shiroemons/gcs-mimic:0.1.1`; it cannot be pulled yet.
+The [0.1.1 release notes](docs/en/releases/0.1.1.md) describe the selected scope;
 the [preparation evidence](docs/en/evidence/dist-release-notes.md#remaining-gates)
 records the remaining publication gates. To run today, follow the
 [source-build guide](docs/en/getting-started.md).
@@ -23,7 +23,7 @@ Save this as `compose.yaml`:
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.1.0
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.1
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -120,7 +120,8 @@ For existing fake-gcs-server setups, see the
 - [Roadmap](docs/en/roadmap.md)
 - [Development and checks](docs/en/development.md)
 - [Release policy](docs/en/release-policy.md)
-- [0.1.0 release notes and known limitations](docs/en/releases/0.1.0.md)
+- [0.1.1 release notes](docs/en/releases/0.1.1.md) and
+  [0.1.0 features and known limitations](docs/en/releases/0.1.0.md)
 
 ## License
 

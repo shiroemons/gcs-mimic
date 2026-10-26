@@ -3,7 +3,7 @@
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
 最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.0`は未公開で、まだpullできません。
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.1`は未公開で、まだpullできません。
 以下は、ソースのチェックアウトで先にローカルイメージをビルドして使います。
 
 ```sh
