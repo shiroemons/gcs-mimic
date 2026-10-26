@@ -13,10 +13,13 @@ fi
 cd "$1"
 umask 077
 trap 'echo "Certificate generation failed:" >&2; sed -n "1,80p" openssl.log >&2' ERR
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
-  -subj '/CN=gcs-mimic throwaway development CA' \
-  -addext 'basicConstraints=critical,CA:TRUE' \
-  -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+# An explicit config keeps OpenSSL 1.1.1's default v3_ca extensions from
+# duplicating basicConstraints, which TLS clients reject.
+printf '%s\n' '[req]' 'distinguished_name=dn' 'x509_extensions=ca' 'prompt=no' \
+  '[dn]' 'CN=gcs-mimic throwaway development CA' \
+  '[ca]' 'basicConstraints=critical,CA:TRUE' 'keyUsage=critical,keyCertSign,cRLSign' \
+  'subjectKeyIdentifier=hash' > ca-req.cnf
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 -config ca-req.cnf \
   -keyout ca.key -out ca.pem 2>openssl.log
 openssl req -new -newkey rsa:2048 -nodes -sha256 \
   -subj '/CN=localhost' -keyout server.key -out server.csr 2>openssl.log
@@ -40,5 +43,5 @@ openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
   -subj '/CN=untrusted test CA' -keyout other.key -out other.pem 2>openssl.log
 # The non-root runtime needs read access to explicitly mounted development keys.
 chmod 644 ca.pem server.pem expired.pem other.pem server.key
-rm openssl.log
+rm openssl.log ca-req.cnf
 echo 'Generated two-day throwaway certificates for localhost, gcs and loopback IPs.'
