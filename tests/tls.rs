@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::TestDir;
+use common::{TestDir, closed_by_server};
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -1020,11 +1020,19 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     let started = Instant::now();
     for _ in 0..10 {
         std::thread::sleep(Duration::from_millis(70));
-        trickle.write_all(b"1\r\nx\r\n").unwrap();
-        trickle.flush().unwrap();
+        // The server closing first at its deadline is the outcome under test.
+        if let Err(error) = trickle
+            .write_all(b"1\r\nx\r\n")
+            .and_then(|()| trickle.flush())
+        {
+            assert!(closed_by_server(&error), "{error}");
+            break;
+        }
     }
     let mut response = Vec::new();
-    trickle.read_to_end(&mut response).unwrap();
+    if let Err(error) = trickle.read_to_end(&mut response) {
+        assert!(closed_by_server(&error), "{error}");
+    }
     assert!(
         response.is_empty(),
         "the absolute deadline must prevent a trickled overwrite"

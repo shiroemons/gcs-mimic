@@ -3,7 +3,7 @@ mod common;
 #[path = "object_http/upload_admission.rs"]
 mod upload_admission;
 
-use common::TestDir;
+use common::{TestDir, closed_by_server};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -226,17 +226,6 @@ impl Reply {
         assert_eq!(error["errors"][0]["reason"], reason);
         assert_eq!(error["errors"][0]["message"], error["message"]);
     }
-}
-
-/// macOS reports a peer close during transfer as a reset or broken pipe where
-/// Linux often still accepts the write or returns EOF.
-fn closed_by_server(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::BrokenPipe
-            | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::ConnectionAborted
-    )
 }
 
 #[test]

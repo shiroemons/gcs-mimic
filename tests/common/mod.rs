@@ -41,6 +41,18 @@ pub fn downgrade_object_schema(connection: &rusqlite::Connection) {
     timestamp_support::downgrade_object_schema(connection);
 }
 
+/// macOS reports a peer close during transfer as a reset or broken pipe where
+/// Linux often still accepts the write or returns EOF.
+#[allow(dead_code)]
+pub fn closed_by_server(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+    )
+}
+
 pub fn server_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
     command.env_clear();
