@@ -232,7 +232,10 @@ jobs:
               exit 1
             fi
           done <<< "$releases"
-          gh release create "$RELEASE_TAG" dist/*.tar.gz dist/*.zip dist/SHA256SUMS \
+          # Linux-only releases have no Windows .zip; an unmatched glob would be passed literally.
+          shopt -s nullglob
+          assets=(dist/*.tar.gz dist/*.zip dist/SHA256SUMS)
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag --title "$RELEASE_TAG" --notes-file "docs/en/releases/$VERSION.md"
   publish-container:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
