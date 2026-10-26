@@ -1,6 +1,6 @@
 mod common;
 
-use common::TestDir;
+use common::{CleanEnv, TestDir};
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -3307,7 +3307,7 @@ fn bkt_http_concurrent_duplicates_restart_and_exclusive_directory() {
         .request("GET", "/storage/v1/b/race-bucket", "")
         .json();
     let second = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-        .env_clear()
+        .clean_env()
         .args([
             "serve",
             "--scheme",
@@ -3358,7 +3358,7 @@ fn bkt_http_failed_recovery_never_reports_ready() {
             dir.0.join("not-a-directory")
         };
         let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-            .env_clear()
+            .clean_env()
             .args([
                 "serve",
                 "--scheme",

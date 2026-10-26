@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 mod common;
 
-use common::TestDir;
+use common::{CleanEnv, TestDir};
 use std::{
     path::Path,
     process::{Command, Output},
@@ -10,7 +10,7 @@ use std::{
 fn run(kind: &str, config: Option<&Path>, extra: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
     command
-        .env_clear()
+        .clean_env()
         .args(["url", kind, "--bucket", "my-bucket", "--object", "a b"]);
     // Invalid implicit inputs prove these helpers never invoke server configuration loading.
     command

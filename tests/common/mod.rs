@@ -53,9 +53,28 @@ pub fn closed_by_server(error: &std::io::Error) -> bool {
     )
 }
 
+/// Starts a child from an empty environment, keeping only what the platform
+/// needs to create a process: Windows cannot initialize Winsock without
+/// `SystemRoot`, so servers exited before readiness there.
+#[allow(dead_code)]
+pub trait CleanEnv {
+    fn clean_env(&mut self) -> &mut Self;
+}
+
+impl CleanEnv for Command {
+    fn clean_env(&mut self) -> &mut Self {
+        self.env_clear();
+        #[cfg(windows)]
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            self.env("SystemRoot", root);
+        }
+        self
+    }
+}
+
 pub fn server_command() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
-    command.env_clear();
+    command.clean_env();
     #[cfg(windows)]
     {
         use std::{os::windows::process::CommandExt, sync::Once};

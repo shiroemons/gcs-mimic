@@ -1,6 +1,6 @@
 mod common;
 
-use common::TestDir;
+use common::{CleanEnv, TestDir};
 use gcs_mimic::config::{Config, Scheme};
 use serde_json::json;
 use std::{
@@ -78,7 +78,7 @@ fn healthcheck_defaults_follow_http_https_both_and_changed_ports() {
         let probe = || {
             let mut command = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"));
             command
-                .env_clear()
+                .clean_env()
                 .arg("healthcheck")
                 .env("GCS_MIMIC_CONFIG", &path);
             command
@@ -145,7 +145,7 @@ fn healthcheck_defaults_follow_http_https_both_and_changed_ports() {
 fn healthcheck_config_failure_explains_candidate_url_and_explicit_override() {
     let dir = TestDir::new();
     let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-        .env_clear()
+        .clean_env()
         .arg("healthcheck")
         .env("GCS_MIMIC_CONFIG", dir.0.join("missing.json"))
         .env("GCS_MIMIC_SCHEME", "http")

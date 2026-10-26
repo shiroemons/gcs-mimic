@@ -6,7 +6,7 @@ use gcs_mimic::{
     storage::Catalog,
 };
 mod common;
-use common::TestDir;
+use common::{CleanEnv, TestDir};
 use std::{
     collections::BTreeMap,
     fs,
@@ -1011,7 +1011,7 @@ fn startup_diagnostics_aggregate_independent_inputs_and_material_without_side_ef
     fs::write(&key, "secret-private-key-value").unwrap();
     fs::write(&identity, "{ secret-identity-value").unwrap();
     let output = common::server_command()
-        .env_clear()
+        .clean_env()
         .args(["serve", "--data-dir"])
         .arg(&data)
         .arg("--config")
@@ -1073,7 +1073,7 @@ fn invalid_tls_timeout_does_not_hide_independent_tls_and_identity_failures() {
         fs::write(file, "secret-invalid-material").unwrap();
     }
     let output = common::server_command()
-        .env_clear()
+        .clean_env()
         .args(["serve", "--data-dir"])
         .arg(&data)
         .args(["--tls-handshake-timeout-ms", "0", "--tls-cert"])
@@ -1118,7 +1118,7 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
     let invalid = || OsString::from_vec(b"secret-invalid-\xff-value".to_vec());
     let root = TestDir::new();
     let mut child = common::server_command()
-        .env_clear()
+        .clean_env()
         .args([
             "serve",
             "--scheme",
@@ -1155,7 +1155,7 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
         });
         let mut command = common::server_command();
         command
-            .env_clear()
+            .clean_env()
             .args([
                 "serve",
                 "--scheme",
@@ -1205,7 +1205,7 @@ fn non_utf8_environment_values_preserve_unknown_warnings_and_aggregate_errors() 
 fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
     let root = TestDir::new();
     let mut child = common::server_command()
-        .env_clear()
+        .clean_env()
         .args([
             "serve",
             "--scheme",
@@ -1240,7 +1240,7 @@ fn unknown_legacy_environment_warns_and_native_server_still_becomes_ready() {
 fn compose_only_variables_and_missing_subcommand_report_native_migration() {
     let root = TestDir::new();
     let output = common::server_command()
-        .env_clear()
+        .clean_env()
         .args(["serve", "--data-dir"])
         .arg(root.0.join("data"))
         .env("GCS_MIMIC_PORT", "secret")
@@ -1272,7 +1272,7 @@ fn compose_only_variables_and_missing_subcommand_report_native_migration() {
         assert!(text.contains(expected), "{text}");
     }
     let output = common::server_command()
-        .env_clear()
+        .clean_env()
         .args(["-scheme=http", "-port", "9000", "--data=fixtures"])
         .output()
         .unwrap();
@@ -1294,7 +1294,7 @@ fn native_helper_values_that_look_like_legacy_flags_are_preserved() {
     for command in ["public", "sign"] {
         for object in ["-data", "-port", "-x"] {
             let mut process = common::server_command();
-            process.env_clear().args([
+            process.clean_env().args([
                 "url",
                 command,
                 "--base-url",
@@ -1332,7 +1332,7 @@ fn cli_help_errors_and_bind_failure() {
     for flag in ["--help", "--version"] {
         assert!(
             Command::new(bin)
-                .env_clear()
+                .clean_env()
                 .arg(flag)
                 .output()
                 .unwrap()
@@ -1347,14 +1347,14 @@ fn cli_help_errors_and_bind_failure() {
         vec!["tls", "ca", "unexpected"],
         vec!["healthcheck", "--url", "http://127.0.0.1:4443/anything"],
     ] {
-        let output = Command::new(bin).env_clear().args(args).output().unwrap();
+        let output = Command::new(bin).clean_env().args(args).output().unwrap();
         assert!(!output.status.success());
         assert!(!output.stderr.is_empty());
     }
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let dir = TestDir::new();
     let output = Command::new(bin)
-        .env_clear()
+        .clean_env()
         .args([
             "serve",
             "--scheme",
@@ -1406,7 +1406,7 @@ fn healthcheck_rejects_truncated_malformed_and_oversized_responses() {
             stream.write_all(response.as_bytes()).unwrap();
         });
         let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-            .env_clear()
+            .clean_env()
             .args([
                 "healthcheck",
                 "--url",
@@ -1430,7 +1430,7 @@ async fn healthcheck_exit_status_tracks_readiness() {
     let bin = env!("CARGO_BIN_EXE_gcs-mimic");
     let probe = || {
         Command::new(bin)
-            .env_clear()
+            .clean_env()
             .args([
                 "healthcheck",
                 "--url",
@@ -1479,7 +1479,7 @@ fn healthcheck_deadline_includes_slow_streaming_responses() {
     });
     let start = std::time::Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_gcs-mimic"))
-        .env_clear()
+        .clean_env()
         .args([
             "healthcheck",
             "--url",
