@@ -2118,8 +2118,10 @@ async fn contradictory_chunk_lengths_fail_before_reading_body_or_acquiring_sessi
 
 #[tokio::test]
 async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
-    let size = 8 * 1024 * 1024;
-    let h = Harness::start_with_catalog_wait(size, false, None, 50).await;
+    // The scan must take several times the catalog budget, while the budget
+    // itself must absorb catalog admission on a loaded CI runner.
+    let size = 32 * 1024 * 1024;
+    let h = Harness::start_with_catalog_wait(size, false, None, 200).await;
     let init = h.initiate("name=hash-scan", "", b"").await;
     let path = h.path(&init);
     let bytes = vec![b'h'; size as usize];
@@ -2144,7 +2146,7 @@ async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
         )
         .await;
     eprintln!(
-        "8 MiB final hash scan and publication: {:?}; catalog wait budget: 50 ms",
+        "32 MiB final hash scan and publication: {:?}; catalog wait budget: 200 ms",
         started.elapsed()
     );
     assert_eq!(completed.status, 200);
