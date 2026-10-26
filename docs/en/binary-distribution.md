@@ -95,8 +95,22 @@ archive after downloading both from the same release:
 sha256sum --ignore-missing --check SHA256SUMS
 ```
 
-On macOS, use `shasum -a 256 <archive>`; on PowerShell, use
-`Get-FileHash <archive> -Algorithm SHA256` and compare the corresponding entry.
+On macOS, use `shasum -a 256 --ignore-missing --check SHA256SUMS`; on
+PowerShell, use `Get-FileHash <archive> -Algorithm SHA256` and compare the
+corresponding entry.
+
+The 0.1.3 `SHA256SUMS` ends its two Windows entries with CRLF. GNU `sha256sum`
+accepts them, but macOS `shasum --check` reports those archives as unreadable.
+The archives and digests are correct; remove the carriage returns before
+checking:
+
+```sh
+tr -d '\r' < SHA256SUMS > SHA256SUMS.lf
+shasum -a 256 --ignore-missing --check SHA256SUMS.lf
+```
+
+Later releases publish `SHA256SUMS` with LF line endings only, and the publish
+job rejects a file that contains a carriage return.
 Checksums detect corruption; they are not code signatures or independent proof
 of origin.
 

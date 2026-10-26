@@ -186,7 +186,8 @@ jobs:
           $name = "gcs-mimic-$env:VERSION-$env:TARGET"
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip" -CompressionLevel Optimal
           $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          Set-Content -Path "dist/$name.zip.sha256" -Value "$hash  $name.zip" -Encoding ascii
+          # Set-Content ends lines with CRLF, which macOS `shasum --check` does not match.
+          [System.IO.File]::WriteAllText("dist/$name.zip.sha256", "$hash  $name.zip`n", [System.Text.Encoding]::ASCII)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: binary-${{ matrix.target }}
@@ -227,7 +228,12 @@ jobs:
           test "${#archives[@]}" = 8
           test "${#checksums[@]}" = 8
           cd dist
-          cat ./*.sha256 > SHA256SUMS
+          # GNU sha256sum tolerates CRLF but macOS shasum does not, so publish LF only
+          # and require each entry to be exactly one digest and archive name.
+          cat ./*.sha256 | tr -d '\r' > SHA256SUMS
+          test "$(grep -c $'\r' SHA256SUMS)" = 0
+          test "$(grep -cE '^[0-9a-f]{64}  gcs-mimic-[^ /]+\.(tar\.gz|zip)$' SHA256SUMS)" = 8
+          test "$(wc -l < SHA256SUMS)" = 8
           sha256sum --check SHA256SUMS
       - name: List assets for the Release
         shell: bash
