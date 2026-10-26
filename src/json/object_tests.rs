@@ -670,7 +670,7 @@ fn obj_render_001_exact_resource_and_encoded_generation_links() {
         object_resource(&object, "http://localhost", Projection::NoAcl).unwrap()["etag"],
         object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap()["etag"]
     );
-    changed.time_created = UNIX_EPOCH - Duration::from_nanos(1);
+    changed.time_created = UNIX_EPOCH - Duration::from_nanos(100);
     assert_eq!(
         object_resource(&changed, "http://localhost", Projection::NoAcl).unwrap()["timeCreated"],
         "1969-12-31T23:59:59.999Z"

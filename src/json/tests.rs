@@ -11,7 +11,7 @@ use std::{
     collections::VecDeque,
     pin::Pin,
     task::{Context, Poll},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 fn request(method: Method, path: &str) -> Result<BucketRequest, JsonError> {
@@ -736,11 +736,8 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
         (4_107_542_400_000, "2100-03-01T00:00:00.000Z"),
         (253_402_300_799_999, "9999-12-31T23:59:59.999Z"),
     ] {
-        let duration = Duration::from_millis(millis.unsigned_abs());
-        let time = if millis < 0 {
-            UNIX_EPOCH - duration
-        } else {
-            UNIX_EPOCH + duration
+        let Some(time) = system_time_or_unrepresentable(millis) else {
+            continue;
         };
         let bucket = parse_insert(br#"{"name":"abc"}"#, "p", time).unwrap();
         assert_eq!(resource(&bucket)["timeCreated"], expected, "{millis}");
@@ -749,16 +746,14 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
     let bucket = parse_insert(
         br#"{"name":"abc"}"#,
         "p",
-        UNIX_EPOCH - Duration::from_nanos(1),
+        // 100 ns is the finest pre-epoch step every platform's SystemTime keeps.
+        UNIX_EPOCH - Duration::from_nanos(100),
     )
     .unwrap();
     assert_eq!(resource(&bucket)["timeCreated"], "1969-12-31T23:59:59.999Z");
     for millis in [-62_167_219_200_001i64, 253_402_300_800_000] {
-        let duration = Duration::from_millis(millis.unsigned_abs());
-        let time = if millis < 0 {
-            UNIX_EPOCH - duration
-        } else {
-            UNIX_EPOCH + duration
+        let Some(time) = system_time_or_unrepresentable(millis) else {
+            continue;
         };
         assert_eq!(
             parse_insert(br#"{"name":"abc"}"#, "p", time)
@@ -770,6 +765,19 @@ fn bkt_id_001_utc_milliseconds_leap_century_and_range() {
         bucket.updated = time;
         assert!(bucket_resource(&bucket, "http://localhost", Projection::NoAcl).is_err());
     }
+}
+
+/// Windows SystemTime starts in 1601, so earlier instants cannot even be
+/// constructed there; every other platform must represent the whole range.
+fn system_time_or_unrepresentable(millis: i64) -> Option<SystemTime> {
+    let duration = Duration::from_millis(millis.unsigned_abs());
+    let time = if millis < 0 {
+        UNIX_EPOCH.checked_sub(duration)
+    } else {
+        UNIX_EPOCH.checked_add(duration)
+    };
+    assert!(time.is_some() || cfg!(windows), "{millis}");
+    time
 }
 
 #[test]

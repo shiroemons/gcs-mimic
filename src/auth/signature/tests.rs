@@ -107,6 +107,11 @@ fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
         "20000229T123456Z",
         "99991231T235959Z",
     ] {
+        // Windows SystemTime starts in 1601, so year 1 is rejected there as unrepresentable.
+        if cfg!(windows) && date.starts_with("0001") {
+            assert!(parse_timestamp(date).is_err(), "{date}");
+            continue;
+        }
         assert_eq!(timestamp(parse_timestamp(date).unwrap()).unwrap(), date);
     }
 }

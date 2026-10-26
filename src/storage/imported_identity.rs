@@ -155,8 +155,8 @@ mod tests {
     fn imported_identity_rejects_lossy_precision() {
         let generation = Generation::new(1).unwrap();
         for time in [
-            UNIX_EPOCH + Duration::from_nanos(1),
-            UNIX_EPOCH - Duration::from_nanos(1),
+            UNIX_EPOCH + Duration::from_nanos(100),
+            UNIX_EPOCH - Duration::from_nanos(100),
         ] {
             assert!(matches!(
                 ImportedIdentity::new(generation, time, UNIX_EPOCH),

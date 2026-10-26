@@ -408,7 +408,7 @@ async fn timestamp_pre_epoch_publication_remains_rejected_and_metadata_floors() 
         )
         .await
         .unwrap();
-    for nanos in [1, 123_456_789] {
+    for nanos in [100, 123_456_789] {
         let source = catalog
             .resolve_derived_source(
                 "timestamp-bucket",
