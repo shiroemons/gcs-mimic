@@ -14,6 +14,22 @@ fn settings(root: &TestDir) -> Vec<String> {
     ]
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn sync_dir_is_rejected_where_synchronization_is_unsupported() {
+    let root = TestDir::new();
+    let errors = Config::load(&settings(&root), &BTreeMap::new())
+        .unwrap_err()
+        .errors;
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.key == "--sync-dir" && error.fix.contains("Linux and macOS only")),
+        "{errors:?}"
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn sync_settings_precedence_defaults_boolean_and_startup_only_reinitialization() {
     let root = TestDir::new();

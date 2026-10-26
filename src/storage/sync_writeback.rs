@@ -23,7 +23,7 @@ use std::{fs::File, io, sync::Arc};
 
 #[path = "sync_live_export.rs"]
 mod live_export;
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) use live_export::inject_failure as inject_live_export_failure;
 pub use live_export::{LiveExport, LiveResult};
 

@@ -41,8 +41,13 @@ pub fn parse_catalog_id(value: &str) -> Result<CatalogId, String> {
 }
 
 pub fn validate_directory(root: &Path, data: &Path, seed: Option<&Path>) -> io::Result<()> {
-    fsutil::open_directory_nofollow(root).and_then(|root| fsutil::directory_writable(&root)).map_err(|_| io::Error::other(
-        "sync_dir must be an existing writable directory, not a symlink; create/select the intended root"))?;
+    fsutil::open_directory_nofollow(root).and_then(|root| fsutil::directory_writable(&root)).map_err(|error| {
+        io::Error::other(if error.kind() == io::ErrorKind::Unsupported {
+            "directory synchronization is supported on Linux and macOS only; remove sync_dir on this platform"
+        } else {
+            "sync_dir must be an existing writable directory, not a symlink; create/select the intended root"
+        })
+    })?;
     for (key, path) in
         std::iter::once(("data_dir", data)).chain(seed.map(|path| ("seed_dir", path)))
     {

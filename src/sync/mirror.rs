@@ -42,7 +42,8 @@ async fn export_checkpoint(phase: &str) {
     }
 }
 
-#[cfg(test)]
+// Directory synchronization supports only Linux and macOS; elsewhere roots are rejected.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 #[path = "mirror_tests.rs"]
 mod tests;
 
@@ -690,7 +691,7 @@ async fn finding(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 async fn export(
     admin: &Admin,
     writeback: &Writeback,

@@ -1,3 +1,6 @@
+// Directory synchronization supports only Linux and macOS; elsewhere roots are rejected.
+#![cfg(any(target_os = "linux", target_os = "macos"))]
+
 mod object_effects_support;
 use bytes::Bytes;
 use common::TestDir;

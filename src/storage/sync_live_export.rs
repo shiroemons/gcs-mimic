@@ -5,7 +5,7 @@ use super::*;
 static FAILURE: std::sync::Mutex<Vec<(RootId, &'static str, usize)>> =
     std::sync::Mutex::new(Vec::new());
 
-#[cfg(test)]
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn inject_failure(root: RootId, phase: &'static str, count: usize) {
     FAILURE
         .lock()
