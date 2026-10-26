@@ -75,10 +75,6 @@ jobs:
           echo "${linker//-/_}=musl-gcc" >> "$GITHUB_ENV"
       - run: cargo fetch --locked
       - run: cargo test --workspace --target "$TARGET" --locked --offline
-        # Deadline tests still use wall-clock budgets; fewer concurrent tests keep
-        # slower macOS and Windows runners from starving them.
-        env:
-          RUST_TEST_THREADS: '2'
   containers:
     strategy:
       fail-fast: false
