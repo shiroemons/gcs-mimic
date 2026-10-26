@@ -45,7 +45,7 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.1.1
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.2
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:

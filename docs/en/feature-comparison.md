@@ -217,7 +217,7 @@ not imply complete XML semantics or authenticated-only public access.
 | Reconcile external edits with hashes and generation metadata | ❌ | ❌ Direct reads can expose stale metadata | ❌ No reconciliation contract |
 | Optional in-memory backend | ❌ | ✅ | ✅ |
 | Import a bucket/object seed directory | ✅ One-time native import | ✅ Startup and explicit reseed | ❌ Default bucket creation is separate |
-| Published native binaries | ◐ Linux amd64+arm64 (GNU and musl) | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
+| Published native binaries | ◐ macOS and Linux amd64+arm64; no Windows yet | ✅ macOS/Linux amd64+arm64; Windows amd64 | ❌ Python runtime required |
 | Published Docker image | ✅ GHCR linux/amd64+arm64 | ✅ Docker Hub | ✅ Docker Hub |
 | Project license | MIT OR Apache-2.0 | BSD-2-Clause | BSD-3-Clause |
 
