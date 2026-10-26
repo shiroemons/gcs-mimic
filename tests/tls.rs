@@ -962,11 +962,13 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
     let server = Server::start(
         &dir.0.join("data"),
         &certs,
+        // The active upload needs a TLS handshake plus 480 ms of chunks inside the
+        // absolute deadline even on slow CI runners; the trickle below outlasts it.
         &[
             "--connection-timeout-ms",
-            "300",
+            "600",
             "--object-request-timeout-ms",
-            "900",
+            "1500",
             "--max-connections",
             "1",
         ],
@@ -1011,14 +1013,14 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
         response.is_empty(),
         "an incomplete overwrite must not succeed"
     );
-    assert!(started.elapsed() >= Duration::from_millis(200));
+    assert!(started.elapsed() >= Duration::from_millis(500));
     assert!(started.elapsed() < Duration::from_secs(2));
     let mut trickle = tls_stream(&server, &ca);
     trickle.write_all(request).unwrap();
     trickle.write_all(b"1\r\nx\r\n").unwrap();
     trickle.flush().unwrap();
     let started = Instant::now();
-    for _ in 0..10 {
+    for _ in 0..25 {
         std::thread::sleep(Duration::from_millis(70));
         // The server closing first at its deadline is the outcome under test.
         if let Err(error) = trickle
@@ -1037,8 +1039,8 @@ fn tls_streaming_progress_and_upload_deadlines_preserve_existing_object() {
         response.is_empty(),
         "the absolute deadline must prevent a trickled overwrite"
     );
-    assert!(started.elapsed() >= Duration::from_millis(800));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() >= Duration::from_millis(1400));
+    assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(
         success(curl(
             &server,
