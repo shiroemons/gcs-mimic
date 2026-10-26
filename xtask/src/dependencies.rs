@@ -1037,7 +1037,10 @@ mod tests {
             "http://api.github.com/repos/a/b",
             "https://proxy.golang.org/",
         ] {
-            assert!(github_api_headers(url, Some("test-token")).is_empty(), "{url}");
+            assert!(
+                github_api_headers(url, Some("test-token")).is_empty(),
+                "{url}"
+            );
         }
     }
 
