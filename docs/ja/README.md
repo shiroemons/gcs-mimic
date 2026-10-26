@@ -12,8 +12,8 @@ Google Cloudのアカウントなしで、バケット作成やファイルの�
 
 Docker Composeとcurlを使います。ソースの取得、Rust、証明書の準備は不要です。
 
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.2`は`linux/amd64`と`linux/arm64`向けに公開済みです。
-[0.1.2のリリースノート（英語）](../en/releases/0.1.2.md)に今回の公開内容、
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.3`は`linux/amd64`と`linux/arm64`向けに公開済みです。
+[0.1.3のリリースノート（英語）](../en/releases/0.1.3.md)に今回の公開内容、
 [0.1.0のリリースノート（英語）](../en/releases/0.1.0.md)に機能と既知の制限を記載しています。
 ソースからビルドする場合は[ソースからの導入手順（英語）](../en/getting-started.md)を使ってください。
 
@@ -22,7 +22,7 @@ Docker Composeとcurlを使います。ソースの取得、Rust、証明書の�
 ```yaml
 services:
   gcs:
-    image: ghcr.io/shiroemons/gcs-mimic:0.1.2
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.3
     ports:
       - "127.0.0.1:4443:4443"
     environment:
@@ -67,7 +67,7 @@ fake-gcs-serverの初期ファイルがある場合は、同じ`data/BUCKET/OBJE
 | 初期バケット設定をファイルで渡す | JSON v1で未作成バケットだけ作成 |
 | fake-gcs-serverのファイルシステムのデータを取り込む | ライブのオブジェクトだけ（履歴は未対応） |
 | gRPCを使う | 未実装 |
-| 公開Dockerイメージをpullする | `0.1.2`（amd64・arm64） |
+| 公開Dockerイメージをpullする | `0.1.3`（amd64・arm64） |
 
 CORSはバケットごとのXML用ルールと、JSON APIの固定ルールに分かれます。
 メタデータは組み込みSQLite、ファイル本体は別ファイルへ保存します。

@@ -79,7 +79,7 @@ gcs-mimicの公開主体判定はローカルのstrict IAM範囲で、ACLやUBLA
 | 任意のメモリ保存モード | ❌ | ✅ | ✅ |
 | バケット・ファイルの初期ディレクトリ読込 | ✅ 初回のみ | ✅ 起動・reseed | ❌ |
 | 公開済みのDockerイメージ | ✅ GHCR（amd64・arm64） | ✅ | ✅ |
-| 公開済みの単体バイナリ | ◐ macOS・Linux（Windowsは未公開） | ✅ | ❌ Pythonが必要 |
+| 公開済みの単体バイナリ | ✅ macOS・Windows・Linux | ✅ | ❌ Pythonが必要 |
 
 fake-gcs-serverは実ファイルの直接編集がGETに反映される場合もありますが、
 hashや世代が古いまま残ります。[保存方式の調査](storage-backends.md)を参照してください。

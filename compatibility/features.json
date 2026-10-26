@@ -1270,7 +1270,7 @@
       ],
       "source_checked_at": "2026-10-22",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Eight supported packaging targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. The release matrix publishes the four Linux targets from 0.1.0 and both macOS targets from 0.1.2; Windows returns once its native suites pass in Foundation's portability job. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. Windows restart/process-termination scope is not an OS-crash/power-loss guarantee; macOS power-loss and exhaustive crash boundaries remain unverified. See docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
+      "notes": "Eight supported packaging targets: macOS and Windows ARM64/x86-64, Linux GNU/musl ARM64/x86-64. The release matrix publishes the four Linux targets from 0.1.0, both macOS targets from 0.1.2 and both Windows targets from 0.1.3. Staging retains project, Cargo graph, Rust and native runtime notices plus build information. Windows restart/process-termination scope is not an OS-crash/power-loss guarantee; macOS power-loss and exhaustive crash boundaries remain unverified. See docs/en/releases/0.1.0.md and docs/en/evidence/dist-release-notes.md.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -1290,7 +1290,7 @@
         },
         {
           "id": "DIST-001-PLATFORMS",
-          "description": "Observe all eight native builds, full test suites, archive contents, Windows CRT imports, graceful shutdown and forced-termination recovery before publication. macOS suites pass since 0.1.2 after TLS fixture and timing fixes; Windows catalog, file-handle and sync tests still fail on GitHub runners, so Windows archives are excluded.",
+          "description": "Observe all eight native builds, full test suites, archive contents, Windows CRT imports, graceful shutdown and forced-termination recovery before publication. macOS suites pass since 0.1.2 and Windows suites since 0.1.3 preparation; the 0.1.3 tag run records the eight-target result.",
           "result": "PENDING",
           "test_ids": []
         },
@@ -1357,7 +1357,7 @@
       ],
       "sdk_evidence": [],
       "known_deviations": [
-        "Windows archives are not published; unsigned/unnotarized artifacts and changing hosted OS/system compiler inputs do not establish byte-identical or origin-authenticated builds."
+        "Unsigned/unnotarized artifacts and changing hosted OS/system compiler inputs do not establish byte-identical or origin-authenticated builds."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-26"
