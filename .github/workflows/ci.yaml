@@ -6,9 +6,11 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      portability:
+      # Push events have no inputs and expressions treat null like false, so
+      # only an explicit true may skip the job.
+      skip-portability:
         type: boolean
-        default: true
+        default: false
 permissions:
   contents: read
 jobs:
@@ -35,7 +37,7 @@ jobs:
   # target per OS family on every push instead of only at tag time. Linux-only
   # releases opt out until macOS and Windows archives ship again.
   portability:
-    if: inputs.portability != false
+    if: inputs.skip-portability != true
     strategy:
       fail-fast: false
       matrix:

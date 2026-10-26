@@ -47,7 +47,7 @@ jobs:
     needs: validate
     uses: ./.github/workflows/ci.yaml
     with:
-      portability: false
+      skip-portability: true
   build:
     needs: validate
     strategy:
