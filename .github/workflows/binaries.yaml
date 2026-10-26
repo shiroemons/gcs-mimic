@@ -46,24 +46,16 @@ jobs:
   foundation:
     needs: validate
     uses: ./.github/workflows/ci.yaml
+    with:
+      portability: false
   build:
     needs: validate
     strategy:
       fail-fast: false
       matrix:
+        # macOS and Windows archives return once their native test suites pass;
+        # the Windows/macOS steps below stay so restoring a row is enough.
         include:
-          - target: aarch64-apple-darwin
-            host: aarch64-apple-darwin
-            runner: macos-15
-          - target: x86_64-apple-darwin
-            host: x86_64-apple-darwin
-            runner: macos-15-intel
-          - target: aarch64-pc-windows-msvc
-            host: aarch64-pc-windows-msvc
-            runner: windows-11-arm
-          - target: x86_64-pc-windows-msvc
-            host: x86_64-pc-windows-msvc
-            runner: windows-2025
           - target: aarch64-unknown-linux-gnu
             host: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
@@ -215,8 +207,8 @@ jobs:
           shopt -s nullglob
           archives=(dist/*.tar.gz dist/*.zip)
           checksums=(dist/*.sha256)
-          test "${#archives[@]}" = 8
-          test "${#checksums[@]}" = 8
+          test "${#archives[@]}" = 4
+          test "${#checksums[@]}" = 4
           cd dist
           cat ./*.sha256 > SHA256SUMS
           sha256sum --check SHA256SUMS

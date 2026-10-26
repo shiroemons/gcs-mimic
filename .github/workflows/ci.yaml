@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      portability:
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -28,8 +32,10 @@ jobs:
       - run: bash scripts/test-check.sh
       - run: bash scripts/check.sh
   # Runtime behavior differs by OS (socket resets, timing, file APIs); run one
-  # target per release OS family on every push instead of only at tag time.
+  # target per OS family on every push instead of only at tag time. Linux-only
+  # releases opt out until macOS and Windows archives ship again.
   portability:
+    if: inputs.portability != false
     strategy:
       fail-fast: false
       matrix:

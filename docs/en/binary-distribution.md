@@ -10,6 +10,12 @@ Do not infer platform support from a configured matrix alone.
 Each target builds and runs its Rust tests on the corresponding CPU, including
 the Linux musl tests. Cross-compilation alone is insufficient for publication.
 
+**0.1.0 publishes only the four Linux targets.** The macOS and Windows native
+test suites do not pass yet: macOS TLS tests and several Windows catalog tests
+fail on GitHub runners. Those four rows stay supported by
+`cargo xtask release prepare` but are removed from the release workflow matrix
+until Foundation CI's `portability` job passes on them.
+
 | OS / ABI | CPU | Rust target | Native runner | Archive |
 | --- | --- | --- | --- | --- |
 | macOS | Apple Silicon | `aarch64-apple-darwin` | `macos-15` | `.tar.gz` |
@@ -78,7 +84,8 @@ Missing notice inputs stop packaging.
 The musl notice input is reviewed for Rust 1.99.1; a compiler upgrade must review
 and advance that version guard along with the bundled runtime's notices.
 
-Release assets include the eight archives and `SHA256SUMS`. Verify the selected
+Release assets include one archive per release-matrix target (four Linux
+archives in 0.1.0) and `SHA256SUMS`. Verify the selected
 archive after downloading both from the same release:
 
 ```sh
@@ -101,8 +108,8 @@ of origin.
 3. Run `just check-dependencies` and `just pre-push` on the final source. Commit
    the reviewed version, lockfile and notes, then push through the agreed process.
 4. Run **Release binaries** using GitHub Actions' manual dispatch on that commit.
-   It runs freshness checks, the reusable Foundation checks and all eight native
-   suites, then uploads verification archives as workflow artifacts. Manual
+   It runs freshness checks, the reusable Foundation checks and every release
+   matrix target's native suite, then uploads verification archives as workflow artifacts. Manual
    dispatch never creates a public release. Inspect the results and archives.
 5. When publication is authorized, create and push a new `vX.Y.Z` tag on the tested
    commit. The tag must match Cargo's stable `X.Y.Z` exactly. Tag builds repeat all

@@ -112,7 +112,7 @@ and verify the release's supported platforms in CI. Follow the existing
 the final changes, compatibility impact, migration instructions, tested platforms
 and known limitations.
 
-The [native distribution procedure](binary-distribution.md) defines the eight
+The [native distribution procedure](binary-distribution.md) defines the
 archive targets, manual verification and future tag-driven GitHub Release flow.
 Tag publication requires matching Cargo versions, committed release notes,
 dependency freshness, Foundation checks and all native suites. The
