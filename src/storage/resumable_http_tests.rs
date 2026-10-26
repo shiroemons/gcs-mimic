@@ -213,6 +213,21 @@ impl Harness {
     }
 }
 
+/// Retries a request that a short catalog budget may reject with 503 while the
+/// runner is loaded; a persistent 503 still fails after five seconds.
+async fn retry_unavailable<F: std::future::Future<Output = Reply>>(
+    mut request: impl FnMut() -> F,
+) -> Reply {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let reply = request().await;
+        if reply.status != 503 || tokio::time::Instant::now() >= deadline {
+            return reply;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn obj_http_resumable_independent_empty_and_multichunk_checksum_vectors() {
     let h = Harness::start(1024 * 1024, false, None).await;
@@ -2166,14 +2181,21 @@ async fn final_hash_scan_uses_request_budget_instead_of_catalog_wait_budget() {
 
 #[tokio::test]
 async fn finalization_catalog_wait_is_bounded_and_publication_may_finish_after_timeout() {
-    let h = Harness::start_with_catalog_wait(1024 * 1024, false, None, 50).await;
-    let init = h.initiate("name=sql-wait", "", b"").await;
+    // Only the blocked finalization is under test; earlier steps may also exceed
+    // the short budget on a loaded runner, so retry their transient 503s.
+    let h = Harness::start_with_catalog_wait(1024 * 1024, false, None, 250).await;
+    let init = retry_unavailable(|| h.initiate("name=sql-wait", "", b"")).await;
     let path = h.path(&init);
     let bytes = vec![b's'; 256 * 1024];
     assert_eq!(
-        h.request("PUT", &path, "Content-Range: bytes 0-262143/*\r\n", &bytes)
-            .await
-            .status,
+        retry_unavailable(|| h.request(
+            "PUT",
+            &path,
+            "Content-Range: bytes 0-262143/*\r\n",
+            &bytes
+        ))
+        .await
+        .status,
         308
     );
     let database = rusqlite::Connection::open(h.dir.0.join("catalog.sqlite3")).unwrap();

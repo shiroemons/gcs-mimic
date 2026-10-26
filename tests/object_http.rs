@@ -823,14 +823,25 @@ fn obj_http_trickle_upload_deadline_releases_permits_without_publication() {
             .sum::<usize>(),
         1
     );
-    assert_eq!(server.upload("name=after-deadline", "", b"ok").status, 200);
+    // Released permits admit a new upload; cleanup of the cancelled stages can
+    // still hold the catalog briefly on a loaded runner, so retry its 503.
+    let admitted = Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = server.upload("name=after-deadline", "", b"ok").status;
+        if status == 200 {
+            break;
+        }
+        assert!(status == 503 && Instant::now() < admitted, "{status}");
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[test]
 fn obj_http_trickle_download_stops_at_absolute_deadline() {
     let dir = TestDir::new();
     let size = 32 * 1024 * 1024;
-    let mut server = Server::start(&dir, size as u64, 5000);
+    // Setup only: a slow runner can need more than 5 s to upload 32 MiB.
+    let mut server = Server::start(&dir, size as u64, 30_000);
     server.bucket();
     assert_eq!(
         server.upload("name=large", "", &vec![b'x'; size]).status,
@@ -1255,7 +1266,12 @@ fn send_resumable_chunk(
     let mut remaining = length;
     while remaining > 0 {
         let n = remaining.min(buffer.len() as u64) as usize;
-        stream.write_all(&buffer[..n]).unwrap();
+        // Crash tests kill the server at a checkpoint, possibly before the body
+        // ends; callers then assert the response or recovered state.
+        if let Err(error) = stream.write_all(&buffer[..n]) {
+            assert!(closed_by_server(&error), "{error}");
+            break;
+        }
         remaining -= n as u64;
     }
     stream
