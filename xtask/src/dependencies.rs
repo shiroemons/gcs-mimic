@@ -17,6 +17,22 @@ fn fetch(url: &str, headers: &[String], include_headers: bool) -> Result<String>
     Ok(body)
 }
 
+// Unauthenticated GitHub API calls share a small per-IP limit on hosted runners.
+// The prefix check keeps the token away from response-supplied URLs on other hosts.
+fn github_api_headers(url: &str, token: Option<&str>) -> Vec<String> {
+    match token.map(str::trim) {
+        Some(token) if !token.is_empty() && url.starts_with("https://api.github.com/") => {
+            vec![format!("Authorization: Bearer {token}")]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn fetch_github_api(url: &str) -> Result<String> {
+    let token = std::env::var("GITHUB_TOKEN").ok();
+    fetch(url, &github_api_headers(url, token.as_deref()), false)
+}
+
 fn fetch_response(url: &str, headers: &[String], include_headers: bool) -> Result<(u16, String)> {
     let mut command = Command::new("curl");
     command.args([
@@ -676,20 +692,16 @@ pub fn check(root: &Path) -> Result<bool> {
         .ok_or("missing github_actions")?
     {
         let repo = text(action, "repository")?;
-        let release = json(&fetch(
-            &format!("https://api.github.com/repos/{repo}/releases/latest"),
-            &[],
-            false,
-        )?)?;
+        let release = json(&fetch_github_api(&format!(
+            "https://api.github.com/repos/{repo}/releases/latest"
+        ))?)?;
         let tag = text(&release, "tag_name")?;
-        let reference = json(&fetch(
-            &format!("https://api.github.com/repos/{repo}/git/ref/tags/{tag}"),
-            &[],
-            false,
-        )?)?;
+        let reference = json(&fetch_github_api(&format!(
+            "https://api.github.com/repos/{repo}/git/ref/tags/{tag}"
+        ))?)?;
         let mut object = reference["object"].clone();
         if object["type"] == "tag" {
-            object = json(&fetch(text(&object, "url")?, &[], false)?)?["object"].clone();
+            object = json(&fetch_github_api(text(&object, "url")?)?)?["object"].clone();
         }
         let sha = text(&object, "sha")?;
         if object["type"] != "commit"
@@ -1008,6 +1020,25 @@ mod tests {
         }
         assert!(!compare("test", "1.0.0", "1.0.0"));
         assert!(compare("test", "1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn github_token_is_sent_only_to_the_api_host() {
+        let api = "https://api.github.com/repos/actions/checkout/releases/latest";
+        assert_eq!(
+            github_api_headers(api, Some("test-token")),
+            ["Authorization: Bearer test-token"]
+        );
+        assert!(github_api_headers(api, None).is_empty());
+        assert!(github_api_headers(api, Some(" \n")).is_empty());
+        for url in [
+            "https://github.com/actions/checkout",
+            "https://api.github.com.example/repos/a/b",
+            "http://api.github.com/repos/a/b",
+            "https://proxy.golang.org/",
+        ] {
+            assert!(github_api_headers(url, Some("test-token")).is_empty(), "{url}");
+        }
     }
 
     #[test]

@@ -43,6 +43,8 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: cargo xtask dependencies check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   foundation:
     needs: validate
     uses: ./.github/workflows/ci.yaml
