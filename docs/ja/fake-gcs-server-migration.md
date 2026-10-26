@@ -38,16 +38,14 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 ファイルから項目を消してもバケットは削除しません。次のバケットはファイルに追加して再起動します。
 オブジェクトの初期ファイルは別の[初回seed](container-usage.md#初期ファイルを読み込む)で扱います。
 
-イメージは未公開です。ソースのチェックアウトで、Dockerfileと`buckets.json`の隣に
-次の`compose.migration.yaml`を置きます。既存アプリのチェックアウトに置く場合は、
-`build`のcontextにgcs-mimicのチェックアウトを指定してください。
-バケットファイルのマウント元はComposeファイルからの相対パスです。
+`gcs`サービスを公開イメージに置き換え、アプリのサービスはそのままにします。
+`buckets.json`はComposeファイルの隣に置きます（マウント元はComposeファイルからの相対パスです）。
+例のファイル名は`compose.migration.yaml`です。既存アプリでは、自分のComposeファイルのサービスを書き換えます。
 
 ```yaml
 services:
   gcs:
-    build: .
-    image: gcs-mimic:migration
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.1
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -74,7 +72,7 @@ healthcheckの上書きは不要です。アプリの起動待ちは
 export COMPOSE_FILE=compose.migration.yaml
 export COMPOSE_PROJECT_NAME=assets-migration
 export GCS_MIMIC_PORT=14443
-docker compose up -d --build --wait
+docker compose up -d --wait
 docker compose exec -T gcs gcs-mimic healthcheck
 api="http://localhost:${GCS_MIMIC_PORT}"
 curl --fail "$api/storage/v1/b/assets"

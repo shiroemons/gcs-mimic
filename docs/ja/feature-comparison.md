@@ -9,7 +9,7 @@
 [English](../en/feature-comparison.md) ·
 [実装状態の原本](../../compatibility/features.json)
 
-比較対象は、未公開のgcs-mimic`0.1.0`、fake-gcs-server`v1.56.1`、
+比較対象は、公開前の開発中のgcs-mimic（初回のイメージは`0.1.1`）、fake-gcs-server`v1.56.1`、
 gcp-storage-emulator`v2026.07.19`です。基本比較は2026-10-23、
 ファイル操作の追加調査は2026-10-24時点です。
 
@@ -78,8 +78,8 @@ gcs-mimicの公開主体判定はローカルのstrict IAM範囲で、ACLやUBLA
 | 外部編集後にhash・世代も整合させる | ❌ | ❌ | ❌ |
 | 任意のメモリ保存モード | ❌ | ✅ | ✅ |
 | バケット・ファイルの初期ディレクトリ読込 | ✅ 初回のみ | ✅ 起動・reseed | ❌ |
-| 公開済みのDockerイメージ | ❌ | ✅ | ✅ |
-| 公開済みの単体バイナリ | ❌ | ✅ | ❌ Pythonが必要 |
+| 公開済みのDockerイメージ | ✅ GHCR（amd64・arm64） | ✅ | ✅ |
+| 公開済みの単体バイナリ | ◐ Linuxのみ | ✅ | ❌ Pythonが必要 |
 
 fake-gcs-serverは実ファイルの直接編集がGETに反映される場合もありますが、
 hashや世代が古いまま残ります。[保存方式の調査](storage-backends.md)を参照してください。

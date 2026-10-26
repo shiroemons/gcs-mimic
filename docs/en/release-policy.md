@@ -7,7 +7,7 @@
 gcs-mimic follows [Semantic Versioning 2.0.0](https://semver.org/), with the
 additional compatibility rules below during initial development. The root
 `Cargo.toml` package version is the product version and supplies `--version`.
-The current `0.1.0` is an unreleased development baseline; a manifest version
+The latest release is `0.1.1`; a manifest version alone
 does not establish that a release exists. The internal xtask package is not a
 separately released product.
 

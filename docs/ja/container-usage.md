@@ -3,16 +3,16 @@
 <!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
 
 最短の起動方法は[READMEのCompose例](README.md#まず動かす)です。
-イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.1`は未公開で、まだpullできません。
-以下は、ソースのチェックアウトで先にローカルイメージをビルドして使います。
+イメージ`ghcr.io/shiroemons/gcs-mimic:0.1.1`は`linux/amd64`と`linux/arm64`向けに公開済みで、
+ログインなしでpullできます。CIではこのバージョンを明示してください。
+未公開のソースを試す場合は、チェックアウトでローカルイメージをビルドし、以下のコマンドのイメージ名を置き換えます。
 
 ```sh
-docker build -t gcs-mimic:migration .
+docker build -t gcs-mimic:local .
 ```
 
-[Composeの移行手順](fake-gcs-server-migration.md)では、Composeでビルドし、
+[Composeの移行手順](fake-gcs-server-migration.md)では、fake-gcs-serverのサービスを公開イメージに置き換え、
 空のバケットも初期化します。対象はUX-012、DESIGN-061、UX-001です。
-CIでは公開後に、公開済みのバージョンを明示してください。
 
 [English](../en/container-usage.md) ·
 [実装状態の原本](../../compatibility/features.json)
@@ -25,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  gcs-mimic:migration
+  ghcr.io/shiroemons/gcs-mimic:0.1.1
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 

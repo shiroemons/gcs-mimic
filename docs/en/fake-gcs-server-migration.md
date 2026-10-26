@@ -55,17 +55,15 @@ only missing entries, preserves existing objects and API settings, and does not
 delete buckets removed from the file. Add future bucket names to this file and
 restart. Object fixtures are a separate [one-time seed](container-usage.md#load-local-files).
 
-The image is unpublished. From a source checkout, place the following
-`compose.migration.yaml` beside the Dockerfile and `buckets.json`; `build: .`
-builds local source rather than pulling a registry image. In an existing app
-checkout, use the gcs-mimic checkout as the build context and resolve the buckets
-file relative to your Compose file. Keep your application services unchanged.
+Replace the `gcs` service with the published image and keep your application
+services unchanged. Place `buckets.json` beside the Compose file; the mount
+source is relative to it. The example file is `compose.migration.yaml`; in an
+existing app, edit the service in your own Compose file instead.
 
 ```yaml
 services:
   gcs:
-    build: .
-    image: gcs-mimic:migration
+    image: ghcr.io/shiroemons/gcs-mimic:0.1.1
     ports:
       - "127.0.0.1:${GCS_MIMIC_PORT:-4443}:4443"
     environment:
@@ -88,13 +86,13 @@ discover Docker port mappings. The image healthcheck needs no override. App
 services can wait with `depends_on: {gcs: {condition: service_healthy}}`.
 
 Use a distinct Compose project and host port per worktree; the internal port
-and advertised container URL stay 4443. Run these commands from the checkout:
+and advertised container URL stay 4443. Run these commands beside the files:
 
 ```sh
 export COMPOSE_FILE=compose.migration.yaml
 export COMPOSE_PROJECT_NAME=assets-migration
 export GCS_MIMIC_PORT=14443
-docker compose up -d --build --wait
+docker compose up -d --wait
 docker compose exec -T gcs gcs-mimic healthcheck
 api="http://localhost:${GCS_MIMIC_PORT}"
 curl --fail "$api/storage/v1/b/assets"

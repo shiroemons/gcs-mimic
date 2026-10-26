@@ -11,11 +11,10 @@ objects without a Google Cloud account.
 Requires Docker with Compose and curl. No checkout, Rust toolchain or certificate
 setup is needed for this HTTP example.
 
-**Image publication is pending.** The example targets the planned first image,
-`ghcr.io/shiroemons/gcs-mimic:0.1.1`; it cannot be pulled yet.
-The [0.1.1 release notes](docs/en/releases/0.1.1.md) describe the selected scope;
-the [preparation evidence](docs/en/evidence/dist-release-notes.md#remaining-gates)
-records the remaining publication gates. To run today, follow the
+The image `ghcr.io/shiroemons/gcs-mimic:0.1.1` is published for `linux/amd64`
+and `linux/arm64`. The [0.1.1 release notes](docs/en/releases/0.1.1.md)
+describe the release, and the [0.1.0 notes](docs/en/releases/0.1.0.md) list its
+features and known limitations. To build from source instead, follow the
 [source-build guide](docs/en/getting-started.md).
 
 Save this as `compose.yaml`:
@@ -78,10 +77,10 @@ These are workflow summaries, not claims of complete Google API compatibility.
 | Upload/download with signed URLs | ✅ | ✅ | ✅ |
 | Verify V4 RSA signatures and expiry | ✅ | ❌ | ❌ |
 | gRPC | ❌ | ◐ Storage v1 subset | ❌ |
-| Published Docker image | ❌ | ✅ | ✅ |
+| Published Docker image | ✅ GHCR | ✅ | ✅ |
 
 Comparison baseline: fake-gcs-server `v1.56.1` and gcp-storage-emulator
-`v2026.07.19`; gcs-mimic is unreleased `0.1.0`.
+`v2026.07.19`; gcs-mimic is `0.1.1`.
 Seed loading excludes migration of existing backend metadata and history.
 See the [detailed comparison](docs/en/feature-comparison.md) for criteria,
 sources and verification limits, and the generated

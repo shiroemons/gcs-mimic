@@ -1,17 +1,17 @@
 # Use the Docker image
 
-The first public image is pending. The planned reference is
-`ghcr.io/shiroemons/gcs-mimic:0.1.1`; it cannot be pulled yet. Build the local
-image from a source checkout before running the commands below:
+The image `ghcr.io/shiroemons/gcs-mimic:0.1.1` is published for `linux/amd64`
+and `linux/arm64`; pulling it needs no registry login. Pin this exact version in
+CI. To test unreleased source instead, build a local image from a checkout and
+use its tag in the commands below:
 
 ```sh
-docker build -t gcs-mimic:migration .
+docker build -t gcs-mimic:local .
 ```
 
 The [Compose migration walkthrough](fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)
-instead builds through `docker compose up --build` and initializes empty buckets.
-It covers UX-012, DESIGN-061 and UX-001. Use an exact released version in CI
-after publication; no published image is claimed here.
+replaces a fake-gcs-server service with the published image and initializes
+empty buckets. It covers UX-012, DESIGN-061 and UX-001.
 
 The [README Compose example](../../README.md#quick-start) is the shortest start.
 It selects HTTP and persists data in a named volume. HTTPS remains the server
@@ -25,7 +25,7 @@ docker run -d --name gcs-mimic \
   -v gcs-mimic-data:/var/lib/gcs-mimic \
   -e GCS_MIMIC_SCHEME=http \
   -e GCS_MIMIC_API_BASE_URL=http://localhost:4443 \
-  gcs-mimic:migration
+  ghcr.io/shiroemons/gcs-mimic:0.1.1
 docker exec gcs-mimic gcs-mimic healthcheck
 ```
 
