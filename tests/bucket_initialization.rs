@@ -163,14 +163,14 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
         )["location"],
         "ASIA"
     );
-    for (index, location) in [json!("invalid"), json!(""), Value::Null]
+    for (index, location) in [json!("invalid"), json!("MARS-CENTRAL1"), json!(1)]
         .into_iter()
         .enumerate()
     {
         let body =
             json!({"name":format!("invalid-bucket-{index}"),"location":location}).to_string();
         let reply = server.request("POST", "/storage/v1/b?project=project-a", "", &body);
-        assert!(matches!(reply.0, 400 | 501));
+        assert_eq!(reply.0, 400);
         assert_eq!(
             server
                 .request(
@@ -212,9 +212,9 @@ fn default_location_applies_to_new_api_and_initializer_buckets_only() {
 #[test]
 fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
     for options in [
-        vec!["--default-location", ""],
-        vec!["--default-location", "us"],
-        vec!["--default-location", "US-CENTRAL1"],
+        vec!["--default-location", "MARS-CENTRAL1"],
+        vec!["--default-location", " US"],
+        vec!["--default-location", "US-CENTRAL1-A"],
         vec![
             "--default-location",
             "US",
@@ -243,6 +243,30 @@ fn default_location_invalid_or_legacy_settings_fail_before_catalog_creation() {
             .unwrap()
             .contains("GCS_MIMIC_DEFAULT_LOCATION=EU")
     );
+}
+
+#[test]
+fn regional_and_dual_region_initializer_locations_use_shared_defaults() {
+    let dir = TestDir::new();
+    input(
+        &dir.0,
+        json!([
+            {"name":"default-bucket"},
+            {"name":"regional-bucket","location":"asia-northeast1"},
+            {"name":"empty-bucket","location":""},
+            {"name":"null-bucket","location":null}
+        ]),
+    );
+    let server = Server::start(selected(&dir.0).args(["--default-location", "nam4"]));
+    for name in ["default-bucket", "empty-bucket", "null-bucket"] {
+        let bucket = server.json("GET", &format!("/storage/v1/b/{name}"), Value::Null);
+        assert_eq!(bucket["location"], "NAM4");
+        assert_eq!(bucket["locationType"], "dual-region");
+    }
+    let regional = server.json("GET", "/storage/v1/b/regional-bucket", Value::Null);
+    assert_eq!(regional["location"], "ASIA-NORTHEAST1");
+    assert_eq!(regional["locationType"], "region");
+    server.stop();
 }
 
 #[test]

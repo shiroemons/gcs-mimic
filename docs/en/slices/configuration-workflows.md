@@ -94,7 +94,7 @@ The following existing defaults and validation remain unchanged:
 | `public_base_url` | Unset (`config-public-origin`) | `--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL`; absolute HTTP(S) origin with optional port and root path only; no userinfo/query/fragment. Remove root/trailing slashes, lowercase DNS, omit scheme-default ports (HTTP 80/HTTPS 443), preserve other ports and bracket IPv6. Normalization is idempotent. Supplies the three effects below. |
 | `listen_http` | Only for `scheme=both`: primary bind IP with port `8000` (`config-dual-listener`) | `--listen-http` / `GCS_MIMIC_LISTEN_HTTP`; IP socket address, port 0 allowed; reject when scheme is not `both`. Primary `listen` serves HTTPS, second listener HTTP. Bind failure on either prevents ready and releases both listeners. |
 | `log_level` | `info` (`config-log-level`) | `--log-level` / `GCS_MIMIC_LOG_LEVEL`; `debug`, `info`, `warn`, `error`, accepting `warning` as `warn`. Reject other levels. Filtering must affect emitted events; fatal validation diagnostics and stdout lifecycle events remain visible. |
-| `default_location` | Native `US` (implemented in `config-remaining-settings`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; only existing supported `US`, `EU`, `ASIA`. Applies when creating a native API/initializer bucket without explicit location; explicit API/initializer location wins. Never rewrites existing buckets or claims regional placement. Explicit use in `legacy-emulator` is rejected until effective legacy location support exists. |
+| `default_location` | Native `US` (implemented in `config-remaining-settings`, expanded by `sdk-regional-locations`) | `--default-location` / `GCS_MIMIC_DEFAULT_LOCATION` / JSON `default_location`; case-insensitive official regional/predefined dual-region and `US`, `EU`, `ASIA` names. Empty string or JSON null uses `US`. Applies to omitted/null/empty API and initializer locations; nonempty resource location wins. Never rewrites existing buckets or simulates physical placement. Explicit use in `legacy-emulator` is rejected. See [location contract](sdk-regional-locations.md). |
 
 The location subset is deliberately native-only: the current legacy profile
 rejects create-time locations other than case-insensitive `US-CENTRAL1`
@@ -229,7 +229,7 @@ and relative data directory replace the image's usable listener/persistence.
 | `FAKE_GCS_CERT_LOCATION` | `GCS_MIMIC_TLS_CERT=certs/server.pem` together with `GCS_MIMIC_TLS_KEY=certs/server-key.pem` | Diagnostics |
 | `FAKE_GCS_PRIVATE_KEY_LOCATION` | Matching `GCS_MIMIC_TLS_KEY=certs/server-key.pem` and TLS_CERT; one-sided overrides fail | Diagnostics |
 | `FAKE_GCS_CORS_HEADERS` | Unsupported global setting. JSON preflight already echoes every syntactically valid requested header, so JSON-only callers can remove it. For XML/public URLs, configure each bucket's CORS `responseHeader` (e.g. `["X-Example"]`) with the required origins/methods; there is no global native replacement | Diagnostics |
-| `FAKE_GCS_LOCATION` | Rejected with migration advice: use `GCS_MIMIC_COMPAT_PROFILE=native` and `GCS_MIMIC_DEFAULT_LOCATION=EU` (or `US` / `ASIA`). Legacy regional defaults remain unsupported; do not silently map `US-CENTRAL1` to `US` | `config-remaining-settings`; BEHAVIOR-BUCKET-003 |
+| `FAKE_GCS_LOCATION` | Rejected with migration advice: use `GCS_MIMIC_COMPAT_PROFILE=native` and `GCS_MIMIC_DEFAULT_LOCATION` with the same supported name, normalized to uppercase (for example `US-CENTRAL1`, `ASIA-NORTHEAST1` or `NAM4`). Unknown values are redacted and receive valid examples. Legacy-profile global location defaults remain unsupported. | `config-remaining-settings`, `sdk-regional-locations`; BEHAVIOR-BUCKET-003 |
 | `FAKE_GCS_LOG_LEVEL` | Reject legacy input; use effective `GCS_MIMIC_LOG_LEVEL=info` or `--log-level info`; supported `warning` normalizes to `warn` | `config-log-level` |
 | `FAKE_GCS_EVENT_PUBSUB_PROJECT_ID` | Unsupported publisher; remove this key for current startup. Real project integration needs separate EXT-BEH-032 delivery | Separate event plan |
 | `FAKE_GCS_EVENT_PUBSUB_TOPIC` | Unsupported publisher; remove this key; do not suggest an ineffective native topic | Separate event plan |
@@ -518,12 +518,12 @@ remain PARTIAL.
 
 `UX-003-REMAINING-SETTINGS` requires the following bounded native subset:
 
-- Default to `US`; accept only exact `US`, `EU`, or `ASIA` via
+- Default to `US`; accept the [shared location names](sdk-regional-locations.md) via
   `--default-location`, `GCS_MIMIC_DEFAULT_LOCATION`, or JSON `default_location`,
   with CLI > environment > file > default precedence.
-- Apply the value only to new native API and initializer buckets with omitted
-  location. Explicit resource locations win; invalid explicit locations retain
-  their existing errors. Restarting with a changed default preserves existing
+- Apply the value only to new native API and initializer buckets with omitted,
+  null or empty location. Nonempty resource locations win; unknown names return
+  400 with valid examples. Restarting with a changed default preserves existing
   buckets, including initializer-created buckets.
 - Reject every explicitly supplied default in `legacy-emulator`, even `US`,
   before catalog access. Keep case-insensitive `US-CENTRAL1` create input

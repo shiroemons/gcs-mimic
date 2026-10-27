@@ -82,7 +82,7 @@ The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `ve
 | Field | Allowed shape / shared native behavior |
 | --- | --- |
 | `name` | Native bucket naming rules; no legacy-only names |
-| `location` | `US`, `EU`, `ASIA`, case-sensitive; omitted defaults to native `US` |
+| `location` | Case-insensitive official regional/predefined dual-region names and `US`, `EU`, `ASIA`; omitted/null/empty uses `default_location` (default `US`). See [location contract](sdk-regional-locations.md). |
 | `storageClass` | Shared native supported class set; omitted defaults to `STANDARD`; no placement simulation |
 | `labels` | String map, at most 64 labels, shared key/value rules; omitted empty; arbitrary valid label keys are not schema fields |
 | `cors` | Array of rules or native `null` empty value; rule keys only `origin`, `method`, `responseHeader`, `maxAgeSeconds`; shared CORS validation/order and omitted-list defaults |
@@ -91,7 +91,7 @@ The entry allowlist is `name`, `location`, `storageClass`, `labels`, `cors`, `ve
 | `iamConfiguration` | Object with optional `publicAccessPrevention` of `inherited` or `enforced`; omitted object/member defaults inherited; null invalid |
 | `project` | Initializer-only override, removed before native bucket parsing |
 
-The future `default_location` setting reserved by Configuration, when implemented, supplies the omitted native location for the initializer too; explicit entry location wins. Until then the default is `US`. This does not enable an otherwise unsupported global location setting in `legacy-emulator` or alter Configuration's rejection of that setting there.
+The `default_location` setting supplies the omitted/null/empty native location for the initializer; nonempty entry location wins. The default is `US`. This does not enable a global location setting in `legacy-emulator` or alter Configuration's rejection of that setting there.
 
 Reject unknown and output-only resource fields even if the API currently ignores them. Reject `iam`, `iamPolicy`, bindings, ACL/default ACL fields and all unsupported writable fields; no IAM policy can be installed by v1. Reject `lifecycle` **even when null or `{"rule":[]}`**. Reject `iamConfiguration.uniformBucketLevelAccess` and `bucketPolicyOnly`, including `enabled:false`: the API's accepted no-op is not an effective initializer setting. Allowing `publicAccessPrevention` does not allow policy grants or UBLA transitions. No setting is accepted and silently discarded.
 

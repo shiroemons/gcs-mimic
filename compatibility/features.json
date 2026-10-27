@@ -4220,6 +4220,8 @@
       "target_fidelity": "EXACT",
       "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/locations",
+        "https://docs.cloud.google.com/storage/docs/samples/storage-create-bucket-dual-region",
         "https://github.com/googleapis/python-storage/blob/5ee391db2b2a9ffe92113359333151803acea259/google/cloud/storage/bucket.py#L475-L559",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1",
@@ -4243,6 +4245,66 @@
           "description": "Ruby high-level create_bucket with no optional arguments accepts no-op Autoclass defaults, omits Autoclass in responses and rejects enabled/additional semantics; docs/en/slices/sdk-ruby-defaults.md.",
           "result": "PASS",
           "test_ids": ["ruby_default_create_bucket", "ruby-default-create-bucket"]
+        },
+        {
+          "id": "BUCKET-REGIONAL-CREATE",
+          "description": "regional-create: official regional names round-trip as uppercase location with region locationType through insert/get/list and restart; docs/en/slices/sdk-regional-locations.md. Physical placement and RPO are not simulated.",
+          "result": "PASS",
+          "test_ids": ["official_bucket_location_names_and_types", "bucket_regional_locations_round_trip_and_rejections_preserve_state"]
+        },
+        {
+          "id": "BUCKET-LOCATION-CASE-INSENSITIVE",
+          "description": "case-insensitive: lowercase regional names normalize to uppercase.",
+          "result": "PASS",
+          "test_ids": ["official_bucket_location_names_and_types", "TestBucketLocations"]
+        },
+        {
+          "id": "BUCKET-PREDEFINED-DUAL-REGION-CREATE",
+          "description": "predefined-dual-region-create: ASIA1, EUR4, EUR5, EUR7, EUR8 and NAM4 use dual-region locationType.",
+          "result": "PASS",
+          "test_ids": ["bkt_ins_003_location_and_storage_class_subset", "TestBucketLocations"]
+        },
+        {
+          "id": "BUCKET-MULTI-REGION-UNCHANGED",
+          "description": "multi-region-unchanged: US, EU and ASIA retain multi-region locationType.",
+          "result": "PASS",
+          "test_ids": ["bucket_regional_locations_round_trip_and_rejections_preserve_state"]
+        },
+        {
+          "id": "BUCKET-CONFIGURABLE-DUAL-REGION-UNSUPPORTED",
+          "description": "configurable-dual-region-unsupported: meaningful customPlacementConfig uses the shared unsupported error without publishing; native null/empty placement config is absent.",
+          "result": "PASS",
+          "test_ids": ["bucket_location_defaults_and_unsupported_placement", "bucket_regional_locations_round_trip_and_rejections_preserve_state"]
+        },
+        {
+          "id": "BUCKET-UNKNOWN-LOCATION-REJECTED",
+          "description": "unknown-location-rejected: unknown and zonal names fail with 400 invalidArgument and valid examples; exact provider detail remains SPEC-REGIONAL-LOCATIONS.",
+          "result": "PASS",
+          "test_ids": ["bkt_ins_003_location_and_storage_class_subset", "bucket_regional_locations_round_trip_and_rejections_preserve_state"]
+        },
+        {
+          "id": "BUCKET-DEFAULT-LOCATION-CONFIG",
+          "description": "default-location-config: configuration, API creation, initializer and administrative validation share location names; null/empty uses defaults, invalid defaults include valid examples, and legacy migration advice recommends the uppercase native setting while redacting unknown names.",
+          "result": "PASS",
+          "test_ids": ["default_location_validates_precedence_and_native_profile", "initializer_location_normalizes_names_and_defaults", "regional_and_dual_region_initializer_locations_use_shared_defaults", "bucket_definition_requires_matching_canonical_location_and_type", "legacy_location_advice_uses_effective_native_setting"]
+        },
+        {
+          "id": "BUCKET-LEGACY-LOCATION-UNCHANGED",
+          "description": "legacy-profile-unchanged: fixed US-CENTRAL1 rendering and input restrictions remain unchanged; default_location remains native-only.",
+          "result": "PASS",
+          "test_ids": ["legacy_create_location_accepts_only_fixed_region_and_stores_native_us", "default_location_invalid_or_legacy_settings_fail_before_catalog_creation"]
+        },
+        {
+          "id": "BUCKET-LOCATION-SDK-GO",
+          "description": "sdk-go: high-level BucketHandle.Create with BucketAttrs.Location and Attrs supports regional and predefined dual-region locations.",
+          "result": "PASS",
+          "test_ids": ["TestBucketLocations"]
+        },
+        {
+          "id": "BUCKET-LOCATION-SDK-RUBY",
+          "description": "sdk-ruby: high-level create_bucket(name, location: ASIA-NORTHEAST1) returns location/location_type before and after reload in permissive and strict runs.",
+          "result": "PASS",
+          "test_ids": ["ruby-regional-location"]
         },
         {
           "id": "BKT-INS-001",
@@ -4442,6 +4504,19 @@
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "ruby_default_create_bucket",
         "ruby-default-create-bucket",
+        "official_bucket_location_names_and_types",
+        "bucket_regional_locations_round_trip_and_rejections_preserve_state",
+        "bkt_ins_003_location_and_storage_class_subset",
+        "bucket_location_defaults_and_unsupported_placement",
+        "default_location_validates_precedence_and_native_profile",
+        "initializer_location_normalizes_names_and_defaults",
+        "regional_and_dual_region_initializer_locations_use_shared_defaults",
+        "bucket_definition_requires_matching_canonical_location_and_type",
+        "legacy_location_advice_uses_effective_native_setting",
+        "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
+        "default_location_invalid_or_legacy_settings_fail_before_catalog_creation",
+        "TestBucketLocations",
+        "ruby-regional-location",
         "bkt_http_crud_metadata_conditions_and_errors",
         "bkt_ins_001_defaults_and_server_owned_values",
         "bkt_http_query_body_name_and_route_boundaries",
@@ -4492,6 +4567,38 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-regional-locations.md",
+          "test_ids": [
+            "official_bucket_location_names_and_types",
+            "bucket_regional_locations_round_trip_and_rejections_preserve_state",
+            "bkt_ins_003_location_and_storage_class_subset",
+            "bucket_location_defaults_and_unsupported_placement",
+            "default_location_validates_precedence_and_native_profile",
+            "initializer_location_normalizes_names_and_defaults",
+            "regional_and_dual_region_initializer_locations_use_shared_defaults",
+            "bucket_definition_requires_matching_canonical_location_and_type",
+            "legacy_create_location_accepts_only_fixed_region_and_stores_native_us",
+            "default_location_invalid_or_legacy_settings_fail_before_catalog_creation"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --lib config_input::tests::legacy_location_advice_uses_effective_native_setting",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-regional-locations.md",
+          "test_ids": ["legacy_location_advice_uses_effective_native_setting"]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-regional-locations.md",
+          "test_ids": ["TestBucketLocations", "ruby-regional-location"]
+        },
         {
           "command": "cargo test --locked --offline --test sdk_ruby_defaults_http",
           "result": "PASS",
@@ -4673,6 +4780,32 @@
       ],
       "sdk_evidence": [
         {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.309.0",
+          "transport": "HTTP JSON; regional and predefined dual-region high-level creation",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-regional-locations.md",
+          "test_ids": ["TestBucketLocations"]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "bundler": "4.0.23",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; guarded loopback permissive/strict endpoints; regional create and reload",
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-regional-locations.md",
+          "test_ids": ["ruby-regional-location"]
+        },
+        {
           "language": "Ruby",
           "toolchain": "4.0.9",
           "bundler": "4.0.23",
@@ -4725,7 +4858,7 @@
         "projectNumber normalizes decimal u64 projects, otherwise returns \"0\"; no project registry or domain ownership verification.",
         "Unknown body fields are ignored under an unverified local rule; recognized unsupported fields return 501.",
         "Documented output-only insert fields are ignored, following the JSON resource writable column and v2 OUTPUT_ONLY annotations/AIP-203; exact JSON service behavior is unverified against a real bucket.",
-        "Only US/EU/ASIA and the declared class/label subset work; no geographical behavior or organization defaults.",
+        "Native supports the pinned regional/predefined dual-region and US/EU/ASIA location metadata names plus the declared class/label subset; no geographical behavior, configurable dual-region placement or organization defaults. SPEC-REGIONAL-LOCATIONS records normalization and invalid-location error-detail limits.",
         "Intentional/strict/unsupported profile differences: timestamp precision and error text, bounded framing, project ownership, native list/trailing collection alias, unsupported protection settings, atomic history-aware deletion and native object resources; see docs/en/slices/bucket-core-parity.md and docs/en/evidence/bucket-core-comparison.md.",
         "Source-profile creation is capped at 666 ASCII bytes to match bounded lookup segments; reference regex has no comparable length cap. List entries now use the active profile, while project scoping/empty-item omission/pagination remain native.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md.",

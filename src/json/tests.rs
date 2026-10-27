@@ -456,7 +456,7 @@ fn bkt_ins_002_invalid_json_shape_scalar_types_and_required_fields() {
         r#"{"name":null}"#,
         r#"{"name":1}"#,
         r#"{"name":"Bad"}"#,
-        r#"{"name":"abc","location":null}"#,
+        r#"{"name":"abc","location":1}"#,
         r#"{"name":"abc","storageClass":2}"#,
         r#"{"name":"abc","labels":null}"#,
         r#"{"name":"abc","labels":[]}"#,
@@ -485,6 +485,8 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
             let mut body = json!({"name":"abc"});
             body[field] = if *field == "autoclass" && (value.is_null() || value == json!({})) {
                 json!({"enabled": true})
+            } else if *field == "customPlacementConfig" && (value.is_null() || value == json!({})) {
+                json!({"dataLocations":["US-EAST1", "US-WEST1"]})
             } else {
                 value
             };
@@ -589,14 +591,29 @@ fn bkt_ins_003_location_and_storage_class_subset() {
             assert_eq!(bucket.location_type, "multi-region");
         }
     }
-    for location in ["", "us", "US-CENTRAL1", "NAM4", "unknown"] {
+    for (location, kind) in [
+        ("us", "multi-region"),
+        ("ASIA-NORTHEAST1", "region"),
+        ("US-CENTRAL1", "region"),
+        ("EUROPE-WEST1", "region"),
+        ("NAM4", "dual-region"),
+        ("ASIA1", "dual-region"),
+        ("EUR4", "dual-region"),
+        ("EUR5", "dual-region"),
+        ("EUR7", "dual-region"),
+        ("EUR8", "dual-region"),
+    ] {
         let body = json!({"name":"abc", "location":location});
-        assert_eq!(
-            parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH)
-                .unwrap_err()
-                .status,
-            StatusCode::NOT_IMPLEMENTED
-        );
+        let bucket = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap();
+        assert_eq!(bucket.location, location.to_ascii_uppercase());
+        assert_eq!(bucket.location_type, kind);
+    }
+    for location in ["MARS-CENTRAL1", "unknown", " US", "US ", "US-CENTRAL1-A"] {
+        let body = json!({"name":"abc", "location":location});
+        let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.reason, "invalidArgument");
+        assert!(error.message.contains("US or ASIA-NORTHEAST1"));
     }
     for class in ["", "standard", "made-up"] {
         let body = json!({"name":"abc", "storageClass":class});
@@ -614,6 +631,38 @@ fn bkt_ins_003_location_and_storage_class_subset() {
                 .unwrap_err()
                 .status,
             StatusCode::NOT_IMPLEMENTED
+        );
+    }
+}
+
+#[test]
+fn bucket_location_defaults_and_unsupported_placement() {
+    for location in [Value::Null, json!("")] {
+        let body = json!({"name":"abc", "location":location});
+        let bucket = super::buckets::parse_insert_with_profile(
+            body.to_string().as_bytes(),
+            "p",
+            UNIX_EPOCH,
+            crate::config::CompatProfile::Native,
+            "asia-northeast1",
+        )
+        .unwrap();
+        assert_eq!(bucket.location, "ASIA-NORTHEAST1");
+        assert_eq!(bucket.location_type, "region");
+    }
+    for placement in [Value::Null, json!({}), json!({"dataLocations": []})] {
+        let body = json!({"name":"abc", "customPlacementConfig":placement});
+        assert!(parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).is_ok());
+    }
+    for placement in [
+        json!({"dataLocations": ["US-EAST1", "US-WEST1"]}),
+        json!({"unknown":true}),
+    ] {
+        let body = json!({"name":"abc", "customPlacementConfig":placement});
+        let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
+        assert_eq!(
+            error.reason,
+            JsonError::unsupported("customPlacementConfig").reason
         );
     }
 }

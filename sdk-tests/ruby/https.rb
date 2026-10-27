@@ -120,6 +120,16 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   begin
     bucket = storage.create_bucket("sdk-ruby-basic-#{SecureRandom.hex(8)}")
     puts "ruby-default-create-bucket passed"
+    regional_bucket = nil
+    begin
+      regional_bucket = storage.create_bucket("sdk-ruby-region-#{SecureRandom.hex(8)}", location: "ASIA-NORTHEAST1")
+      raise "regional create location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
+      regional_bucket.reload!
+      raise "regional get location mismatch" unless regional_bucket.location == "ASIA-NORTHEAST1" && regional_bucket.location_type == "region"
+      puts "ruby-regional-location passed"
+    ensure
+      regional_bucket&.delete
+    end
     permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
     raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort
     if ENV.key?("GCS_MIMIC_TOKEN")

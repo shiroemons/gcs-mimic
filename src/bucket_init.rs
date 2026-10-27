@@ -752,7 +752,7 @@ fn example(field: &str) -> &'static str {
         "buckets" => "\"buckets\":[]",
         "project" => "\"project\":\"local-project\"",
         "name" => "\"name\":\"example-bucket\"",
-        "location" => "\"location\":\"US\"",
+        "location" => "\"location\":\"US\" or \"location\":\"ASIA-NORTHEAST1\"",
         "storageClass" => "\"storageClass\":\"STANDARD\"",
         "labels" => "\"labels\":{\"env\":\"dev\"}",
         "cors" => "\"cors\":[{\"origin\":[\"https://example.invalid\"],\"method\":[\"GET\"]}]",
@@ -1789,11 +1789,29 @@ mod tests {
     }
 
     #[test]
-    fn initializer_location_uses_default_only_when_omitted() {
+    fn initializer_location_normalizes_names_and_defaults() {
         let records = parse(br#"{"version":1,"buckets":[{"name":"default-bucket"},{"name":"explicit-bucket","location":"EU"}]}"#, "seed-project", &FixedClock, "ASIA").unwrap();
         assert_eq!(records[0].location, "ASIA");
         assert_eq!(records[1].location, "EU");
-        for value in [json!("invalid"), json!(""), Value::Null] {
+        for value in [json!(""), Value::Null] {
+            let document =
+                json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
+                    .to_string();
+            assert_eq!(
+                parse(document.as_bytes(), "seed-project", &FixedClock, "NAM4").unwrap()[0]
+                    .location,
+                "NAM4"
+            );
+        }
+        for (value, kind) in [("asia-northeast1", "region"), ("eur4", "dual-region")] {
+            let document =
+                json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
+                    .to_string();
+            let records = parse(document.as_bytes(), "seed-project", &FixedClock, "US").unwrap();
+            assert_eq!(records[0].location, value.to_ascii_uppercase());
+            assert_eq!(records[0].location_type, kind);
+        }
+        for value in [json!("invalid"), json!("MARS-CENTRAL1"), json!(1)] {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket","location":value}]})
                     .to_string();
@@ -2185,7 +2203,11 @@ mod tests {
         ] {
             let document =
                 json!({"version":1,"buckets":[{"name":"example-bucket",field:null}]}).to_string();
-            assert!(parsed(&document).is_err(), "{field}");
+            if field == "location" {
+                assert_eq!(parsed(&document).unwrap()[0].location, "US");
+            } else {
+                assert!(parsed(&document).is_err(), "{field}");
+            }
         }
     }
 

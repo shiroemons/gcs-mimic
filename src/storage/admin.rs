@@ -132,9 +132,11 @@ impl BucketDefinition {
             .map_err(|error| AdminError::Invalid(error.message))?;
         crate::bucket::validate_cors(&record.cors).map_err(AdminError::from)?;
         crate::bucket::validate_storage_class(&record.storage_class).map_err(AdminError::from)?;
+        let (location, location_type) =
+            crate::bucket::bucket_location(&record.location).map_err(AdminError::from)?;
         if record.metageneration <= 0
-            || !matches!(record.location.as_str(), "US" | "EU" | "ASIA")
-            || record.location_type != "multi-region"
+            || record.location != location
+            || record.location_type != location_type
             || record.labels.len() > 64
             || record.labels.iter().any(|(key, value)| {
                 !crate::bucket::valid_label(key, true) || !crate::bucket::valid_label(value, false)
@@ -155,6 +157,34 @@ impl BucketDefinition {
         let record = crate::json::parse_insert(input.as_bytes(), project, clock.now())
             .map_err(|error| AdminError::Invalid(error.message))?;
         Self::new(record)
+    }
+}
+
+#[test]
+fn bucket_definition_requires_matching_canonical_location_and_type() {
+    for location in ["US", "ASIA-NORTHEAST1", "NAM4"] {
+        let input = serde_json::json!({"name":"example-bucket", "location":location}).to_string();
+        let record = crate::json::parse_insert(input.as_bytes(), "project", std::time::UNIX_EPOCH)
+            .expect("supported location");
+        assert!(BucketDefinition::new(record.clone()).is_ok());
+        for (name, kind) in [
+            ("MARS-CENTRAL1", record.location_type.as_str()),
+            (location, "invalid-type"),
+        ] {
+            let mut invalid = record.clone();
+            invalid.location = name.into();
+            invalid.location_type = kind.into();
+            assert!(matches!(
+                BucketDefinition::new(invalid),
+                Err(AdminError::Invalid(_))
+            ));
+        }
+        let mut invalid = record;
+        invalid.location.make_ascii_lowercase();
+        assert!(matches!(
+            BucketDefinition::new(invalid),
+            Err(AdminError::Invalid(_))
+        ));
     }
 }
 

@@ -2,6 +2,90 @@
 
 use std::{collections::BTreeMap, fmt, time::SystemTime};
 
+// Pinned to the official locations page checked in sdk-regional-locations.md.
+const REGIONS: &[&str] = &[
+    "AFRICA-SOUTH1",
+    "ASIA-EAST1",
+    "ASIA-EAST2",
+    "ASIA-NORTHEAST1",
+    "ASIA-NORTHEAST2",
+    "ASIA-NORTHEAST3",
+    "ASIA-SOUTH1",
+    "ASIA-SOUTH2",
+    "ASIA-SOUTHEAST1",
+    "ASIA-SOUTHEAST2",
+    "ASIA-SOUTHEAST3",
+    "AUSTRALIA-SOUTHEAST1",
+    "AUSTRALIA-SOUTHEAST2",
+    "EUROPE-CENTRAL2",
+    "EUROPE-NORTH1",
+    "EUROPE-NORTH2",
+    "EUROPE-SOUTHWEST1",
+    "EUROPE-WEST1",
+    "EUROPE-WEST2",
+    "EUROPE-WEST3",
+    "EUROPE-WEST4",
+    "EUROPE-WEST6",
+    "EUROPE-WEST8",
+    "EUROPE-WEST9",
+    "EUROPE-WEST10",
+    "EUROPE-WEST12",
+    "ME-CENTRAL1",
+    "ME-CENTRAL2",
+    "ME-WEST1",
+    "NORTHAMERICA-NORTHEAST1",
+    "NORTHAMERICA-NORTHEAST2",
+    "NORTHAMERICA-SOUTH1",
+    "SOUTHAMERICA-EAST1",
+    "SOUTHAMERICA-WEST1",
+    "US-CENTRAL1",
+    "US-EAST1",
+    "US-EAST4",
+    "US-EAST5",
+    "US-SOUTH1",
+    "US-WEST1",
+    "US-WEST2",
+    "US-WEST3",
+    "US-WEST4",
+];
+const DUAL_REGIONS: &[&str] = &["ASIA1", "EUR4", "EUR5", "EUR7", "EUR8", "NAM4"];
+const MULTI_REGIONS: &[&str] = &["US", "EU", "ASIA"];
+
+pub(crate) fn bucket_location(value: &str) -> Result<(&'static str, &'static str), CatalogError> {
+    for (names, kind) in [
+        (REGIONS, "region"),
+        (DUAL_REGIONS, "dual-region"),
+        (MULTI_REGIONS, "multi-region"),
+    ] {
+        if let Some(name) = names.iter().find(|name| name.eq_ignore_ascii_case(value)) {
+            return Ok((name, kind));
+        }
+    }
+    Err(CatalogError::InvalidMetadata(
+        "Unknown bucket location; use a supported location, for example US or ASIA-NORTHEAST1"
+            .into(),
+    ))
+}
+
+#[test]
+fn official_bucket_location_names_and_types() {
+    for (names, kind) in [
+        (REGIONS, "region"),
+        (DUAL_REGIONS, "dual-region"),
+        (MULTI_REGIONS, "multi-region"),
+    ] {
+        for name in names {
+            assert_eq!(
+                bucket_location(&name.to_ascii_lowercase()).ok(),
+                Some((*name, kind))
+            );
+        }
+    }
+    for invalid in ["MARS-CENTRAL1", "US-CENTRAL1-A", "AU", "", " US"] {
+        assert!(bucket_location(invalid).is_err());
+    }
+}
+
 /// Bucket metadata persisted by the catalog. Protocol adapters derive wire fields from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BucketRecord {

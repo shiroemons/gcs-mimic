@@ -1,6 +1,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::diagnostics::{Diagnostic, DiagnosticSource, Diagnostics};
+use crate::{
+    bucket::bucket_location,
+    diagnostics::{Diagnostic, DiagnosticSource, Diagnostics},
+};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_SETTINGS: usize = 1024;
@@ -362,8 +365,10 @@ fn legacy_fix(name: &str, values: &BTreeMap<&str, &str>) -> String {
         "backend" => "the backend selector and memory mode are unsupported; remove this setting and use the default disk-backed native catalog".into(),
         "cert_location" | "private_key_location" => "supply both GCS_MIMIC_TLS_CERT=certs/server.pem and GCS_MIMIC_TLS_KEY=certs/server-key.pem; one-sided overrides fail".into(),
         "cors_headers" => "global CORS headers are unsupported. JSON preflight already echoes valid requested headers, so JSON-only callers can remove this setting. For XML/public URLs configure each bucket CORS responseHeader (for example X-Example) with its origins and methods; there is no global native replacement".into(),
-        "location" if matches!(value, "US" | "EU" | "ASIA") => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={value} or --default-location {value}; applies only to new buckets without an explicit location; legacy regional defaults remain unsupported"),
-        "location" => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION=US, EU or ASIA. US-CENTRAL1 is not translated to US and legacy regional defaults remain unsupported".into(),
+        "location" => match bucket_location(value) {
+            Ok((location, _)) => format!("use GCS_MIMIC_COMPAT_PROFILE=native with GCS_MIMIC_DEFAULT_LOCATION={location} or --default-location {location}; applies only to new buckets without a nonempty location; legacy-emulator global location defaults remain unsupported"),
+            Err(_) => "remove this setting; native defaults use GCS_MIMIC_COMPAT_PROFILE=native with a supported GCS_MIMIC_DEFAULT_LOCATION, for example US or ASIA-NORTHEAST1; legacy-emulator global location defaults remain unsupported".into(),
+        },
         "log_level" if matches!(value, "debug" | "info" | "warn" | "warning" | "error") => format!("use GCS_MIMIC_LOG_LEVEL={} or --log-level {}; this controls runtime stderr events, not validation diagnostics or stdout lifecycle events", if value == "warning" { "warn" } else { value }, if value == "warning" { "warn" } else { value }),
         "log_level" => "remove this legacy setting; use GCS_MIMIC_LOG_LEVEL=info or --log-level info; supported levels are debug, info, warn or error".into(),
         _ => "event publishing and filters are unsupported; remove this setting; no native publisher alias is available".into(),
@@ -612,7 +617,7 @@ mod tests {
         let text = report.diagnostics.to_string();
         for expected in [
             "<IP_ADDRESS>:<PORT_0_TO_65535>",
-            "not translated",
+            "GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1",
             "JSON preflight",
             "XML/public",
             "responseHeader",
@@ -830,14 +835,30 @@ mod tests {
 
     #[test]
     fn legacy_location_advice_uses_effective_native_setting() {
-        for value in ["US", "EU", "ASIA", "US-CENTRAL1", "us-central1", "secret"] {
+        for (value, expected) in [
+            ("US", Some("US")),
+            ("EU", Some("EU")),
+            ("ASIA", Some("ASIA")),
+            ("US-CENTRAL1", Some("US-CENTRAL1")),
+            ("us-central1", Some("US-CENTRAL1")),
+            ("asia-northeast1", Some("ASIA-NORTHEAST1")),
+            ("nam4", Some("NAM4")),
+            ("MARS-CENTRAL1", None),
+            ("secret", None),
+        ] {
             let env = BTreeMap::from([("FAKE_GCS_LOCATION".into(), value.into())]);
             let report = crate::config::Config::preflight(&[], &env);
             assert!(report.diagnostics.is_err());
             assert_eq!(report.diagnostics.errors[0].key, "FAKE_GCS_LOCATION");
             let advice = report.diagnostics.to_string();
             assert!(advice.contains("GCS_MIMIC_COMPAT_PROFILE=native"));
-            assert!(advice.contains("GCS_MIMIC_DEFAULT_LOCATION="));
+            if let Some(expected) = expected {
+                assert!(advice.contains(&format!("GCS_MIMIC_DEFAULT_LOCATION={expected}")));
+                assert!(advice.contains(&format!("--default-location {expected}")));
+            } else {
+                assert!(advice.contains("for example US or ASIA-NORTHEAST1"));
+                assert!(!advice.contains(value));
+            }
             assert!(!advice.contains("future"));
             assert!(!advice.contains("secret"));
         }

@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-REGIONAL-LOCATIONS",
+      "title": "Location normalization and invalid-name error detail",
+      "status": "OPEN",
+      "affected_features": ["JSON-BUCKETS-005"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/locations", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://storage.googleapis.com/$discovery/rest?version=v1", "https://docs.cloud.google.com/storage/docs/samples/storage-create-bucket-dual-region"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Official sources enumerate location names/types and document case-insensitive location inputs. Exact invalid-location reason/message and uppercase response normalization lack provider differential evidence. Locally unknown names return 400 invalidArgument with valid examples; omitted/null/empty location uses the default, and accepted names normalize to uppercase. Null/empty customPlacementConfig is absent; meaningful placement configuration remains unsupported. See docs/en/slices/sdk-regional-locations.md.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence before claiming exact normalization and error-detail parity; keep the broad operation PARTIAL."
+    },
+    {
       "id": "SPEC-LIST-GLOB-EDGES",
       "title": "Object listing glob empty inputs and error details",
       "status": "OPEN",

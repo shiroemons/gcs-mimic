@@ -52,7 +52,7 @@ Japanese companion: [SDK coverage (ja)](../../ja/sdk-go-ruby-coverage.md).
 | --- | --- | --- | --- |
 | Create with defaults | ✅ | ✅ | Ruby default `autoclass:{enabled:false}` is accepted |
 | Create with versioning, labels, CORS | ✅ | ✅ | Go probed versioning at creation; labels and CORS through update |
-| Create in a regional location (`ASIA-NORTHEAST1`) | 501⏳ | 501 | Only `US`, `EU`, `ASIA` are supported |
+| Create in a regional location (`ASIA-NORTHEAST1`) | 501⏳ | 501 | Historical probe result; [regional creation now passes](../slices/sdk-regional-locations.md) in both SDK suites, with predefined dual-region creation additionally covered by Go |
 | Create with predefined ACL / default object ACL | 501⏳ | 501 | |
 | Create with uniform bucket-level access | 501⏳ | — | Ruby update also returns 501 |
 | Create with hierarchical namespace | 501⏳ | — | |

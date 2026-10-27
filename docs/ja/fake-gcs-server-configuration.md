@@ -144,10 +144,10 @@ JSONの重複キーも件数へ含め、ファイル全体は64KiBまでに制�
 | 公開URLの生成 | `url public --base-url` | 単体ではHost照合を設定しない |
 | 仮想ホストのルート | `GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS` | 同じHost照合ではない |
 | バケットCORS | JSONバケットAPI | XML用・JSONは別の固定ルール |
-| バケットlocation | JSONバケットAPI | `US`・`EU`・`ASIA` |
+| バケットlocation | JSONバケットAPI | 公式のregional・predefined dual-region名と`US`・`EU`・`ASIA`。大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返す |
 | メモリ保存モード | なし | 未対応 |
 | イベント通知先・絞り込み | なし | 未対応 |
-| 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`、`US`・`EU`・`ASIA`に対応 |
+| 全体のlocation既定値 | `GCS_MIMIC_DEFAULT_LOCATION` | nativeのみ。既定は`US`。JSONバケットAPIと同じ名前に対応。空文字・JSONのnullは`US` |
 | ログレベル選択 | `GCS_MIMIC_LOG_LEVEL`・`--log-level`・JSONの`log_level` | 既定は`info`。`debug`・`info`・`warn`・`error`、`warning`は`warn`の別名。診断とstdoutのready/stoppedは常に表示 |
 
 HTTPとHTTPSを同時に受け付ける場合は、次のように起動します。
@@ -208,16 +208,26 @@ URLヘルパー、API応答用URL、権限は引き続き別です。
 strict署名は最終的にクライアントが使うURLへ署名し、後からホストを書き換えません。
 DESIGN-055・UX-003はPARTIALのままです。trusted proxy由来のoriginはDESIGN-056の範囲外作業です。
 `--default-location`・`GCS_MIMIC_DEFAULT_LOCATION`・JSONの`default_location`で、
-nativeの新規バケットのlocation既定値を選べます。既定は`US`で、値は大文字の`US`・`EU`・`ASIA`だけです。
+nativeの新規バケットのlocation既定値を選べます。既定は`US`です。
+`US`・`EU`・`ASIA`と、公式一覧のregional名（`ASIA-NORTHEAST1`など）、
+predefined dual-region名（`ASIA1`・`EUR4`・`EUR5`・`EUR7`・`EUR8`・`NAM4`）に対応します。
+大文字小文字を区別せず、大文字のlocationと対応するlocationTypeを返します。
+設定の空文字・JSONのnullは既定の`US`を使います。
 優先順位はCLI、環境変数、JSON設定、既定値の順です。
-APIと初期化ファイルでlocationを省略したときに適用し、明示値を優先します。
+APIと初期化ファイルでlocationを省略した場合や空文字・nullの場合に適用し、空でない明示値を優先します。
+未知の名前は有効な値の例を含むエラーで拒否します。
+configurable dual-regionの配置設定とRPOは未対応です。
+固定した名前の一覧・確認日・制限は[契約](../en/slices/sdk-regional-locations.md)を参照してください。
 設定を変えて再起動しても既存バケットは書き換えません。物理的な配置は再現しません。
 `legacy-emulator`では明示した既定値を拒否します。
 legacyの作成APIは`US-CENTRAL1`を大文字小文字を区別せず受け付けますが、
 その値は保存せず、内部には`US`を保存して固定の`US-CENTRAL1`を返します。
 ほかの明示locationは拒否します。
-`FAKE_GCS_LOCATION`は引き続き起動エラーとし、nativeの設定を案内します。
-`US-CENTRAL1`を`US`へ自動変換する設定はありません。
+`FAKE_GCS_LOCATION`は引き続き起動エラーとし、対応する名前なら大文字に正規化して
+`GCS_MIMIC_COMPAT_PROFILE=native`と`GCS_MIMIC_DEFAULT_LOCATION`を案内します。
+たとえば`US-CENTRAL1`には`GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1`、
+`asia-northeast1`には`GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`を示します。
+未知の値は表示せず、有効な名前の例を示します。legacyプロファイルの全体の既定値は未対応です。
 UX-003-REMAINING-SETTINGSの範囲はこの既定値と移行案内で、親のUX-003はPARTIALです。
 グローバルCORS設定は追加しません。
 

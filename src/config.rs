@@ -2,6 +2,7 @@
 
 use crate::{
     auth::AuthMode,
+    bucket::bucket_location,
     config_input::{Input, InputError, Inputs, NATIVE_KEYS},
     diagnostics::{Diagnostic, DiagnosticSource, Diagnostics, LogLevel},
     url::PublicOrigin,
@@ -241,7 +242,9 @@ impl Config {
             match read_config(&selector.value) {
                 Ok(values) => {
                     for (key, value) in values {
-                        let text = if key == "sync_delete_guard" && value.is_boolean() {
+                        let text = if key == "default_location" && value.is_null() {
+                            Some(String::new())
+                        } else if key == "sync_delete_guard" && value.is_boolean() {
                             Some(value.to_string())
                         } else if key == "buckets_file" {
                             value.as_str().map(str::to_owned)
@@ -453,10 +456,10 @@ impl Config {
                     }
                     "seed_content_type" => config.seed_content_type = value.parse()?,
                     "default_location" => {
-                        if !matches!(value.as_str(), "US" | "EU" | "ASIA") {
-                            return Err("default_location must be US, EU or ASIA".into());
-                        }
-                        config.default_location = value;
+                        let value = if value.is_empty() { "US" } else { &value };
+                        config.default_location = bucket_location(value)
+                            .map_err(|_| "default_location must be a supported bucket location; use US or ASIA-NORTHEAST1")?
+                            .0.to_owned();
                     }
                     "buckets_file" => {
                         if value.is_empty() {
@@ -851,17 +854,20 @@ mod tests {
         std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
         let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
         assert_eq!(Config::load(&args, &empty).unwrap().default_location, "EU");
+        std::fs::write(&file, r#"{"default_location":null}"#).unwrap();
+        assert_eq!(Config::load(&args, &empty).unwrap().default_location, "US");
+        std::fs::write(&file, r#"{"default_location":"EU"}"#).unwrap();
         let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), "ASIA".into())]);
         assert_eq!(Config::load(&args, &env).unwrap().default_location, "ASIA");
         args.extend(["--default-location".into(), "US".into()]);
         assert_eq!(Config::load(&args, &env).unwrap().default_location, "US");
-        for value in ["", "us", "US-CENTRAL1", " EU", "EU ", "unknown"] {
+        for value in [" EU", "EU ", "unknown", "MARS-CENTRAL1"] {
             let env = BTreeMap::from([("GCS_MIMIC_DEFAULT_LOCATION".into(), value.into())]);
             let errors = Config::load(&[], &env).unwrap_err();
             assert_eq!(errors.errors[0].key, "GCS_MIMIC_DEFAULT_LOCATION");
-            assert!(errors.to_string().contains("US, EU or ASIA"));
+            assert!(errors.to_string().contains("US or ASIA-NORTHEAST1"));
         }
-        for value in ["US", "EU", "ASIA"] {
+        for value in ["US", "EU", "ASIA", "ASIA-NORTHEAST1", "EUR4", "NAM4"] {
             let args = ["--default-location", value].map(str::to_owned);
             assert_eq!(Config::load(&args, &empty).unwrap().default_location, value);
             let mut args = args.to_vec();
@@ -871,6 +877,17 @@ mod tests {
                     .unwrap_err()
                     .to_string()
                     .contains("requires compat_profile=native")
+            );
+        }
+        for (value, expected) in [
+            ("", "US"),
+            ("us", "US"),
+            ("asia-northeast1", "ASIA-NORTHEAST1"),
+        ] {
+            let args = ["--default-location", value].map(str::to_owned);
+            assert_eq!(
+                Config::load(&args, &empty).unwrap().default_location,
+                expected
             );
         }
         let args = [

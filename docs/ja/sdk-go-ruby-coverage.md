@@ -48,7 +48,7 @@ SDK スイートに加えて、スイート外の SDK メソッドを呼ぶ一�
 | --- | --- | --- | --- |
 | 既定値で作成 | ✅ | ✅ | Ruby が送る既定の `autoclass:{enabled:false}` も受け付ける |
 | versioning・labels・CORS 付きで作成 | ✅ | ✅ | Go は作成時に versioning、labels と CORS は更新で確認 |
-| リージョン（`ASIA-NORTHEAST1`）で作成 | 501⏳ | 501 | 対応は `US`・`EU`・`ASIA` のみ |
+| リージョン（`ASIA-NORTHEAST1`）で作成 | 501⏳ | 501 | 調査時点の結果。[sdk-regional-locations](../en/slices/sdk-regional-locations.md)でregional作成は両SDKのテストが成功し、predefined dual-region作成はGoで確認 |
 | 事前定義 ACL・既定オブジェクト ACL 付きで作成 | 501⏳ | 501 | |
 | UBLA 付きで作成 | 501⏳ | — | Ruby は更新でも 501 |
 | 階層型名前空間付きで作成 | 501⏳ | — | |

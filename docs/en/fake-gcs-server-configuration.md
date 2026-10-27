@@ -90,7 +90,7 @@ generally mean “use the default.” See the
 | Supplied certificate/key | `GCS_MIMIC_TLS_CERT`, `GCS_MIMIC_TLS_KEY` | Supply a matching pair |
 | Public-host behavior | `GCS_MIMIC_PUBLIC_BASE_URL` | Origin with DNS-domain routing; legacy Host matching is opt-in. Normalized default ports, IP virtual disabling and authority conflicts retain documented local boundaries. |
 | Bucket CORS | JSON bucket API | Per-bucket XML rules; separate fixed JSON defaults |
-| Bucket location | JSON bucket API; `GCS_MIMIC_DEFAULT_LOCATION` / `--default-location` / JSON `default_location` | Native `US` default; exact `US`, `EU`, `ASIA`; explicit API/initializer location wins; existing buckets stay unchanged |
+| Bucket location | JSON bucket API; `GCS_MIMIC_DEFAULT_LOCATION` / `--default-location` / JSON `default_location` | Native `US` default; case-insensitive official regional, predefined dual-region and `US`, `EU`, `ASIA` names; uppercase responses with the matching locationType. Explicit nonempty API/initializer location wins; null/empty uses the default; existing buckets stay unchanged. [Supported names and limits](slices/sdk-regional-locations.md). |
 | Log level | `GCS_MIMIC_LOG_LEVEL`, `--log-level`, JSON `log_level` | Structured stderr minimum severity; debug/info/warn/error, warning aliases warn; validation diagnostics and stdout ready/stopped are unfiltered |
 | Memory backend, event publisher | No current equivalent | Missing capabilities remain on the roadmap |
 
@@ -123,8 +123,12 @@ For example, `FAKE_GCS_HOST=127.0.0.2` with `FAKE_GCS_PORT=8080` recommends
 `GCS_MIMIC_LISTEN=127.0.0.2:8080`. A safe external URL retains its proxy prefix.
 Public-host advice supplies `GCS_MIMIC_PUBLIC_BASE_URL` and the opt-in legacy
 profile; native path-style Host acceptance stays unrestricted.
-`FAKE_GCS_LOCATION` recommends native `GCS_MIMIC_DEFAULT_LOCATION=US`, `EU` or
-`ASIA`; regional values are not translated. Unsupported log settings,
+`FAKE_GCS_LOCATION` recommends the corresponding native default with an uppercase
+supported name, for example `GCS_MIMIC_DEFAULT_LOCATION=US-CENTRAL1` or
+`GCS_MIMIC_DEFAULT_LOCATION=ASIA-NORTHEAST1`, together with
+`GCS_MIMIC_COMPAT_PROFILE=native`. Unknown names are redacted and receive valid
+examples. The legacy profile's global default remains unsupported.
+Unsupported log settings,
 memory backend and event delivery are identified as unsupported; future names
 are not working replacements. JSON CORS callers can remove the old global
 header setting; XML/public callers configure bucket CORS `responseHeader`.

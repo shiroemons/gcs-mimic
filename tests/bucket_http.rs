@@ -501,6 +501,93 @@ fn bucket_patch_location_comparison_is_case_insensitive() {
 }
 
 #[test]
+fn bucket_regional_locations_round_trip_and_rejections_preserve_state() {
+    let dir = TestDir::new();
+    let mut server = Server::start_options(&dir, &["--default-location", "asia-northeast1"]);
+    for (index, (location, expected, kind)) in [
+        (json!("asia-northeast1"), "ASIA-NORTHEAST1", "region"),
+        (json!("US-CENTRAL1"), "US-CENTRAL1", "region"),
+        (json!("EUROPE-WEST1"), "EUROPE-WEST1", "region"),
+        (json!("ASIA1"), "ASIA1", "dual-region"),
+        (json!("EUR4"), "EUR4", "dual-region"),
+        (json!("NAM4"), "NAM4", "dual-region"),
+        (json!("US"), "US", "multi-region"),
+        (json!("EU"), "EU", "multi-region"),
+        (json!("ASIA"), "ASIA", "multi-region"),
+        (Value::Null, "ASIA-NORTHEAST1", "region"),
+        (json!(""), "ASIA-NORTHEAST1", "region"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("location-bucket-{index}");
+        let created = server.request(
+            "POST",
+            "/storage/v1/b?project=locations",
+            &json!({"name":name,"location":location}).to_string(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        for value in [
+            created.json(),
+            server
+                .request("GET", &format!("/storage/v1/b/{name}"), "")
+                .json(),
+        ] {
+            assert_eq!(value["location"], expected);
+            assert_eq!(value["locationType"], kind);
+        }
+        let listed = server
+            .request(
+                "GET",
+                &format!("/storage/v1/b?project=locations&prefix={name}"),
+                "",
+            )
+            .json();
+        assert!(
+            listed["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["name"] == name
+                    && item["location"] == expected
+                    && item["locationType"] == kind)
+        );
+    }
+    let bad = server.request(
+        "POST",
+        "/storage/v1/b?project=locations",
+        r#"{"name":"invalid-location","location":"MARS-CENTRAL1"}"#,
+    );
+    bad.error(400, "invalidArgument");
+    assert!(
+        bad.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("US or ASIA-NORTHEAST1")
+    );
+    let placement = server.request("POST", "/storage/v1/b?project=locations", r#"{"name":"invalid-placement","location":"US","customPlacementConfig":{"dataLocations":["US-EAST1","US-WEST1"]}}"#);
+    assert_eq!(
+        placement.json()["error"]["errors"][0]["reason"],
+        gcs_mimic::json::JsonError::unsupported("customPlacementConfig").reason
+    );
+    for name in ["invalid-location", "invalid-placement"] {
+        assert_eq!(
+            server
+                .request("GET", &format!("/storage/v1/b/{name}"), "")
+                .status,
+            404
+        );
+    }
+    server.stop();
+    let server = Server::start(&dir);
+    let bucket = server
+        .request("GET", "/storage/v1/b/location-bucket-0", "")
+        .json();
+    assert_eq!(bucket["location"], "ASIA-NORTHEAST1");
+    assert_eq!(bucket["locationType"], "region");
+}
+
+#[test]
 fn bucket_put_location_comparison_is_case_insensitive() {
     bucket_metadata_location("PUT");
 }
@@ -2264,6 +2351,10 @@ fn bucket_core_unsupported_settings_preserve_state() {
             ] {
                 let value = if field == "autoclass" && (value.is_null() || value == json!({})) {
                     json!({"enabled": false, "terminalStorageClass": "ARCHIVE"})
+                } else if field == "customPlacementConfig"
+                    && (value.is_null() || value == json!({}))
+                {
+                    json!({"dataLocations":["US-EAST1", "US-WEST1"]})
                 } else {
                     value
                 };
@@ -3125,9 +3216,9 @@ fn bkt_http_query_body_name_and_route_boundaries() {
             "invalidArgument",
         ),
         (
-            r#"{"name":"valid-bucket","location":"us"}"#,
-            501,
-            "notImplemented",
+            r#"{"name":"valid-bucket","location":"MARS-CENTRAL1"}"#,
+            400,
+            "invalidArgument",
         ),
         (
             r#"{"name":"valid-bucket","storageClass":"RAPID"}"#,

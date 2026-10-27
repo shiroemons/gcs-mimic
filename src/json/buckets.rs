@@ -1,7 +1,7 @@
 use super::{JsonError, Projection, query::validate_project};
 use crate::bucket::{
-    BucketMetadataUpdate, BucketRecord, CorsRule, cors_from_value, cors_value, valid_label,
-    validate_storage_class,
+    BucketMetadataUpdate, BucketRecord, CorsRule, bucket_location, cors_from_value, cors_value,
+    valid_label, validate_storage_class,
 };
 use crate::config::CompatProfile;
 use hyper::StatusCode;
@@ -121,6 +121,14 @@ pub fn parse_insert_with_profile(
         .ok_or_else(|| JsonError::invalid_argument("Bucket resource must be a JSON object"))?;
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
+            if profile == CompatProfile::Native
+                && *field == "customPlacementConfig"
+                && body.get(*field).is_some_and(|value| {
+                    value.is_null() || value == &json!({}) || value == &json!({"dataLocations": []})
+                })
+            {
+                continue;
+            }
             // The pinned Go SDK sends an empty rule list for any nonnil BucketAttrs.
             if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
                 continue;
@@ -195,12 +203,15 @@ pub fn parse_insert_with_profile(
             return Err(JsonError::unsupported("location"));
         }
         "US".into()
+    } else if body
+        .get("location")
+        .is_none_or(|value| value.is_null() || value == "")
+    {
+        default_location.to_owned()
     } else {
         string("location", Some(default_location))?
     };
-    if !matches!(location.as_str(), "US" | "EU" | "ASIA") {
-        return Err(JsonError::unsupported("location (supported: US, EU, ASIA)"));
-    }
+    let (location, location_type) = bucket_location(&location)?;
     let storage_class = if profile == CompatProfile::LegacyEmulator {
         "STANDARD".into()
     } else {
@@ -234,8 +245,8 @@ pub fn parse_insert_with_profile(
     Ok(BucketRecord {
         name,
         project: project.to_owned(),
-        location,
-        location_type: "multi-region".to_owned(),
+        location: location.to_owned(),
+        location_type: location_type.to_owned(),
         storage_class,
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
