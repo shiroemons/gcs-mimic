@@ -61,6 +61,8 @@ pub(crate) mod rewrite;
 #[path = "rewrite_token.rs"]
 mod rewrite_token;
 
+#[path = "object_move.rs"]
+mod object_move;
 #[path = "objects.rs"]
 mod objects;
 pub use objects::{ObjectListCursor, ObjectListPage, ObjectListQuery, ObjectReader};

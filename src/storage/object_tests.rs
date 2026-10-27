@@ -113,6 +113,58 @@ async fn put(
         .await
 }
 
+#[tokio::test]
+async fn move_reuses_blob_and_preserves_failed_source_conditions() {
+    use crate::bucket::BucketAccess;
+    let dir = TestDir::new();
+    let catalog = setup(&dir).await;
+    let original = put(&catalog, "source", b"moved bytes", Default::default())
+        .await
+        .unwrap();
+    let access = BucketAccess::Permissive;
+    let failed = catalog
+        .move_object_authorized(
+            "bucket",
+            "source",
+            "target",
+            ObjectConditions {
+                if_generation_match: Some(0),
+                ..Default::default()
+            },
+            Default::default(),
+            &access,
+            &access,
+            &access,
+        )
+        .await;
+    assert_eq!(failed, Err(ObjectError::PreconditionFailed));
+    let moved = catalog
+        .move_object_authorized(
+            "bucket",
+            "source",
+            "target",
+            Default::default(),
+            Default::default(),
+            &access,
+            &access,
+            &access,
+        )
+        .await
+        .unwrap();
+    assert_ne!(moved.generation, original.generation);
+    let (_, reader) = catalog
+        .open_object("bucket", "target", None, Default::default())
+        .await
+        .unwrap();
+    assert_eq!(read(reader).await, b"moved bytes");
+    assert_eq!(
+        catalog
+            .get_object("bucket", "source", None, Default::default())
+            .await,
+        Err(ObjectError::ObjectNotFound)
+    );
+}
+
 async fn read(mut reader: ObjectReader) -> Vec<u8> {
     let mut bytes = Vec::new();
     while let Some(chunk) = reader.next_chunk().await.unwrap() {

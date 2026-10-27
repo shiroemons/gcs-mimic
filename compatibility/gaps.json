@@ -725,10 +725,10 @@
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/move"
       ],
-      "observed_at": "2026-10-21",
-      "required_resolution": "The overview states HNS-only; omission of that restriction on the dedicated page does not prove its removal. Reconcile current compatibility tables, release notes and an authorized real-service fixture before choosing a strict rule. Never substitute copy plus delete for atomic move.",
+      "observed_at": "2026-10-27",
+      "required_resolution": "Retain the documented local flat-namespace subset and obtain authoritative clarification or an authorized real-service fixture for namespace eligibility, source history and exact same-name error mapping. HNS, folder rename, cross-bucket moves, move-only authorization, full ACL projection and advanced policy interactions remain pending. Never substitute copy plus delete for atomic move. Contract and evidence: docs/en/slices/sdk-object-move.md.",
       "kind": "SOURCE_QUESTION",
-      "observed_evidence": "The objects resource overview describes move as HNS-only. The dedicated move page, updated 2026-10-20, describes same-bucket atomic moves without restating that restriction. Omission of a restriction is not evidence that it was removed."
+      "observed_evidence": "Rechecked 2026-10-27: the objects overview still describes move as HNS-only, while the dedicated page updated 2026-10-22 specifies a same-bucket atomic transaction and destination versioning without that restriction. Discovery revision 20261020 has the same route and eight conditions. The requested emulator flat-namespace subset is implemented locally without treating omission as evidence of provider eligibility. Local choices: permanently remove only the source live generation even with versioning, retain older source generations, and reject identical names with 400 invalidArgument. Default Go Storage v1.70.0 ObjectHandle.Move and Ruby Storage 1.62.1 Bucket#move_file pass; no real-cloud call was made."
     },
     {
       "id": "SPEC-002",

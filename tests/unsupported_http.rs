@@ -25,6 +25,7 @@ fn unsupported_google_routes_and_inputs() {
         "storage.objects.delete",
         "storage.objects.get",
         "storage.objects.list",
+        "storage.objects.move",
         "storage.objects.patch",
         "storage.objects.rewrite",
         "storage.objects.update",

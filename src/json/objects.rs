@@ -27,6 +27,7 @@ pub struct ObjectGetParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObjectRequest {
+    Move(super::ObjectMoveParams),
     Copy(super::ObjectCopyParams),
     Compose {
         bucket: String,
@@ -79,6 +80,9 @@ pub fn route_object_with_profile(
     uri: &Uri,
     profile: CompatProfile,
 ) -> Option<Result<ObjectRequest, JsonError>> {
+    if let Some(operation) = super::object_move::route(method, uri, profile) {
+        return Some(operation);
+    }
     if let Some(operation) = super::object_copy::route(method, uri, profile) {
         return Some(operation);
     }

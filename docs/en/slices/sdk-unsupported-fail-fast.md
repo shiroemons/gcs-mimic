@@ -28,7 +28,7 @@ Storage v1 [Discovery](https://www.googleapis.com/discovery/v1/apis/storage/v1/r
 
 ## Pinned unsupported routes
 
-These 70 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented.
+These 69 method/path combinations are rejected. Variables occupy one nonempty raw path segment, including percent-encoded slashes. Metadata-only objects.insert is included; media/multipart/resumable upload routes remain implemented. Atomic objects.move is now covered by the [move slice](sdk-object-move.md).
 
 | Method | Path |
 | --- | --- |
@@ -82,7 +82,6 @@ These 70 method/path combinations are rejected. Variables occupy one nonempty ra
 | `POST` | `/storage/v1/b/{bucket}/o/bulkRestore` |
 | `GET` | `/storage/v1/b/{bucket}/o/{object}/iam` |
 | `POST` | `/storage/v1/b/{bucket}/o` |
-| `POST` | `/storage/v1/b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}` |
 | `POST` | `/storage/v1/b/{bucket}/o/{object}/restore` |
 | `PUT` | `/storage/v1/b/{bucket}/o/{object}/iam` |
 | `GET` | `/storage/v1/b/{bucket}/o/{object}/iam/testPermissions` |

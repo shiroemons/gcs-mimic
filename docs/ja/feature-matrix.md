@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
-| behavior | 201 | 125 | 0 | 38 | 38 | 0 | 0 |
+| api_operation | 298 | 276 | 0 | 21 | 1 | 0 | 0 |
+| behavior | 201 | 124 | 0 | 39 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
-| behavior | 125 | 43 | 30 | 3 | 0 | 0 |
+| api_operation | 276 | 6 | 16 | 0 | 0 | 0 |
+| behavior | 124 | 44 | 30 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -173,7 +173,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-OBJECTS-006 | objects.getIamPolicy | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | JSON-OBJECTS-007 | objects.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 7 |
 | JSON-OBJECTS-008 | objects.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
-| JSON-OBJECTS-009 | objects.move | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| JSON-OBJECTS-009 | objects.move | PARTIAL | P3 | EXACT | EXACT | 2 |
 | JSON-OBJECTS-010 | objects.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-OBJECTS-011 | objects.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-OBJECTS-012 | objects.rewrite | PARTIAL | P3 | EXACT | EXACT | 1 |
@@ -709,7 +709,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-025 | オブジェクト合成 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-026 | 合成オブジェクトのメタデータ | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
 | BEHAVIOR-OBJECT-027 | compose時の元オブジェクト削除 | IMPLEMENTED | P3 | EXACT | EXACT | 1 |
-| BEHAVIOR-OBJECT-028 | オブジェクトの原子的移動 | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-028 | オブジェクトの原子的移動 | PARTIAL | P3 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-029 | オブジェクトの世代管理 | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-030 | Soft deleteと恒久削除期限 | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-031 | オブジェクト復元の意味論 | NOT_STARTED | P4 | EXACT | NONE | 0 |

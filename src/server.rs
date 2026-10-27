@@ -650,6 +650,7 @@ async fn object_response(
     };
     let catalog_timeout = Duration::from_millis(config.catalog_wait_timeout_ms);
     let (permission, bucket) = match &operation {
+        ObjectRequest::Move(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::Copy(params) => (auth::OBJECTS_CREATE, &params.bucket),
         ObjectRequest::List(params) => (auth::OBJECTS_LIST, &params.query.bucket),
         ObjectRequest::Update { bucket, .. } => (auth::OBJECTS_UPDATE, bucket),
@@ -701,6 +702,27 @@ async fn object_response(
         ));
     }
     let mut value = match operation {
+        ObjectRequest::Move(params) => {
+            json::validate_object_get_headers(request.headers(), false)?;
+            let source_read =
+                authorize_bucket(state, caller, auth::OBJECTS_GET, &params.bucket).await?;
+            let source_delete =
+                authorize_bucket(state, caller, auth::OBJECTS_DELETE, &params.bucket).await?;
+            let record = state
+                .catalog
+                .move_object_authorized(
+                    &params.bucket,
+                    &params.source,
+                    &params.destination,
+                    params.source_conditions,
+                    params.conditions,
+                    &source_read,
+                    &source_delete,
+                    &access,
+                )
+                .await?;
+            json::object_resource(&record, &state.api_base_url, params.projection)?
+        }
         ObjectRequest::Copy(params) => {
             json::validate_object_get_headers(request.headers(), false)?;
             for name in [

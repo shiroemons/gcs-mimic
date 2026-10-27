@@ -62,6 +62,7 @@ fake-gcs-serverの初期ファイルがある場合は、同じ`data/BUCKET/OBJE
 | ライフサイクル設定を保存する | Go・Rubyで設定・更新・削除に対応。ルールの実行は未対応。[対応範囲](sdk-lifecycle-config.md) |
 | ファイルを保存・取得・削除する | 対応 |
 | コピー・継続rewrite・compose | 記載範囲で対応 |
+| 同じバケット内で名前を変える | Go・Rubyのmoveに対応。[条件と制限](sdk-object-move.md) |
 | 再開可能アップロード・世代履歴 | 記載範囲で対応 |
 | 公開URL・V4 RSA署名URLを使う | 記載範囲で対応 |
 | 再起動後もデータを保持する | 対応 |

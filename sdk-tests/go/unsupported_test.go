@@ -54,10 +54,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 			return err
 		}},
 		{"ServiceAccount", func(ctx context.Context) error { _, err := client.ServiceAccount(ctx, "local-project"); return err }},
-		{"Move", func(ctx context.Context) error {
-			_, err := bucket.Object("missing").Move(ctx, storage.MoveObjectDestination{Object: "destination"})
-			return err
-		}},
 		{"Restore", func(ctx context.Context) error {
 			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{})
 			return err

@@ -26,10 +26,6 @@ const ROUTES: &[(&str, &str)] = &[
     ("POST", "b/{bucket}/o"),
     ("POST", "b/{bucket}/o/bulkRestore"),
     ("POST", "b/{bucket}/o/{object}/restore"),
-    (
-        "POST",
-        "b/{bucket}/o/{sourceObject}/moveTo/o/{destinationObject}",
-    ),
     ("GET|PUT", "b/{bucket}/o/{object}/iam"),
     ("GET", "b/{bucket}/o/{object}/iam/testPermissions"),
     ("GET", "b/{bucket}/o/{object}/viewFullContext"),
@@ -111,6 +107,7 @@ mod tests {
             "storage.objects.delete",
             "storage.objects.get",
             "storage.objects.list",
+            "storage.objects.move",
             "storage.objects.patch",
             "storage.objects.rewrite",
             "storage.objects.update",

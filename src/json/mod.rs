@@ -20,6 +20,7 @@ mod multipart;
 mod object_copy;
 mod object_list;
 mod object_metadata;
+mod object_move;
 mod objects;
 mod page_token;
 mod query;
@@ -46,6 +47,7 @@ pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
 pub(crate) use object_metadata::validate_fixed_metadata;
 pub use object_metadata::{ObjectMetadataRequest, parse_object_metadata};
+pub use object_move::ObjectMoveParams;
 pub use objects::{
     ObjectGetParams, ObjectInsertParams, ObjectRequest, object_media_headers, object_media_range,
     object_resource, parse_object_upload_headers, route_object, route_object_with_profile,

@@ -145,7 +145,6 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
         "notifications" => -> { bucket.notifications },
         "HMAC keys" => -> { storage.hmac_keys.to_a },
         "serviceAccount" => -> { storage.service_account_email },
-        "move" => -> { bucket.move_file("missing", "destination") },
         "restore" => -> { bucket.restore_file("missing", 1) },
         "lockRetentionPolicy" => -> { bucket.lock_retention_policy! }
       }.each do |name, call|
@@ -428,5 +427,26 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   ensure
     bucket&.files&.each(&:delete)
     bucket&.delete
+  end
+end
+
+# Keep move independent from the transfer journey so its default API stays visible.
+if ARGV.empty?
+  move_bucket = storage.create_bucket("ruby-move-#{SecureRandom.hex(6)}")
+  begin
+    move_bucket.create_file(StringIO.new("Ruby move bytes"), "source")
+    moved = move_bucket.move_file("source", "destination")
+    raise "move returned wrong name" unless moved.name == "destination"
+    raise "move source still exists" unless move_bucket.file("source").nil?
+    download = move_bucket.file("destination").download
+    begin
+      raise "move bytes differ" unless download.read == "Ruby move bytes"
+    ensure
+      download.close
+    end
+    puts "ruby-object-move passed"
+  ensure
+    move_bucket.files.each(&:delete)
+    move_bucket.delete
   end
 end
