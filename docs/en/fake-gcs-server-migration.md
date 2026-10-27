@@ -56,6 +56,10 @@ These are the scoped [Ruby defaults](slices/sdk-ruby-defaults.md), not Autoclass
 implementation or proof of provider null-input parity. No extra server setting is
 required.
 
+| Listing call | gcs-mimic behavior |
+| --- | --- |
+| Go `Query{MatchGlob: "**/*.txt"}` or Ruby `bucket.files(match_glob: "**/*.txt")` | JSON listing filters names and slash-delimited prefixes, including pagination and versions. Empty matchGlob is absent. Invalid syntax or an incompatible delimiter returns 400; use delimiter `/` or omit it. See the [glob contract](slices/sdk-list-glob.md). |
+
 For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 
 ```json

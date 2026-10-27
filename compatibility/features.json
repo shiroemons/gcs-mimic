@@ -12855,8 +12855,8 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-plus-bucket predefined roles; broader bucket policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions=true supports retained history; softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
-        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "versions=true supports retained history; softDeleted and includeFoldersAsPrefixes accept omitted/false only. matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE.",
         "SPEC-FIELDS-EDGES: supported response fields selection is delivered; empty/whitespace selectors, wildcard children and fields with raw media remain explicitly unsupported. DELETE ignores fields. See docs/en/evidence/basic-json-fields-etag.md."
       ],
@@ -17719,8 +17719,8 @@
         "Bucket maxResults=0 selects the projection default (1000 noAcl / 200 full), based on the v2 OPTIONAL int32 page_size and implicit proto3 scalar presence; JSON zero behavior is unverified against the real service.",
         "The empty-token rule is local; full projection omits ACL/owner.",
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
-        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "versions=true supports retained history; softDeleted and includeFoldersAsPrefixes accept omitted/false only. matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
       "implemented_in": "d0ebc1105133220d34b148b9233eef50e85c845f",
@@ -21964,8 +21964,8 @@
       ],
       "known_deviations": [
         "Strict mode enforces storage.objects.list through project-level predefined roles only; bucket IAM policies, storage.objects.getIamPolicy for full projection and ACL/owner projection are unimplemented, permissive mode (default) checks nothing, and full returns the existing metadata GET subset. SPEC-017 records local authentication error details and the missing-bucket rule.",
-        "versions, softDeleted and includeFoldersAsPrefixes accept omitted/false only. Nonempty matchGlob/filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
-        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, offsets, includeTrailingDelimiter and projection; maxResults may change. Tokens are not snapshots or Google token encodings.",
+        "versions=true supports retained history; softDeleted and includeFoldersAsPrefixes accept omitted/false only. matchGlob supports the documented glob subset in BEHAVIOR-OBJECT-019; empty patterns are absent. Nonempty filter, userProject and named fields edges and other recognized unsupported semantics return 501 notImplemented; empty filters mean no filter.",
+        "Local tokens use corruption checks rather than cryptographic authentication and bind bucket, prefix, delimiter, matchGlob, offsets, includeTrailingDelimiter, projection and versions; maxResults may change. Tokens are not snapshots or Google token encodings.",
         "maxResults=0 selects 1000, matching existing bucket listing; exact real-service zero behavior, marker accounting and empty-array wire omission remain unverified. See SPEC-LIST-PAGING and SPEC-LIST-RESOURCE-SHAPE."
       ],
       "implemented_in": "41c2490285220dfafcaa9f198534121c82f38cb7",
@@ -21979,26 +21979,38 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "SPEC_BASED",
-      "notes": "startOffset/endOffset/matchGlob and validation of compatible flags.",
+      "source_checked_at": "2026-10-27",
+      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
+      "notes": "JSON matchGlob supports documented glob syntax, slash delimiter prefixes, prefix, versions and bounded pagination. Dedicated interval acceptance and context filters remain pending. Contract and final verification: docs/en/slices/sdk-list-glob.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "MATCH-GLOB-SYNTAX", "description": "Official glob operators, UTF-8 full-name matching, malformed syntax and 1024-byte boundary; local error/empty-input choices remain under SPEC-LIST-GLOB-EDGES.", "result": "PASS", "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic", "match_glob_filters_items_prefixes_and_page_tokens"]},
+        {"id": "MATCH-GLOB-LIST", "description": "JSON matchGlob with prefix, delimiter, versions and bounded pagination; empty patterns are absent.", "result": "PASS", "test_ids": ["match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary"]},
+        {"id": "MATCH-GLOB-SDK", "description": "Ordinary Go MatchGlob and Ruby match_glob high-level listing.", "result": "PASS", "test_ids": ["TestObjectList", "ruby-match-glob"]},
+        {"id": "LIST-INTERVAL-FILTER", "description": "Dedicated startOffset/endOffset acceptance and context filter support are outside this slice.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic", "match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary", "TestObjectList", "ruby-match-glob"],
+      "verification": [
+        {"command": "cargo test --locked --offline --lib match_glob", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["official_glob_syntax", "arbitrary_patterns_do_not_panic"]},
+        {"command": "cargo test --locked --offline --test object_list_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["match_glob_filters_items_prefixes_and_page_tokens", "match_glob_versions_preserve_each_generation_and_page_boundary"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["TestObjectList", "ruby-match-glob"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "1.70.0", "transport": "HTTP JSON, guarded loopback endpoint, storage.Query.MatchGlob and size-one pages", "command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["TestObjectList"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON, guarded permissive/strict endpoints, bucket.files(match_glob:)", "command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-list-glob.md", "test_ids": ["ruby-match-glob"]}
+      ],
+      "known_deviations": ["SPEC-LIST-GLOB-EDGES: empty patterns are absent, classes exclude slash, unmatched closing delimiters are invalid; exact malformed-pattern reasons and scan boundaries lack provider evidence. Dedicated interval acceptance, context filters and XML glob support are outside this slice."],
+      "implemented_in": "2ff7f13",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-020",

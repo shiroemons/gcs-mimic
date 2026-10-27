@@ -27,10 +27,11 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
             return Err(JsonError::unsupported_object(name));
         }
     }
-    for name in ["matchGlob", "filter"] {
-        if params.remove(name).is_some_and(|filter| !filter.is_empty()) {
-            return Err(JsonError::unsupported_object(name));
-        }
+    if params
+        .remove("filter")
+        .is_some_and(|filter| !filter.is_empty())
+    {
+        return Err(JsonError::unsupported_object("filter"));
     }
     for name in ["softDeleted", "includeFoldersAsPrefixes", "prettyPrint"] {
         if boolean(&mut params, name)? {
@@ -69,12 +70,24 @@ pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, 
         bucket,
         prefix: params.remove("prefix").unwrap_or_default(),
         delimiter: params.remove("delimiter").unwrap_or_default(),
+        match_glob: params
+            .remove("matchGlob")
+            .filter(|pattern| !pattern.is_empty())
+            .map(|pattern| {
+                crate::match_glob::Glob::parse(&pattern).map_err(JsonError::invalid_parameter)
+            })
+            .transpose()?,
         start_offset: params.remove("startOffset").unwrap_or_default(),
         end_offset: params.remove("endOffset").unwrap_or_default(),
         include_trailing_delimiter: boolean(&mut params, "includeTrailingDelimiter")?,
         versions: boolean(&mut params, "versions")?,
         cursor: None,
     };
+    if query.match_glob.is_some() && !query.delimiter.is_empty() && query.delimiter != "/" {
+        return Err(JsonError::invalid_parameter(
+            "matchGlob requires delimiter=/ or no delimiter; use matchGlob=**/*.txt&delimiter=/",
+        ));
+    }
     if let Some(token) = params.remove("pageToken").filter(|token| !token.is_empty()) {
         query.cursor = Some(super::page_token::decode_object_page_token(
             &token, &query, projection,

@@ -251,6 +251,10 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     raise "object size mismatch" unless object.size == source.size
     raise "object metadata mismatch" unless bucket.file(object.name).generation == object.generation
     raise "object absent from list" unless bucket.files.any? { |item| item.name == object.name }
+    globbed = bucket.files(match_glob: "**/*.bin").all.map(&:name)
+    raise "glob listing mismatch" unless globbed == [object.name]
+    raise "glob empty listing mismatch" unless bucket.files(match_glob: "missing-*").all.to_a.empty?
+    puts "ruby-match-glob passed"
     object.update { |item| item.metadata = { "operation" => "patch" } }
     object.reload!
     raise "object PATCH mismatch" unless object.metadata == { "operation" => "patch" }

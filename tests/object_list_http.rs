@@ -158,6 +158,134 @@ fn prefixes_of(page: &Value) -> Vec<String> {
 }
 
 #[test]
+fn match_glob_filters_items_prefixes_and_page_tokens() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir);
+    server.bucket();
+    for name in [
+        "a.txt",
+        "b.csv",
+        "c.txt",
+        "dir/",
+        "dir/a.txt",
+        "dir/sub/c.txt",
+        "skip",
+        "雪.txt",
+    ] {
+        server.put(name);
+    }
+    for (pattern, expected) in [
+        ("*.txt", vec!["a.txt", "c.txt", "雪.txt"]),
+        (
+            "**/{a,c}.txt",
+            vec!["a.txt", "c.txt", "dir/a.txt", "dir/sub/c.txt"],
+        ),
+        ("[!ab]*.txt", vec!["c.txt", "雪.txt"]),
+        ("?.csv", vec!["b.csv"]),
+    ] {
+        let (items, prefixes) = server.pages(&format!("matchGlob={}", encode(pattern)), 1);
+        assert_eq!(items, expected, "{pattern}");
+        assert!(prefixes.is_empty());
+    }
+    let (items, prefixes) =
+        server.pages(&format!("prefix=dir/&matchGlob={}", encode("**/*.txt")), 1);
+    assert_eq!(items, ["dir/a.txt", "dir/sub/c.txt"]);
+    assert!(prefixes.is_empty());
+    let (items, prefixes) =
+        server.pages("delimiter=/&includeTrailingDelimiter=true&matchGlob=**/", 1);
+    assert_eq!(items, ["dir/"]);
+    assert_eq!(prefixes, ["dir/"]);
+    let (items, prefixes) = server.pages("delimiter=/&matchGlob=*.txt", 1);
+    assert_eq!(items, ["a.txt", "c.txt", "雪.txt"]);
+    assert!(prefixes.is_empty());
+    assert_eq!(
+        server.list("matchGlob=missing*"),
+        json!({"kind":"storage#objects"})
+    );
+    assert_eq!(server.list("matchGlob="), server.list(""));
+    let page = server.list("matchGlob=*.txt&maxResults=1");
+    let token = page["nextPageToken"].as_str().unwrap();
+    let changed = format!("/storage/v1/b/test-bucket/o?matchGlob=**&pageToken={token}");
+    assert_eq!(server.request("GET", &changed, "").0, 400);
+    for pattern in [
+        "[",
+        "[]",
+        "[z-a]",
+        "{a,b",
+        "{a/b,c}",
+        "{**,a}",
+        &"a".repeat(1025),
+    ] {
+        let path = format!("/storage/v1/b/test-bucket/o?matchGlob={}", encode(pattern));
+        let (status, error) = server.request("GET", &path, "");
+        assert_eq!(status, 400, "{pattern}: {error}");
+        assert!(
+            error["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("matchGlob")
+        );
+    }
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o?matchGlob=*&delimiter=::",
+                ""
+            )
+            .0,
+        400
+    );
+    assert_eq!(
+        server
+            .request(
+                "GET",
+                "/storage/v1/b/test-bucket/o?matchGlob=&delimiter=::",
+                ""
+            )
+            .0,
+        200
+    );
+}
+
+#[test]
+fn match_glob_versions_preserve_each_generation_and_page_boundary() {
+    let dir = TestDir::new();
+    let server = Server::start(&dir);
+    server.bucket();
+    let (status, value) = server.request(
+        "PATCH",
+        "/storage/v1/b/test-bucket",
+        r#"{"versioning":{"enabled":true}}"#,
+    );
+    assert_eq!(status, 200, "{value}");
+    let first = server.put("a.txt");
+    let second = server.put("a.txt");
+    server.put("b.csv");
+    server.put("c.txt");
+    let (items, _) = server.pages("versions=true&matchGlob=*.txt", 1);
+    assert_eq!(items, ["a.txt", "a.txt", "c.txt"]);
+    let page = server.list("versions=true&matchGlob=*.txt&maxResults=1");
+    assert_eq!(page["items"][0]["generation"], first["generation"]);
+    let token = page["nextPageToken"].as_str().unwrap();
+    let next = server.list(&format!(
+        "versions=true&matchGlob=*.txt&maxResults=2&pageToken={token}"
+    ));
+    assert_eq!(next["items"][0]["generation"], second["generation"]);
+    assert_eq!(names(&next), ["a.txt", "c.txt"]);
+    assert!(next.get("nextPageToken").is_none());
+    let before_delete = server.list("versions=false&matchGlob=*.txt&maxResults=1");
+    let live_token = before_delete["nextPageToken"].as_str().unwrap();
+    server.request("DELETE", "/storage/v1/b/test-bucket/o/c.txt", "");
+    let empty = server.list(&format!(
+        "versions=false&matchGlob=*.txt&maxResults=1&pageToken={live_token}"
+    ));
+    assert_eq!(empty, json!({"kind":"storage#objects"}));
+    let final_page = server.list("versions=false&matchGlob=*.txt&maxResults=1");
+    assert!(final_page.get("nextPageToken").is_none());
+}
+
+#[test]
 fn object_list_resources_defaults_empty_and_restart() {
     let dir = TestDir::new();
     let mut server = Server::start(&dir);
@@ -309,7 +437,6 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
         );
     }
     for query in [
-        "matchGlob=a*",
         "filter=context-filter",
         "fields=",
         "userProject=local",

@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 131 | 0 | 32 | 38 | 0 | 0 |
+| behavior | 201 | 130 | 0 | 33 | 38 | 0 | 0 |
 | project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 131 | 40 | 28 | 2 | 0 | 0 |
+| behavior | 130 | 41 | 28 | 2 | 0 | 0 |
 | project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
@@ -700,7 +700,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-016 | Range reads | IMPLEMENTED | P1 | EXACT | EXACT | 0 |
 | BEHAVIOR-OBJECT-017 | Content encoding and transcoding | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-018 | Prefix and delimiter listing | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 1 |
-| BEHAVIOR-OBJECT-019 | Listing interval and glob filters | NOT_STARTED | P1 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-019 | Listing interval and glob filters | PARTIAL | P1 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-020 | Listing folders as prefixes | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-021 | Version and soft-delete listing | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 1 |
 | BEHAVIOR-OBJECT-022 | Context-based object listing | NOT_STARTED | P7 | EXACT | NONE | 0 |

@@ -39,6 +39,7 @@ pub struct ObjectListQuery {
     pub bucket: String,
     pub prefix: String,
     pub delimiter: String,
+    pub match_glob: Option<crate::match_glob::Glob>,
     pub start_offset: String,
     pub end_offset: String,
     pub include_trailing_delimiter: bool,
@@ -441,9 +442,9 @@ impl Catalog {
         }
         let access = access.clone();
         self.run_object(move |connection| {
-            let transaction = connection.transaction().map_err(object_unavailable)?;
-            authorized_bucket(&transaction, &query.bucket, &access)?;
-            list_page(&transaction, &query, limit)
+            // The catalog worker serializes mutations; each seek ends before glob matching.
+            authorized_bucket(connection, &query.bucket, &access)?;
+            list_page(connection, &query, limit)
         })
         .await
     }
@@ -1322,20 +1323,27 @@ pub(super) fn list_page(
                         && (!query.versions || trailing_prefix)
                 })
         });
-        if page.items.len() + page.prefixes.len() == limit {
-            page.next = cursor;
-            break;
-        }
         let name = if is_prefix {
             group.expect("grouped entry").to_owned()
         } else {
             record.name.clone()
         };
+        let matches = query
+            .match_glob
+            .as_ref()
+            .is_none_or(|glob| glob.matches(&name));
+        if matches && page.items.len() + page.prefixes.len() == limit {
+            page.next = cursor;
+            break;
+        }
         cursor = Some(ObjectListCursor {
             name: name.clone(),
             is_prefix,
             generation: (query.versions && !is_prefix).then_some(record.generation),
         });
+        if !matches {
+            continue;
+        }
         if is_prefix {
             page.prefixes.push(name);
         } else {

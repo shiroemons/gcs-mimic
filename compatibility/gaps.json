@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-LIST-GLOB-EDGES",
+      "title": "Object listing glob empty inputs and error details",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-OBJECT-019"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects/list"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The official list reference documents glob syntax, a 1024-byte limit and possible empty continuation pages, but does not define empty-pattern normalization, exact malformed-pattern error reasons, literal unmatched closing delimiters, slash membership in character classes or internal scan boundaries. Locally an empty pattern is absent; malformed syntax returns 400 invalidParameter with corrective guidance; unmatched closing delimiters are invalid; classes exclude slash. Scan until a matching page is full or exhausted, retaining bounded page memory and indexed seeks. These choices are not real-service differential evidence.",
+      "required_resolution": "Obtain authoritative clarification or opted-in provider evidence before claiming exact empty-input, syntax-error or scan-boundary parity; retain the scoped contract in docs/en/slices/sdk-list-glob.md."
+    },
+    {
       "id": "SPEC-RUBY-DEFAULTS",
       "title": "Ruby no-op defaults and legacy JSON null acceptance",
       "status": "OPEN",

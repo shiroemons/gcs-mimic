@@ -52,7 +52,7 @@ pub fn decode_page_token(token: &str, project: &str, prefix: &str) -> Result<Str
 }
 
 fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> String {
-    let payload = serde_json::json!([
+    let mut payload = serde_json::json!([
         query.bucket,
         query.prefix,
         query.delimiter,
@@ -61,8 +61,14 @@ fn object_scope(query: &ObjectListQuery, projection: super::Projection) -> Strin
         query.include_trailing_delimiter,
         projection == super::Projection::Full,
         query.versions
-    ])
-    .to_string();
+    ]);
+    if let Some(glob) = &query.match_glob {
+        payload
+            .as_array_mut()
+            .expect("scope array")
+            .push(glob.pattern().into());
+    }
+    let payload = payload.to_string();
     format!("{:016x}", checksum(payload.as_bytes()))
 }
 

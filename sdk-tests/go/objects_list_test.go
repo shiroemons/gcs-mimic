@@ -85,6 +85,10 @@ func TestObjectList(t *testing.T) {
 		query           storage.Query
 		items, prefixes []string
 	}{
+		{"MatchGlob", storage.Query{MatchGlob: "**/{a,file}"}, []string{"a", "dir/a", "dir/sub/file", "雪/a"}, nil},
+		{"GlobPrefix", storage.Query{Prefix: "dir/", MatchGlob: "**/{a,file}"}, []string{"dir/a", "dir/sub/file"}, nil},
+		{"GlobPrefixes", storage.Query{Delimiter: "/", MatchGlob: "**/"}, nil, []string{"dir/", "雪/"}},
+		{"GlobItems", storage.Query{Delimiter: "/", MatchGlob: "[ab]"}, []string{"a", "b"}, nil},
 		{"Prefix", storage.Query{Prefix: "dir/"}, []string{"dir/", "dir/a", "dir/sub/", "dir/sub/file"}, nil},
 		{"Delimiter", storage.Query{Delimiter: "/"}, []string{"a", "b", "x::", "x::one", "z"}, []string{"dir/", "雪/"}},
 		{"TrailingDelimiter", storage.Query{Delimiter: "/", IncludeTrailingDelimiter: true}, []string{"a", "b", "dir/", "x::", "x::one", "z"}, []string{"dir/", "雪/"}},
