@@ -325,7 +325,7 @@ fn unsupported_legacy_profile() {
             .request(
                 "POST",
                 "/storage/v1/b?project=local",
-                r#"{"name":"unsupported-bucket","retentionPolicy":{"retentionPeriod":"3600"}}"#,
+                r#"{"name":"unsupported-bucket","objectRetention":{"mode":"Enabled"}}"#,
             )
             .error(400, "badRequest");
         server
@@ -1326,7 +1326,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "ipFilter",
             "logging",
             "objectRetention",
-            "retentionPolicy",
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
@@ -1408,7 +1407,7 @@ fn bucket_put_conditions_and_query_contract() {
                 },
             );
         server
-            .request("PUT", &conditioned, r#"{"retentionPolicy":{}}"#)
+            .request("PUT", &conditioned, r#"{"objectRetention":{}}"#)
             .error(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
         let registry = dir.0.join("identities.json");
@@ -2546,7 +2545,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "ipFilter",
             "logging",
             "objectRetention",
-            "retentionPolicy",
             "rpo",
             "satisfiesPZI",
             "satisfiesPZS",
@@ -2606,7 +2604,7 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
         );
         for settings in [
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":"true"}}}),
-            json!({"retentionPolicy":{"retentionPeriod":"86400"}}),
+            json!({"objectRetention":{"mode":"Enabled"}}),
             json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}),
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"defaultObjectAcl":[{"entity":"allUsers","role":"READER"}]}),
@@ -2887,7 +2885,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            24
+            25
         );
     }
 }

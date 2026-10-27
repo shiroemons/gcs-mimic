@@ -1379,7 +1379,9 @@ async fn bucket_response(
         BucketRequest::Get { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_GET, bucket).await?
         }
-        BucketRequest::Patch { bucket, .. } | BucketRequest::Update { bucket, .. } => {
+        BucketRequest::Patch { bucket, .. }
+        | BucketRequest::Update { bucket, .. }
+        | BucketRequest::LockRetentionPolicy { bucket, .. } => {
             authorize_bucket(state, caller, auth::BUCKETS_UPDATE, bucket).await?
         }
         BucketRequest::Delete { bucket, .. } => {
@@ -1406,6 +1408,7 @@ async fn bucket_response(
             | BucketRequest::SetIam { .. }
             | BucketRequest::Patch { .. }
             | BucketRequest::Update { .. }
+            | BucketRequest::LockRetentionPolicy { .. }
     ) && (request.headers().contains_key("transfer-encoding")
         || request
             .headers()
@@ -1431,6 +1434,56 @@ async fn bucket_response(
     let replace = matches!(operation, BucketRequest::Update { .. });
     let acl_query = request.uri().query().map(str::to_owned);
     let mut value = match operation {
+        BucketRequest::LockRetentionPolicy {
+            bucket,
+            metageneration,
+        } => {
+            // The Ruby generated client repeats query parameters as form data on bodyless POSTs.
+            let form = request
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| {
+                    value.split(';').next() == Some("application/x-www-form-urlencoded")
+                });
+            let body = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
+            if !body.is_empty() {
+                let params = if form {
+                    std::str::from_utf8(&body)
+                        .ok()
+                        .and_then(|body| json::parse_query(body).ok())
+                } else {
+                    None
+                };
+                if params.as_ref().is_none_or(|params| {
+                    params.len() != 1
+                        || params.get("ifMetagenerationMatch") != Some(&metageneration.to_string())
+                }) {
+                    return Err(JsonError::invalid_argument(
+                        "Use an empty lock body, or form-encoded ifMetagenerationMatch matching the query, for example ifMetagenerationMatch=1",
+                    ));
+                }
+            }
+            let record = state
+                .catalog
+                .patch_bucket(
+                    &bucket,
+                    crate::bucket::BucketMetadataUpdate {
+                        lock_retention_policy: true,
+                        ..Default::default()
+                    },
+                    Some(metageneration),
+                    None,
+                    &access,
+                )
+                .await?;
+            json::bucket_resource_with_profile(
+                &record,
+                &state.api_base_url,
+                json::Projection::NoAcl,
+                profile,
+            )?
+        }
         BucketRequest::TestIam {
             bucket,
             permissions,

@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-RETENTION-POLICY",
+      "title": "Bucket retention null defaults and edge error details",
+      "status": "OPEN",
+      "affected_features": ["JSON-BUCKETS-007", "BEHAVIOR-OBJECT-036", "JSON-BUCKETS-005", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets", "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/lockRetentionPolicy", "https://docs.cloud.google.com/storage/docs/bucket-lock", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc establishes creation-based retention and required metageneration. Its generic PERMISSION_DENIED for locked policy removal/shortening conflicts with the specific Bucket Lock guide and JSON status-codes reference, which document 400 badRequestException; the JSON adapter follows those specific HTTP sources and returns actionable locked-policy guidance, separately from IAM 403 forbidden. Null and empty normalization are unspecified: locally insert null/empty means absent and PATCH null/empty removes an unlocked policy. Output-only effectiveTime/isLocked never grant a lock. Exact absent/already-locked errors require provider verification. Ruby Storage 1.62.1 / google-apis-core 1.4.0 repeats the metageneration URL query in a form POST body; locally only an identical single field is accepted. Current limitation: releasing an event-based hold does not restart the retention age; expiration stays based on object creation.",
+      "required_resolution": "Verify null/empty and absent/already-locked error details against authoritative clarification or authorized cloud observations. Reconcile Discovery's generic PERMISSION_DENIED with the explicit JSON HTTP 400 badRequestException contract without reverting to an IAM error. Keep initialization policies, XML policy APIs, object retention and lifecycle/soft-delete interactions PENDING. Implement event-hold release restarting retention age separately; the current implementation does not restart it. Never test real-bucket retention locking incidentally. See docs/en/slices/sdk-retention-policy.md."
+    },
+    {
       "id": "SPEC-LIFECYCLE-CONFIG",
       "title": "Lifecycle configuration without action execution",
       "status": "OPEN",
@@ -498,7 +509,7 @@
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "HTTP tests verify inherited holds on media/multipart/resumable publication, explicit false overrides, rejected protected mutations and selected-generation release. Local PUT omission preserves a hold, null is invalid, false is omitted from object resources, configuration effects are immediate and exact provider error messages/combined failure precedence are unverified. The pinned Go high-level bucket Create serializer omits DefaultEventBasedHold; SDK coverage creates that setting using official JSON Buckets.Insert then uses high-level Writer/Attrs/Update/Delete.",
-      "required_resolution": "Reconcile event-hold null/omitted PUT handling, false representation, propagation and exact error precedence through authoritative clarification or authorized provider observations. Temporary hold set/release/protection is now covered by docs/en/slices/sdk-object-holds-customtime.md; retention interactions remain pending."
+      "required_resolution": "Reconcile event-hold null/omitted PUT handling, false representation, propagation and exact error precedence through authoritative clarification or authorized provider observations. Temporary hold set/release/protection is covered by docs/en/slices/sdk-object-holds-customtime.md. Independent hold and bucket-retention blocking is now covered by docs/en/slices/sdk-retention-policy.md; event-hold release resetting retention age remains pending."
     },
     {
       "id": "SPEC-RSM-DISCOVERY-PATH",

@@ -107,6 +107,7 @@ pub struct BucketRecord {
     pub labels: BTreeMap<String, String>,
     pub cors: Vec<CorsRule>,
     pub lifecycle: Vec<serde_json::Value>,
+    pub retention_policy: Option<RetentionPolicy>,
     pub versioning_enabled: bool,
     pub default_event_based_hold: bool,
     pub public_access_prevention_enforced: bool,
@@ -121,6 +122,8 @@ pub struct BucketRecord {
 pub struct BucketMetadataUpdate {
     pub cors: Option<Vec<CorsRule>>,
     pub lifecycle: Option<Vec<serde_json::Value>>,
+    pub retention_period: Option<Option<u64>>,
+    pub lock_retention_policy: bool,
     pub labels: Option<Option<BTreeMap<String, Option<String>>>>,
     pub storage_class: Option<String>,
     pub versioning_enabled: Option<bool>,
@@ -128,6 +131,13 @@ pub struct BucketMetadataUpdate {
     pub public_access_prevention_enforced: Option<bool>,
     pub uniform_bucket_level_access_enabled: Option<bool>,
     pub location: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RetentionPolicy {
+    pub retention_period: u64,
+    pub effective_time: SystemTime,
+    pub is_locked: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -287,6 +297,8 @@ pub enum CatalogError {
     PublicAccessPrevention,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
+    RetentionPolicyLocked(u64),
+    RetentionPolicyNotSet,
     InvalidMetadata(String),
     UnsupportedMetadata(String),
     Io(std::io::ErrorKind),
@@ -305,6 +317,12 @@ impl fmt::Display for CatalogError {
                 formatter.write_str("public access prevention is enforced")
             }
             Self::Forbidden => formatter.write_str("forbidden"),
+            Self::RetentionPolicyLocked(period) => write!(
+                formatter,
+                "Bucket retention policy is locked and cannot be removed or shortened; keep retentionPeriod at least {period} seconds or extend it, for example {{\"retentionPolicy\":{{\"retentionPeriod\":\"{}\"}}}}",
+                period.saturating_add(1).min(3_155_759_999)
+            ),
+            Self::RetentionPolicyNotSet => formatter.write_str("No retention policy to lock; set retentionPolicy.retentionPeriod first, for example 3600"),
             Self::Io(kind) => write!(formatter, "catalog I/O: {kind}"),
             Self::Corrupt(reason) => write!(formatter, "catalog corrupt: {reason}"),
             Self::InvalidMetadata(reason) | Self::UnsupportedMetadata(reason) => {

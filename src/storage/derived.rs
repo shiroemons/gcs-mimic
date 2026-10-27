@@ -280,6 +280,7 @@ impl Catalog {
         generation: i64,
         conditions: ObjectConditions,
         access: &BucketAccess,
+        now: std::time::SystemTime,
     ) -> Result<(), ObjectError> {
         let (object, id) = objects::selected(
             connection,
@@ -290,9 +291,7 @@ impl Catalog {
             false,
             access,
         )?;
-        if object.has_hold() {
-            return Err(ObjectError::ActiveHold);
-        }
+        object.check_retention(now)?;
         connection
             .execute("DELETE FROM objects WHERE blob_id = ?1", [&id])
             .map_err(unavailable)?;
@@ -690,7 +689,7 @@ impl Catalog {
                 let (default_class, allow_overwrite) = objects::authorized_bucket(&transaction, &destination.bucket, &destination.access)?;
                 let (versioning, default_hold) = Catalog::bucket_settings_in_transaction(&transaction, &destination.bucket).map_err(unavailable)?;
                 let previous = objects::lookup(&transaction, &destination.bucket, &destination.name)?;
-                objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite)?;
+                objects::check_publication(previous.as_ref(), destination.conditions, allow_overwrite, clock.now())?;
                 if destination.expected.md5.is_some_and(|hash| hash != md5) || destination.expected.crc32c.is_some_and(|hash| hash != crc32c) { return Err(ObjectError::ChecksumMismatch); }
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH).map_err(unavailable)?;
@@ -706,7 +705,7 @@ impl Catalog {
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
                     time_deleted: None, event_based_hold: default_hold,
-                    temporary_hold: false, custom_time: None,
+                    temporary_hold: false, custom_time: None, retention_expiration_time: None,
                 };
                 destination.metadata.apply(&mut record)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;
@@ -1003,6 +1002,7 @@ mod tests {
                 public_access_prevention_enforced: false,
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
+                retention_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -1232,6 +1232,7 @@ mod tests {
                     generation,
                     Default::default(),
                     &BucketAccess::Permissive,
+                    std::time::SystemTime::now(),
                 )?;
                 Err(ObjectError::PreconditionFailed)
             })
@@ -1277,6 +1278,7 @@ mod tests {
                     generation,
                     Default::default(),
                     &BucketAccess::Permissive,
+                    std::time::SystemTime::now(),
                 )
             })
             .await;
@@ -1859,6 +1861,7 @@ mod tests {
                     original.generation,
                     Default::default(),
                     &BucketAccess::Permissive,
+                    std::time::SystemTime::now(),
                 )
             })
             .await
@@ -1903,6 +1906,7 @@ mod tests {
                     original.generation,
                     Default::default(),
                     &BucketAccess::Permissive,
+                    std::time::SystemTime::now(),
                 )?;
                 fs::remove_file(&failed_blob).map_err(unavailable)?;
                 fs::create_dir(&failed_blob).map_err(unavailable)?;

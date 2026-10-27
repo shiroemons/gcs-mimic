@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 276 | 0 | 21 | 1 | 0 | 0 |
-| behavior | 201 | 123 | 0 | 40 | 38 | 0 | 0 |
+| api_operation | 298 | 275 | 0 | 22 | 1 | 0 | 0 |
+| behavior | 201 | 122 | 0 | 41 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 276 | 6 | 16 | 0 | 0 | 0 |
-| behavior | 123 | 44 | 31 | 3 | 0 | 0 |
+| api_operation | 275 | 7 | 16 | 0 | 0 | 0 |
+| behavior | 122 | 45 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -98,7 +98,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-004 | buckets.getStorageLayout | NOT_STARTED | P5 | EXACT | NONE | 0 |
 | JSON-BUCKETS-005 | buckets.insert | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 5 |
 | JSON-BUCKETS-006 | buckets.list | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 2 |
-| JSON-BUCKETS-007 | buckets.lockRetentionPolicy | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| JSON-BUCKETS-007 | buckets.lockRetentionPolicy | PARTIAL | P4 | EXACT | EXACT | 2 |
 | JSON-BUCKETS-008 | buckets.patch | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
@@ -717,7 +717,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-OBJECT-033 | Bulk restore filtering and counters | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-034 | Object retention configuration | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-035 | Temporary and event-based holds | PARTIAL | P4 | EXACT | LOCAL_SIMULATION | 3 |
-| BEHAVIOR-OBJECT-036 | Bucket retention enforcement | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-OBJECT-036 | Bucket retention enforcement | PARTIAL | P4 | EXACT | EXACT | 2 |
 | BEHAVIOR-OBJECT-037 | Customer-supplied encryption key checks | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | BEHAVIOR-OBJECT-038 | Customer-managed encryption simulation | NOT_STARTED | P7 | LOCAL_SIMULATION | NONE | 0 |
 

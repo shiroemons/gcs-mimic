@@ -24,7 +24,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "ipFilter",
     "logging",
     "objectRetention",
-    "retentionPolicy",
     "rpo",
     "satisfiesPZI",
     "satisfiesPZS",
@@ -238,6 +237,13 @@ pub fn parse_insert_with_profile(
     }
     timestamp(now)?;
     Ok(BucketRecord {
+        retention_policy: parse_retention_period(body.get("retentionPolicy"))?
+            .flatten()
+            .map(|retention_period| crate::bucket::RetentionPolicy {
+                retention_period,
+                effective_time: now,
+                is_locked: false,
+            }),
         name,
         project: project.to_owned(),
         location: location.to_owned(),
@@ -410,6 +416,8 @@ fn parse_bucket_update(
         location = None;
     }
     Ok(BucketMetadataUpdate {
+        retention_period: parse_retention_period(body.get("retentionPolicy"))?,
+        lock_retention_policy: false,
         cors: parse_cors(body.get("cors"))?,
         lifecycle: body
             .get("lifecycle")
@@ -428,6 +436,25 @@ fn parse_bucket_update(
         )?,
         uniform_bucket_level_access_enabled: parse_uniform_access(body.get("iamConfiguration"))?,
     })
+}
+
+fn parse_retention_period(value: Option<&Value>) -> Result<Option<Option<u64>>, JsonError> {
+    let Some(value) = value else { return Ok(None) };
+    if value.is_null() || value == &json!({}) {
+        return Ok(Some(None));
+    }
+    let policy = value.as_object().ok_or_else(|| {
+        JsonError::invalid_argument(
+            "retentionPolicy must be an object or null; use {\"retentionPeriod\":\"3600\"}",
+        )
+    })?;
+    let Some(period) = policy.get("retentionPeriod").filter(|v| !v.is_null()) else {
+        return Ok(Some(None));
+    };
+    let period = period.as_u64().or_else(|| period.as_str().and_then(|v| v.parse().ok()))
+        .filter(|v| (1..3_155_760_000).contains(v))
+        .ok_or_else(|| JsonError::invalid_argument("retentionPeriod must be integral seconds greater than 0 and less than 3155760000; use \"3600\""))?;
+    Ok(Some(Some(period)))
 }
 
 fn parse_uniform_access(value: Option<&Value>) -> Result<Option<bool>, JsonError> {
@@ -566,6 +593,9 @@ pub fn bucket_resource_with_profile(
     }
     if bucket.versioning_enabled || profile == CompatProfile::LegacyEmulator {
         value["versioning"] = json!({"enabled": bucket.versioning_enabled});
+    }
+    if let Some(policy) = &bucket.retention_policy {
+        value["retentionPolicy"] = json!({"retentionPeriod":policy.retention_period.to_string(), "effectiveTime":timestamp(policy.effective_time)?, "isLocked":policy.is_locked});
     }
     if bucket.default_event_based_hold || profile == CompatProfile::LegacyEmulator {
         value["defaultEventBasedHold"] = bucket.default_event_based_hold.into();

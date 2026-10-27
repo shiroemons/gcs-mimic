@@ -168,6 +168,14 @@ impl From<CatalogError> for JsonError {
                 "Precondition failed",
             ),
             CatalogError::Forbidden => Self::forbidden(),
+            error @ CatalogError::RetentionPolicyLocked(_) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "badRequestException",
+                error.to_string(),
+            ),
+            error @ CatalogError::RetentionPolicyNotSet => {
+                Self::new(StatusCode::BAD_REQUEST, "badRequest", error.to_string())
+            }
             CatalogError::PublicAccessPrevention => Self::new(
                 StatusCode::PRECONDITION_FAILED,
                 "conditionNotMet",
@@ -247,6 +255,11 @@ impl From<ObjectError> for JsonError {
                 StatusCode::FORBIDDEN,
                 "objectUnderActiveHold",
                 "Object replacement or deletion is not allowed due to an active hold on the object.",
+            ),
+            ObjectError::RetentionPolicyNotMet => Self::new(
+                StatusCode::FORBIDDEN,
+                "retentionPolicyNotMet",
+                "Object retention period has not elapsed; wait until retentionExpirationTime or remove an unlocked bucket retention policy.",
             ),
             ObjectError::ChecksumMismatch => Self::new(
                 StatusCode::BAD_REQUEST,

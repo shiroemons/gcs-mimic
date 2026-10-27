@@ -1,5 +1,12 @@
 # Official Ruby SDK HTTP and HTTPS test
 
+The retention journey uses ordinary `retention_period=` and
+`lock_retention_policy!`, verifies retained-delete denial, removes the unlocked
+policy for cleanup, then locks an empty emulator bucket. The generated client
+repeats metageneration as form data on POST; the adapter accepts only a matching
+value. Expiry uses injected-clock wire tests, without sleeping. See the
+[retention contract](../../docs/en/slices/sdk-retention-policy.md).
+
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This scoped local HTTP/HTTPS journey pins Ruby 4.0.9, Bundler 4.0.23 and

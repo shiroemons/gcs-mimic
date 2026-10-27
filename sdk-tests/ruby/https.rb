@@ -136,7 +136,6 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       api.request_options.retries = 3
       {
         "autoclass" => -> { storage.create_bucket("sdk-ruby-unsupported-#{SecureRandom.hex(8)}", autoclass_enabled: true) },
-        "retentionPolicy" => -> { bucket.retention_period = 3600 },
         "softDeleted" => -> { bucket.files(soft_deleted: true) },
         "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
         "bucket ACL" => -> { bucket.acl.reload! },
@@ -145,8 +144,7 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
         "notifications" => -> { bucket.notifications },
         "HMAC keys" => -> { storage.hmac_keys.to_a },
         "serviceAccount" => -> { storage.service_account_email },
-        "restore" => -> { bucket.restore_file("missing", 1) },
-        "lockRetentionPolicy" => -> { bucket.lock_retention_policy! }
+        "restore" => -> { bucket.restore_file("missing", 1) }
       }.each do |name, call|
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         begin
@@ -440,6 +438,39 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   ensure
     bucket&.files&.each(&:delete)
     bucket&.delete
+  end
+end
+
+# Retention locks are tested only on an empty emulator bucket.
+if ARGV.empty? || ARGV == ["--retention-policy"]
+  retention_bucket = storage.create_bucket("ruby-retention-#{SecureRandom.hex(6)}")
+  begin
+    retention_bucket.retention_period = 3600
+    retention_bucket.reload!
+    raise "retention period differs" unless retention_bucket.retention_period == 3600
+    retained = retention_bucket.create_file(StringIO.new("retained bytes"), "retained")
+    begin
+      retained.delete
+      raise "retained deletion succeeded"
+    rescue Google::Cloud::PermissionDeniedError
+      # The policy must be removed before cleaning up this object.
+    end
+    retention_bucket.retention_period = nil
+    retained.delete
+    retention_bucket.retention_period = 7200
+    retention_bucket.lock_retention_policy!
+    retention_bucket.reload!
+    raise "retention policy is not locked" unless retention_bucket.retention_policy_locked?
+    begin
+      retention_bucket.retention_period = 3600
+      raise "locked retention shortening succeeded"
+    rescue Google::Cloud::InvalidArgumentError => error
+      raise "locked policy error lacks guidance" unless error.message.include?("badRequestException") &&
+                                                        error.message.include?("locked") && error.message.include?("extend")
+    end
+    puts "ruby-bucket-retention-policy passed"
+  ensure
+    retention_bucket.delete
   end
 end
 

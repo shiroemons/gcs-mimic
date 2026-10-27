@@ -1,5 +1,11 @@
 # Official Go SDK tests
 
+`TestBucketRetentionPolicy` uses ordinary BucketAttrs, Update, Attrs and
+LockRetentionPolicy with a 30-second context. It verifies expiration metadata,
+retained-delete denial, unlocked clearing and locked shortening denial. It locks
+only an empty emulator bucket; clock advancement is covered by Rust wire tests.
+See the [retention contract](../../docs/en/slices/sdk-retention-policy.md).
+
 <!-- markdownlint-configure-file {"MD013": false} -->
 
 This module pins Go 1.27.3, `cloud.google.com/go/storage` v1.70.0 and

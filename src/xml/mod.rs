@@ -131,6 +131,9 @@ impl From<JsonError> for Error {
         let code = match error.status {
             StatusCode::UNAUTHORIZED if error.reason == "required" => "AuthenticationRequired",
             StatusCode::UNAUTHORIZED => "InvalidAuthentication",
+            StatusCode::FORBIDDEN if error.reason == "retentionPolicyNotMet" => {
+                "RetentionPolicyNotMet"
+            }
             StatusCode::FORBIDDEN => "AccessDenied",
             StatusCode::NOT_FOUND if error.message == "Bucket not found" => "NoSuchBucket",
             StatusCode::NOT_FOUND => "NoSuchKey",

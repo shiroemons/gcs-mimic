@@ -660,6 +660,9 @@ pub fn object_resource(
     if object.temporary_hold {
         value["temporaryHold"] = json!(true);
     }
+    if let Some(time) = object.retention_expiration_time {
+        value["retentionExpirationTime"] = json!(timestamp(time)?);
+    }
     if let Some(time) = &object.custom_time {
         value["customTime"] = json!(time);
     }

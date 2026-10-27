@@ -25,7 +25,8 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
-    time_deleted, event_based_hold, component_count, temporary_hold, custom_time";
+    time_deleted, event_based_hold, component_count, temporary_hold, custom_time,
+    time_created + (SELECT json_extract(retention_policy, '$.retention_period') * 1000000 FROM buckets WHERE buckets.name = objects.bucket)";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -509,12 +510,13 @@ impl Catalog {
         let bucket = bucket.to_owned();
         let name = name.to_owned();
         let access = access.clone();
+        let clock = self.0.clock.clone();
         self.run_waiting(move |connection| {
             Ok((|| {
                 let transaction = connection.transaction().map_err(object_unavailable)?;
                 let (_, allow_overwrite) = authorized_bucket(&transaction, &bucket, &access)?;
                 let previous = lookup(&transaction, &bucket, &name)?;
-                check_publication(previous.as_ref(), conditions, allow_overwrite)
+                check_publication(previous.as_ref(), conditions, allow_overwrite, clock.now())
             })())
         })
         .await
@@ -698,7 +700,12 @@ impl Catalog {
                                 .map_err(object_unavailable)?;
                         let previous = lookup(&transaction, &bucket, &name)?;
                         // Rechecked under the write lock so a concurrent create cannot be overwritten.
-                        check_publication(previous.as_ref(), conditions, allow_overwrite)?;
+                        check_publication(
+                            previous.as_ref(),
+                            conditions,
+                            allow_overwrite,
+                            clock.now(),
+                        )?;
                         if skip_same(mode, previous.as_ref(), size, md5, crc32c) {
                             return previous
                                 .map(|(record, _)| record)
@@ -744,6 +751,7 @@ impl Catalog {
                                     event_based_hold: default_hold,
                                     temporary_hold: false,
                                     custom_time: None,
+                                    retention_expiration_time: None,
                                 };
                                 metadata.apply(&mut record)?;
                                 inherit_metadata(mode, previous.as_ref(), &mut record);
@@ -1098,9 +1106,7 @@ pub(super) fn delete_selected(
         false,
         access,
     )?;
-    if record.has_hold() {
-        return Err(ObjectError::ActiveHold);
-    }
+    record.check_retention(clock.now())?;
     if let Some(binding) = sync_binding {
         super::sync_state::delete_in_transaction(&transaction, binding, &record)?;
     }
@@ -1444,13 +1450,14 @@ pub(super) fn check_publication(
     previous: Option<&(ObjectRecord, String)>,
     conditions: ObjectConditions,
     allow_overwrite: bool,
+    now: std::time::SystemTime,
 ) -> Result<(), ObjectError> {
     check_conditions(previous.map(|(record, _)| record), conditions, false)?;
     if previous.is_some() && !allow_overwrite {
         return Err(ObjectError::OverwriteForbidden);
     }
-    if previous.is_some_and(|(record, _)| record.has_hold()) {
-        return Err(ObjectError::ActiveHold);
+    if let Some((record, _)) = previous {
+        record.check_retention(now)?;
     }
     Ok(())
 }
@@ -1532,7 +1539,16 @@ pub(super) fn publish_in_transaction<T>(
         ),
         GenerationAssignment::Imported(generation) => generation.get(),
     };
-    let (record, prepared) = prepare(generation)?;
+    let (mut record, prepared) = prepare(generation)?;
+    let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name = ?1", [&record.bucket], |row| row.get(0)).map_err(object_unavailable)?;
+    record.retention_expiration_time = period
+        .map(|period| {
+            record
+                .time_created
+                .checked_add(std::time::Duration::from_secs(period as u64))
+                .ok_or(ObjectError::InvalidMetadata)
+        })
+        .transpose()?;
     if matches!(assignment, GenerationAssignment::Imported(_)) {
         let exists: bool = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM objects WHERE bucket = ?1 AND name = ?2 AND generation = ?3)",
@@ -1775,6 +1791,10 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
             event_based_hold: row.get(18)?,
             temporary_hold: row.get(20)?,
             custom_time: row.get(21)?,
+            retention_expiration_time: row
+                .get::<_, Option<i64>>(22)?
+                .map(system_time_micros)
+                .transpose()?,
         },
         row.get(11)?,
     ))
@@ -1895,6 +1915,12 @@ mod tests {
     #[test]
     fn object_list_seeks_past_large_prefixes_with_bounded_sql_work() {
         let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(super::super::BUCKET_SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::BUCKET_RETENTION_SCHEMA)
+            .unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects SELECT 'bucket', printf('a/%05d', n), n, 1, 'text/plain', 0, zeroblob(16), 0, 'STANDARD', 0, 0, printf('%032x', n) FROM entries;
@@ -1955,6 +1981,12 @@ mod tests {
     #[test]
     fn object_list_skips_noncurrent_rows_with_bounded_sql_work() {
         let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(super::super::BUCKET_SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::BUCKET_RETENTION_SCHEMA)
+            .unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection.execute_batch(METADATA_SCHEMA).unwrap();
         connection.execute_batch(VERSIONING_SCHEMA).unwrap();
@@ -2149,6 +2181,7 @@ mod tests {
                     public_access_prevention_enforced: false,
                     uniform_bucket_level_access_locked_time: None,
                     lifecycle: Vec::new(),
+                    retention_policy: None,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,
@@ -2226,6 +2259,7 @@ mod tests {
                 public_access_prevention_enforced: false,
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
+                retention_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,
@@ -2379,6 +2413,7 @@ mod tests {
                 public_access_prevention_enforced: false,
                 uniform_bucket_level_access_locked_time: None,
                 lifecycle: Vec::new(),
+                retention_policy: None,
                 cors: Vec::new(),
                 metageneration: 1,
                 time_created: UNIX_EPOCH,

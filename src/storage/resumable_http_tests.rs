@@ -1,4 +1,6 @@
 use super::catalog::replace_resumable_cleanup_obstacle;
+#[path = "retention_http_tests.rs"]
+mod retention;
 use crate as gcs_mimic;
 use crate::test_support::TestDir;
 use gcs_mimic::storage::admin::{BucketDefinition, BucketName, ObjectName, Origin};
@@ -94,6 +96,7 @@ impl Harness {
                     public_access_prevention_enforced: false,
                     uniform_bucket_level_access_locked_time: None,
                     lifecycle: Vec::new(),
+                    retention_policy: None,
                     cors: Vec::new(),
                     metageneration: 1,
                     time_created: UNIX_EPOCH,

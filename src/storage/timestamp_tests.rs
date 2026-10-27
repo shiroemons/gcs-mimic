@@ -151,6 +151,7 @@ fn timestamp_fixture_downgrade_floors_signed_values_and_deletion_times() {
         .execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA)
         .unwrap();
     connection.execute_batch(BUCKET_LIFECYCLE_SCHEMA).unwrap();
+    connection.execute_batch(BUCKET_RETENTION_SCHEMA).unwrap();
     super::test_support::downgrade_timestamp_precision(&connection);
     assert_eq!(
         timestamp_rows(&connection),

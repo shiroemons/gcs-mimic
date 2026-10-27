@@ -734,6 +734,7 @@ fn publish_entry(
             .map(GenerationCondition::conditions)
             .unwrap_or_default(),
         overwrite,
+        clock.now(),
     )?;
     let staged = &entry.staged;
     if staged.import_identity.is_some()
@@ -803,6 +804,7 @@ fn publish_entry(
                 event_based_hold: staged.import_identity.is_none() && default_hold,
                 temporary_hold: false,
                 custom_time: None,
+                retention_expiration_time: None,
             };
             entry.request.metadata.clone().apply(&mut record)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);

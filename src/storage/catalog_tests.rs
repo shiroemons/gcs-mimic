@@ -55,11 +55,34 @@ fn bucket(name: &str, project: &str) -> BucketRecord {
         public_access_prevention_enforced: false,
         uniform_bucket_level_access_locked_time: None,
         lifecycle: Vec::new(),
+        retention_policy: None,
         cors: Vec::new(),
         metageneration: 3,
         time_created: UNIX_EPOCH + Duration::from_millis(42_123),
         updated: UNIX_EPOCH + Duration::from_millis(43_987),
     }
+}
+
+#[tokio::test]
+async fn retention_schema_migration_preserves_existing_buckets() {
+    let dir = TestDir::new();
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    let original = catalog
+        .insert_bucket(bucket("retention-migration", "project"))
+        .await
+        .unwrap();
+    catalog.close().await.unwrap();
+    let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
+    connection
+        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; PRAGMA user_version=24;")
+        .unwrap();
+    drop(connection);
+    let catalog = Catalog::open(&dir.0).await.unwrap();
+    assert_eq!(
+        catalog.get_bucket("retention-migration").await.unwrap(),
+        Some(original)
+    );
+    catalog.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -73,7 +96,7 @@ async fn lifecycle_schema_migration_and_restart() {
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN lifecycle; PRAGMA user_version = 23;")
+        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; PRAGMA user_version = 23;")
         .unwrap();
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -122,7 +145,7 @@ async fn uniform_access_migration_deadline_conditions_and_restart() {
         .unwrap();
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
+    connection.execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; PRAGMA user_version = 22;").unwrap();
     drop(connection);
     let clock = Arc::new(TestClock(AtomicU64::new(1000)));
     let catalog = Catalog::open_with_clock(&dir.0, clock.clone())
@@ -258,7 +281,7 @@ async fn timestamp_version_fourteen_reopen_preserves_timestamps() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     drop(connection);
     let catalog = Catalog::open(&dir.0).await.unwrap();
@@ -306,7 +329,7 @@ async fn pap_migrates_version_twelve_and_persists_configured_state() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     assert!(
         connection
@@ -1106,7 +1129,7 @@ async fn bucket_settings_migrate_supported_catalogs() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            24
+            25
         );
         assert_eq!(
             connection
@@ -1170,7 +1193,7 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
         match fixture {
             "future" => Connection::open(&path)
                 .unwrap()
-                .pragma_update(None, "user_version", 25)
+                .pragma_update(None, "user_version", 26)
                 .unwrap(),
             "unversioned" => {
                 Connection::open(&path)
@@ -1251,8 +1274,8 @@ async fn rejects_future_schema_unversioned_data_and_corruption() {
             );
         }
         if fixture == "future" {
-            assert!(error.to_string().contains("schema version 25"));
-            assert!(error.to_string().contains("supported version is 24"));
+            assert!(error.to_string().contains("schema version 26"));
+            assert!(error.to_string().contains("supported version is 25"));
         }
         if fixture == "unversioned" {
             assert!(error.to_string().contains("not empty"));
@@ -1312,7 +1335,7 @@ async fn policy_migration_visits_every_bucket_in_binary_name_order() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     let policies: Vec<(String, String, i64)> = connection
         .prepare(
@@ -1417,7 +1440,7 @@ async fn failed_policy_migration_rolls_back_and_restarts_from_version_five() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     assert_eq!(
         connection
@@ -1442,15 +1465,15 @@ async fn rejected_checkpointed_wal_catalog_creates_no_sidecars_with_uri_characte
     let path = directory.join("catalog.sqlite3");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 25)
+        .pragma_update(None, "user_version", 26)
         .unwrap();
     let before = fs::read(&path).unwrap();
     for _ in 0..2 {
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
         let error = Catalog::open(&directory).await.err().unwrap().to_string();
-        assert!(error.contains("schema version 25"));
-        assert!(error.contains("supported version is 24"));
+        assert!(error.contains("schema version 26"));
+        assert!(error.contains("supported version is 25"));
         assert_eq!(fs::read(&path).unwrap(), before);
         assert!(!path.with_extension("sqlite3-wal").exists());
         assert!(!path.with_extension("sqlite3-shm").exists());
@@ -1469,7 +1492,7 @@ fn catalog_child_process() {
             .as_str()
         {
             "v2" => "PRAGMA user_version = 2;",
-            "future" => "PRAGMA user_version = 25;",
+            "future" => "PRAGMA user_version = 26;",
             "inventory" => "DROP INDEX buckets_project_name;",
             _ => unreachable!(),
         };

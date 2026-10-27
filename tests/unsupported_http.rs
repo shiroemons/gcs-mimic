@@ -16,6 +16,7 @@ fn unsupported_google_routes_and_inputs() {
         "storage.buckets.getIamPolicy",
         "storage.buckets.insert",
         "storage.buckets.list",
+        "storage.buckets.lockRetentionPolicy",
         "storage.buckets.patch",
         "storage.buckets.setIamPolicy",
         "storage.buckets.testIamPermissions",
@@ -65,8 +66,8 @@ fn unsupported_google_routes_and_inputs() {
     for (path, body, field) in [
         (
             "/storage/v1/b?project=local",
-            json!({"name":"rejected-bucket", "retentionPolicy":{"retentionPeriod":"3600"}}),
-            "retentionPolicy",
+            json!({"name":"rejected-bucket", "objectRetention":{"mode":"Enabled"}}),
+            "objectRetention",
         ),
         (
             "/storage/v1/b?project=local",

@@ -34,11 +34,25 @@ pub struct ObjectRecord {
     pub event_based_hold: bool,
     pub temporary_hold: bool,
     pub custom_time: Option<String>,
+    pub retention_expiration_time: Option<SystemTime>,
 }
 
 impl ObjectRecord {
     pub(crate) fn has_hold(&self) -> bool {
         self.event_based_hold || self.temporary_hold
+    }
+
+    pub(crate) fn check_retention(&self, now: SystemTime) -> Result<(), ObjectError> {
+        if self.has_hold() {
+            return Err(ObjectError::ActiveHold);
+        }
+        if self
+            .retention_expiration_time
+            .is_some_and(|deadline| now < deadline)
+        {
+            return Err(ObjectError::RetentionPolicyNotMet);
+        }
+        Ok(())
     }
 }
 
@@ -233,6 +247,7 @@ pub enum ObjectError {
     /// Publication would replace a live object, but the caller may not delete it.
     OverwriteForbidden,
     ActiveHold,
+    RetentionPolicyNotMet,
     /// The bucket's current owning project is not one the caller was authorized for.
     Forbidden,
     NotModified,
@@ -261,6 +276,9 @@ impl fmt::Display for ObjectError {
             Self::PreconditionFailed => formatter.write_str("precondition failed"),
             Self::OverwriteForbidden => formatter.write_str("overwrite forbidden"),
             Self::ActiveHold => formatter.write_str("object under active hold"),
+            Self::RetentionPolicyNotMet => {
+                formatter.write_str("object retention period has not elapsed")
+            }
             Self::Forbidden => formatter.write_str("forbidden"),
             Self::NotModified => formatter.write_str("not modified"),
             Self::ChecksumMismatch => formatter.write_str("checksum mismatch"),

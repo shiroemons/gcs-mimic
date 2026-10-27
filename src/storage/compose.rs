@@ -43,6 +43,7 @@ impl Catalog {
             }
             let initial = destination.clone();
             let read_access = source_access.clone();
+            let clock = catalog.0.clock.clone();
             let expected_incarnation = catalog
                 .run_object(move |connection| {
                     let transaction = connection.transaction().map_err(unavailable)?;
@@ -54,7 +55,12 @@ impl Catalog {
                         return Err(ObjectError::Forbidden);
                     }
                     let previous = objects::lookup(&transaction, &initial.bucket, &initial.name)?;
-                    objects::check_publication(previous.as_ref(), initial.conditions, overwrite)?;
+                    objects::check_publication(
+                        previous.as_ref(),
+                        initial.conditions,
+                        overwrite,
+                        clock.now(),
+                    )?;
                     incarnation(&transaction, &initial.bucket)
                 })
                 .await?;
@@ -82,8 +88,8 @@ impl Catalog {
                         "Compose sources must use the same storage class".into(),
                     ));
                 }
-                if delete_sources && source.object.has_hold() {
-                    return Err(ObjectError::ActiveHold);
+                if delete_sources {
+                    source.object.check_retention(catalog.0.clock.now())?;
                 }
                 crc = combine(
                     crc,
@@ -110,6 +116,8 @@ impl Catalog {
             let read_access = source_access.clone();
             let checked_bucket = bucket.clone();
             let checked_keys = keys.clone();
+            let check_clock = catalog.0.clock.clone();
+            let delete_clock = check_clock.clone();
             let result = async {
                 catalog
                     .advance_derived(&transfer.id, transfer.total)
@@ -140,9 +148,7 @@ impl Catalog {
                                         ObjectConditions::default(),
                                         &read_access,
                                     )?;
-                                    if source.has_hold() {
-                                        return Err(ObjectError::ActiveHold);
-                                    }
+                                    source.check_retention(check_clock.now())?;
                                 }
                             }
                             Ok(())
@@ -161,6 +167,7 @@ impl Catalog {
                                         generation,
                                         ObjectConditions::default(),
                                         &source_access,
+                                        delete_clock.now(),
                                     )?;
                                 }
                             }

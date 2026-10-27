@@ -53,10 +53,8 @@ impl Catalog {
                 let (_, allow_overwrite) =
                     authorized_bucket(&transaction, &bucket, &destination_create)?;
                 let previous = lookup(&transaction, &bucket, &destination)?;
-                check_publication(previous.as_ref(), conditions, allow_overwrite)?;
-                if record.has_hold() {
-                    return Err(ObjectError::ActiveHold);
-                }
+                check_publication(previous.as_ref(), conditions, allow_overwrite, clock.now())?;
+                record.check_retention(clock.now())?;
                 if source == destination {
                     return Err(ObjectError::InvalidMetadata);
                 }

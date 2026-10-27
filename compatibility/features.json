@@ -2797,6 +2797,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"RETENTION-METADATA-CONTRIBUTION","description":"Get returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "id": "BUCKET-INIT-INDEPENDENT-SETTINGS",
           "description": "Initialized buckets independently enforce XML CORS allow/deny, version history, default holds and PAP rejection of public grants. Native labels/location/class survive legacy startup and native reopen without claiming legacy rendering parity. Strict/permissive API checks grant no implicit authority. Contract and evidence: docs/en/slices/bucket-initialization.md.",
@@ -3125,6 +3126,7 @@
         }
       ],
       "test_ids": [
+        "retention_configuration_lock_permissions_and_restart",
         "initialized_settings_are_independent_and_api_changes_survive_restart",
         "strict_initialization_grants_no_api_permissions_and_legacy_preserves_native_metadata",
         "TestBucketLifecycle",
@@ -3216,6 +3218,7 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "command": "cargo test --offline --test bucket_initialization",
           "result": "PASS",
@@ -3653,7 +3656,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "GET",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -4240,6 +4243,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"Insert accepts retentionPolicy.retentionPeriod and returns effectiveTime/isLocked; null/empty means absent. Scope and provider edge limits: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-INSERT-STORE","description":"Validated lifecycle metadata round-trips through insert/get/list; configuration only, no execution. Contract and limits: docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","lifecycle_insert_defaults_and_unknown_resource_fields"]},
         {
           "id": "RUBY-DEFAULT-CREATE-BUCKET",
@@ -4502,6 +4506,7 @@
         }
       ],
       "test_ids": [
+        "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
         "lifecycle_insert_defaults_and_unknown_resource_fields",
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
@@ -4570,6 +4575,7 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle; cargo test --lib --locked --offline lifecycle_insert_defaults_and_unknown_resource_fields","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "lifecycle_insert_defaults_and_unknown_resource_fields"]},
         {
           "command": "just check",
@@ -4929,6 +4935,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"RETENTION-METADATA-CONTRIBUTION","description":"List returns persisted retention period, effectiveTime and isLocked; scope and pending interactions: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "id": "buckets-list-without-project-legacy",
           "description": "Legacy omitted-project listing uses seed_project with project filtering; explicit invalid projects fail. Contract: docs/en/slices/migrate-defaults.md.",
@@ -5123,6 +5130,7 @@
         }
       ],
       "test_ids": [
+        "retention_configuration_lock_permissions_and_restart",
         "bkt_http_list_clamps_to_1000_with_lookahead",
         "bucket_list_omitted_project_obeys_profile_and_seed_project",
         "TestMigrationAppScenarioBucketList",
@@ -5169,6 +5177,7 @@
         "pap_migrates_version_twelve_and_persists_configured_state"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart"]},
         {
           "command": "cargo test --workspace --locked",
           "result": "PASS",
@@ -5369,7 +5378,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-25",
+      "last_verified": "2026-10-27",
       "http_method": "GET",
       "path": "b",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -5416,26 +5425,40 @@
       "interface": "storage.buckets.lockRetentionPolicy",
       "phase": "P4",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/bucket-lock",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
         "https://storage.googleapis.com/$discovery/rest?version=v1"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: ifMetagenerationMatch, userProject.",
+      "notes": "Emulator-local retention locking requires metageneration match and storage.buckets.update; locked policy removal/shortening returns 400 badRequestException with a cause and valid extension example, while IAM denial returns 403 forbidden. Extension preserves the lock. JSON insert/PATCH/PUT policy fields and shared retention enforcement are described in docs/en/slices/sdk-retention-policy.md. Provider null/empty, exact message bytes and already-locked error details remain open under SPEC-RETENTION-POLICY; requester billing remains unsupported.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id":"RETENTION-LOCK","description":"Required metageneration, absent policy, locking, locked removal/shortening denial and extension; see sdk-retention-policy contract.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"id":"RETENTION-AUTH","description":"Strict storage.buckets.update authorization for locking.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart"]},
+        {"id":"RETENTION-SDK","description":"Pinned Go and Ruby high-level configuration, retained-delete denial and locking; Ruby passes in permissive and strict profiles.","result":"PASS","test_ids":["TestBucketRetentionPolicy","ruby-bucket-retention-policy"]},
+        {"id":"RETENTION-LOCK-PENDING","description":"Provider verification of null/empty and exact absent/already-locked error details, requester billing and omitted policy APIs; SPEC-RETENTION-POLICY.","result":"PENDING","test_ids":[]}
+      ],
+      "test_ids": ["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","TestBucketRetentionPolicy","ruby-bucket-retention-policy"],
+      "verification": [
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["TestBucketRetentionPolicy","ruby-bucket-retention-policy"]}
+      ],
+      "sdk_evidence": [
+        {"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.309.0","transport":"HTTP JSON; BucketAttrs/Update/Attrs/LockRetentionPolicy","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["TestBucketRetentionPolicy"]},
+        {"language":"Ruby","toolchain":"4.0.9","sdk":"google-cloud-storage","version":"1.62.1","transport":"HTTP JSON; retention_period= and lock_retention_policy! in permissive/strict profiles","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["ruby-bucket-retention-policy"]}
+      ],
+      "known_deviations": ["SPEC-RETENTION-POLICY: local null/empty normalization and absent/already-locked error details require provider verification. Specific JSON HTTP references establish 400 badRequestException for locked-policy removal/shortening despite Discovery's generic PERMISSION_DENIED wording. Ruby repeats the matching metageneration query as form data; only that equivalent body is accepted. Requester billing, initialization and XML policy APIs remain unsupported. Releasing an event-based hold currently does not restart retention age; this interaction remains PENDING."],
+      "implemented_in": "644517a",
+      "last_verified": "2026-10-27",
       "http_method": "POST",
       "path": "b/{bucket}/lockRetentionPolicy",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -5484,6 +5507,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PATCH sets/changes/clears unlocked retention, enforces period range and locked removal/shortening, permits extension; contract: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-PATCH-REPLACE","description":"PATCH replaces the full lifecycle list, advances metageneration once and preserves failed conditioned mutations. Null/empty settings clear configuration. Metadata only; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation","bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
           "id": "BUCKET-INIT-PRESERVE-API-CHANGES",
@@ -5747,6 +5771,8 @@
         }
       ],
       "test_ids": [
+        "retention_configuration_lock_permissions_and_restart",
+        "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
         "bucket_patch_lifecycle_invalid_input_preserves_state",
         "initialized_settings_are_independent_and_api_changes_survive_restart",
@@ -5824,6 +5850,7 @@
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation", "bucket_patch_lifecycle_invalid_input_preserves_state"]},
         {
           "command": "cargo test --offline --test bucket_initialization",
@@ -6165,7 +6192,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "PATCH",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -6928,6 +6955,7 @@
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
       "acceptance_cases": [
+        {"id":"RETENTION-CONFIG-CONTRIBUTION","description":"PUT sets/changes retention and clears omitted unlocked policy; locked removal/shortening fails. Scope: docs/en/slices/sdk-retention-policy.md.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"id":"LIFECYCLE-UPDATE-REPLACE","description":"PUT replaces supplied lifecycle rules and clears omitted configuration. Actions are not executed; docs/en/slices/sdk-lifecycle-config.md.","result":"PASS","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
           "id": "PUT-REPLACEMENT",
@@ -7183,6 +7211,8 @@
         }
       ],
       "test_ids": [
+        "retention_configuration_lock_permissions_and_restart",
+        "retention_insert_patch_put_defaults_and_empty_policy_lock",
         "bucket_lifecycle_rules_round_trip_replace_clear_and_validation",
         "signing::pap::pap_disabled_uniform_access_noop_matches_python_client",
         "TestBucketMetadataReplace",
@@ -7255,6 +7285,7 @@
         "auth::tests::pap_mutations_require_update_and_set_iam_permissions"
       ],
       "verification": [
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
         {"command":"cargo test --test bucket_http --locked --offline lifecycle","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-lifecycle-config.md","test_ids":["bucket_lifecycle_rules_round_trip_replace_clear_and_validation"]},
         {
           "command": "just check",
@@ -7585,7 +7616,7 @@
         "PAP parent policy is LOCAL_SIMULATION. SPEC-PAP-EDGES records legacy/null/omitted-PUT/error/unchanged-value-permission choices and omitted uniformBucketLevelAccess/bucketPolicyOnly response fields. Disabled uniform-access input is a no-op; ACLs, UBLA transitions and organization APIs remain unsupported. See docs/en/slices/public-access-prevention.md."
       ],
       "implemented_in": "6d97e842725b4a479dbeaa6d8285706e1310903d",
-      "last_verified": "2026-10-23",
+      "last_verified": "2026-10-27",
       "http_method": "PUT",
       "path": "b/{bucket}",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -24076,26 +24107,44 @@
       "interface": "cross-cutting behavior",
       "phase": "P4",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes",
         "https://docs.cloud.google.com/storage/docs/bucket-lock",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Lock, period increase rules, deletion/overwrite denial and metageneration preconditions.",
+      "notes": "Creation-based expiration metadata and atomic retention protection cover JSON delete, upload/copy/rewrite/compose destination replacement, move source, compose deleteSourceObjects and XML PUT through shared publication/deletion checks. Injected-clock expiry, both holds, strict settings/locking, restart and schema 24-to-25 migration are covered; docs/en/slices/sdk-retention-policy.md records scope and evidence.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id":"RETENTION-SDK","description":"Pinned Go/Ruby high-level configuration, expiration metadata, retained deletion and emulator-local locking.","result":"PASS","test_ids":["TestBucketRetentionPolicy","ruby-bucket-retention-policy"]},
+        {"id":"RETENTION-CONFIG","description":"Insert/PATCH/PUT configuration, clearing and period validation.","result":"PASS","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock"]},
+        {"id":"RETENTION-METADATA","description":"Creation-based dynamic expiration metadata.","result":"PASS","test_ids":["retention_all_mutation_paths_expire_with_injected_clock"]},
+        {"id":"RETENTION-PROTECT","description":"Atomic JSON deletion and all replacement paths including XML PUT, move source and compose source deletion.","result":"PASS","test_ids":["retention_all_mutation_paths_expire_with_injected_clock"]},
+        {"id":"RETENTION-CLOCK","description":"Injected clock expiry with no sleep.","result":"PASS","test_ids":["retention_all_mutation_paths_expire_with_injected_clock"]},
+        {"id":"RETENTION-HOLDS","description":"Temporary/event holds and retention independently protect objects; event-hold release age reset is separately pending.","result":"PASS","test_ids":["retention_and_both_holds_are_independent"]},
+        {"id":"RETENTION-PERSIST","description":"Schema migration and restart persistence.","result":"PASS","test_ids":["retention_schema_migration_preserves_existing_buckets","retention_configuration_lock_permissions_and_restart"]},
+        {"id":"RETENTION-PENDING","description":"Initialization, XML policy APIs/deletion, object retention, lifecycle/soft-delete interactions, event-hold release age reset and provider null/edge-error verification.","result":"PENDING","test_ids":[]}
+      ],
+      "test_ids": ["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","retention_all_mutation_paths_expire_with_injected_clock","retention_and_both_holds_are_independent","retention_schema_migration_preserves_existing_buckets","TestBucketRetentionPolicy","ruby-bucket-retention-policy"],
+      "verification": [
+        {"command":"RUST_TEST_THREADS=8 just check","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","retention_all_mutation_paths_expire_with_injected_clock","retention_and_both_holds_are_independent","retention_schema_migration_preserves_existing_buckets"]},
+        {"command":"just check-sdk","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["TestBucketRetentionPolicy","ruby-bucket-retention-policy"]},
+        {"command":"cargo test --locked --offline --lib storage::resumable_http_tests::retention","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_configuration_lock_permissions_and_restart","retention_insert_patch_put_defaults_and_empty_policy_lock","retention_all_mutation_paths_expire_with_injected_clock","retention_and_both_holds_are_independent"]},
+        {"command":"cargo test --locked --offline --lib storage::catalog_tests::retention_schema_migration_preserves_existing_buckets","result":"PASS","verified_at":"2026-10-27","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["retention_schema_migration_preserves_existing_buckets"]}
+      ],
+      "sdk_evidence": [
+        {"language":"Go","toolchain":"1.27.3","sdk":"cloud.google.com/go/storage","version":"v1.70.0","api_client_version":"v0.309.0","transport":"HTTP JSON; retained delete and retentionExpirationTime","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["TestBucketRetentionPolicy"]},
+        {"language":"Ruby","toolchain":"4.0.9","sdk":"google-cloud-storage","version":"1.62.1","transport":"HTTP JSON; retained-delete denial in permissive/strict profiles","result":"PASS","verified_at":"2026-10-27","command":"just check-sdk","artifact":"docs/en/slices/sdk-retention-policy.md","test_ids":["ruby-bucket-retention-policy"]}
+      ],
+      "known_deviations": ["SPEC-RETENTION-POLICY retains provider null/empty and absent/already-locked error details. Specific JSON HTTP sources establish 400 badRequestException for locked-policy removal/shortening rather than Discovery's generic PERMISSION_DENIED. Initialization-file policies, XML policy APIs and XML DELETE, object retention and lifecycle/soft-delete interactions remain PENDING. Releasing an event-based hold currently does not restart retention age: expiration stays creation-based; restarting it remains PENDING. Existing XML PUT shares retention enforcement; no XML policy endpoint is implied."],
+      "implemented_in": "644517a",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-037",

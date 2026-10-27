@@ -29,6 +29,13 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 `data/assets/`と`data/exports/`の代わりに、起動前に`buckets.json`を作ります。
 
+| 保持ポリシーの操作 | gcs-mimicでの動作 |
+| --- | --- |
+| Go `BucketAttrs.RetentionPolicy`、Ruby `bucket.retention_period = 3600` | JSON APIで保持設定を保存し、保持中の削除・上書きを403で拒否します。 |
+| Go `LockRetentionPolicy`、Ruby `bucket.lock_retention_policy!` | metageneration条件と更新権限が必要です。ロック後の削除・短縮は400 badRequestExceptionになり、原因と延長例を返します。IAM拒否は403 forbiddenです。実バケットでは試験しません。 |
+
+新しい設定は不要です。[保持ポリシーの対応範囲](sdk-retention-policy.md)を参照してください。
+
 ```json
 {"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}
 ```

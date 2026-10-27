@@ -444,7 +444,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
     let mut connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
         .execute_batch(
-            "ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; ALTER TABLE import_journal DROP COLUMN failure; DROP TABLE sync_objects; DROP TABLE catalog_identity; PRAGMA user_version = 16;",
+            "ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; ALTER TABLE import_journal DROP COLUMN failure; DROP TABLE sync_objects; DROP TABLE catalog_identity; PRAGMA user_version = 16;",
         )
         .unwrap();
     connection
@@ -512,7 +512,7 @@ async fn sync_state_schema_migration_rolls_back_retries_and_preserves_objects() 
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     assert!(super::super::validate_schema_version(17, 16).is_err());
     connection

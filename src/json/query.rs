@@ -41,6 +41,10 @@ pub struct ListParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BucketRequest {
+    LockRetentionPolicy {
+        bucket: String,
+        metageneration: i64,
+    },
     Insert(InsertParams),
     Get {
         bucket: String,
@@ -83,6 +87,46 @@ pub fn route_with_profile(
     seed_project: &str,
 ) -> Option<Result<BucketRequest, JsonError>> {
     const COLLECTION: &str = "/storage/v1/b";
+    if let Some(segment) = uri
+        .path()
+        .strip_prefix("/storage/v1/b/")
+        .and_then(|path| path.strip_suffix("/lockRetentionPolicy"))
+        && !segment.is_empty()
+        && !segment.contains('/')
+    {
+        return Some((|| {
+            if *method != Method::POST {
+                return Err(JsonError::new(
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "methodNotAllowed",
+                    "Use POST to lock a retention policy",
+                ));
+            }
+            let bucket = decode(segment, false)?;
+            validate_bucket_name_for_profile(&bucket, profile)?;
+            let mut query = parse_query(uri.query().unwrap_or_default())?;
+            super::Fields::take(&mut query, "Bucket")?;
+            common(&mut query)?;
+            let metageneration = query
+                .remove("ifMetagenerationMatch")
+                .ok_or_else(|| {
+                    JsonError::new(
+                        StatusCode::BAD_REQUEST,
+                        "required",
+                        "ifMetagenerationMatch is required; read the bucket metageneration first",
+                    )
+                })?
+                .parse::<i64>()
+                .map_err(|_| {
+                    JsonError::invalid_parameter("ifMetagenerationMatch must be an integer")
+                })?;
+            finish(query)?;
+            Ok(BucketRequest::LockRetentionPolicy {
+                bucket,
+                metageneration,
+            })
+        })());
+    }
     if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
         return Some(result);
     }

@@ -290,7 +290,12 @@ impl Catalog {
                     Catalog::bucket_settings_in_transaction(&transaction, &session.bucket)
                         .map_err(unavailable)?;
                 let previous = lookup(&transaction, &session.bucket, &session.name)?;
-                check_publication(previous.as_ref(), options.conditions, allow_overwrite)?;
+                check_publication(
+                    previous.as_ref(),
+                    options.conditions,
+                    allow_overwrite,
+                    clock.now(),
+                )?;
                 let now = clock.now();
                 now.duration_since(std::time::UNIX_EPOCH)
                     .map_err(unavailable)?;
@@ -327,8 +332,12 @@ impl Catalog {
                             event_based_hold: default_hold,
                             temporary_hold: false,
                             custom_time: None,
+                            retention_expiration_time: None,
                         };
                         options.metadata.apply(&mut record)?;
+                        let period: Option<i64> = transaction.query_row("SELECT json_extract(retention_policy, '$.retention_period') FROM buckets WHERE name=?1", [&record.bucket], |row| row.get(0)).map_err(unavailable)?;
+                        record.retention_expiration_time = period
+                            .map(|period| time + std::time::Duration::from_secs(period as u64));
                         let resource = render(&record)?;
                         Ok((record, resource))
                     },

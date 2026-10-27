@@ -66,8 +66,13 @@ required.
 | Go Writer/Update CustomTime; Ruby create_file(custom_time:) / custom_time= | RFC 3339 timestamps persist; equal/later updates succeed. Clearing, backdating or omitting customTime from PUT after setting returns 400 invalidArgument; supply the current/later timestamp, or omit it from PATCH to preserve it. |
 
 The [object holds/custom time contract](slices/sdk-object-holds-customtime.md)
-records null defaults and local error details. Retention and soft delete remain
-pending.
+records null defaults and local error details. Soft delete remains pending.
+
+| Bucket retention call | gcs-mimic behavior |
+| --- | --- |
+| Go `BucketAttrs.RetentionPolicy` / Ruby `bucket.retention_period = 3600` | JSON insert/PATCH/PUT persist a period from 1 to 3,155,759,999 seconds and expose effectiveTime/isLocked. Unlocked policies can be changed or removed; PATCH null clears the policy. Objects expose creation time plus the current period as retentionExpirationTime. |
+| Go `BucketHandle.If(...).LockRetentionPolicy` / Ruby `bucket.lock_retention_policy!` | Requires the current metageneration and storage.buckets.update in strict mode. A locked policy cannot be removed or shortened: 400 badRequestException explains the lock and gives a valid extension example. IAM denial remains 403 forbidden. Test locks only on emulator buckets. |
+| Delete or replace a retained object, including XML PUT, move source and compose source deletion | Returns 403 retentionPolicyNotMet until expiration; holds independently keep blocking deletion/replacement. No new setting is required. See the [retention contract](slices/sdk-retention-policy.md) for unsupported interactions. |
 
 For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 

@@ -71,6 +71,7 @@ async fn setup(dir: &TestDir) -> Catalog {
             public_access_prevention_enforced: false,
             uniform_bucket_level_access_locked_time: None,
             lifecycle: Vec::new(),
+            retention_policy: None,
             cors: Vec::new(),
             metageneration: 1,
             time_created: UNIX_EPOCH,
@@ -1503,7 +1504,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
     catalog.close().await.unwrap();
     let connection = Connection::open(dir.0.join("catalog.sqlite3")).unwrap();
     connection
-        .execute_batch("ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
+        .execute_batch("ALTER TABLE buckets DROP COLUMN retention_policy; ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time;")
         .unwrap();
     connection
         .execute_batch("DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; DROP TABLE sync_roots; DROP TABLE sync_objects; DROP TABLE catalog_identity; DROP TABLE import_observations; DROP TABLE import_journal; DROP TABLE change_journal; DROP TABLE change_journal_state;")
@@ -1567,7 +1568,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
 }
 
@@ -1635,6 +1636,7 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         event_based_hold: false,
         temporary_hold: false,
         custom_time: None,
+        retention_expiration_time: None,
     };
     drop(connection);
     let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));

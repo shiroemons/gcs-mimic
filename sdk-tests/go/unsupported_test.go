@@ -34,9 +34,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		name string
 		call func(context.Context) error
 	}{
-		{"RetentionPolicy", func(ctx context.Context) error {
-			return client.Bucket(bucket.BucketName()+"-retention").Create(ctx, "local-project", &storage.BucketAttrs{RetentionPolicy: &storage.RetentionPolicy{RetentionPeriod: time.Hour}})
-		}},
 		{"SoftDeleted", func(ctx context.Context) error {
 			_, err := bucket.Objects(ctx, &storage.Query{SoftDeleted: true}).Next()
 			return err
@@ -57,9 +54,6 @@ func TestUnsupportedFailsFast(t *testing.T) {
 		{"Restore", func(ctx context.Context) error {
 			_, err := bucket.Object("missing").Generation(1).Restore(ctx, &storage.RestoreOptions{})
 			return err
-		}},
-		{"LockRetentionPolicy", func(ctx context.Context) error {
-			return bucket.If(storage.BucketConditions{MetagenerationMatch: 1}).LockRetentionPolicy(ctx)
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

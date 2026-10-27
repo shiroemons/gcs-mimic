@@ -271,6 +271,8 @@ impl From<CatalogError> for AdminError {
             CatalogError::PreconditionFailed => Self::Precondition,
             CatalogError::NotFound => Self::NotFound,
             CatalogError::Forbidden => Self::Forbidden,
+            error @ (CatalogError::RetentionPolicyLocked(_)
+            | CatalogError::RetentionPolicyNotSet) => Self::Invalid(error.to_string()),
             CatalogError::InvalidMetadata(reason) | CatalogError::UnsupportedMetadata(reason) => {
                 Self::Invalid(reason)
             }
@@ -286,7 +288,7 @@ impl From<ObjectError> for AdminError {
             ObjectError::InvalidFixedMetadata(reason)
             | ObjectError::UnsupportedMetadata(reason) => Self::Invalid(reason),
             ObjectError::PreconditionFailed => Self::Precondition,
-            ObjectError::ActiveHold => Self::Hold,
+            ObjectError::ActiveHold | ObjectError::RetentionPolicyNotMet => Self::Hold,
             ObjectError::BucketNotFound | ObjectError::ObjectNotFound => Self::NotFound,
             ObjectError::ChecksumMismatch => Self::Checksum,
             ObjectError::TooLarge => Self::TooLarge,
@@ -707,6 +709,7 @@ impl Admin {
         let bucket = bucket.0.clone();
         let name = name.0.clone();
         let access = BucketAccess::Admin(self.grant.clone());
+        let clock = self.catalog.0.clock.clone();
         self.catalog
             .run_admin_until(deadline, move |connection| {
                 let transaction = connection.transaction().map_err(unavailable)?;
@@ -719,6 +722,7 @@ impl Admin {
                             .map(GenerationCondition::conditions)
                             .unwrap_or_default(),
                         true,
+                        clock.now(),
                     )
                 })();
                 Ok(result)
