@@ -45,7 +45,7 @@ func TestGRPCFoundationFailsFast(t *testing.T) {
 		name string
 		call func(context.Context) error
 	}{
-		{"BucketAttrs", func(ctx context.Context) error { _, err := bucket.Attrs(ctx); return err }},
+		{"BucketRetentionLock", func(ctx context.Context) error { return bucket.LockRetentionPolicy(ctx) }},
 		{"Writer", func(ctx context.Context) error {
 			writer := bucket.Object("object").NewWriter(ctx)
 			_, writeErr := writer.Write([]byte("hello"))
@@ -93,7 +93,7 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 	}
 	defer conn.Close()
 	for _, method := range []string{
-		"DeleteBucket", "GetBucket", "CreateBucket", "ListBuckets", "LockBucketRetentionPolicy",
+		"LockBucketRetentionPolicy",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions", "UpdateBucket", "ComposeObject",
 		"DeleteObject", "RestoreObject", "CancelResumableWrite", "GetObject", "ReadObject", "BidiReadObject",
 		"UpdateObject", "WriteObject", "BidiWriteObject", "ListObjects", "RewriteObject", "StartResumableWrite", "QueryWriteStatus", "MoveObject", "UnknownMethod",
@@ -155,7 +155,7 @@ func TestGRPCFoundationStrictAuth(t *testing.T) {
 		if token != "" {
 			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", token)
 		}
-		err := conn.Invoke(ctx, "/google.storage.v2.Storage/GetBucket", &emptypb.Empty{}, &emptypb.Empty{})
+		err := conn.Invoke(ctx, "/google.storage.v2.Storage/LockBucketRetentionPolicy", &emptypb.Empty{}, &emptypb.Empty{})
 		cancel()
 		want := codes.Unauthenticated
 		if token == "Bearer local-admin-token" {

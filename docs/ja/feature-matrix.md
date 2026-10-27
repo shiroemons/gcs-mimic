@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 274 | 0 | 23 | 1 | 0 | 0 |
-| behavior | 201 | 118 | 0 | 45 | 38 | 0 | 0 |
+| api_operation | 298 | 270 | 0 | 27 | 1 | 0 | 0 |
+| behavior | 201 | 116 | 0 | 47 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 274 | 8 | 16 | 0 | 0 | 0 |
-| behavior | 119 | 48 | 31 | 3 | 0 | 0 |
+| api_operation | 270 | 12 | 16 | 0 | 0 | 0 |
+| behavior | 117 | 50 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -449,10 +449,10 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| RPC-STORAGE-001 | DeleteBucket | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-002 | GetBucket | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-003 | CreateBucket | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-004 | ListBuckets | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-001 | DeleteBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-002 | GetBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-003 | CreateBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-004 | ListBuckets | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-005 | LockBucketRetentionPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | RPC-STORAGE-006 | GetIamPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | RPC-STORAGE-007 | SetIamPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
@@ -581,7 +581,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| AUDIT-008 | JSON・XML・gRPC間の状態整合 | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| AUDIT-008 | JSON・XML・gRPC間の状態整合 | PARTIAL | P6 | EXACT | EXACT | 1 |
 
 ### Enrichment semantics
 
@@ -735,7 +735,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | BEHAVIOR-RPC-003 | gRPCストリームのチェックサムとoffset | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | NOT_STARTED | P6 | EXACT | NONE | 0 |

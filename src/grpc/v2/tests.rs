@@ -44,7 +44,10 @@ async fn grpc_auth_metadata_handoff() {
     assert_eq!(
         storage
             .get_bucket(
-                Request::new(pb::GetBucketRequest::default()),
+                Request::new(pb::GetBucketRequest {
+                    name: "projects/_/buckets/example-bucket".into(),
+                    ..Default::default()
+                }),
                 Some(Caller::Anonymous)
             )
             .await
@@ -58,6 +61,6 @@ async fn grpc_auth_metadata_handoff() {
     let caller = storage.authenticate(&request).unwrap().unwrap();
     assert_eq!(caller.principal().unwrap().id(), "a@example.invalid");
     let error = storage.get_bucket(request, Some(caller)).await.unwrap_err();
-    assert_eq!(error.code(), tonic::Code::Unimplemented);
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
     storage.state.catalog.close().await.unwrap();
 }

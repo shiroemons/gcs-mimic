@@ -15803,26 +15803,83 @@
       "interface": "google.storage.v2.Storage/DeleteBucket",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Bucket deletion contract: docs/en/slices/grpc-v2-buckets.md. Empty deletion, atomic metageneration conditions, nonempty protection and shared strict authorization are the scoped acceptance cases.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_delete",
+          "description": "Empty/nonempty deletion, both metageneration conditions, preserved state on failure and shared strict authorization including anonymous allUsers grants.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_crud_conditions_and_masks",
+            "grpc_buckets_strict_shared_authorization",
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_delete_remaining",
+          "description": "Provider-exact error detail and authorization/condition precedence remain unverified. Bucket soft-delete/restore and multipart/Rapid interactions are outside the shared empty-bucket deletion contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_buckets_crud_conditions_and_masks",
+        "grpc_buckets_strict_shared_authorization",
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_buckets_crud_conditions_and_masks",
+            "grpc_buckets_strict_shared_authorization"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Provider-exact error detail and authorization/condition precedence remain unverified. Bucket soft-delete/restore and multipart/Rapid interactions are outside the shared empty-bucket deletion contract."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-002",
@@ -15832,26 +15889,83 @@
       "interface": "google.storage.v2.Storage/GetBucket",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Bucket read contract: docs/en/slices/grpc-v2-buckets.md. Existing/missing buckets, metageneration conditions, supported masks and shared strict authorization are scoped acceptance cases.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_get",
+          "description": "Existing/missing buckets, both metageneration conditions, supported masks, unsupported mask ErrorInfo and shared strict authorization including anonymous allUsers grants. Explicit x-goog-user-project is rejected with ErrorInfo while default Go and empty UserProject omit the header and succeed.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_crud_conditions_and_masks",
+            "grpc_buckets_strict_shared_authorization",
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_get_remaining",
+          "description": "Nested masks and fields absent from foundation conversion (including lifecycle, ETag, ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_buckets_crud_conditions_and_masks",
+        "grpc_buckets_strict_shared_authorization",
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_buckets_crud_conditions_and_masks",
+            "grpc_buckets_strict_shared_authorization"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Nested masks and fields absent from foundation conversion (including lifecycle, ETag, ACL and encryption) remain UNIMPLEMENTED when explicitly selected; numeric project resolution remains unsupported."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-003",
@@ -15861,26 +15975,83 @@
       "interface": "google.storage.v2.Storage/CreateBucket",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Bucket creation contract: docs/en/slices/grpc-v2-buckets.md. Shared JSON metadata validation, duplicate protection, strict project authorization and explicit unsupported values are scoped acceptance cases.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_create",
+          "description": "Default Go Create, projects/_ and project ID resource parsing, location/labels/versioning and retention metadata, equivalent disabled settings, duplicates and explicit unsupported values.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_create_subset_and_defaults",
+            "grpc_buckets_strict_shared_authorization",
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_create_remaining",
+          "description": "Nonempty lifecycle, ACL, requester-pays, encryption, logging, Autoclass, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_buckets_create_subset_and_defaults",
+        "grpc_buckets_strict_shared_authorization",
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_buckets_create_subset_and_defaults",
+            "grpc_buckets_strict_shared_authorization"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Nonempty lifecycle, ACL, requester-pays, encryption, logging, Autoclass, custom placement, hierarchical namespace, object retention and IP filter semantics remain UNIMPLEMENTED. Output-only create fields are not accepted."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-004",
@@ -15890,26 +16061,83 @@
       "interface": "google.storage.v2.Storage/ListBuckets",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
-        "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+        "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Bucket listing contract: docs/en/slices/grpc-v2-buckets.md. Project/prefix filtering, bounded pagination, supported masks and shared project authorization are scoped acceptance cases.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_list",
+          "description": "Default Go iteration, project/prefix filtering, page size/token, invalid and cross-scope token rejection, strict authorization.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_pagination_and_routing",
+            "grpc_buckets_strict_shared_authorization",
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_list_remaining",
+          "description": "return_partial_success and nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_buckets_pagination_and_routing",
+        "grpc_buckets_strict_shared_authorization",
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_buckets_pagination_and_routing",
+            "grpc_buckets_strict_shared_authorization"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "return_partial_success and nested or unsupported read masks remain UNIMPLEMENTED; numeric project resolution and provider-exact page-token representation remain unsupported."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-005",
@@ -25355,9 +25583,9 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
@@ -25367,14 +25595,71 @@
       "notes": "projects/_/buckets names, x-goog-request-params, read/write handles and routing tokens.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_routing",
+          "description": "Bucket resource parsing, percent-decoded bucket/project routing metadata, conflicting and malformed metadata rejection, ordinary Go DirectPath diagnostic acceptance.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_buckets_pagination_and_routing",
+            "grpc_buckets_strict_shared_authorization",
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_routing_remaining",
+          "description": "Only the four bucket RPCs are covered. Object read/write handles, routing tokens and Storage v1 remain pending; unknown semantic routing fields return UNIMPLEMENTED.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_buckets_pagination_and_routing",
+        "grpc_buckets_strict_shared_authorization",
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "grpc_buckets_pagination_and_routing",
+            "grpc_buckets_strict_shared_authorization"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the four bucket RPCs are covered. Object read/write handles, routing tokens and Storage v1 remain pending; unknown semantic routing fields return UNIMPLEMENTED."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "BEHAVIOR-RPC-002",
@@ -49160,9 +49445,9 @@
       "interface": "Cross-protocol contract",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/consistency",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
@@ -49172,14 +49457,57 @@
       "notes": "Write through each supported transport and read/list/modify through the others. Assert equivalent bytes, logical generations, metadata and authorization while preserving protocol-specific representations and errors. This is an integration gate distinct from independently passing each route.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_bucket_shared_state",
+          "description": "JSON-created buckets are read through gRPC and gRPC-created buckets are read through JSON; JSON-uploaded objects prevent gRPC bucket deletion.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        },
+        {
+          "id": "grpc_bucket_shared_state_remaining",
+          "description": "Only bucket state is verified. Object bytes, generations, mutations and authorization across JSON/XML/gRPC remain pending; this row must stay PARTIAL.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCBuckets",
+        "TestGRPCBucketsStrict"
+      ],
+      "verification": [
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-buckets.md",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "gRPC",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCBuckets",
+            "TestGRPCBucketsStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only bucket state is verified. Object bytes, generations, mutations and authorization across JSON/XML/gRPC remain pending; this row must stay PARTIAL."
+      ],
+      "implemented_in": "3e8d13d",
+      "last_verified": "2026-10-28"
     },
     {
       "id": "AUDIT-009",
