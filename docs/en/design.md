@@ -38,13 +38,13 @@ Reference sources: [JSON API](https://docs.cloud.google.com/storage/docs/json_ap
 
 ## Implemented foundation and extension boundaries
 
-One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml` and `storage`. `main` owns startup/shutdown and offline `url public` / `url sign` helpers. JSON parsing/rendering remains separate from shared records/catalog. The server routes bucket CRUD/IAM, object media/multipart/resumable/list/get/update/delete and probes; unknown routes return 404 without reading bodies. XML serves path-style and configured bucket-host GET/HEAD/PUT using shared permissions, generation selection and publication. Virtual hosts route only XML before reserved namespaces; signing retains the original object-only path. Read overrides apply after selected-record response construction without metadata mutation. `auth::signature` owns bounded RSA query verification; `xml::put` reuses the two-slot streaming bridge and withholds EOF until optional SHA256 validation succeeds. The server registry contains public keys only. gRPC is unavailable. `xtask` owns ledger validation/rendering and online freshness checks; existing `serde_json` handles bounded JSON inputs.
+One application crate contains `config`, `clock`, `auth`, `url`, `server`, `bucket`, `object`, `json`, `xml`, `grpc` and `storage`. `main` owns startup/shutdown and offline `url public` / `url sign` helpers. JSON parsing/rendering remains separate from shared records/catalog. The server routes bucket CRUD/IAM, object media/multipart/resumable/list/get/update/delete and probes; unknown routes return 404 without reading bodies. XML serves path-style and configured bucket-host GET/HEAD/PUT using shared permissions, generation selection and publication. Virtual hosts route only XML before reserved namespaces; signing retains the original object-only path. Read overrides apply after selected-record response construction without metadata mutation. `auth::signature` owns bounded RSA query verification; `xml::put` reuses the two-slot streaming bridge and withholds EOF until optional SHA256 validation succeeds. The server registry contains public keys only. The optional plaintext h2c listener serves scoped Storage v2 bucket CRUD/updates/IAM/retention locking, object metadata/media/list/delete/restore, resumable writes, rewrite/compose/move and bidirectional ranged reads through shared state and authorization. CancelResumableWrite, Rapid append, unsupported fields and unknown RPCs return ErrorInfo-bearing UNIMPLEMENTED. Storage v1 is not served and is a separate compatibility slice in progress. `xtask` owns ledger validation/rendering and online freshness checks; existing `serde_json` handles bounded JSON inputs.
 
 | Boundary | Contract for subsequent slices |
 | --- | --- |
 | JSON adapter | Own JSON API parsing/errors/headers and media/upload routes; preserve raw URI until protocol decoding. |
 | XML adapter | Own path/virtual-host canonicalization, XML errors, CORS and signed request parsing. |
-| gRPC adapter | Own pinned protobuf, stream framing, status and metadata; no gRPC listener in P0. |
+| gRPC adapter | Own pinned Storage v2 protobuf, bounded stream framing, metadata and shared status conversion on the optional h2c listener; reuse the catalog and authorization. Storage v1 is a separate compatibility slice. |
 | Shared services | Own authorization, generations, atomic preconditions and state transitions; transport types do not enter persistence. |
 | Metadata catalog | Own indexed transactions, short atomic condition checks and reference publication; no transaction across body transfer. |
 | Blob storage | Own opaque blob IDs, bounded staging streams and durable immutable publication/deletion. Logical object names never become filesystem paths. |
@@ -110,7 +110,7 @@ the built-in CA by default or an explicit replacement CA and verify DNS/IP SANs.
 access. The embedded server key is deliberately public; CA signing keys are not
 distributed. Advertised API URLs and public URL helper
 bases remain independent of the listener; forwarded headers never set them.
-HTTP/2, HTTP/3 and gRPC transport are separate work. See the
+The separate gRPC h2c listener uses HTTP/2; HTTP/3 remains outside the transport scope. See the
 [TLS contract](slices/local-tls.md) for trust boundaries and reference behavior.
 
 The [CORS adapters](slices/cors.md) wrap actual responses without granting API

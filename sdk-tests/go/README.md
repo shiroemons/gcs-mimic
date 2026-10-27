@@ -2,14 +2,29 @@
 
 `grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
 `storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
-Rapid Writer through Close and multi-range (which additionally requires
-`storage.WithGRPCBidiReads()`). It checks remaining unsupported Storage v2 RPCs and unknown
-service/method ErrorInfo, including streaming calls without a first message or
-EOF. `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
+Rapid Writer through Close, CancelResumableWrite and unknown service/method
+ErrorInfo. Strict authentication checks use CancelResumableWrite.
+`scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
 and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
-grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Legacy Storage v1
-is not implemented; see the
+grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Storage v2
+supports scoped bucket CRUD/updates/IAM/retention locking, object metadata/media/
+listing/deletion/restore, streaming and resumable writes, rewrite/compose/move and
+bidirectional ranged reads. CancelResumableWrite, Rapid append and unsupported
+fields retain UNIMPLEMENTED. Legacy Storage v1 is not served and is a separate
+compatibility slice in progress; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
+`grpc_buckets_test.go` verifies ordinary bucket CRUD and paging, JSON visibility,
+routing/read masks, default metadata and strict/public authorization against the
+[bucket contract](../../docs/en/slices/grpc-v2-buckets.md).
+
+`grpc_bidi_read_test.go` uses `storage.WithGRPCBidiReads()` with ordinary
+NewMultiRangeDownloader, Add, Wait and Close, including 600 ranges with input
+backpressure. Wire tests verify later requests, CRC32C, signed offsets/EOF,
+non-retryable per-message limits, and handle reconnection after overwrite.
+Strict cases reuse shared authorization; JSON prepares fixtures. See the
+[bidi read contract](../../docs/en/slices/grpc-v2-bidi-read.md) for handle lifetime,
+unsupported fields and the pinned SDK's large-batch reconnect limitation.
 
 `grpc_update_copy_test.go` uses ordinary Storage v2 bucket/object Update, IAM,
 retention locking, Copier, Composer, Move and soft-deleted-generation Restore.

@@ -2,6 +2,13 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+この文書は土台スライスを追加した時点の記録です。以下の全RPCの拒否は当時の検証を指します。
+現在のStorage v2の部分対応は、[バケット](grpc-v2-buckets.md)、
+[オブジェクト入出力](grpc-v2-object-io.md)、[更新・派生操作](grpc-v2-update-copy.md)、
+[双方向範囲読み取り](grpc-v2-bidi-read.md)の契約を参照してください。
+CancelResumableWrite、Rapid append、未対応フィールドはUNIMPLEMENTEDのままです。
+Storage v1は別スライスで作業中です。
+
 [英語の契約と検証](../en/slices/grpc-v2-foundation.md)が正本です。
 BEHAVIOR-RPC-005とDESIGN-082はPARTIALのままです。
 RPC-STORAGE-001〜024の状態は変えず、受け口の追加だけをnotesに記録します。

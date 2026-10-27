@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 252 | 0 | 45 | 1 | 0 | 0 |
-| behavior | 201 | 114 | 0 | 49 | 38 | 0 | 0 |
+| api_operation | 298 | 251 | 0 | 46 | 1 | 0 | 0 |
+| behavior | 201 | 113 | 0 | 50 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 252 | 27 | 19 | 0 | 0 | 0 |
-| behavior | 115 | 52 | 31 | 3 | 0 | 0 |
+| api_operation | 251 | 28 | 19 | 0 | 0 | 0 |
+| behavior | 114 | 53 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -464,7 +464,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-STORAGE-013 | CancelResumableWrite | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | RPC-STORAGE-014 | GetObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-015 | ReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-016 | BidiReadObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-016 | BidiReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-017 | UpdateObject | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
 | RPC-STORAGE-018 | WriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-019 | BidiWriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
@@ -738,7 +738,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-003 | gRPCストリームのチェックサムとoffset | PARTIAL | P6 | EXACT | EXACT | 1 |
-| BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-005 | gRPCステータスと詳細 | PARTIAL | P6 | EXACT | NONE | 0 |
 
 ### Signed access

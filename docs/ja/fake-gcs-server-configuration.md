@@ -16,8 +16,11 @@ gRPCは既定で無効です。`--grpc-listen 127.0.0.1:4444`、環境変数
 `{"grpc_listen":"127.0.0.1:4444"}`で、HTTP・HTTPSとは別の平文h2cポートを開きます。
 優先順位はCLI、環境変数、設定ファイルの順です。Go SDKでは
 `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`を指定します。
-現段階では全Storage v2 RPCが`UNIMPLEMENTED`と修正案付きのErrorInfoを即座に返します。
-操作にはJSON APIを使ってください。Storage v1も未対応です。[契約と制限](grpc-v2-foundation.md)を参照してください。
+Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、
+resumable・rewrite・compose・move・双方向範囲読み取りに部分対応しています。
+CancelResumableWrite、Rapid append、未対応フィールドと未知のRPCは、修正案付きErrorInfoを含む
+再試行されない`UNIMPLEMENTED`を返します。Storage v1は未提供で、別スライスで作業中です。
+[契約と制限](grpc-v2-foundation.md)を参照してください。
 
 ## 並行アップロードと503
 

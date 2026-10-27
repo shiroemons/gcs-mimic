@@ -164,8 +164,12 @@ The optional native `grpc_listen` setting has no legacy flag alias. Set
 `{"grpc_listen":"127.0.0.1:4444"}` to open a separate plaintext h2c socket.
 It is disabled by default and uses the normal CLI > environment > file precedence.
 Go's `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444` selects this listener.
-Storage v2 RPCs immediately return `UNIMPLEMENTED` and ErrorInfo with JSON API
-guidance; actual operations and legacy Storage v1 remain unsupported. The
+Storage v2 supports scoped bucket CRUD/updates/IAM/retention locking, object
+reads/writes/list/delete/restore, resumable uploads, rewrite/compose/move and
+bidirectional ranged reads. CancelResumableWrite, Rapid append, unsupported
+fields and unknown RPCs return non-retryable `UNIMPLEMENTED` with ErrorInfo and
+JSON API guidance. Storage v1 is not served; its separate compatibility slice
+is in progress. The
 [gRPC contract](slices/grpc-v2-foundation.md) records bounds and verification.
 
 ## Public origin

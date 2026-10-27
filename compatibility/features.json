@@ -17193,26 +17193,37 @@
       "interface": "google.storage.v2.Storage/BidiReadObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped BidiReadObject implementation: shared authorized generation/condition selection, initial metadata/handle, interleaved and later ranges, per-chunk CRC32C, signed offsets and EOF, generation-stable reconnects after nonversioned overwrite, and ordinary Go MultiRangeDownloader. Contract: docs/en/slices/grpc-v2-bidi-read.md; googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "SATISFIED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "bidi-ranges", "description": "Initial spec/metadata/handle, multiple and later read_ids, CRC32C, EOF/negative offsets and bounded streaming; see docs/en/slices/grpc-v2-bidi-read.md.", "result": "PASS", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "bidi_range_bounds_and_ids"]},
+        {"id": "bidi-generation-auth", "description": "Handle reconnect after overwrite, missing object/generation, four preconditions, shared strict authorization and rejection of handles after bucket ownership changes.", "result": "PASS", "test_ids": ["TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "bidi_handle_rejects_recreated_bucket_owner"]},
+        {"id": "bidi-many-ranges", "description": "Ordinary Go Add/Wait completes 600 ranges larger than a chunk using bounded input backpressure; the 100-range limit applies per message and invalid oversized messages are not retried.", "result": "PASS", "test_ids": ["TestGRPCBidiReadManyRanges", "TestGRPCBidiReadWire"]},
+        {"id": "bidi-shared-status", "description": "Reuse status::from_json for backend UNAVAILABLE and unsupported JSON 501 with ErrorInfo-bearing UNIMPLEMENTED.", "result": "PASS", "test_ids": ["bidi_shared_error_status"]},
+        {"id": "bidi-remaining-fields", "description": "Redirects, encryption, nondefault read masks, preconditions combined with read handles, complete outstanding-range error details and provider parity remain pending.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges", "bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"],
+      "verification": [
+        {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
+        {"command": "cargo test --locked --offline --lib grpc::v2::bidi_read::tests", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
+        {"command": "RUST_TEST_THREADS=8 just check", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["bidi_range_bounds_and_ids", "bidi_handle_rejects_recreated_bucket_owner", "bidi_shared_error_status"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
+      ],
+      "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; ordinary NewMultiRangeDownloader with WithGRPCBidiReads, 600 Add calls, Wait, Close and bounded backpressure", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
+      "known_deviations": ["Process-local FIFO retains 64 read handles; eviction/restart requires reopening without a handle. Messages accept at most 100 ranges with non-retryable INVALID_ARGUMENT above that limit; input pauses at 100 queued descriptors (at most 199 after a batch), with one 64 KiB I/O at a time and two queued responses. Go v1.70.0 resends all pending ranges in one message after interruption, so reconnects with more than 100 pending ranges violate the proto and fail without retry; ordinary multi-message Add/Wait uses backpressure. Redirects, encryption, nondefault masks and handle/precondition combinations return UNIMPLEMENTED. Error details identify the invalid range but do not enumerate all outstanding ranges. Provider-exact errors and restart-persistent handles are not claimed."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-017",
@@ -27131,26 +27142,33 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "SPEC_BASED",
-      "notes": "Multiple read_ids/ranges, interleaving, handle reuse and per-range error details.",
+      "notes": "Interleaved and later read_ids/ranges, range_end, CRC32C, negative offsets and generation-stable handle reuse after overwrite are verified with Go v1.70.0 and shared strict authorization. Error details identify invalid ranges; full outstanding-range error enumeration remains pending. Contract: docs/en/slices/grpc-v2-bidi-read.md.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "dependency_status": "SATISFIED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "bidi-multi-range", "description": "Interleaved read_ids, later requests, stable read handles, range_end and invalid-range error details; see docs/en/slices/grpc-v2-bidi-read.md.", "result": "PASS", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict"]},
+        {"id": "bidi-backpressure", "description": "600 default high-level Add calls complete without an aggregate rejection; an oversized single message fails with non-retryable INVALID_ARGUMENT.", "result": "PASS", "test_ids": ["TestGRPCBidiReadManyRanges", "TestGRPCBidiReadWire"]},
+        {"id": "bidi-all-range-errors", "description": "Enumerate every outstanding range in stream failure details and verify provider error/redirect parity.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"],
+      "verification": [
+        {"command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-28", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}
+      ],
+      "sdk_evidence": [{"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.309.0", "transport": "gRPC h2c; JSON fixtures; interleaved ranges, 600 Add calls with backpressure and generation-stable handles", "result": "PASS", "verified_at": "2026-10-28", "command": "GCS_MIMIC_GO_TEST_RUN='TestGRPCBidiRead|TestGRPCFoundation' bash scripts/sdk-go.sh", "artifact": "docs/en/slices/grpc-v2-bidi-read.md", "test_ids": ["TestGRPCBidiRead", "TestGRPCBidiReadWire", "TestGRPCBidiReadStrict", "TestGRPCBidiReadManyRanges"]}],
+      "known_deviations": ["Handles are process-local and bounded to 64 FIFO entries. Input backpressure bounds queued descriptors to 199; the protocol limit of 100 ranges applies per message, not to the number of Add calls. Go v1.70.0 can exceed that per-message limit when resending more than 100 interrupted ranges; such an invalid retry returns non-retryable INVALID_ARGUMENT. Full outstanding-range error enumeration, redirects and provider-exact error parity remain pending; unsupported encryption/masks and handle/precondition combinations fail with UNIMPLEMENTED."],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "BEHAVIOR-RPC-005",

@@ -157,7 +157,7 @@ Their implementations were inspected; full upstream test suites were not execute
 | Capability | gcs-mimic | fake-gcs-server | gcp-storage-emulator |
 | --- | --- | --- | --- |
 | Path-style object GET/HEAD/PUT (bytes only; excludes listing) | ✅ | ✅ Public-host routing | 🚧 GET/PUT; no HEAD |
-| gRPC API | ❌ | 🚧 Storage **v1** subset; not Storage v2 | ❌ |
+| gRPC API | 🚧 Scoped Storage **v2** bucket/object operations and bidirectional reads; [SDK coverage](../../sdk-tests/go/README.md). Storage v1 is a separate slice in progress. | 🚧 Storage **v1** subset; not Storage v2 | ❌ |
 | TLS listener | ✅ HTTPS-only (default) with built-in development certificate or supplied pair; explicit HTTP-only, TLS 1.2/1.3 and bounded handshake; [verified scope](evidence/local-tls.md) | ✅ HTTPS (default), HTTP or both; supplied pair or Go test certificate; [pinned implementation](https://github.com/fsouza/fake-gcs-server/blob/896ece51e49eed0946089f3089f6343855c0d106/main.go#L27-L76), source review | ❌ HTTP only; source review |
 | Default CORS for JSON API requests | ✅ | ✅ Global middleware | ❌ |
 | Enforce bucket-configured XML GET/HEAD/PUT CORS | ✅ | ❌ | ❌ |

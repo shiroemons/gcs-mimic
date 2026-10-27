@@ -16,7 +16,7 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 | gRPCの移行元 | gcs-mimicでの対応 |
 | --- | --- |
-| fake-gcs-server v1.56.1のStorage v1 | `grpc_listen`を指定した場合だけ別ポートの平文h2cを開きます。Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`で接続します。全Storage v2 RPCはErrorInfoとJSON APIへの案内を含む`UNIMPLEMENTED`で即座に失敗します。v1とv2の実処理は未対応で、v2をv1の代替とは数えません。 |
+| fake-gcs-server v1.56.1のStorage v1 | `grpc_listen`を指定した場合だけ別ポートの平文h2cを開きます。Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`で接続します。Storage v2のバケットCRUD・更新・IAM・保持ロック、オブジェクト入出力・一覧・削除・復元、resumable・rewrite・compose・move・双方向範囲読み取りに部分対応しています。Rapid append、CancelResumableWrite、未対応フィールドはErrorInfo付き`UNIMPLEMENTED`です。Storage v1は別スライスで作業中で、v2をv1の代替とは数えません。 |
 
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。

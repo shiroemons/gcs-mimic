@@ -34,12 +34,6 @@ func TestGRPCFoundationFailsFast(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	// The SDK requires this option for its multi-range API, even on the gRPC transport.
-	bidiClient, err := storage.NewGRPCClient(ctx, storage.WithGRPCBidiReads())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bidiClient.Close()
 	bucket := client.Bucket("grpc-foundation")
 	for _, tc := range []struct {
 		name string
@@ -54,13 +48,6 @@ func TestGRPCFoundationFailsFast(t *testing.T) {
 				return closeErr
 			}
 			return writeErr
-		}},
-		{"MultiRangeDownloader", func(ctx context.Context) error {
-			downloader, err := bidiClient.Bucket("grpc-foundation").Object("object").NewMultiRangeDownloader(ctx)
-			if downloader != nil {
-				downloader.Close()
-			}
-			return err
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +80,7 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 	}
 	defer conn.Close()
 	for _, method := range []string{
-		"CancelResumableWrite", "BidiReadObject", "UnknownMethod",
+		"CancelResumableWrite", "UnknownMethod",
 		"other.Service/UnknownMethod",
 	} {
 		t.Run(method, func(t *testing.T) {
@@ -103,17 +90,7 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 			if strings.Contains(method, "/") {
 				path = "/" + method
 			}
-			var err error
-			if method == "WriteObject" || method == "BidiReadObject" || method == "BidiWriteObject" {
-				stream, streamErr := conn.NewStream(ctx, &grpc.StreamDesc{ClientStreams: true, ServerStreams: true}, path)
-				if streamErr != nil {
-					t.Fatal(streamErr)
-				}
-				// No first message or EOF: unsupported streaming methods must reject from metadata alone.
-				err = stream.RecvMsg(&emptypb.Empty{})
-			} else {
-				err = conn.Invoke(ctx, path, &emptypb.Empty{}, &emptypb.Empty{})
-			}
+			err := conn.Invoke(ctx, path, &emptypb.Empty{}, &emptypb.Empty{})
 			st := status.Convert(err)
 			if st.Code() != codes.Unimplemented || ctx.Err() != nil || storage.ShouldRetry(err) {
 				t.Fatalf("expected non-retryable UNIMPLEMENTED: %v", err)
