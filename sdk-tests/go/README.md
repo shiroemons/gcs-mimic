@@ -2,14 +2,23 @@
 
 `grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
 `storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
-Bucket.Attrs, Writer through Close and multi-range (which additionally requires
-`storage.WithGRPCBidiReads()`). It checks all 24 Storage v2 RPCs and unknown
+Bucket retention locking, Rapid Writer through Close and multi-range (which additionally requires
+`storage.WithGRPCBidiReads()`). It checks remaining unsupported Storage v2 RPCs and unknown
 service/method ErrorInfo, including streaming calls without a first message or
 EOF. `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
 and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
-grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Actual gRPC
-operations and legacy Storage v1 are not implemented; see the
+grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Legacy Storage v1
+is not implemented; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
+`grpc_object_io_test.go` verifies ordinary Storage v2 Writer with its default
+chunk size (5-byte and 5-MiB payloads), readers, ranges, metadata, deletion and
+prefix/delimiter/paged iteration. JSON and gRPC read each other's objects.
+Strict tests exercise admin/viewer/anonymous callers. Wire tests use the SDK's
+registered pinned protobuf descriptors to verify WriteObject, resumable offsets,
+QueryWriteStatus, CRC32C/MD5 rejection and negative-offset reads without copying
+the schema or adding dependencies. Deletion checks share JSON holds, retention
+and soft-delete behavior. See the [object I/O contract](../../docs/en/slices/grpc-v2-object-io.md).
 
 `TestObjectSoftDeleteRestore` configures BucketAttrs.SoftDeletePolicy, deletes an
 object, lists Query.SoftDeleted, gets Generation(g).SoftDeleted().Attrs, restores

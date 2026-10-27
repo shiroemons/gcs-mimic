@@ -21,12 +21,19 @@ pub type ResponseStream<T> =
 
 pub struct Storage {
     pub state: Arc<State>,
+    pub max_object_bytes: u64,
 }
 
-pub fn service(state: Arc<State>) -> pb::storage_server::StorageServer<Storage> {
-    pb::storage_server::StorageServer::new(Storage { state })
-        .max_decoding_message_size(4 * 1024 * 1024)
-        .max_encoding_message_size(4 * 1024 * 1024)
+pub fn service(
+    state: Arc<State>,
+    max_object_bytes: u64,
+) -> pb::storage_server::StorageServer<Storage> {
+    pb::storage_server::StorageServer::new(Storage {
+        state,
+        max_object_bytes,
+    })
+    .max_decoding_message_size(4 * 1024 * 1024)
+    .max_encoding_message_size(4 * 1024 * 1024)
 }
 
 pub fn known_method(path: &str) -> bool {

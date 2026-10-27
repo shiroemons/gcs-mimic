@@ -30,7 +30,7 @@ pub(crate) async fn serve_connection(
     state: Arc<State>,
     stopping: watch::Receiver<bool>,
 ) {
-    let service = v2::service(state);
+    let service = v2::service(state, config.max_object_bytes);
     serve_with_service(
         stream,
         config,

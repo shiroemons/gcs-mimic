@@ -12,7 +12,7 @@ pub fn from_json(error: crate::json::JsonError) -> Status {
         403 => Status::permission_denied(error.message),
         404 => Status::not_found(error.message),
         409 => Status::already_exists(error.message),
-        412 => Status::failed_precondition(error.message),
+        304 | 412 => Status::failed_precondition(error.message),
         413 | 429 => Status::resource_exhausted(error.message),
         416 => Status::out_of_range(error.message),
         499 => Status::cancelled(error.message),

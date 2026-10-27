@@ -60,6 +60,10 @@ required.
 | --- | --- |
 | Go `Query{MatchGlob: "**/*.txt"}` or Ruby `bucket.files(match_glob: "**/*.txt")` | JSON listing filters names and slash-delimited prefixes, including pagination and versions. Empty matchGlob is absent. Invalid syntax or an incompatible delimiter returns 400; use delimiter `/` or omit it. See the [glob contract](slices/sdk-list-glob.md). |
 
+| Storage v2 gRPC object call | gcs-mimic behavior |
+| --- | --- |
+| Go `storage.NewGRPCClient(ctx)` Writer, NewReader, NewRangeReader, Attrs, Delete and Objects | Set `STORAGE_EMULATOR_HOST_GRPC` to the separately configured h2c listener, for example `127.0.0.1:4444`. Default Writer chunk size works for small and multi-MiB objects, and JSON/gRPC share data, generations, permissions, holds and retention. Prefix/delimiter/page tokens and resumable upload offsets/checksums are supported. Rapid append, cancellation, non-final non-resumable flush/state lookup and unsupported fields return UNIMPLEMENTED; see the [object I/O contract](slices/grpc-v2-object-io.md). This is Storage v2, not the reference emulator's legacy v1 service. |
+
 | Object metadata call | gcs-mimic behavior |
 | --- | --- |
 | Go Writer/Update TemporaryHold; Ruby set_temporary_hold! / release_temporary_hold! | The flag persists across restart and blocks deletion and upload/copy/rewrite/compose replacement with 403 objectUnderActiveHold until released. Metadata remains editable. |
@@ -409,7 +413,7 @@ executable contract; these examples are not the entire inventory.
 | Durable data | Filesystem root with object files and xattr/sidecar metadata | Read-only, verified conversion into a separate destination |
 | Memory backend | In-process bytes and active/archived versions | Optional ephemeral behavior and export before the source process stops |
 | Go embedding | Constructors, server lifecycle, clients/handlers and direct object methods | A separately tested Go-compatible adapter; a Rust executable alone is insufficient |
-| gRPC | v1.56.1 imports Storage **v1** protobufs | gcs-mimic optionally opens separate plaintext `grpc_listen` (for example `127.0.0.1:4444`); point Go `STORAGE_EMULATOR_HOST_GRPC` there. Storage v2 CreateBucket, GetBucket, ListBuckets and DeleteBucket share JSON bucket state, metadata validation and strict authorization. Unsupported fields and other RPCs return non-retryable `UNIMPLEMENTED` with ErrorInfo and JSON API guidance. Legacy v1 remains unsupported; v2 cannot substitute for legacy v1. See the [bucket contract](slices/grpc-v2-buckets.md) and [foundation contract](slices/grpc-v2-foundation.md). |
+| gRPC | v1.56.1 imports Storage **v1** protobufs | gcs-mimic optionally opens separate plaintext `grpc_listen` (for example `127.0.0.1:4444`); point Go `STORAGE_EMULATOR_HOST_GRPC` there. Storage v2 CreateBucket, GetBucket, ListBuckets and DeleteBucket share JSON bucket state, metadata validation and strict authorization; object reads, writes, deletes, listing and resumable uploads share the object catalog. Unsupported fields and remaining RPCs return non-retryable `UNIMPLEMENTED` with ErrorInfo and JSON API guidance. Legacy v1 remains unsupported; v2 cannot substitute for legacy v1. See the [bucket contract](slices/grpc-v2-buckets.md), [object I/O contract](slices/grpc-v2-object-io.md) and [foundation contract](slices/grpc-v2-foundation.md). |
 | Helpers/events | Internal config/reseed routes and notification/event settings | Inventory and test local behavior plus explicit external integration boundaries |
 
 Application source should not need modification. Renaming environment keys,

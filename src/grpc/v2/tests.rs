@@ -25,12 +25,14 @@ async fn grpc_auth_metadata_handoff() {
         .insert("authorization", "Basic garbage".parse().unwrap());
     let storage = Storage {
         state: Arc::new(state),
+        max_object_bytes: 1024 * 1024 * 1024,
     };
     assert!(storage.authenticate(&request).unwrap().is_none());
     state = Arc::try_unwrap(storage.state).ok().unwrap();
     state.auth = Auth::strict(Registry::parse(br#"{"identities":[{"id":"a@example.invalid","tokens":["tok-a"],"project_roles":{"p":["roles/storage.admin"]}}]}"#).unwrap());
     let storage = Storage {
         state: Arc::new(state),
+        max_object_bytes: 1024 * 1024 * 1024,
     };
     assert_eq!(
         storage.authenticate(&request).unwrap_err().code(),

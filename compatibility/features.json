@@ -16321,26 +16321,85 @@
       "interface": "google.storage.v2.Storage/DeleteObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "Delete a selected generation under atomic conditions; preserve held/retained objects and use JSON soft-delete transitions.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCObjectIOStrict"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "TestGRPCObjectIODeletePolicies",
+        "TestGRPCObjectIOStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCObjectIOStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIODeletePolicies",
+            "TestGRPCObjectIOStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Provider-exact status precedence and encryption-related common parameters remain unsupported or unverified."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-012",
@@ -16408,26 +16467,88 @@
       "interface": "google.storage.v2.Storage/GetObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "Get live or selected-generation metadata, enforce conditions and top-level field masks; strict admin/viewer read and denied writes.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_range_and_masks",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "grpc_io_range_and_masks",
+        "TestGRPCObjectIO",
+        "TestGRPCObjectIOStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_range_and_masks"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Nested masks, explicitly soft-deleted lookups, restore tokens and unimplemented object fields remain unsupported."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-015",
@@ -16437,26 +16558,88 @@
       "interface": "google.storage.v2.Storage/ReadObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "Read full and bounded ranges, negative offsets and selected generations; return CRC32C chunks/object checksums and range metadata; reject invalid limits/offsets.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_range_and_masks",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_range_and_masks",
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "TestGRPCObjectIO",
+        "TestGRPCObjectIOWire"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_range_and_masks",
+            "grpc_io_checksums_conditions_and_generation_preserve_data"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Nested object masks, encryption/transcoding and exhaustive provider error precedence remain unsupported or unverified."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-016",
@@ -16524,26 +16707,84 @@
       "interface": "google.storage.v2.Storage/WriteObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "WriteObject shares the bidi handler, streams bounded chunks and validates final CRC32C/MD5 and offsets before transactional publication. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "TestGRPCObjectIOWire",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "TestGRPCObjectIOWire",
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Unsupported write resource fields/encryption/ACL and exhaustive malformed-stream/provider error precedence remain pending. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-019",
@@ -16553,26 +16794,98 @@
       "interface": "google.storage.v2.Storage/BidiWriteObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "Default Go Writer writes 5 bytes and 5 MiB; strict authorization, JSON interoperability and resumable bidi offsets/checksums use shared bounded publication. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIOWire",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_resumes_durable_offsets_and_queries_completion",
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
+        "TestGRPCObjectIO",
+        "TestGRPCObjectIOStrict",
+        "TestGRPCObjectIOWire",
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_strict_uses_shared_permissions_and_rejects_unsupported_values",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOStrict",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Non-final flush/state_lookup without upload_id, unsupported write resource fields, post-finish messages and concurrent streams sharing an upload ID remain unsupported or unverified. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-020",
@@ -16582,26 +16895,70 @@
       "interface": "google.storage.v2.Storage/ListObjects",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "ListObjects supports prefix, delimiter prefixes and query-bound page tokens; Go Objects and one-item Pager traverse the catalog.",
+          "result": "PASS",
+          "test_ids": [
+            "TestGRPCObjectIO"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "TestGRPCObjectIO"
+      ],
+      "verification": [
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Nested masks, explicitly soft-deleted listings, folders/filter and 4 MiB metadata-heavy response pagination remain unsupported or unverified."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-021",
@@ -16640,26 +16997,87 @@
       "interface": "google.storage.v2.Storage/StartResumableWrite",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared retained-session bound is 128 sessions for seven days.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "StartResumableWrite persists target, conditions and checksums; opaque upload IDs resume after reopening the catalog and recheck create-only conditions. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "TestGRPCObjectIOWire",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared retained-session bound is 128 sessions for seven days.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_resumes_durable_offsets_and_queries_completion",
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "TestGRPCObjectIOWire",
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Unhandled write metadata/encryption/ACL and exhaustive recovery/fault injection remain pending; shared retained-session bound is 128 sessions for seven days."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-023",
@@ -16669,26 +17087,84 @@
       "interface": "google.storage.v2.Storage/QueryWriteStatus",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "QueryWriteStatus returns a durable persisted offset or original completed resource; resume at queried offsets and reject mismatches. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "TestGRPCObjectIOWire",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_resumes_durable_offsets_and_queries_completion",
+        "TestGRPCObjectIOWire",
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Optional persisted-prefix checksums and exhaustive concurrent status/recovery/error details remain unverified; shared retained-session expiry applies."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "RPC-STORAGE-024",
@@ -25698,26 +26174,94 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-28",
       "source_evidence": "SPEC_BASED",
-      "notes": "Message/frame limits, checksummed data, resumable offsets and final checksums.",
+      "notes": "Scoped Storage v2 object I/O uses the shared authorized catalog and publication engine. Contract and results: docs/en/slices/grpc-v2-object-io.md. Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "supported_object_io",
+          "description": "Bounded object-body chunks, per-chunk CRC32C, complete CRC32C/MD5 validation, durable resumable offsets and publication conditions are checked by Rust and Go wire/SDK tests. Persisted StartResumableWrite checksums survive reconnect/reopen; mismatch prevents publication and invalidates the session, while unsupported non-final upload_id checksums are rejected without advancing the offset.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_io_range_and_masks",
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "id": "broader_rpc_semantics",
+          "description": "Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_io_range_and_masks",
+        "grpc_io_resumes_durable_offsets_and_queries_completion",
+        "grpc_io_checksums_conditions_and_generation_preserve_data",
+        "TestGRPCObjectIO",
+        "TestGRPCObjectIOWire",
+        "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::object_io",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "grpc_io_range_and_masks",
+            "grpc_io_resumes_durable_offsets_and_queries_completion",
+            "grpc_io_checksums_conditions_and_generation_preserve_data",
+            "grpc_io_resumable_checksums_survive_reconnect_and_failed_completion"
+          ]
+        },
+        {
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "transport": "Storage v2 gRPC h2c; loopback permissive/strict; JSON fixture/interoperability",
+          "command": "GCS_MIMIC_GO_TEST_RUN='^TestGRPCObjectIO' bash scripts/sdk-go.sh",
+          "result": "PASS",
+          "verified_at": "2026-10-28",
+          "artifact": "docs/en/slices/grpc-v2-object-io.md",
+          "test_ids": [
+            "TestGRPCObjectIO",
+            "TestGRPCObjectIOWire"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Non-final non-resumable flush/state_lookup, concurrent streams for one upload ID, post-finish messages and exhaustive fault/resource cases remain unverified or unsupported. Non-final object_checksums on upload_id streams return UNIMPLEMENTED; supply them to StartResumableWrite or with finish_write=true."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-28"
     },
     {
       "id": "BEHAVIOR-RPC-004",

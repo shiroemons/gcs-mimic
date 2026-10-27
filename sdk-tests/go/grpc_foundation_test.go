@@ -46,8 +46,9 @@ func TestGRPCFoundationFailsFast(t *testing.T) {
 		call func(context.Context) error
 	}{
 		{"BucketRetentionLock", func(ctx context.Context) error { return bucket.LockRetentionPolicy(ctx) }},
-		{"Writer", func(ctx context.Context) error {
+		{"RapidWriter", func(ctx context.Context) error {
 			writer := bucket.Object("object").NewWriter(ctx)
+			writer.Append = true
 			_, writeErr := writer.Write([]byte("hello"))
 			closeErr := writer.Close()
 			if closeErr != nil {
@@ -95,8 +96,8 @@ func TestGRPCFoundationWireStatus(t *testing.T) {
 	for _, method := range []string{
 		"LockBucketRetentionPolicy",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions", "UpdateBucket", "ComposeObject",
-		"DeleteObject", "RestoreObject", "CancelResumableWrite", "GetObject", "ReadObject", "BidiReadObject",
-		"UpdateObject", "WriteObject", "BidiWriteObject", "ListObjects", "RewriteObject", "StartResumableWrite", "QueryWriteStatus", "MoveObject", "UnknownMethod",
+		"RestoreObject", "CancelResumableWrite", "BidiReadObject",
+		"UpdateObject", "RewriteObject", "MoveObject", "UnknownMethod",
 		"other.Service/UnknownMethod",
 	} {
 		t.Run(method, func(t *testing.T) {

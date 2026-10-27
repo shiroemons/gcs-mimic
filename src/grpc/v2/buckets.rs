@@ -505,6 +505,7 @@ mod tests {
         (
             dir,
             Storage {
+                max_object_bytes: 1024 * 1024 * 1024,
                 state: Arc::new(State {
                     ready: AtomicBool::new(true),
                     clock: Arc::new(SystemClock),
