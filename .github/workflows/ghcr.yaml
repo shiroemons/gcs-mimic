@@ -13,7 +13,7 @@ defaults:
 env:
   VERSION: ${{ inputs.version }}
   BUILDKIT_IMAGE: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
-  SBOM_GENERATOR: docker/buildkit-syft-scanner:stable-1@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
+  SBOM_GENERATOR: docker/buildkit-syft-scanner:stable-1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315
 jobs:
   platform:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')

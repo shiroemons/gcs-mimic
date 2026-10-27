@@ -71,8 +71,8 @@ patch with a `toolchain` directive and its language series with an exact
 `go MAJOR.MINOR.0` directive. Keep both: Go removes a redundant toolchain directive
 when both specify the same patch. `actions/setup-go` reads the toolchain from
 `sdk-tests/go/go.mod`; local Go can select/download it with `GOTOOLCHAIN=auto`.
-The verified 2026-10-22 snapshot uses Go 1.27.3, Storage v1.70.0 and API client
-v0.307.0. These are dated inputs, not permanent version requirements.
+The verified 2026-10-27 snapshot uses Go 1.27.3, Storage v1.70.0 and API client
+v0.309.0. These are dated inputs, not permanent version requirements.
 
 Commit `go.mod` and `go.sum`. Go's minimum version selection uses the manifest's
 direct and indirect requirements; `go.sum` authenticates module content rather
@@ -107,7 +107,7 @@ Official sources checked on 2026-10-21:
 ## Official Ruby SDK example dependencies
 
 The local HTTPS scope adds `sdk-tests/ruby/Gemfile`, `Gemfile.lock` and
-`.ruby-version`. The verified 2026-10-23 inputs are Ruby 4.0.9, Bundler 4.0.23
+`.ruby-version`. The verified 2026-10-27 inputs are Ruby 4.0.9, Bundler 4.0.23
 and `google-cloud-storage` 1.62.1. Commit the complete lockfile, including
 checksums and `BUNDLED WITH`; do not infer the active Bundler version from the
 host default. Run the isolated client workflow from
@@ -205,14 +205,16 @@ Release gates require a successful check against the currently verified stable c
 
 ## Dependency status evidence
 
-The approved rusqlite update adopts 0.41.0 with defaults disabled and only
+The original rusqlite update adopted 0.41.0 with defaults disabled and only
 `bundled`, resolving libsqlite3-sys 0.39.0 and SQLite 3.54.0. No application API
 or catalog schema change is required. The registry and distributed crate declare
 Rust 1.89.0 despite the release notes mentioning 1.88.0; the tested project pin
 remains 1.99.1. Package provenance, build changes and old-catalog compatibility
 are recorded in the [migration evidence](evidence/rusqlite-update.md).
-The [freshness check](evidence/rusqlite-dependencies.txt) still exits 1 for the
-existing distroless digest update; this migration does not resolve that gate.
+Its [historical freshness check](evidence/rusqlite-dependencies.txt) exited 1
+for a distroless digest update adopted later. The 2026-10-27 refresh retains
+rusqlite 0.41.0 and advances the binding to 0.39.1, bundling SQLite 3.54.1;
+see the current [refresh evidence](evidence/dependency-refresh.md).
 
 The V4 signed-download slice promotes the already locked TLS transitive dependency
 `ring` 0.17.14 to a direct dependency for RSASSA-PKCS1-v1_5 SHA-256 signing,
@@ -269,6 +271,11 @@ its amd64/arm64 platform manifests are unchanged. The final online
 [freshness check](evidence/object-media-dependencies.txt) exits 0 with every input CURRENT.
 
 Maintain a machine-readable dependency status record containing checked_at_utc, toolchain channel/exact version, edition, declared rust-version, package current/latest version, source URL, resolution constraints, Docker digest per platform and any exception reference. Store actual command/test evidence with the change.
+
+The [2026-10-27 refresh](evidence/dependency-refresh.md) updates the Go API
+client, compatible Cargo/Ruby transitive dependencies and the workflow's SBOM
+scanner digest. The [snapshot](../../compatibility/dependency-status.json)
+and committed lockfiles record these inputs; no direct dependency is added.
 
 Report the difference between “no update found,” “update available,” “candidate tests failing,” and “update merged.” Never mark a dependency current merely because the scheduled job ran.
 

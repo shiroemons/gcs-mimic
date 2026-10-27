@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-24T16:13:40Z",
-  "scope": "Container base image refresh: the distroless/cc-debian13:nonroot index and its linux/amd64 and linux/arm64 manifests, and the rust:1.99.1-slim-trixie index digest whose linux/amd64 and linux/arm64 manifests are unchanged. Rust, Go, Ruby, Action and crate inputs, feature implementation status and catalog schema are unchanged.",
+  "checked_at_utc": "2026-10-27T04:04:15Z",
+  "scope": "Dependency refresh: Go API client v0.309.0, compatible Cargo and Ruby transitive updates, and the BuildKit SBOM scanner stable-1 index and platform digests. Compiler, direct Rust/Ruby libraries, Go Storage SDK, Dockerfile inputs, feature implementation status and catalog schema are unchanged.",
   "freshness_check": {
     "command": "just check-dependencies",
     "exit_code": 0,
     "result": "CURRENT",
-    "artifact": "docs/en/evidence/container-base-update-dependencies.txt",
-    "follow_up": "All checked inputs are CURRENT, including the refreshed distroless and Rust build image digests. Earlier rusqlite migration results remain in docs/en/evidence/rusqlite-update.md."
+    "artifact": "docs/en/evidence/dependency-refresh.md",
+    "follow_up": "All 39 checked inputs are CURRENT; no freshness exceptions remain. Compatible transitive updates and validation are recorded in docs/en/evidence/dependency-refresh.md and the committed lockfiles."
   },
   "toolchain": {
     "channel": "stable",
@@ -126,9 +126,9 @@
       "purpose": "Indexed transactional bucket/object catalog with bundled SQLite, durable generation allocation, WAL recovery and atomic mutation preconditions.",
       "features": ["bundled"],
       "maintenance": "Official publisher repository is not archived; last push 2026-10-24T10:36:00Z. Latest non-yanked stable checked from the official Cargo index on 2026-10-24; crate published 2026-10-24T10:35:41Z and publisher release at 10:36:00Z.",
-      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.41.0.crate", "https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0", "https://api.github.com/repos/rusqlite/rusqlite", "https://index.crates.io/li/bs/libsqlite3-sys", "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.39.0.crate"],
+      "source_urls": ["https://index.crates.io/ru/sq/rusqlite", "https://static.crates.io/crates/rusqlite/rusqlite-0.41.0.crate", "https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0", "https://api.github.com/repos/rusqlite/rusqlite", "https://index.crates.io/li/bs/libsqlite3-sys", "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.39.1.crate", "https://www.sqlite.org/releaselog/3_54_1.html"],
       "source_sha256": "9c026b4444579e8d754556c6c75d040d69c4a44283cdb648ab8a8d5965c2cfa8",
-      "resolution_constraints": "Default features disabled; bundled SQLite only (implies modern_sqlite). Cargo.lock changes only rusqlite 0.40.2 to 0.41.0 and required libsqlite3-sys 0.38.2 to 0.39.0, bundling SQLite 3.53.2 to 3.54.0. libsqlite3-sys is MIT, 2759088 compressed bytes, Rust 1.88.0, non-yanked, SHA-256 b0e7f1cd558a82cc3af091ed13f0f03846f89851c60a10713ce5cfd484195494. The rusqlite release mentions Rust 1.88.0, but both registry and distributed manifests declare 1.89.0; the project remains on tested Rust 1.99.1. No cache, pooling, SQLCipher, bindgen, WASM or Rust extension features added. See docs/en/evidence/rusqlite-update.md for API/build changes and catalog compatibility."
+      "resolution_constraints": "Default features disabled; bundled SQLite only (implies modern_sqlite). The 2026-10-27 refresh keeps rusqlite 0.41.0 and resolves libsqlite3-sys 0.39.1, bundling SQLite 3.54.1. libsqlite3-sys is MIT, 2759388 compressed bytes, Rust 1.88.0, non-yanked, SHA-256 14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3. The rusqlite release mentions Rust 1.88.0, but both registry and distributed manifests declare 1.89.0; the project remains on tested Rust 1.99.1. No cache, pooling, SQLCipher, bindgen, WASM or Rust extension features added. See docs/en/evidence/rusqlite-update.md for the original API/build migration and docs/en/evidence/dependency-refresh.md for the patch refresh."
     },
     {
       "name": "bytes", "current": "1.12.1", "latest_non_yanked_stable": "1.12.1",
@@ -239,10 +239,10 @@
       {
         "repository": "docker/buildkit-syft-scanner", "reference": "docker/buildkit-syft-scanner:stable-1",
         "tag": "stable-1", "latest_tag": "stable-1",
-        "digest": "sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9",
+        "digest": "sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
         "platforms": {
-          "linux/amd64": "sha256:187e1892a7752c9384c59aba9517dd8e40610b748c72773e87b63720514463c2",
-          "linux/arm64": "sha256:d802508fd7d9841805c8e616c9965c5dbca0c6c415093ed506309d1c58bdd6c8"
+          "linux/amd64": "sha256:10a413da6b52acacf4af4262eafeae6ca05076fbd65850ad7f233163c6d6a81c",
+          "linux/arm64": "sha256:eecdb89c2cd84b80868ea748063edb7225576994dbeac439c6b831092eeb4bff"
         },
         "source_url": "https://github.com/docker/buildkit-syft-scanner",
         "purpose": "Pinned official BuildKit SBOM generator; stable-1 replacement is checked daily."
@@ -254,7 +254,7 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-23T08:44:11Z",
+      "checked_at_utc": "2026-10-27T04:04:15Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
@@ -284,27 +284,27 @@
           "source_urls": ["https://proxy.golang.org/golang.org/x/oauth2/@v/list", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.info", "https://proxy.golang.org/golang.org/x/oauth2/@v/v0.37.0.mod", "https://raw.githubusercontent.com/golang/oauth2/v0.37.0/LICENSE"]
         },
         {
-          "name": "google.golang.org/api", "current": "v0.308.0",
-          "latest_non_retracted_stable": "v0.308.0", "license": "BSD-3-Clause",
-          "compressed_module_bytes": 52400260, "minimum_go": "1.26.0",
+          "name": "google.golang.org/api", "current": "v0.309.0",
+          "latest_non_retracted_stable": "v0.309.0", "license": "BSD-3-Clause",
+          "compressed_module_bytes": 52469611, "minimum_go": "1.26.0",
           "purpose": "Official client options, pagination and JSON API error types.",
-          "maintenance": "Google-maintained generated client module, released 2026-10-22; latest stable, non-prerelease and non-retracted status verified on 2026-10-23. BSD-3-Clause LICENSE is byte-identical to v0.307.0.",
-          "source_revision": "5767912fa9673119eee358c714d9cb93f0ff1ba5",
+          "maintenance": "Google-maintained generated client module, published 2026-10-26; latest stable, non-prerelease and non-retracted status verified on 2026-10-27. BSD-3-Clause license is unchanged.",
+          "source_revision": "e7015502b05a4d306a3db5e8bea8686590ece244",
           "source_urls": [
             "https://proxy.golang.org/google.golang.org/api/@latest",
-            "https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.info",
-            "https://proxy.golang.org/google.golang.org/api/@v/v0.308.0.mod",
-            "https://github.com/googleapis/google-api-go-client/releases/tag/v0.308.0",
-            "https://github.com/googleapis/google-api-go-client/tree/5767912fa9673119eee358c714d9cb93f0ff1ba5"
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.309.0.info",
+            "https://proxy.golang.org/google.golang.org/api/@v/v0.309.0.mod",
+            "https://github.com/googleapis/google-api-go-client/releases/tag/v0.309.0",
+            "https://github.com/googleapis/google-api-go-client/tree/e7015502b05a4d306a3db5e8bea8686590ece244"
           ]
         }
       ],
-      "resolution_constraints": "go.mod and go.sum record the graph. Storage v1.70.0 requires the stable auth v0.24.1, replacing the earlier auth pseudo-version; transitive versions follow upstream requirements. OAuth2 v0.37.0 was already present in the committed direct SDK requirements; this snapshot now records it explicitly. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+      "resolution_constraints": "API v0.309.0 changes only its module version and checksums; the existing indirect graph, Storage v1.70.0, OAuth2 v0.37.0 and Go requirement remain unchanged. go.mod and go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
     },
     {
       "ecosystem": "ruby",
       "manifest": "sdk-tests/ruby/Gemfile",
-      "checked_at_utc": "2026-10-23T08:44:11Z",
+      "checked_at_utc": "2026-10-27T04:04:15Z",
       "toolchain": {
         "version": "4.0.9",
         "pin": "sdk-tests/ruby/.ruby-version",
@@ -330,7 +330,7 @@
           "source_urls": ["https://rubygems.org/api/v1/versions/google-cloud-storage.json", "https://rubygems.org/api/v2/rubygems/google-cloud-storage/versions/1.62.1.json", "https://rubygems.org/gems/google-cloud-storage-1.62.1.gem", "https://github.com/googleapis/google-cloud-ruby/tree/main/google-cloud-storage"]
         }
       ],
-      "resolution_constraints": "Gemfile uses exact direct pins and the official RubyGems registry; Gemfile.lock commits the complete graph, checksums, Ruby version and BUNDLED WITH version. The daily detector reads the real manifest, resolved direct lockfile pins, Bundler pin and .ruby-version, then compares official stable releases including new majors without requiring Ruby or Bundler on the checker host. RubyGems versions metadata excludes prereleases and yanked versions. Rails Active Storage remains a separate acceptance scope."
+      "resolution_constraints": "Gemfile keeps its exact direct pin. The 2026-10-27 full Bundler resolution updates only faraday 2.15.0 to 2.15.1, google-apis-storage_v1 0.69.0 to 0.70.0 and pstore 0.2.1 to 0.3.0; official RubyGems metadata confirms each is stable and not yanked. Gemfile.lock commits the complete graph, checksums, Ruby version and BUNDLED WITH version. Daily checks cover the exact Ruby, Bundler and direct SDK pins; Rails Active Storage remains a separate scope."
     }
   ],
   "github_actions": [

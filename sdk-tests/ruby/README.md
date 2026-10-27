@@ -4,11 +4,16 @@
 
 This scoped local HTTP/HTTPS journey pins Ruby 4.0.9, Bundler 4.0.23 and
 `google-cloud-storage` 1.62.1, verified against official release metadata on
-2026-10-23. The SDK uses Apache-2.0; Bundler uses MIT. `Gemfile.lock` pins the
+2026-10-27. The SDK uses Apache-2.0; Bundler uses MIT. `Gemfile.lock` pins the
 complete dependency graph and RubyGems checksums. The SDK's generated storage
 client and Faraday transport are locked transitively; no additional direct gem
 is needed. The historical runner name remains `https.rb`. This covers the basic
 API milestone and local transport, rather than full Ruby or Rails compatibility.
+
+The 2026-10-27 refresh resolves Faraday 2.15.1, generated Storage client 0.70.0
+and PStore 0.3.0 within the existing SDK requirements. No direct gem or harness
+change was required. The [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md)
+records release review and the full Go/Ruby check.
 
 Install the pinned Ruby and Bundler using your preferred version manager, then:
 

@@ -2,6 +2,17 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
+## SDK API client update: 2026-10-27
+
+Current pins are Go 1.27.3, Storage v1.70.0, API v0.309.0 and OAuth2 v0.37.0.
+`GOTOOLCHAIN=auto go get google.golang.org/api@v0.309.0` and `go mod tidy`
+update only the API client and its two checksums. The indirect graph and
+Go requirement remain unchanged. Official release notes describe regenerated
+Discovery clients; no harness migration was required. The full `just check-sdk`
+passed Go vet, every Go test and the Ruby permissive/strict journeys.
+See the [dependency refresh evidence](../../docs/en/evidence/dependency-refresh.md).
+Historical sections below retain their original pins and results.
+
 ## SDK API client update: 2026-10-23
 
 Current pins are Go 1.27.3, Storage v1.70.0, API v0.308.0 and OAuth2 v0.37.0.
