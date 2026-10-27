@@ -10,7 +10,7 @@ No storage, startup, authentication or dependency changes are required.
 | Case | Required behavior |
 | --- | --- |
 | RUBY-DEFAULT-CREATE-FILE-CONTENT-TYPE | High-level `create_file(StringIO, extensionless_name)` without `content_type` accepts the SDK's empty X-Upload-Content-Type as absent; the existing absent-header fallback remains application/octet-stream. Nonempty invalid MIME values still return 400. |
-| RUBY-DEFAULT-CREATE-BUCKET | High-level `create_bucket(name)` without optional arguments accepts autoclass enabled:false as absent. Empty/null Autoclass settings are also absent. Any other Autoclass meaning returns 501 notImplemented, and responses never advertise Autoclass. |
+| RUBY-DEFAULT-CREATE-BUCKET | High-level `create_bucket(name)` without optional arguments accepts autoclass enabled:false as absent. Empty/null Autoclass settings are also absent. Any other Autoclass meaning returns 400 badRequest, and responses never advertise Autoclass. |
 | RUBY-DEFAULT-COMPOSE | High-level `compose(sources, name)` without optional arguments accepts deleteSourceObjects:null as false and destination:null as an omitted destination. Sources survive, bytes concatenate and existing destination defaults apply. True retains hard deletion; malformed and unsupported inputs retain their existing errors. |
 | RUBY-DEFAULT-SUITE | The pinned Ruby suite uses these high-level default calls, including migration create_file, without the three workarounds. Existing checksum, cleanup and origin guards remain enabled. |
 

@@ -441,7 +441,7 @@ if [[ $reference_only == 0 ]]; then
           .status == (if .case == "patch-malformed" then 400
             elif .case == "patch-missing" then 404
             elif (.case | startswith("patch-unsupported-")) or .case == "patch-predefined-acl"
-              or .case == "patch-predefined-default-acl" or .case == "patch-user-project" then 501
+              or .case == "patch-predefined-default-acl" or .case == "patch-user-project" then 400
             elif .case == "patch-match-stale" or .case == "patch-notmatch-failure" then 412
             else 200 end))
         and (resource($rows; "patch-label-add").labels == {keep:"one",remove:"two"})
@@ -599,7 +599,7 @@ if [[ $reference_only == 0 ]]; then
             elif .case == "put-projection-invalid" or .case == "put-generation" then [400,"invalidParameter"]
             elif .case == "put-missing" then [404,"notFound"]
             elif (.case | startswith("put-unsupported-")) or .case == "put-nonempty-acl" or .case == "put-default-acl"
-              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then [501,"notImplemented"]
+              or .case == "put-predefined-acl" or .case == "put-predefined-default-acl" or .case == "put-user-project" then [400,"badRequest"]
             elif .case == "put-match-stale" or .case == "put-notmatch-failure" then [412,"conditionNotMet"]
             else [200,null] end) as $expected
           | .status == $expected[0]

@@ -87,11 +87,13 @@ impl Error {
         }
     }
 
-    pub fn unsupported() -> Self {
+    pub fn unsupported(name: &str) -> Self {
         Self::new(
-            StatusCode::NOT_IMPLEMENTED,
-            "NotImplemented",
-            "The requested functionality is not implemented.",
+            StatusCode::BAD_REQUEST,
+            "InvalidArgument",
+            format!(
+                "gcs-mimic does not support XML API {name}; omit this option or use a supported operation (for example, GET /BUCKET/OBJECT without extra query parameters)."
+            ),
         )
     }
 
@@ -134,7 +136,6 @@ impl From<JsonError> for Error {
             StatusCode::NOT_FOUND => "NoSuchKey",
             StatusCode::PRECONDITION_FAILED => "PreconditionFailed",
             StatusCode::RANGE_NOT_SATISFIABLE => "InvalidRange",
-            StatusCode::NOT_IMPLEMENTED => "NotImplemented",
             StatusCode::SERVICE_UNAVAILABLE => "ServiceUnavailable",
             _ => "InvalidArgument",
         };
@@ -363,17 +364,19 @@ pub(crate) fn route(
     Some((|| {
         json::validate_bucket_name_for_profile(&bucket, config.compat_profile)?;
         if !matches!(*method, Method::GET | Method::HEAD | Method::PUT) || name.is_empty() {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(&format!(
+                "{method} route; use GET, HEAD or PUT on /BUCKET/OBJECT"
+            )));
         }
         let name = json::decode(name, false)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
         if *method == Method::PUT
-            && query
+            && let Some(key) = query
                 .keys()
-                .any(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+                .find(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
         {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(key));
         }
         let generation = query
             .remove("generation")
@@ -400,22 +403,16 @@ pub(crate) fn route(
                 let value = HeaderValue::from_str(&value)
                     .ok()
                     .filter(|value| value.to_str().is_ok())
-                    .ok_or_else(|| {
-                        Error::new(
-                            StatusCode::NOT_IMPLEMENTED,
-                            "NotImplemented",
-                            "Response override cannot be represented as a text XML header.",
-                        )
-                    })?;
+                    .ok_or_else(|| Error::unsupported(parameter))?;
                 response_overrides.insert(header, value);
             }
         }
         // Authentication validates credential fields from the original URI before using this operation.
-        if query
+        if let Some(key) = query
             .keys()
-            .any(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+            .find(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
         {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(key));
         }
         Ok(ReadRequest {
             bucket,
@@ -499,7 +496,7 @@ pub(crate) fn headers(headers: &HeaderMap, request: &mut ReadRequest) -> Result<
                     | "if-range"
             )
         {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(key));
         }
     }
     for (key, target, zero) in [
@@ -619,21 +616,17 @@ pub(crate) fn media_headers(
     for (key, value) in &record.metadata {
         let key =
             HeaderName::from_bytes(format!("x-goog-meta-{key}").as_bytes()).map_err(|_| {
-                Error::new(
-                    StatusCode::NOT_IMPLEMENTED,
-                    "NotImplemented",
-                    "Custom metadata cannot be represented as XML headers.",
-                )
+                Error::unsupported(&format!(
+                    "custom metadata key {key}; use JSON metadata reads"
+                ))
             })?;
         let value = HeaderValue::from_str(value).map_err(|_| {
-            Error::new(
-                StatusCode::NOT_IMPLEMENTED,
-                "NotImplemented",
-                "Custom metadata cannot be represented as XML headers.",
-            )
+            Error::unsupported(&format!(
+                "custom metadata value for {key}; use JSON metadata reads"
+            ))
         })?;
         if headers.contains_key(&key) {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(key.as_str()));
         }
         headers.insert(key, value);
     }

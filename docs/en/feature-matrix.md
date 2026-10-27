@@ -934,8 +934,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 11 |
-| DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 3 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 12 |
+| DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storage workflows | NOT_STARTED | P2 | PROJECT | NONE | 0 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-086 | Python official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |

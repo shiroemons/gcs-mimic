@@ -167,7 +167,7 @@ fn pap_invalid_and_unsupported_settings_preserve_resources() {
                 } else {
                     BUCKET
                 };
-                server.request(method,path,ADMIN,json!({"name":"invalid-pap","iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}}).to_string().as_bytes()).error(501,"notImplemented");
+                server.request(method,path,ADMIN,json!({"name":"invalid-pap","iamConfiguration":{field:value,"publicAccessPrevention":"enforced"}}).to_string().as_bytes()).error(400,"badRequest");
                 assert_eq!(server.get(ADMIN, BUCKET).ok().json(), before);
             }
         }

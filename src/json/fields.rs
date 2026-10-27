@@ -144,9 +144,11 @@ fn invalid(message: impl Into<String>) -> JsonError {
 
 fn unsupported(name: &str) -> JsonError {
     JsonError::new(
-        hyper::StatusCode::NOT_IMPLEMENTED,
-        "notImplemented",
-        format!("Unsupported JSON API semantics: {name}"),
+        hyper::StatusCode::BAD_REQUEST,
+        "badRequest",
+        format!(
+            "gcs-mimic does not support JSON API selector {name}; omit fields or select a supported field (for example, fields=name)."
+        ),
     )
 }
 
@@ -292,10 +294,14 @@ mod tests {
             let error = Fields::parse(selector, "Objects").unwrap_err();
             assert_eq!(
                 (error.status.as_u16(), error.reason),
-                (501, "notImplemented"),
+                (400, "badRequest"),
                 "{selector}"
             );
-            assert!(error.message.starts_with("Unsupported JSON API semantics:"));
+            assert!(
+                error
+                    .message
+                    .starts_with("gcs-mimic does not support JSON API selector")
+            );
         }
     }
 

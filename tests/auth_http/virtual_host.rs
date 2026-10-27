@@ -7,6 +7,27 @@ const DOMAIN: &str = "storage.example.invalid";
 const BUCKET: &str = "dotted.bucket";
 
 #[test]
+fn virtual_host_xml_objects_keep_known_google_route_names() {
+    let (_config, _data, server) = configured_fixture(&["--xml-virtual-host-domains", DOMAIN]);
+    server
+        .upload(ADMIN, BUCKET, "storage/v1/b/x/acl", b"explicit XML object")
+        .ok();
+    assert_eq!(
+        request(
+            &server,
+            "GET",
+            &format!("{BUCKET}.{DOMAIN}"),
+            "/storage/v1/b/x/acl",
+            VIEWER,
+            b""
+        )
+        .ok()
+        .body,
+        b"explicit XML object"
+    );
+}
+
+#[test]
 fn public_origin_ready_reports_normalized_dns_ip_and_unset_values() {
     for (base, expected, enabled) in [
         (None, None, false),
@@ -487,13 +508,13 @@ fn public_origin_legacy_host_matrix_selects_resource_and_preserves_reserved_rout
         );
         error(
             &request(&server, "DELETE", &authority, "/new", ADMIN, b""),
-            501,
-            "NotImplemented",
+            400,
+            "InvalidArgument",
         );
         error(
             &request(&server, "GET", &authority, "/", ADMIN, b""),
-            501,
-            "NotImplemented",
+            400,
+            "InvalidArgument",
         );
         error(
             &request(&server, "GET", &authority, "/missing", VIEWER, b""),
@@ -1087,8 +1108,8 @@ fn virtual_host_reads_puts_raw_paths_and_strict_permissions_match_path_style() {
     request(&server, "PUT", &host, "/new", &format!("{ADMIN}x-goog-if-generation-match: {generation}\r\nx-goog-if-metageneration-match: 1\r\n"), b"condition bytes").ok();
     error(
         &request(&server, "GET", &host, "/", ADMIN, b""),
-        501,
-        "NotImplemented",
+        400,
+        "InvalidArgument",
     );
     error(
         &request(&server, "GET", &host, "/bad%GG", ADMIN, b""),
@@ -1208,7 +1229,7 @@ fn virtual_host_is_opt_in_and_never_uses_forwarded_hosts_or_json_dispatch() {
     );
     assert_eq!(
         request(&disabled, "GET", &host, "/object", VIEWER, b"").status,
-        501
+        400
     );
 }
 

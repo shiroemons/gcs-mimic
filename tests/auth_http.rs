@@ -453,10 +453,22 @@ fn auth_http_strict_rejects_anonymous_and_unsupported_credentials() {
     server
         .get("", "/storage/v1/b/INVALID/o/o")
         .error(400, "invalidParameter");
-    // Unknown routes keep 404 and probes stay unauthenticated, whatever the credentials.
+    // Known unsupported routes validate credentials; unknown routes and probes retain their handling.
+    server
+        .request(
+            "POST",
+            "/storage/v1/b/bucket-a/o",
+            "Authorization: Bearer unknown\r\n",
+            b"{}",
+        )
+        .invalid_credentials();
     for auth in ["", "Authorization: Bearer unknown\r\n", ADMIN] {
-        let reply = server.request("POST", "/storage/v1/b/bucket-a/o", auth, b"{}");
-        assert_eq!(reply.status, 404);
+        if auth != "Authorization: Bearer unknown\r\n" {
+            server
+                .request("POST", "/storage/v1/b/bucket-a/o", auth, b"{}")
+                .error(400, "badRequest");
+        }
+        assert_eq!(server.get(auth, "/storage/v1/unknown").status, 404);
         assert_eq!(server.get(auth, "/INVALID").status, 404);
         assert_eq!(server.get(auth, "/_internal/ready").status, 200);
         assert_eq!(server.get(auth, "/_internal/health").status, 200);

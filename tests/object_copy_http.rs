@@ -324,7 +324,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         "dropContextGroups=custom",
         "prettyPrint=true",
     ] {
-        copy(&server, "source", "target", &format!("?{query}"), b"").error(501, "notImplemented");
+        copy(&server, "source", "target", &format!("?{query}"), b"").error(400, "badRequest");
     }
     for query in [
         "sourceGeneration=0",
@@ -343,7 +343,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
         br#"{"unknown":true}"#,
         br#"{"generation":"1"}"#,
     ] {
-        copy(&server, "source", "target", "", body).error(501, "notImplemented");
+        copy(&server, "source", "target", "", body).error(400, "badRequest");
     }
     copy(&server, "source", "target", "", b"invalid").error(400, "parseError");
     copy(&server, "missing", "target", "", b"").error(404, "notFound");
@@ -385,7 +385,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
                 header,
                 b"",
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     server.get("target").error(404, "notFound");
     assert_no_transfer_files(&dir);

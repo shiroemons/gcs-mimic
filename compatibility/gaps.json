@@ -14,6 +14,17 @@
       "required_resolution": "Obtain authoritative clarification or opted-in provider evidence before claiming exact normalization and error-detail parity; keep the broad operation PARTIAL."
     },
     {
+      "id": "SPEC-SDK-UNSUPPORTED",
+      "title": "Non-retryable emulator rejection of unsupported Google semantics",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-082", "DESIGN-083"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://docs.cloud.google.com/storage/docs/xml-api/reference-status", "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/invoke.go"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Google documents 400 badRequest for requests incompatible with current settings and XML 400 InvalidArgument. Go v1.70.0 ShouldRetry retries all 5xx, including 501. The local contract uses JSON 400 badRequest and XML 400 InvalidArgument for recognized unsupported semantics and pinned unimplemented Google routes in both profiles; genuine missing resources and unknown paths retain 404. Acceptance: docs/en/slices/sdk-unsupported-fail-fast.md.",
+      "required_resolution": "Retain this explicit emulator deviation while these features are unsupported. Replace each rejection with independently verified implementation in its own slice; do not claim provider-exact errors for valid Google requests."
+    },
+    {
       "id": "SPEC-LIST-GLOB-EDGES",
       "title": "Object listing glob empty inputs and error details",
       "status": "OPEN",

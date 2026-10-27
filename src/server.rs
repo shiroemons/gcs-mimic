@@ -63,6 +63,7 @@ mod copy;
 mod resumable;
 #[path = "server/rewrite.rs"]
 mod rewrite;
+mod unsupported;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ObjectActivity {
@@ -382,6 +383,21 @@ async fn respond_routed(
             .authenticate(request.headers(), request.uri().query())
             .map_err(JsonError::from)
     };
+    if selected.is_none()
+        && let Some(route) = unsupported::route(request.method(), request.uri())
+    {
+        return boxed(
+            authenticate()
+                .and_then(|_| {
+                    Err(JsonError::new(
+                        StatusCode::BAD_REQUEST,
+                        "badRequest",
+                        format!("gcs-mimic does not support Google JSON API route {route}; remove this API call and use a supported operation (for example, GET /storage/v1/b/BUCKET/o)."),
+                    ))
+                })
+                .unwrap_or_else(JsonError::into_response),
+        );
+    }
     if let Some(parsed) = xml::route(request.method(), config, selected) {
         let head = request.method() == Method::HEAD;
         let put = request.method() == Method::PUT;

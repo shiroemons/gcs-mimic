@@ -49,7 +49,7 @@ The Ruby SDK's ordinary high-level calls now accept no-op wire defaults:
 | Ruby call | gcs-mimic behavior |
 | --- | --- |
 | `create_file(StringIO, extensionless_name)` without content_type | Empty upload MIME is treated as absent; contentType defaults to application/octet-stream. Nonempty invalid MIME still returns 400. |
-| `create_bucket(name)` without optional arguments | Disabled, empty or null Autoclass is treated as absent, with no Autoclass response property. Enabled or additional Autoclass settings still return 501; omit them or use enabled:false. |
+| `create_bucket(name)` without optional arguments | Disabled, empty or null Autoclass is treated as absent, with no Autoclass response property. Enabled or additional Autoclass settings return 400 badRequest; omit them or use enabled:false. |
 | `compose(sources, name)` without optional arguments | Null deletion/destination uses ordinary non-destructive composition and destination defaults. Explicit true retains hard source deletion. |
 
 These are the scoped [Ruby defaults](slices/sdk-ruby-defaults.md), not Autoclass
@@ -266,11 +266,16 @@ with no skipped profile. The reference is release `v1.56.1`, commit
 
 | Operation | Executed result | Remaining difference |
 | --- | --- | --- |
-| Create by name | Source-valid names, omitted project, duplicates and failed-state preservation pass; both settings persist and affect HTTP object mutations | Native requires project/Google-oriented names. Profile retains strict project ownership, input bounds and 501 for unsupported protection; fs reference rejects versioning true |
+| Create by name | Source-valid names, omitted project, duplicates and failed-state preservation pass; both settings persist and affect HTTP object mutations | Native requires project/Google-oriented names. Profile retains strict project ownership, input bounds and 400 badRequest for unsupported protection; fs reference rejects versioning true |
 | Basic resource | Create/GET match in every target; profile emits both booleans and source US-CENTRAL1/project/ETag defaults; list items match profile GET; restart/migration and strict permissions pass | Millisecond timestamps, local parser messages, native list scoping/paging, 666-byte profile name cap and unsupported trailing collection slash |
 | Empty deletion | Profile returns exact 200 JSON null/newline and nonempty 412; native returns 204/409. Repeat/missing, recreate, protected histories and preserved object bytes pass | Atomic/history-aware delete and enforced holds intentionally exceed source live-only/no-hold behavior |
-| Bucket permission test | Go `IAM().TestPermissions` and Ruby `bucket.test_permissions` use the default calls; strict returns effective project/bucket grants and permissive returns all supported requested permissions | No permission is needed to call it. Project-only create/list names return 400; other unsupported permissions and billing return 501. Provider error parity and expanded ACL/UBLA/PAP controls remain pending; [contract and evidence](slices/sdk-test-permissions.md) |
+| Bucket permission test | Go `IAM().TestPermissions` and Ruby `bucket.test_permissions` use the default calls; strict returns effective project/bucket grants and permissive returns all supported requested permissions | No permission is needed to call it. Project-only create/list names return 400; other unsupported permissions and billing return 400 badRequest. Provider error parity and expanded ACL/UBLA/PAP controls remain pending; [contract and evidence](slices/sdk-test-permissions.md) |
 | Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Propagation/provider edge parity, retention and soft delete remain pending; temporary holds and custom time are covered by the object SDK slice |
+
+The table above retains earlier reference-comparison evidence. Its current
+400 badRequest rejection expectations were updated by the
+[fail-fast slice](slices/sdk-unsupported-fail-fast.md); the reference comparison
+script was not rerun for that slice.
 
 Source identities inspected at that revision are unchanged:
 

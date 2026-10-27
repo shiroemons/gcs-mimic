@@ -232,6 +232,14 @@ flowchart TD
   sdk-ruby-defaults --> sdk-test-permissions
   sdk-ruby-defaults --> sdk-active-storage-scenario
   sdk-active-storage-scenario --> sdk-acl-ubla
+  sdk-regional-locations
+  sdk-unsupported-fail-fast --> sdk-ubla-predefined-acl
+  sdk-unsupported-fail-fast --> sdk-lifecycle-config
+  sdk-unsupported-fail-fast --> sdk-object-move
+  sdk-unsupported-fail-fast --> sdk-soft-delete-restore
+  sdk-unsupported-fail-fast --> sdk-retention-policy
+  sdk-ubla-predefined-acl --> sdk-object-acl
+  sdk-lifecycle-config --> sdk-object-acl
 ```
 
 - `repo-lints` が入るまで、ほかのトラックのコードのスライスはマージしない（図には最初のコードのスライスへの辺だけを描いている）。
@@ -1010,7 +1018,9 @@ Go（`cloud.google.com/go/storage`）と Ruby（`google-cloud-storage`）を、�
 ### 決定
 
 既定値と同じ意味の入力（`enabled:false`、`null`、空文字のヘッダー、空の設定）は、指定なしと同じ扱いで受け付ける。
-意味が違う値（`enabled:true`、未対応のリージョンなど）は 501 `notImplemented` で断り、受け付けて無視しない。
+意味が違う値（`enabled:true`、未対応のリージョンなど）は 400 `badRequest` で断り、受け付けて無視しない。
+既知の未実装 Google JSON ルートも同じ応答とし、XML の未対応は 400 `InvalidArgument` に揃える。
+SDK の 5xx リトライとリソース不在の誤認を防ぐローカルの選択を SPEC-SDK-UNSUPPORTED に記録する。
 `null` を指定なしと扱う根拠は公式文書・Discovery で確認し、確認できなければ実装前に `compatibility/gaps.json` へ
 ローカルの選択として記録する。新しい設定キーは足さない。
 
@@ -1024,6 +1034,14 @@ Go（`cloud.google.com/go/storage`）と Ruby（`google-cloud-storage`）を、�
 | 2 | `sdk-test-permissions` | JSON-BUCKETS-012、DESIGN-028 | strict と同じ権限判定 | 段 1 |
 | 3 | `sdk-active-storage-scenario` | DESIGN-084 | Active Storage のシナリオを先に追加 | 段 1 |
 | 4 | `sdk-acl-ubla`（要分割） | JSON-OBJECTACCESSCONTROLS-*、DESIGN-019、BEHAVIOR-BUCKET-013 | object ACL・predefinedAcl・UBLA | 段 3 の結果 |
+| 5 | `sdk-unsupported-fail-fast` | DESIGN-082、DESIGN-083 | 未対応指定・既知ルートを 400 で断り、SDK の即時失敗を確認する | なし |
+| 5 | `sdk-regional-locations` | BEHAVIOR-BUCKET-003 | regional の Location でバケットを作成する | なし |
+| 6 | `sdk-ubla-predefined-acl` | DESIGN-019、BEHAVIOR-BUCKET-013 | UBLA・predefinedAcl を IAM・PAP と合わせて扱う | 段 5 の fail-fast |
+| 6 | `sdk-lifecycle-config` | BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定の検証と保存。実行は別の範囲として明記する | 段 5 の fail-fast |
+| 7 | `sdk-object-acl`（要分割） | JSON-OBJECTACCESSCONTROLS-*、DESIGN-019 | object ACL の権限・効果を検証する。着手前に分割する | 段 6 |
+| 7 | `sdk-object-move` | JSON-OBJECTS-009、BEHAVIOR-OBJECT-028 | 同一バケット内の原子的な move | 段 5 の fail-fast |
+| 8 | `sdk-soft-delete-restore` | BEHAVIOR-BUCKET-015、BEHAVIOR-OBJECT-030、BEHAVIOR-OBJECT-031、JSON-OBJECTS-011 | soft delete と一覧・復元 | 段 5 の fail-fast |
+| 8 | `sdk-retention-policy` | BEHAVIOR-OBJECT-036、JSON-BUCKETS-007 | 保持ポリシーとロックの効果を検証する | 段 5 の fail-fast |
 
 段 1 は、空の upload MIME、無効化した Autoclass、compose の null 既定値を正規化し、`https.rb` の該当する回避策を外す。
 段 2 のホールドは設定・解除とホールド中の削除・上書き拒否を扱い、customTime は設定と単調性を守る。
@@ -1035,8 +1053,8 @@ Rails の依存追加はオーナー承認が必要。段 4 は IAM・PAP と一
 
 ### 保留（困る例が出てから着手する）
 
-ライフサイクル、保持ポリシーとロック、soft delete と復元、move、CSEK・KMS、通知、HMAC・サービスアカウントは保留する。
-POST ポリシー、gRPC、Logging・Website・Autoclass・RPO・階層型名前空間・Requester Pays、regional の Location も保留する。
+CSEK・KMS、通知、HMAC・サービスアカウントは保留する。
+POST ポリシー、gRPC、Logging・Website・Autoclass・RPO・階層型名前空間・Requester Pays も保留する。
 
 ### 完了条件と対象外
 

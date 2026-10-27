@@ -46,7 +46,7 @@ fn ruby_default_create_bucket() {
                     .to_string()
                     .as_bytes(),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         assert_eq!(
             server
                 .request("GET", "/storage/v1/b/unsupported-autoclass", "", b"")
@@ -135,6 +135,6 @@ fn ruby_default_compose() {
         .json();
     assert_eq!(server.get("source").status, 404);
     server.request("POST", path, "Authorization: Bearer admin\r\n",
-        br#"{"sourceObjects":[{"name":"composed"}],"destination":{"acl":[]},"deleteSourceObjects":null}"#).error(501, "notImplemented");
+        br#"{"sourceObjects":[{"name":"composed"}],"destination":{"acl":[]},"deleteSourceObjects":null}"#).error(400, "badRequest");
     assert_eq!(server.get("composed").json()["size"], "3");
 }

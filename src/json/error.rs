@@ -78,17 +78,21 @@ impl JsonError {
 
     pub fn unsupported(name: &str) -> Self {
         Self::new(
-            StatusCode::NOT_IMPLEMENTED,
-            "notImplemented",
-            format!("Unsupported bucket API semantics: {name}"),
+            StatusCode::BAD_REQUEST,
+            "badRequest",
+            format!(
+                "gcs-mimic does not support bucket API setting {name}; omit this setting (for example, create a bucket with only name)."
+            ),
         )
     }
 
     pub fn unsupported_object(name: &str) -> Self {
         Self::new(
-            StatusCode::NOT_IMPLEMENTED,
-            "notImplemented",
-            format!("Unsupported object API semantics: {name}"),
+            StatusCode::BAD_REQUEST,
+            "badRequest",
+            format!(
+                "gcs-mimic does not support object API setting {name}; omit this option or header (for example, list objects without softDeleted=true)."
+            ),
         )
     }
 

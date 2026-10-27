@@ -331,7 +331,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
                 AUTH,
                 sources(&["a"]).to_string().as_bytes(),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for destination_body in [
         json!({"acl":[]}),
@@ -348,7 +348,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
             "destination",
             json!({"sourceObjects":[{"name":"a"}],"destination":destination_body}),
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     }
     server
         .request(

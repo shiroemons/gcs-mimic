@@ -784,7 +784,7 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
                 "name=existing",
                 &wire(value.to_string().as_bytes(), None, b"new", None),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for value in [
         json!({"temporaryHold":"true"}),
@@ -1128,7 +1128,7 @@ fn obj_multipart_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body
         ] {
             let mut stream = socket(&server.address);
             write!(stream,"POST /upload/storage/v1/b/test-bucket/o?uploadType=multipart{name}{query} HTTP/1.1\r\nHost: local\r\nContent-Type: multipart/related; boundary=boundary\r\nContent-Length: 9999\r\n{token}\r\n").unwrap();
-            Reply::read(stream).error(501, "notImplemented");
+            Reply::read(stream).error(400, "badRequest");
         }
         for headers in [
             "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),

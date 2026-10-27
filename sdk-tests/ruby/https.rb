@@ -5,6 +5,7 @@ require "date"
 require "digest"
 require "google/cloud/storage"
 require "ipaddr"
+require "json"
 require "net/http"
 require "securerandom"
 require "stringio"
@@ -129,6 +130,43 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       puts "ruby-regional-location passed"
     ensure
       regional_bucket&.delete
+    end
+    begin
+      # Use the SDK's default retry count for unsupported calls, independent of the transfer suite.
+      api.request_options.retries = 3
+      {
+        "autoclass" => -> { storage.create_bucket("sdk-ruby-unsupported-#{SecureRandom.hex(8)}", autoclass_enabled: true) },
+        "retentionPolicy" => -> { bucket.retention_period = 3600 },
+        "softDeleted" => -> { bucket.files(soft_deleted: true) },
+        "includeFoldersAsPrefixes" => -> { bucket.files(delimiter: "/", include_folders_as_prefixes: true) },
+        "bucket ACL" => -> { bucket.acl.reload! },
+        "default object ACL" => -> { bucket.default_acl.reload! },
+        "object ACL" => -> { bucket.file("missing", skip_lookup: true).acl.reload! },
+        "notifications" => -> { bucket.notifications },
+        "HMAC keys" => -> { storage.hmac_keys.to_a },
+        "serviceAccount" => -> { storage.service_account_email },
+        "move" => -> { bucket.move_file("missing", "destination") },
+        "restore" => -> { bucket.restore_file("missing", 1) },
+        "lockRetentionPolicy" => -> { bucket.lock_retention_policy! }
+      }.each do |name, call|
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        begin
+          call.call
+        rescue Google::Cloud::InvalidArgumentError, Google::Apis::ClientError => error
+          elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+          raise "#{name} waited for retries: #{elapsed}" unless elapsed < 3
+          api_error = error.is_a?(Google::Apis::ClientError) ? error : error.cause
+          unless api_error.status_code == 400 && JSON.parse(api_error.body).dig("error", "errors", 0, "reason") == "badRequest"
+            raise "#{name} differs from 400 badRequest: #{error.message}"
+          end
+          raise "#{name} lacks actionable diagnostics: #{error.message}" unless error.message.include?("gcs-mimic")
+          next
+        end
+        raise "#{name} unexpectedly succeeded"
+      end
+      puts "ruby-unsupported-fails-fast passed"
+    ensure
+      api.request_options.retries = 0
     end
     permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
     raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort

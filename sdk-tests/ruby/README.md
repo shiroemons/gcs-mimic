@@ -80,12 +80,14 @@ resumable chunks, downloads each result to disk with the SDK's CRC32C verificati
 and compares SHA-256. Composition concatenates two sources and verifies the
 result using bounded 64 KiB reads. The advertised session URL must retain the
 exact configured origin. Objects and bucket are deleted afterward.
-Every request has a ten-second timeout and automatic retries
-are disabled. Test fixtures are removed on success and failure.
+Every request has a ten-second timeout. Transfers disable automatic retries;
+the unsupported-call section restores the SDK's default three retries and
+requires 400 badRequest within three seconds, distinguishable from not
+found. Test fixtures are removed on success and failure.
 
 Bucket creation uses high-level `Project#create_bucket(name)` without optional
 arguments. The disabled Autoclass setting sent by the SDK is treated as absent;
-enabling Autoclass or supplying additional settings still returns 501.
+enabling Autoclass or supplying additional settings returns 400 badRequest.
 An extensionless `StringIO` upload uses `create_file` without `content_type` and
 verifies application/octet-stream and exact bytes. The migration scenario also
 omits `content_type` for its named text file.

@@ -286,7 +286,7 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         let request = format!(
             "PUT {OBJECT} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\nExpect: 100-continue\r\n{ADMIN}{header}\r\n\r\n"
         );
-        xml_error(&server.raw(request.as_bytes()), 501, "NotImplemented");
+        xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
         assert_eq!(snapshot(&server, &data), before, "{header}");
     }
     for query in [
@@ -304,7 +304,7 @@ fn xml_put_unsupported_inputs_fail_before_continue_and_preserve_state() {
         let request = format!(
             "PUT {OBJECT}?{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\nExpect: 100-continue\r\n{ADMIN}\r\n"
         );
-        xml_error(&server.raw(request.as_bytes()), 501, "NotImplemented");
+        xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
     }
     assert_eq!(snapshot(&server, &data), before);
     clean(&data);
@@ -409,8 +409,8 @@ fn xml_put_invalid_headers_and_checksums_preserve_entire_object() {
             &format!("{ADMIN}x-goog-hash: sha256=abcd\r\n"),
             b"replacement",
         ),
-        501,
-        "NotImplemented",
+        400,
+        "InvalidArgument",
     );
     let header = format!("{ADMIN}x-goog-meta-k: {}\r\n", "a".repeat(8192));
     xml_error(
@@ -809,7 +809,7 @@ fn xml_put_bucket_cors_covers_preflight_success_and_denials() {
         (ADMIN, "", 200, ""),
         (VIEWER, "", 403, "AccessDenied"),
         ("", "", 401, "AuthenticationRequired"),
-        (ADMIN, "x-goog-acl: private\r\n", 501, "NotImplemented"),
+        (ADMIN, "x-goog-acl: private\r\n", 400, "InvalidArgument"),
     ] {
         let reply = server.request("PUT", OBJECT, &format!("{auth}{origin}{extra}"), b"new");
         if status == 200 {

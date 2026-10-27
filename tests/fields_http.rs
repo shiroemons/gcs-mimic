@@ -238,7 +238,7 @@ fn fields_invalid_selectors_and_errors_never_filter_or_mutate() {
                 ADMIN,
                 b"",
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for path in [
         "/storage/v1/b/test-bucket?fields=name",
@@ -424,7 +424,7 @@ fn fields_delete_is_ignored_media_is_explicitly_unsupported_and_xml_unchanged() 
             "",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     let media = server.request("GET", "/storage/v1/b/test-bucket/o/file?alt=media", "", b"");
     assert_eq!(media.body, b"data");
     let xml = server.request("GET", "/test-bucket/file", "", b"");

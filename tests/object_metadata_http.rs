@@ -211,7 +211,7 @@ fn patch_merges_put_replaces_and_download_reflects_persistent_metadata() {
         );
         server
             .update("PATCH", "", json!({key:"changed"}))
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     let second = server
         .update("PATCH", "", json!({"metadata":{"drop":null,"add":"three"}}))
@@ -571,7 +571,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
                 "",
                 json!({"contentDisposition":"filename=日本語.txt"}),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         server
             .update(method, "", json!({"cacheControl":"private\tmax-age=0"}))
             .error(400, "invalidArgument");
@@ -620,7 +620,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         ] {
             server
                 .update(method, "", json!({field:null}))
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         for query in [
             "predefinedAcl=private",
@@ -629,7 +629,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         ] {
             server
                 .update(method, &format!("?{query}"), json!({}))
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         for query in [
             "generation=x",
@@ -685,7 +685,7 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             "/storage/v1/b/test-bucket/o/dir%2Ffile?alt=media",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     server
         .update("PATCH", "", json!({"cacheControl":"no-transform"}))
         .json();
@@ -722,10 +722,10 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
             "",
             json!({"contentDisposition":"attachment; filename=雪"}),
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     server
         .update("PATCH", "", json!({"metadata":{"":"value"}}))
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     let compressed = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\x4b\x4c\x4a\x06\x00\xc2\x41\x24\x35\x03\x00\x00\x00";
     let uploaded = server
         .request(
@@ -746,10 +746,10 @@ fn metadata_boundaries_encoding_negotiation_and_reupload_defaults() {
         ("gzip;q=1.0", 200),
         ("*", 200),
         ("br, gzip;q=0.1", 200),
-        ("gzip;q=0", 501),
-        ("*;q=1,gzip;q=0", 501),
-        ("gzip;q=0,*", 501),
-        ("*;q=0", 501),
+        ("gzip;q=0", 400),
+        ("*;q=1,gzip;q=0", 400),
+        ("gzip;q=0,*", 400),
+        ("*;q=0", 400),
         ("gzip;q=2", 400),
         ("gzip;q=oops", 400),
     ] {

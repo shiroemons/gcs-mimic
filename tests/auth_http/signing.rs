@@ -271,8 +271,8 @@ fn signed_tampering_never_falls_back_to_public_access_and_has_xml_errors() {
     );
     error(
         &send(&server, "GET", &override_url, ""),
-        501,
-        "NotImplemented",
+        400,
+        "InvalidArgument",
     );
     let valid = sign(
         &server,

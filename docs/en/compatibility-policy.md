@@ -83,6 +83,20 @@ For the selected feature, record the following before marking it implemented:
 
 A completed method needs all its declared acceptance children, not one passing happy path. Implementation source links improve review but do not replace executable evidence. Unit tests that mirror internal code are insufficient for wire compatibility.
 
+## Unsupported semantics
+
+Recognized but unsupported semantics fail with **400 `badRequest`** in the JSON
+API and **400 `InvalidArgument`** in the XML API. They never succeed silently.
+Known unimplemented Google JSON method/path combinations use the same JSON
+error instead of an ambiguous 404. Messages identify the setting or route and
+suggest a supported call or removal of an option. This deliberate emulator
+deviation avoids SDK retries of 501 and applies to both compatibility profiles.
+Implemented operations on missing resources still return 404 `notFound`, and
+unknown paths keep their existing handling. See the pinned route inventory,
+acceptance and evidence in [unsupported SDK calls](slices/sdk-unsupported-fail-fast.md)
+and SPEC-SDK-UNSUPPORTED in the gap ledger. This policy does not imply support
+for the rejected feature or provider-exact rejection of a valid Google request.
+
 ## Schema and generated views
 
 The Rust `xtask` validates unique IDs, enumerations, calendar dates, dependency references/cycles, counts, source provenance, fidelity and linked evidence. It generates `docs/en/feature-matrix.md` and `docs/ja/feature-matrix.md` deterministically, sorting categories/IDs and escaping table content. The companion title file must contain exactly the ledger IDs and no status. Kinds and achieved fidelity have separate summaries; SDK evidence counts remain per-row. Parameter/schema-field inventories are checked separately for counts, IDs, statuses and basic evidence presence. Detailed field semantics remain future conformance work.

@@ -361,7 +361,7 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
                     &format!("{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
                     b"",
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
     for path in [
@@ -371,7 +371,7 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             server
                 .request("GET", &path, header, b"")
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
     for (method, path, body) in [
@@ -395,7 +395,7 @@ fn json_etag_read_unsupported_lists_dates_and_writes() {
         for header in ["If-Match: *\r\n", "If-None-Match: *\r\n"] {
             server
                 .request(method, path, header, body)
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
     assert_eq!(server.get("", "").body, b"data");
@@ -545,7 +545,7 @@ fn json_etag_read_iam_policy_validators_preserve_fields_and_permissions() {
                 &format!("{admin}{name}: Wed, 21 Oct 2015 07:28:00 GMT\r\n"),
                 b"",
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     not_modified(
         &server,
@@ -690,7 +690,7 @@ fn json_etag_read_if_match_overrides_if_unmodified_since() {
             .error(412, "conditionNotMet");
         server
             .request("GET", &path, unmodified, b"")
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     server.stop();
 }

@@ -73,7 +73,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
                     | "trailer"
             )
         {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(name));
         }
     }
     let mut conditions = ObjectConditions::default();
@@ -102,7 +102,9 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
             ));
         }
         if conditions.if_generation_match.is_none() {
-            return Err(Error::unsupported());
+            return Err(Error::unsupported(
+                "x-goog-gcs-idempotency-token without x-goog-if-generation-match; add x-goog-if-generation-match: 0",
+            ));
         }
     }
     let length = single(headers, "content-length")?
@@ -121,7 +123,9 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
         .transpose()?;
     let chunked = single(headers, "transfer-encoding")?;
     if chunked.is_some_and(|value| !value.eq_ignore_ascii_case("chunked")) {
-        return Err(Error::unsupported());
+        return Err(Error::unsupported(
+            "transfer-encoding; use Transfer-Encoding: chunked",
+        ));
     }
     if chunked.is_some() && length.is_some() {
         return Err(Error::new(
@@ -153,7 +157,7 @@ fn headers(headers: &HeaderMap, max_bytes: u64, signed: bool) -> Result<Headers,
     // Checksum failures omit the algorithm; CRC32C codes await provider parity (SPEC-XML-PUT-EDGES).
     let (_, mut expected) =
         json::parse_object_upload_headers(&selected, conditions).map_err(|error| {
-            if error.status == StatusCode::NOT_IMPLEMENTED {
+            if error.reason == "badRequest" {
                 return Error::from(error);
             }
             Error::new(

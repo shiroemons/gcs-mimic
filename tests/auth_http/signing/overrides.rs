@@ -233,11 +233,11 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
             );
             for (url, auth) in [(&unsigned, ADMIN), (&signed, "")] {
                 let response = send(&server, method, url, auth);
-                assert_eq!(response.status, 501);
+                assert_eq!(response.status, 400);
                 if method == "HEAD" {
                     assert!(response.body.is_empty());
                 } else {
-                    error(&response, 501, "NotImplemented");
+                    error(&response, 400, "InvalidArgument");
                 }
             }
         }
@@ -274,7 +274,7 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
         "unknown",
     ] {
         let path = format!("{OBJECT}?{parameter}=value");
-        error(&server.get(ADMIN, &path), 501, "NotImplemented");
+        error(&server.get(ADMIN, &path), 400, "InvalidArgument");
         let url = sign(
             &server,
             &Method::GET,
@@ -283,7 +283,7 @@ fn xml_response_overrides_reject_injection_duplicates_and_unknown_names() {
             SystemTime::now(),
             HeaderMap::new(),
         );
-        error(&send(&server, "GET", &url, ""), 501, "NotImplemented");
+        error(&send(&server, "GET", &url, ""), 400, "InvalidArgument");
     }
     assert_eq!(server.get(ADMIN, METADATA).ok().json(), before);
 }

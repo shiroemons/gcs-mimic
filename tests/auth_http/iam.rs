@@ -90,7 +90,7 @@ fn test_permissions_validates_route_queries_and_response_fields() {
             "",
             &format!("{path}?permissions=storage.objects.getIamPolicy"),
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     let query = "permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.objects.get";
     assert_eq!(
         server
@@ -112,7 +112,7 @@ fn test_permissions_validates_route_queries_and_response_fields() {
     );
     server
         .get("", &format!("{path}?{query}&userProject=project-a"))
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     server
         .get("", &format!("{path}?{query}&unknown=true"))
         .error(400, "invalidParameter");
@@ -302,7 +302,7 @@ fn iam_permissive_policy_and_cas() {
         "",
         &json!({"bindings":[binding("roles/storage.admin", "group:local@example.invalid")]}),
     )
-    .error(501, "notImplemented");
+    .error(400, "badRequest");
     assert_eq!(server.get("", IAM).ok().json(), policy);
     server.stop();
     let (server, _) = Server::start(&data, &[]);
@@ -792,7 +792,7 @@ fn iam_rejects_unsupported_policy_semantics() {
             ADMIN,
             &json!({"bindings":[binding(role, "user:local")]}),
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     }
     for member in [
         "group:local@example.invalid",
@@ -806,7 +806,7 @@ fn iam_rejects_unsupported_policy_semantics() {
             ADMIN,
             &json!({"bindings":[binding("roles/storage.objectViewer", member)]}),
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     }
     for condition in [
         json!(null),
@@ -816,9 +816,9 @@ fn iam_rejects_unsupported_policy_semantics() {
     ] {
         let mut entry = binding("roles/storage.objectViewer", "user:local");
         entry["condition"] = condition;
-        set(&server, ADMIN, &json!({"bindings":[entry]})).error(501, "notImplemented");
+        set(&server, ADMIN, &json!({"bindings":[entry]})).error(400, "badRequest");
     }
-    set(&server, ADMIN, &json!({"auditConfigs":[]})).error(501, "notImplemented");
+    set(&server, ADMIN, &json!({"auditConfigs":[]})).error(400, "badRequest");
     assert_eq!(server.get(ADMIN, IAM).ok().json(), before);
 }
 
@@ -844,7 +844,7 @@ fn iam_rejects_queries_paths_and_bodies() {
         for query in ["userProject=project-a", "userProject=", "fields="] {
             server
                 .request(method, &format!("{IAM}?{query}"), ADMIN, b"")
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
     server

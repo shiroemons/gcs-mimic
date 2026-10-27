@@ -17,8 +17,8 @@ ACLs, UBLA or PAP are excluded. Existing authorization semantics remain unchange
 No permission is required to invoke this method. Strict credential validation
 still applies. Supported names are the existing operation permissions except
 project-only storage.buckets.create and storage.buckets.list. Other known Storage
-permissions return 501; unknown names return 400. Empty userProject is absent;
-nonempty userProject returns 501 because Requester Pays is unsupported.
+permissions return 400 badRequest; unknown names return 400. Empty userProject is absent;
+nonempty userProject returns 400 badRequest because Requester Pays is unsupported.
 
 ## Sources and local decisions
 

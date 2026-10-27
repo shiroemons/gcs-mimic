@@ -222,7 +222,7 @@ func TestV4RSASignedDownload(t *testing.T) {
 	request("HEAD", sign("HEAD", attrs.Name, query, nil), "", "", http.StatusOK, []byte{})
 	request("GET", signed+"&added=1", "", "", http.StatusForbidden, nil)
 	queryNames := sign("GET", attrs.Name, url.Values{"a": {"a b"}, "+": {"+"}, "é": {"日"}}, nil)
-	request("GET", queryNames, "", "", http.StatusNotImplemented, nil)
+	request("GET", queryNames, "", "", http.StatusBadRequest, nil)
 	request("GET", queryNames+"&tampered=1", "", "", http.StatusForbidden, nil)
 	request("GET", strings.Replace(signed, "generation="+fmt.Sprint(attrs.Generation), "generation=1", 1), "", "", http.StatusForbidden, nil)
 	request("GET", signed, "wrong.invalid:4443", "", http.StatusForbidden, nil)

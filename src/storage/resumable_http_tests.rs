@@ -539,7 +539,7 @@ async fn invalid_initiation_and_status_leave_no_session_or_file() {
             400,
         ),
         ("name=a", "Content-Type: text/plain\r\n", b"{}", 400),
-        ("name=a", "X-Goog-Upload-Command: start\r\n", b"", 501),
+        ("name=a", "X-Goog-Upload-Command: start\r\n", b"", 400),
         ("name=a", "X-Goog-Gcs-Idempotency-Token: \r\n", b"", 400),
         (
             "name=a",

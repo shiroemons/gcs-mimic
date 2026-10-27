@@ -617,7 +617,7 @@ fn xml_unsupported_operations_fail_before_reading_a_body() {
     ] {
         let request =
             format!("{method} {path} HTTP/1.1\r\nHost: local\r\nContent-Length: 999999\r\n\r\n");
-        xml_error(&server.raw(request.as_bytes()), 501, "NotImplemented");
+        xml_error(&server.raw(request.as_bytes()), 400, "InvalidArgument");
     }
     assert_eq!(server.get("", OBJECT).ok().body, b"hello world");
 }
@@ -728,8 +728,8 @@ fn xml_signatures_and_unsupported_headers_never_fall_back_to_public_access() {
     ] {
         xml_error(
             &server.get(&format!("{header}\r\n"), OBJECT),
-            501,
-            "NotImplemented",
+            400,
+            "InvalidArgument",
         );
     }
     server.get("Unknown-Header: ignored\r\n", OBJECT).ok();
@@ -770,13 +770,13 @@ fn xml_unrepresentable_or_case_colliding_custom_metadata_fails_explicitly() {
                 json!({"metadata":metadata}).to_string().as_bytes(),
             )
             .ok();
-        xml_error(&server.get("", OBJECT), 501, "NotImplemented");
+        xml_error(&server.get("", OBJECT), 400, "InvalidArgument");
         assert_eq!(
             server.get("", JSON_OBJECT).ok().json()["metadata"],
             metadata
         );
         let head = server.request("HEAD", OBJECT, "", b"");
-        assert_eq!(head.status, 501);
+        assert_eq!(head.status, 400);
         assert!(head.body.is_empty());
     }
 }
@@ -879,7 +879,7 @@ fn uniform_access_settings_fail_closed() {
                     .to_string()
                     .as_bytes(),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         for method in ["PATCH", "PUT"] {
             server
                 .request(
@@ -888,7 +888,7 @@ fn uniform_access_settings_fail_closed() {
                     ADMIN,
                     json!({"iamConfiguration":setting}).to_string().as_bytes(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
     assert_eq!(server.get(ADMIN, OBJECT).ok().body, b"hello world");

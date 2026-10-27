@@ -452,8 +452,8 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
     ] {
         let (status, value) =
             server.request("GET", &format!("/storage/v1/b/test-bucket/o?{query}"), "");
-        assert_eq!(status, 501, "{query}: {value}");
-        assert_eq!(value["error"]["errors"][0]["reason"], "notImplemented");
+        assert_eq!(status, 400, "{query}: {value}");
+        assert_eq!(value["error"]["errors"][0]["reason"], "badRequest");
     }
     let (status, value) = server.request("GET", "/storage/v1/b/missing/o", "");
     assert_eq!(status, 404);
@@ -467,12 +467,9 @@ fn object_list_invalid_unsupported_and_missing_bucket_errors() {
             .0,
         405
     );
-    assert_eq!(
-        server
-            .request("POST", "/storage/v1/b/test-bucket/o", "{}")
-            .0,
-        404
-    );
+    let (status, value) = server.request("POST", "/storage/v1/b/test-bucket/o", "{}");
+    assert_eq!(status, 400);
+    assert_eq!(value["error"]["errors"][0]["reason"], "badRequest");
     for method in ["PUT", "PATCH"] {
         assert_eq!(
             server.request(method, "/storage/v1/b/test-bucket/o", "").0,

@@ -130,7 +130,7 @@ fn compose_body_rejects_recognized_unsupported_and_unknown_semantics() {
     ] {
         assert_eq!(
             parse(body.clone()).unwrap_err().status,
-            StatusCode::NOT_IMPLEMENTED,
+            StatusCode::BAD_REQUEST,
             "{body}"
         );
     }

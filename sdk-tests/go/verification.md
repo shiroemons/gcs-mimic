@@ -66,7 +66,7 @@ pinned reference and uses the committed Rust and Go toolchains.
 
 The local assertions check whole-map replacement; omitted/null/empty labels;
 STANDARD/false omission defaults; native null-boolean 400 versus legacy reset;
-null class 400; unsupported settings/ACL/billing query 501; malformed body and invalid
+null class 400; unsupported settings/ACL/billing query 400 badRequest; malformed body and invalid
 projection/generation 400; missing bucket 404; condition failure 412 without
 mutation; one revision increment per success; and PUT/GET/list agreement with
 unchanged identity, placement, object list and bytes. Error cases check the

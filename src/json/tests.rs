@@ -172,7 +172,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             let error = request(method.clone(), &format!("{path}&{parameter}=")).unwrap_err();
             assert_eq!(
                 error.status,
-                StatusCode::NOT_IMPLEMENTED,
+                StatusCode::BAD_REQUEST,
                 "{method} {parameter}"
             );
             assert!(error.message.contains(parameter));
@@ -190,7 +190,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
             )
             .unwrap_err()
             .status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
     for path in [
@@ -201,7 +201,7 @@ fn bkt_qry_001_every_common_and_method_unsupported_parameter() {
     ] {
         assert_eq!(
             request(Method::GET, path).unwrap_err().status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
 }
@@ -307,13 +307,13 @@ fn bkt_qry_002_projection_alt_and_boolean_validation() {
         request(Method::GET, "/storage/v1/b?project=p&alt=media")
             .unwrap_err()
             .status,
-        StatusCode::NOT_IMPLEMENTED
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         request(Method::GET, "/storage/v1/b?project=p&prettyPrint=true")
             .unwrap_err()
             .status,
-        StatusCode::NOT_IMPLEMENTED
+        StatusCode::BAD_REQUEST
     );
 }
 
@@ -491,7 +491,7 @@ fn bkt_ins_002_recognized_unsupported_fields_never_succeed() {
                 value
             };
             let error = parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH).unwrap_err();
-            assert_eq!(error.status, StatusCode::NOT_IMPLEMENTED, "{field}");
+            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{field}");
             assert!(error.message.contains(field));
         }
     }
@@ -630,7 +630,7 @@ fn bkt_ins_003_location_and_storage_class_subset() {
             parse_insert(body.to_string().as_bytes(), "p", UNIX_EPOCH)
                 .unwrap_err()
                 .status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
 }

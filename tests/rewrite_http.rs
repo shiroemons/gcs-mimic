@@ -52,7 +52,7 @@ fn rewrite_accepts_noop_hold_and_custom_time_defaults() {
             ADMIN,
             br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     assert_eq!(server.get("destination").json(), before);
 }
 
@@ -422,7 +422,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
     ] {
         server
             .request("POST", &format!("{BASE}?{query}"), ADMIN, b"")
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for field in ["acl", "retention", "contexts", "kmsKeyName"] {
         server
@@ -432,14 +432,14 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
                 ADMIN,
                 json!({field:{}}).to_string().as_bytes(),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     server
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":{}}"#)
         .error(400, "invalidArgument");
     server
         .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     assert_eq!(server.get("destination").json(), first["resource"]);
 }
 

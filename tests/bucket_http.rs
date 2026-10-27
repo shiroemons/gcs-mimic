@@ -128,6 +128,28 @@ fn raw(address: &str, request: &str) -> Reply {
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
 #[test]
+fn unsupported_legacy_profile() {
+    for profile in PROFILES {
+        let dir = TestDir::new();
+        let server = Server::start_options(&dir, &["--compat-profile", profile]);
+        server
+            .request("GET", "/storage/v1/b/missing/acl", "")
+            .error(400, "badRequest");
+        server
+            .request(
+                "POST",
+                "/storage/v1/b?project=local",
+                r#"{"name":"unsupported-bucket","retentionPolicy":{"retentionPeriod":"3600"}}"#,
+            )
+            .error(400, "badRequest");
+        server
+            .request("GET", "/storage/v1/b/unsupported-bucket", "")
+            .error(404, "notFound");
+        assert_eq!(server.request("GET", "/_internal/unknown", "").status, 404);
+    }
+}
+
+#[test]
 fn bucket_list_omitted_project_obeys_profile_and_seed_project() {
     for profile in PROFILES {
         let dir = TestDir::new();
@@ -442,7 +464,7 @@ fn bucket_put_label_boundaries_and_classes() {
                     path,
                     &json!({"storageClass":class,"labels":null}).to_string(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         server
             .request("PUT", path, r#"{"storageClass":"TYPO"}"#)
@@ -611,12 +633,12 @@ fn bucket_metadata_location(method: &str) {
         let before = server.request("GET", path, "").json();
         server
             .request(method, path, r#"{"location":"EU","labels":{"lost":"no"}}"#)
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
         if profile == "legacy-emulator" {
             server
                 .request(method, path, r#"{"location":"US","labels":{"lost":"no"}}"#)
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
             assert_eq!(server.request("GET", path, "").json(), before);
         }
     }
@@ -638,7 +660,7 @@ fn bucket_get_rejects_patch_only_acl_query_parameters() {
                 .error(400, "invalidParameter");
             server
                 .request("PATCH", &path, "{}")
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         assert_eq!(
             server
@@ -668,7 +690,7 @@ fn bucket_metadata_generation_query(method: &str) {
         let query_path = format!("{path}?generation=1");
         server
             .request("GET", &query_path, "")
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         server
             .request(method, &query_path, r#"{"labels":{"lost":"no"}}"#)
             .error(400, "invalidParameter");
@@ -746,7 +768,7 @@ fn bucket_patch_accepts_only_empty_lifecycle_rules() {
                     path,
                     &json!({"lifecycle":lifecycle,"labels":null}).to_string(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
             assert_eq!(server.request("GET", path, "").json(), after);
         }
     }
@@ -1034,7 +1056,7 @@ fn bucket_patch_label_boundaries_and_classes() {
                     path,
                     &json!({"storageClass":class,"labels":null}).to_string(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         server
             .request("PATCH", path, r#"{"storageClass":"TYPO"}"#)
@@ -1086,7 +1108,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         ] {
             server
                 .request("PUT", path, &body.to_string())
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
             assert_eq!(server.request("GET", path, "").json(), after);
             assert_eq!(
                 server.request("GET", &format!("{path}/iam"), "").json(),
@@ -1131,13 +1153,13 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
                         path,
                         &json!({field:value,"labels":{"lost":"no"}}).to_string(),
                     )
-                    .error(501, "notImplemented");
+                    .error(400, "badRequest");
                 assert_eq!(server.request("GET", path, "").json(), before);
             }
         }
         server
             .request(method, path, r#"{"location":"EU"}"#)
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
         let fields = [
             "id",
@@ -1197,7 +1219,7 @@ fn bucket_put_conditions_and_query_contract() {
             );
         server
             .request("PUT", &conditioned, r#"{"retentionPolicy":{}}"#)
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         assert_eq!(server.request("GET", path, "").json(), before);
         let registry = dir.0.join("identities.json");
         std::fs::write(
@@ -1279,7 +1301,7 @@ fn bucket_metadata_conditions(method: &str) {
                     &format!("{path}?{query}"),
                     r#"{"labels":{"bad":"no"}}"#,
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
         assert_eq!(server.request("GET", path, "").json(), original);
         server
@@ -2064,7 +2086,7 @@ fn legacy_create_location_accepts_only_fixed_region_and_stores_native_us() {
         let body = json!({"name":name,"location":location}).to_string();
         server
             .request("POST", "/storage/v1/b?project=project", &body)
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         assert_eq!(
             server
                 .request("GET", &format!("/storage/v1/b/{name}"), "")
@@ -2313,7 +2335,7 @@ fn bucket_core_settings_round_trip() {
                     "/storage/v1/b?project=project",
                     &json!({"name":"rejected-lifecycle","lifecycle":lifecycle}).to_string(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
         }
     }
 }
@@ -2360,7 +2382,7 @@ fn bucket_core_unsupported_settings_preserve_state() {
                 };
                 let body = json!({"name":"unsupported-bucket",field:value}).to_string();
                 let reply = server.request("POST", "/storage/v1/b?project=project", &body);
-                reply.error(501, "notImplemented");
+                reply.error(400, "badRequest");
                 assert!(
                     reply.json()["error"]["message"]
                         .as_str()
@@ -2410,7 +2432,7 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
                     "/storage/v1/b?project=local-project",
                     &body.to_string(),
                 )
-                .error(501, "notImplemented");
+                .error(400, "badRequest");
             server
                 .authorized(
                     "local-admin-token",
@@ -2456,7 +2478,7 @@ fn bucket_core_source_input_shape() {
             let body = format!("{{\"name\":\"source-input-{index}\",{extra}}}");
             let reply = server.request("POST", "/storage/v1/b?project=project", &body);
             if profile == "native" || index == 3 {
-                assert!(matches!(reply.status, 400 | 501), "{}", reply.body);
+                assert!(matches!(reply.status, 400), "{}", reply.body);
             } else {
                 assert_eq!(reply.status, 200, "{}", reply.body);
                 assert_settings(&reply.json(), profile, false, false);
@@ -3189,7 +3211,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     ] {
         server
             .request("GET", &format!("/storage/v1/b?project=x&{query}"), "")
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for query in [
         "enableObjectRetention=false",
@@ -3202,7 +3224,7 @@ fn bkt_http_query_body_name_and_route_boundaries() {
                 &format!("/storage/v1/b?project=x&{query}"),
                 r#"{"name":"valid-bucket"}"#,
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     for (body, status, reason) in [
         ("{", 400, "parseError"),
@@ -3222,15 +3244,15 @@ fn bkt_http_query_body_name_and_route_boundaries() {
         ),
         (
             r#"{"name":"valid-bucket","storageClass":"RAPID"}"#,
-            501,
-            "notImplemented",
+            400,
+            "badRequest",
         ),
         (
             r#"{"name":"valid-bucket","versioning":false}"#,
             400,
             "invalidArgument",
         ),
-        (r#"{"name":"valid-bucket","acl":[]}"#, 501, "notImplemented"),
+        (r#"{"name":"valid-bucket","acl":[]}"#, 400, "badRequest"),
     ] {
         server
             .request("POST", "/storage/v1/b?project=x", body)
@@ -3306,7 +3328,8 @@ fn bkt_http_query_body_name_and_route_boundaries() {
     );
     let chunk = " ".repeat(32768);
     server.raw(&format!("POST /storage/v1/b?project=x HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n8000\r\n{chunk}\r\n8000\r\n{chunk}\r\n1\r\nx\r\n0\r\n\r\n")).error(413,"uploadTooLarge");
-    for path in ["/INVALID", "/storage/v1/b/", "/storage/v1/b/abc/o"] {
+    server.raw("POST /storage/v1/b/abc/o HTTP/1.1\r\nHost: localhost\r\nContent-Length: 999999\r\n\r\n").error(400, "badRequest");
+    for path in ["/INVALID", "/storage/v1/b/"] {
         assert_eq!(
             server
                 .raw(&format!(

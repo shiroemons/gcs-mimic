@@ -285,7 +285,7 @@ fn obj_range_http_unsatisfiable_empty_and_ignored_ranges() {
                 "",
                 &format!("Range: bytes=0-1\r\nIf-Range: {validator}\r\n"),
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
     }
     server.upload("", b"");
     for range in ["bytes=0-0", "bytes=0-", "bytes=-0"] {
@@ -394,7 +394,7 @@ fn obj_range_http_gzip_ranges_use_stored_bytes_without_transcoding() {
     );
     server
         .get("", "Range: bytes=2-5\r\n")
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     let reply = server.get("", "Range: bytes=2-5\r\nAccept-Encoding: gzip\r\n");
     assert_eq!(reply.status, 206);
     assert_eq!(reply.body, gzip[2..6]);

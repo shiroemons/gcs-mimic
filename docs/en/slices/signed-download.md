@@ -28,7 +28,7 @@ The method, original encoded path, complete query except `X-Goog-Signature`, and
 
 The actual single nonempty Host header, including a non-default port, must be signed. Forwarded headers and configured advertised endpoints never rewrite it. Signed header names are lowercase, sorted and unique; sequential ASCII whitespace collapses, edge whitespace disappears, and repeated values join in wire order with commas. All supplied `x-goog-*`/`x-amz-*` headers must be signed except content-sha256. Query signatures default to `UNSIGNED-PAYLOAD`; when `x-goog-content-sha256` is present its single validated value supplies the canonical payload, matching the pinned Go signer. The canonical-request guide describes query URLs as `UNSIGNED-PAYLOAD`, while the SDK explicitly substitutes this header: SPEC-SIGNING-EDGES retains that source ambiguity. Empty GET/HEAD bodies accept only `UNSIGNED-PAYLOAD` or the SHA-256 of empty bytes. XML still rejects unsupported header semantics.
 
-The injected clock accepts from active time minus the documented 900-second skew through strictly before active time plus expires. The exact expiry instant fails. This follows the official signatures active-datetime rule rather than inventing a zero-skew interval. Range may be unsigned; generation, bucket, object, host, signed headers and method remain signature-bound. GET and HEAD require independently signed methods. Response override queries remain explicitly unsupported (501), even with valid signatures. PAP is not modeled and its status is unchanged.
+The injected clock accepts from active time minus the documented 900-second skew through strictly before active time plus expires. The exact expiry instant fails. This follows the official signatures active-datetime rule rather than inventing a zero-skew interval. Range may be unsigned; generation, bucket, object, host, signed headers and method remain signature-bound. GET and HEAD require independently signed methods. Queries outside the supported response overrides return 400 InvalidArgument, even with valid signatures. PAP is not modeled in this original slice; its later implementation is documented separately.
 
 For an absolute-form request target, its authority must exactly match the actual canonical Host; a conflict fails with `SignatureDoesNotMatch`. Origin-form targets use the actual Host directly. This is an explicit local conflict rule, retained in SPEC-SIGNING-EDGES pending provider-specific authority precedence evidence.
 
@@ -42,7 +42,7 @@ For an absolute-form request target, its authority must exactly match the actual
 | Too early beyond the documented skew | 403 RequestTimeTooSkewed |
 | At or after expiration | 400 ExpiredToken |
 | Valid signer without effective read permission | 403 AccessDenied |
-| Valid signature with unsupported operation/query/header | 501 NotImplemented |
+| Valid signature with unsupported operation/query/header | 400 InvalidArgument |
 
 HEAD keeps the normal XML status and headers with no body. The documented status catalog supports these names/statuses, but precise messages, precedence and query-specific early/expiry mappings remain local choices in SPEC-SIGNING-EDGES; this is not a claim of complete provider wire parity.
 

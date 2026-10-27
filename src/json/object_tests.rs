@@ -250,13 +250,7 @@ fn obj_query_001_required_upload_and_unsupported_types() {
                 )
                 .unwrap_err()
                 .status,
-                if ["contentEncoding", "kmsKeyName", "predefinedAcl"].contains(&key)
-                    || (key == "fields" && !value.is_empty())
-                {
-                    StatusCode::BAD_REQUEST
-                } else {
-                    StatusCode::NOT_IMPLEMENTED
-                },
+                StatusCode::BAD_REQUEST,
                 "{key}"
             );
         }
@@ -333,11 +327,7 @@ fn obj_query_002_duplicates_invalid_scalars_and_method_parameters() {
             request(Method::GET, &format!("/storage/v1/b/abc/o/file?{query}"))
                 .unwrap_err()
                 .status,
-            if query == "uploadType=media" {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::NOT_IMPLEMENTED
-            }
+            StatusCode::BAD_REQUEST
         );
     }
     assert!(
@@ -395,7 +385,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
         validate_object_get_headers(&headers, true)
             .unwrap_err()
             .status,
-        StatusCode::NOT_IMPLEMENTED
+        StatusCode::BAD_REQUEST
     );
     for header in ["x-goog-meta-example", "x-goog-gcs-idempotency-token"] {
         let mut headers = HeaderMap::new();
@@ -404,7 +394,7 @@ fn obj_signed_int64_and_download_endpoint_regressions() {
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
                 .status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
 }
@@ -447,7 +437,7 @@ fn obj_headers_upload_tokens_require_generation_match_and_one_nonempty_value() {
             parse_object_upload_headers(&headers, conditions)
                 .unwrap_err()
                 .status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
     for values in [
@@ -585,7 +575,7 @@ fn obj_headers_002_invalid_hashes_and_unsupported_semantics() {
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
                 .status,
-            StatusCode::NOT_IMPLEMENTED,
+            StatusCode::BAD_REQUEST,
             "{name}"
         );
     }
@@ -631,7 +621,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
             parse_object_upload_headers(&headers, Default::default())
                 .unwrap_err()
                 .status,
-            StatusCode::NOT_IMPLEMENTED
+            StatusCode::BAD_REQUEST
         );
     }
     let mut headers = HeaderMap::new();
@@ -643,7 +633,7 @@ fn obj_headers_003_range_is_accepted_and_unsupported_conditionals_are_rejected()
         validate_object_get_headers(&headers, false)
             .unwrap_err()
             .status,
-        StatusCode::NOT_IMPLEMENTED
+        StatusCode::BAD_REQUEST
     );
 }
 

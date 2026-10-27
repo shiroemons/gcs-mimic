@@ -359,13 +359,13 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
     for (header, read_status, read_reason) in [
         ("If-Match: opaque\r\n", 400, "invalidParameter"),
         ("If-None-Match: *\r\n", 304, "notModified"),
-        ("X-Goog-Encryption-Key: key\r\n", 501, "notImplemented"),
-        ("X-Goog-Meta-Example: value\r\n", 501, "notImplemented"),
+        ("X-Goog-Encryption-Key: key\r\n", 400, "badRequest"),
+        ("X-Goog-Meta-Example: value\r\n", 400, "badRequest"),
     ] {
         server
             .upload("name=existing", header, b"new")
-            .error(501, "notImplemented");
-        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=existing HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{header}\r\n").as_bytes()).error(501, "notImplemented");
+            .error(400, "badRequest");
+        server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=existing HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{header}\r\n").as_bytes()).error(400, "badRequest");
         server
             .request(
                 "DELETE",
@@ -373,7 +373,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
                 header,
                 b"",
             )
-            .error(501, "notImplemented");
+            .error(400, "badRequest");
         for query in ["", "?alt=media"] {
             let reply = server.request(
                 "GET",
@@ -406,7 +406,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "X-Goog-Encryption-Key: key\r\n",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     let partial = server.request(
         "GET",
         "/storage/v1/b/test-bucket/o/existing?alt=media",
@@ -422,7 +422,7 @@ fn obj_http_bad_hashes_and_unsupported_requests_never_publish() {
             "If-Range: opaque\r\n",
             b"",
         )
-        .error(501, "notImplemented");
+        .error(400, "badRequest");
     server
         .request(
             "GET",
@@ -571,7 +571,7 @@ fn obj_http_upload_tokens_reject_unsafe_or_invalid_headers_before_body() {
             "&ifMetagenerationMatch=1",
             "&ifMetagenerationNotMatch=2",
         ] {
-            server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(501, "notImplemented");
+            server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name={name}{query} HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(400, "badRequest");
         }
         for headers in [
             "X-Goog-Gcs-Idempotency-Token:\r\n".to_owned(),
@@ -594,7 +594,7 @@ fn obj_http_idempotency_token_local_read_delete_rule_and_upload_rejection() {
     let server = Server::start(&dir, 1000, 5000);
     server.bucket();
     let token = "X-Goog-Gcs-Idempotency-Token: retry-token\r\n";
-    server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=unsupported-token HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(501, "notImplemented");
+    server.raw(format!("POST /upload/storage/v1/b/test-bucket/o?uploadType=media&name=unsupported-token HTTP/1.1\r\nHost: local\r\nContent-Length: 900\r\n{token}\r\n").as_bytes()).error(400, "badRequest");
     server.get("unsupported-token").error(404, "notFound");
     let original = server.upload("name=token", "", b"payload").json();
     let path = "/storage/v1/b/test-bucket/o/token";
