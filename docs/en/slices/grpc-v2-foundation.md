@@ -16,6 +16,10 @@ Scope: BEHAVIOR-RPC-005 and the unsupported gRPC portion of DESIGN-082. RPC-STOR
 | grpc_resource_name_parsing | Parse projects/_/buckets/NAME and object names without losing slashes or encoded bytes; malformed resource names return INVALID_ARGUMENT. |
 | grpc_record_conversion | Convert shared BucketRecord/ObjectRecord fields to their protobuf counterparts with the same values as JSON. Unsupported protobuf fields remain empty. |
 | grpc_auth_metadata_handoff | Permissive ignores credentials; strict resolves authorization Bearer through shared Auth and passes the local principal or anonymous Caller to the RPC group. Invalid tokens fail in the entry point; the groups' common unsupported-response function rejects anonymous callers with UNAUTHENTICATED until operation-specific shared authorization is implemented. |
+| grpc_idle_connection_closes_with_goaway | With no open streams, an inactive connection sends graceful GOAWAY before closing and releases shared HTTP admission. |
+| grpc_idle_never_cuts_in_flight_streams | A request remains active until its response body ends or is dropped, even across frame gaps longer than connection_timeout_ms; a Drop guard releases the count on cancellation. |
+| grpc_dead_peer_is_detected_by_keepalive | HTTP/2 keepalive detects a silent peer with an open stream and releases its connection slot; interval and acknowledgement timeout derive from connection_timeout_ms. |
+| grpc_goaway_has_bounded_grace | Idle and SIGTERM GOAWAY have a bounded grace period, including incomplete handshakes and streams that never finish, without changing shutdown order. |
 
 The new setting is needed because Go's gRPC emulator transport requires its own plaintext endpoint; HTTP/HTTPS cannot provide that endpoint. Default: absent/disabled. CLI `--grpc-listen 127.0.0.1:4444`, environment `GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`, or flat JSON `{"grpc_listen":"127.0.0.1:4444"}` follows CLI > environment > file > default precedence. It never changes the advertised HTTP/public URL.
 
@@ -27,7 +31,11 @@ No object catalog scan, body collection, polling timer or benchmark is added. Me
 
 The Hyper HTTP/2 driver uses the existing shared `max_connections` limit (default 32), eight concurrent streams per connection, 16 KiB header lists, 64 KiB send buffers and 4 MiB encoded/decoded protobuf messages. HTTP/HTTPS and gRPC stop admission, drain within the existing shutdown deadline and then close the catalog together. No independent transport runtime, router, client, compression or TLS stack is added. Another generated service, including future v1, can be routed on this h2c driver.
 
-`connection_timeout_ms` also bounds gRPC inactivity, including an incomplete HTTP/2 handshake. RPC headers and incoming/outgoing body frames renew that deadline; HTTP/2 keepalive traffic alone does not retain the shared admission slot. The same idle deadline stays active during graceful shutdown, so a silent peer cannot hold drain open indefinitely. The unsupported remedy uses `api_base_url` from the server ready event instead of assuming a scheme, host or port.
+`connection_timeout_ms` bounds gRPC inactivity only when no requests are active, including an incomplete HTTP/2 handshake. A watch counter increments at request admission and a Drop guard decrements it when the response body ends, errors or is dropped, or the response future is cancelled. Pending responses and quiet streaming bodies are never cut by the idle deadline. HTTP/2 keepalive uses `connection_timeout_ms` for both its ping interval and acknowledgement timeout; keepalive traffic alone does not retain an otherwise idle shared admission slot. A dead peer with an open stream is closed on missing ping acknowledgement. One application timer serves idle expiry and GOAWAY grace, and watch notifications wake it on stream changes; no per-stream timer or polling loop is added.
+
+Idle GOAWAY grace uses `connection_timeout_ms`; SIGTERM caps it at `min(connection_timeout_ms, shutdown_timeout_ms / 2)` to reserve half the outer drain budget for connection cleanup and joining, including when idle GOAWAY is already underway. This keeps incomplete handshakes and unfinished streams bounded without changing shutdown order, and avoids racing the shared outer deadline when both settings have their default value of 5000 ms. Idle expiry sends graceful GOAWAY before closing. A peer that never completes the HTTP/2 preface cannot receive GOAWAY, and is forcibly closed at the grace deadline. Idle closure logs at Debug; keepalive failure and forced grace expiry log their cause and an example configuration remedy. For SIGTERM grace, both timeout settings affect the remedy. The unsupported remedy uses `api_base_url` from the server ready event instead of assuming a scheme, host or port.
+
+The existing [Hyper 1.12.0 HTTP/2 builder](https://docs.rs/hyper/1.12.0/hyper/server/conn/http2/struct.Builder.html#method.keep_alive_interval) supplies keepalive interval/acknowledgement timeout and the Tokio timer; no dependency or configuration key is added.
 
 Bucket conversion covers resource name/ID, original owning project identifier, location/type, class, labels, create/update times, metageneration, CORS, versioning, default event hold, retention, soft deletion and IAM configuration. Object conversion covers bucket/name, generations, size/class, fixed/custom metadata, checksums (no MD5 for composite objects), component count, timestamps, holds, custom time and retention expiration. Timestamp nanoseconds are preserved. Invalid stored customTime returns INTERNAL rather than disappearing. Lifecycle, ETags, ACLs, encryption and other unsupported proto fields remain empty; dynamic public cache defaults and project-number resolution belong to subsequent operation slices. Google returns numeric project identifiers, while the local shared record retains the supplied project ID; this is an explicit local conversion limit.
 
@@ -83,3 +91,16 @@ On 2026-10-27:
 - Markdownlint: PASS for the ten changed guide/contract/plan documents.
 
 No benchmark, container build, full guide run, HTTPS-mode SDK run or real-cloud request is part of this slice. BEHAVIOR-RPC-005 and DESIGN-082 remain PARTIAL; operation rows retain their original status and fidelity. The behavior row keeps achieved fidelity NONE because emulator rejection is not provider operation conformance. Next: the four independent v2 operation groups.
+
+### Idle connection follow-up verification
+
+The four idle/keepalive/grace acceptance cases were recorded before implementation. Final connection sources were verified on 2026-10-27:
+
+- `cargo check --workspace --all-targets --locked --offline`: PASS before tests.
+- `cargo test --locked --offline --lib grpc::`: PASS, eight tests including GOAWAY before normal EOF, pending-response and streaming-body gaps, response Drop, missing ping acknowledgement and bounded grace.
+- `cargo test --locked --offline --test grpc_foundation`: PASS, two process tests covering shared HTTP admission, both listeners closing, catalog reopen and successful SIGTERM exit with an admitted peer that sends no preface under the default 5000 ms connection/shutdown settings.
+- `GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh`: PASS on the final connection sources, including Go vet and every foundation case.
+- `RUST_TEST_THREADS=8 just check`: PASS on the final connection sources, including native/Windows/Linux clippy, all Rust unit/integration/doc tests, ledger/generated views and offline script checks.
+- `cargo xtask compatibility render`: PASS; English/Japanese matrices have no content change because status, fidelity and SDK-evidence counts are unchanged.
+
+BEHAVIOR-RPC-005 stays PARTIAL with four additional PASS cases; operation-specific behavior remains pending. The full HTTP/Ruby SDK suite was not repeated because HTTP behavior is unchanged; container, guide, benchmark and real-cloud runs were excluded.
