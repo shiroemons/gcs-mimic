@@ -60,6 +60,37 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             let mut response = Vec::new();
             connection.read_to_end(&mut response).unwrap();
         }
+        for (method, path, body) in [
+            (
+                "POST",
+                "/storage/v1/b?project=example-project",
+                r#"{"name":"example-bucket"}"#,
+            ),
+            ("GET", "/storage/v1/b/example-bucket/o?softDeleted=true", ""),
+            ("GET", "/storage/v1/b/example-bucket/o", ""),
+            (
+                "PATCH",
+                "/storage/v1/b/example-bucket",
+                r#"{"softDeletePolicy":{"retentionDurationSeconds":"604800"}}"#,
+            ),
+            ("GET", "/storage/v1/b/example-bucket/o?softDeleted=true", ""),
+        ] {
+            let mut connection = TcpStream::connect(ready["listen"].as_str().unwrap()).unwrap();
+            connection
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write!(connection, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            let mut response = String::new();
+            connection.read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            if method == "GET" {
+                let (_, body) = response.split_once("\r\n\r\n").unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(body).unwrap(),
+                    serde_json::json!({"kind":"storage#objects"})
+                );
+            }
+        }
         common::stop_server(&mut child, &mut stdout);
         let mut stderr = Vec::new();
         child
@@ -69,6 +100,17 @@ fn log_levels_filter_runtime_events_and_preserve_lifecycle_and_input_warnings() 
             .read_to_end(&mut stderr)
             .unwrap();
         let records = events(&stderr);
+        let listing_events: Vec<_> = records
+            .iter()
+            .filter(|event| event["event"] == "soft_deleted_listing_empty")
+            .collect();
+        assert_eq!(listing_events.len(), usize::from(level == "debug"));
+        for event in listing_events {
+            assert_eq!(event["level"], "debug");
+            let message = event["message"].as_str().unwrap();
+            assert!(message.contains("not configured"));
+            assert!(message.contains("retentionDurationSeconds=604800"));
+        }
         assert!(!String::from_utf8_lossy(&stderr).contains("secret"));
         assert!(
             records

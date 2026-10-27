@@ -6282,7 +6282,7 @@
       ],
       "source_checked_at": "2026-10-21",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: generation, projection, userProject.",
+      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: generation, projection, userProject. Bucket soft deletion and restore remain unsupported; configuring an object softDeletePolicy does not implement this operation. See docs/en/slices/sdk-local-auth-softdelete-notes.md.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
       "acceptance_status": "NEEDS_DECOMPOSITION",
@@ -13961,7 +13961,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens.",
+      "notes": "Soft-delete acceptance: docs/en/slices/sdk-soft-delete-restore.md. Restore preserves the source, creates a new live generation, checks live preconditions atomically and rejects unsupported ACL copying/HNS tokens. Seven-day SDK policy examples and debug guidance for policy-free empty listings: docs/en/slices/sdk-local-auth-softdelete-notes.md. The owner-approved local absent-policy listing remains empty 200 rather than Google's 400 (retained generations can still be listed after policy removal).",
       "dependencies": [
         "DESIGN-082",
         "DESIGN-083"
@@ -45125,7 +45125,7 @@
       ],
       "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Independent HTTP Rails GCS scenario; acceptance and limits: docs/en/slices/sdk-active-storage-scenario.md. Public serving and browser CORS remain outside this scenario.",
+      "notes": "Independent HTTP Rails GCS scenario; acceptance and limits: docs/en/slices/sdk-active-storage-scenario.md. Default OAuth remains unsupported: googleauth 1.17.6 ignores service-account JSON token_uri, storage.yml cannot change token exchange, and external_account cannot sign default V2 URLs. Application-supplied local credentials are a separate recipe, not a default-call pass; see SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS and docs/en/slices/sdk-local-auth-softdelete-notes.md. Public serving and browser CORS remain outside this scenario.",
       "dependencies": ["DESIGN-083"],
       "dependency_status": "REFINED",
       "acceptance_status": "DECOMPOSED",

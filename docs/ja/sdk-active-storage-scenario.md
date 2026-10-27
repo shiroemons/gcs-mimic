@@ -19,7 +19,7 @@ cd ../../..
 just check-active-storage
 ```
 
-HTTPの隔離サーバーを起動して7ケースを個別に記録し、失敗しても残りを実行します。
+HTTPの隔離サーバーを起動して8ケースを個別に記録し、失敗しても残りを実行します。
 最後にサーバーと一時データを片付けます。`just check-sdk`には含めていません。
 
 `config/storage.yml`は通常の`service: GCS`にproject、bucket、ローカルの署名用credentials、
@@ -36,7 +36,7 @@ Googleやメタデータサーバーへの接続、URL生成後のホスト置�
 
 ## 確認結果
 
-2026-10-27の通し実行の結果は次のとおりです。
+2026-10-27の従来7ケースの結果は次のとおりです。
 
 | ケース | 結果 | 確認した内容 |
 | --- | --- | --- |
@@ -49,9 +49,16 @@ Googleやメタデータサーバーへの接続、URL生成後のホスト置�
 | AS-EXIST-COMPOSE | PASS_WITH_WORKAROUND | 認証を外した条件で存在・不在の判定、順序を保つ合成、元オブジェクトの保持 |
 
 合計は0 PASS・6 PASS_WITH_WORKAROUND・1 FAILで、コマンドは終了コード1を返します。
+後続の[ローカル資格情報の検証](../en/slices/sdk-local-auth-softdelete-notes.md)では、
+アプリ側でトークンと有効期限を設定した資格情報を新しいサービスへ渡す
+AS-LOCAL-CREDENTIALSを追加し、内部認証を外さず保存・取得・削除と変更なしのV2署名GETが成功しました。
+今回の8ケースは1 PASS・6 PASS_WITH_WORKAROUND・1 FAILで、終了コード1です。
+通常の`storage.yml`の認証は未対応のままです。
+[移行ガイドのレシピ](fake-gcs-server-migration.md#アプリ側の資格情報でrails-active-storageを使う)と
+SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALSに制限を記録しています。
 既定認証の失敗原因は、SDKのendpoint指定がOAuthの端点を変えないことです。
-次の候補は`sdk-active-storage-local-auth`で、利用者が指定できるローカル認証設定か、
-別途範囲を決めたトークン用端点を検証します。Googleへの通信は実行していません。
+エミュレーターにはトークン発行経路がないため、`token_credential_uri`の接続先は案内しません。
+Googleへの通信は実行していません。トークンの期限前の更新とRailsのstrict構成は未確認です。
 署名付きGETと直接PUTはRails既定のV2署名を送り、URLを変更せず成功します。
 回避策つきの6件は、台帳では既定の受け入れ結果をPENDINGのままにしています。
 直接アップロード後の読み出しは、fixture側の匿名クライアントを使います。

@@ -1,5 +1,7 @@
 # オブジェクトのsoft deleteと復元
 
+<!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
+
 対象はBEHAVIOR-BUCKET-015、BEHAVIOR-OBJECT-030、BEHAVIOR-OBJECT-031、JSON-OBJECTS-011です。
 未対応の相互作用と仕様差が残るため、4行ともPARTIALです。
 [英語の契約と検証結果](../en/slices/sdk-soft-delete-restore.md)を正本とします。
@@ -10,6 +12,23 @@ get・listで保持秒数と`effectiveTime`を返し、期間を延ばしたと�
 空設定と`null`は省略と同じです。GCSの新規バケットの既定7日とは異なり、
 ローカルでは省略時に無効とし、予期しないディスク保持と既存利用者の動作変更を避けます。
 これらの仕様差と90日境界の資料間の違いはSPEC-SOFT-DELETEに記録しています。
+
+既存の`bucket`に7日を設定する例です。固定したGo Storage v1.70.0と
+Ruby Storage 1.62.1のSDKテストで確認しています。
+Goでは`storage`・`time`のimportと既存の`ctx`を前提にします。
+
+```go
+_, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 7 * 24 * time.Hour}})
+```
+
+```ruby
+bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
+```
+
+Goでは削除前に`err`を確認してください。未設定の`softDeleted=true`を空の200にする
+動作（公式は400）はオーナー承認済みです。`--log-level debug`では、ポリシー未設定の
+空一覧に理由と`retentionDurationSeconds=604800`の修正例をリクエストごとに1行出します。
+応答は変えていません。[今回の検証](../en/slices/sdk-local-auth-softdelete-notes.md)を参照してください。
 
 有効なバケットではJSON・XMLの削除と、バージョニング無効時のアップロード・copy・rewrite・
 compose・move宛先上書きで、古い世代の本文を残します。バージョニング有効時の宛先上書きは

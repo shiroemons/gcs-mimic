@@ -42,6 +42,24 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 | 削除済み一覧・世代指定のメタデータ取得・restore | 古い本文を期限まで保持し、復元では新世代を作ります。元の削除済み世代は残ります。省略と0はいずれも一覧200となり、保持中の世代がなければ空です。該当世代がなければget・restoreは404です。ポリシーなしを400にするGoogleの仕様とは異なります。ホールドと保持ポリシーによる拒否も引き続き適用します。 |
 | 削除済み世代だけのバケットを削除 | バケットと保持中の世代を完全削除します。バケット自体のsoft deleteと初期化ファイルの設定は未対応です。[対応範囲](sdk-soft-delete-restore.md)を参照してください。 |
 
+既存の`bucket`へ、削除前に7日のポリシーを付けます。固定したGo Storage v1.70.0と
+Ruby Storage 1.62.1のSDKテストで確認した呼び方です。
+Goでは`storage`・`time`のimportと既存の`ctx`を前提にします。
+
+```go
+_, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 7 * 24 * time.Hour}})
+```
+
+```ruby
+bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
+```
+
+Goでは削除前に`err`を確認してください。未設定での`softDeleted=true`は空の200を返します
+（公式は400）。これはオーナー承認済みのローカル仕様です。
+無効化前から保持している世代は引き続き一覧に出ます。
+`--log-level debug`では、ポリシー未設定の空一覧に理由と
+`softDeletePolicy.retentionDurationSeconds=604800`の修正例を出します。
+
 ```json
 {"version":1,"project":"local-project","buckets":[{"name":"assets"},{"name":"exports"}]}
 ```
@@ -146,6 +164,53 @@ test "$cancellation_status" = 499
 `curl --fail`は499をエラー扱いするため、取り消しではコードを明示的に検査します。
 このオリジン変更は署名なしのpermissiveセッションに限ります。
 strictの署名URLは最終的に利用者がアクセスするURLで署名し、後から書き換えません。
+
+## アプリ側の資格情報でRails Active Storageを使う
+
+データ用の`endpoint`を変えてもOAuthの取得先は変わりません。
+googleauth 1.17.6はサービスアカウントJSONの`token_uri`を読みません。
+Rails 8.1.4の`storage.yml`では資格情報の生成引数`token_credential_uri`を渡せず、
+`external_account`には既定のV2署名に必要な秘密鍵がありません。
+エミュレーターにもトークン発行経路はなく、利用できる取得先パスはありません。
+
+隔離した**permissive**環境では、アプリ側でダミートークンを設定した
+サービスアカウント資格情報を作り、サービスへ渡せます。
+JSONの置き場所・プロジェクト・メールはすべて例です。
+ローカルで生成したテスト鍵を使い、実際のGoogleの資格情報は使わないでください。
+
+```ruby
+require "googleauth"
+require "active_storage/service/gcs_service"
+
+credentials = File.open("config/credentials/example-local-service-account.json") do |key|
+  Google::Auth::ServiceAccountCredentials.make_creds(
+    json_key_io: key,
+    scope: "https://www.googleapis.com/auth/devstorage.full_control"
+  )
+end
+credentials.access_token = "example-local-token"
+credentials.expires_at = Time.now + 86_400
+service = ActiveStorage::Service::GCSService.new(
+  project: "example-project", bucket: "example-bucket", credentials: credentials,
+  endpoint: "http://127.0.0.1:4443/"
+)
+```
+
+アプリが作ったこのサービスでローカルの操作を行います。例のJSONには
+`type: service_account`、`project_id: example-project`、
+`client_email: example-signer@example.invalid`とローカル生成のRSA秘密鍵`private_key`が必要です。
+`example-bucket`も事前に作成します。新しいトークンでOAuth取得を避けつつ、鍵をV2署名に使えます。
+クライアントが再取得を必要とする前にトークンと有効期限を更新してください。
+再取得時は通常のOAuth接続を試みます。
+permissiveではダミーのBearerトークンを検証せず受け付けます。
+
+外部通信を防ぐ既存のRails 8.1.4・Storage 1.62.1のシナリオで、内部認証を外さずに
+アップロード・取得・削除と変更なしのV2署名GETを確認しました。
+確認したのはサービスを直接呼ぶ操作だけで、`Blob.service`の差し替えや
+`storage.yml`への名前付きサービスの登録を含め、`ActiveStorage::Blob`や添付から使う配線は未確認です。
+これはアプリ側の個別レシピで、通常の`storage.yml`認証は引き続き失敗します。
+Railsのstrict構成と自動更新は未確認です。[検証と制限](../en/slices/sdk-local-auth-softdelete-notes.md)と
+SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALSを参照してください。DESIGN-084はPARTIALのままです。
 
 ## 移行で困ったとき
 

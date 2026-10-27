@@ -74,6 +74,24 @@ records null defaults and local error details.
 | Go `Query.SoftDeleted`, `Generation(g).SoftDeleted().Attrs`, `Restore` / Ruby `files(soft_deleted: true)`, `file(name, generation:, soft_deleted: true)`, `restore_file` | Deleted/overwritten generations retain bytes until hardDeleteTime; ordinary reads hide them. Omitted policy and explicit zero both allow listing (200, empty unless retained generations remain); missing generations return 404 on get/restore. This differs from Google's absent-policy errors. Restore creates a new live generation and keeps the original retained generation. Holds and retention still protect deletion/replacement. |
 | Delete a bucket containing only soft-deleted generations | Permanently removes the bucket and retained generations. Bucket soft deletion/restore and initialization-file softDeletePolicy remain unsupported; see the [soft-delete contract](slices/sdk-soft-delete-restore.md). |
 
+For an existing `bucket`, enable seven days before deleting objects. These
+setters match the pinned Go Storage v1.70.0 and Ruby Storage 1.62.1 SDK tests
+(`storage`/`time` imports and the existing Go context `ctx` are assumed):
+
+```go
+_, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 7 * 24 * time.Hour}})
+```
+
+```ruby
+bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
+```
+
+Check Go's returned `err` before deleting. An unset policy returns an empty 200
+for `softDeleted=true` (Google returns 400): this is an owner-approved local
+choice. Previously retained generations remain listable after disabling the
+policy. With `--log-level debug`, an empty policy-free listing explains the
+reason and gives `softDeletePolicy.retentionDurationSeconds=604800` as a repair.
+
 | Bucket retention call | gcs-mimic behavior |
 | --- | --- |
 | Go `BucketAttrs.RetentionPolicy` / Ruby `bucket.retention_period = 3600` | JSON insert/PATCH/PUT persist a period from 1 to 3,155,759,999 seconds and expose effectiveTime/isLocked. Unlocked policies can be changed or removed; PATCH null clears the policy. Objects expose creation time plus the current period as retentionExpirationTime. |
@@ -189,6 +207,55 @@ test "$cancellation_status" = 499
 
 Authority rewriting is scoped to these unsigned permissive sessions. Never
 rewrite a strict signed URL after signing; sign the final recipient-visible URL.
+
+### Rails Active Storage with application-supplied local credentials
+
+The data `endpoint` does not redirect OAuth. With googleauth 1.17.6,
+service-account JSON `token_uri` is ignored; Rails 8.1.4 `storage.yml` cannot
+pass the credential constructor's `token_credential_uri`. `external_account`
+credentials lack the private key needed for default V2 signing. The emulator
+has no token-issuing route, so there is no supported local token exchange path.
+
+For an isolated **permissive** emulator, construct the service in application
+code with service-account credentials carrying a preset dummy access token.
+The JSON file below is an example location for a locally generated test key,
+with an example project and email; do not use real Google credentials.
+
+```ruby
+require "googleauth"
+require "active_storage/service/gcs_service"
+
+credentials = File.open("config/credentials/example-local-service-account.json") do |key|
+  Google::Auth::ServiceAccountCredentials.make_creds(
+    json_key_io: key,
+    scope: "https://www.googleapis.com/auth/devstorage.full_control"
+  )
+end
+credentials.access_token = "example-local-token"
+credentials.expires_at = Time.now + 86_400
+service = ActiveStorage::Service::GCSService.new(
+  project: "example-project", bucket: "example-bucket", credentials: credentials,
+  endpoint: "http://127.0.0.1:4443/"
+)
+```
+
+Use this application-created service for local operations. The example JSON
+needs `type: service_account`, `project_id: example-project`,
+`client_email: example-signer@example.invalid` and a locally generated RSA
+`private_key`. Create `example-bucket` first. A fresh preset token avoids OAuth
+while retaining the key for V2 signing; renew the token and expiry before the
+client needs a refresh or googleauth will attempt its normal OAuth endpoint.
+Permissive mode accepts the dummy bearer token without validating it.
+
+The guarded Rails 8.1.4 / Storage 1.62.1 scenario verifies upload, download,
+delete and an unchanged V2 signed GET with these credential semantics, without
+clearing internal authorization. Only direct service calls were verified; wiring
+this service into `ActiveStorage::Blob` or attachments (including replacing
+`Blob.service` or registering a named service in `storage.yml`) is unverified.
+This is a separate application recipe; ordinary
+`storage.yml` authentication still fails. Strict Rails integration and automatic
+token renewal are unverified. See [verification and limits](slices/sdk-local-auth-softdelete-notes.md)
+and SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS; DESIGN-084 remains PARTIAL.
 
 ### Migration troubleshooting
 

@@ -1,10 +1,30 @@
 # Soft delete and object restoration
 
+<!-- markdownlint-configure-file {"MD013": {"code_blocks": false}} -->
+
 Scope: BEHAVIOR-BUCKET-015, BEHAVIOR-OBJECT-030, BEHAVIOR-OBJECT-031 and
 JSON-OBJECTS-011. Bucket soft deletion and JSON-BUCKETS-010 remain NOT_STARTED.
 All four scoped rows remain PARTIAL because the exclusions below are PENDING.
 
 ## Acceptance contract
+
+For an existing bucket, the pinned Go Storage v1.70.0 and Ruby Storage 1.62.1
+SDKs enable seven days as follows (`storage`/`time` imports and `ctx` assumed):
+
+```go
+_, err := bucket.Update(ctx, storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 7 * 24 * time.Hour}})
+```
+
+```ruby
+bucket.soft_delete_policy = { retention_duration_seconds: 604800 }
+```
+
+Check Go's `err` before deleting. An unset policy returns an empty 200 for
+`softDeleted=true` (officially 400), an owner-approved local choice; retained
+generations remain listable after disabling the policy. `--log-level debug`
+adds one explanation and a `retentionDurationSeconds=604800` repair per empty
+policy-free request. See [local credentials and listing notes](sdk-local-auth-softdelete-notes.md)
+for the separate diagnostic checks; no HTTP response is changed.
 
 - SOFT-DELETE-CONFIG: insert/PATCH/PUT accept integral retention seconds, 0 or
   604800 through 7776000; get/list return retentionDurationSeconds/effectiveTime.

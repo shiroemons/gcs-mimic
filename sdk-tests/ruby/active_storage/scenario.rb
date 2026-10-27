@@ -119,6 +119,34 @@ begin
     blob = ActiveStorage::Blob.create_and_upload!(io: StringIO.new("default auth\n"), filename: "auth.txt")
     assert(blob.download == "default auth\n", "default authentication upload bytes differ")
   end
+  run_case.call("AS-LOCAL-CREDENTIALS") do
+    credentials = File.open(File.join(__dir__, "../../../fixtures/signing/test-only-private.pem")) do |key|
+      Google::Auth::ServiceAccountCredentials.make_creds(
+        json_key_io: StringIO.new(JSON.generate(type: "service_account", project_id: "example-project",
+          client_email: "local-admin@example.invalid", private_key: key.read)),
+        scope: "https://www.googleapis.com/auth/devstorage.full_control")
+    end
+    credentials.access_token = "example-local-token"
+    credentials.expires_at = Time.now + 86_400
+    local_service = ActiveStorage::Service::GCSService.new(project: "example-project",
+      bucket: bucket.name, credentials: credentials,
+      endpoint: "#{ENV.fetch('GCS_MIMIC_ENDPOINT').delete_suffix('/')}/")
+    key = "local-credentials/#{SecureRandom.hex(8)}"
+    bytes = "local credential bytes"
+    begin
+      local_service.upload(key, StringIO.new(bytes), content_type: "text/plain")
+      assert(local_service.download(key) == bytes, "local credential download differs")
+      uri = URI(local_service.url(key, expires_in: 300, disposition: :inline,
+        filename: ActiveStorage::Filename.new("example.txt"), content_type: "text/plain"))
+      LocalHTTP.validate!(uri)
+      assert(URI.decode_www_form(uri.query).to_h.key?("GoogleAccessId"), "local credential URL is not V2")
+      response = Net::HTTP.get_response(uri)
+      assert(response.is_a?(Net::HTTPSuccess) && response.body == bytes, "local credential signed GET failed")
+    ensure
+      local_service.delete(key)
+    end
+    assert(!local_service.exist?(key), "local credential delete left object")
+  end
   # Conditional operation coverage must not count as default-configuration success.
   client = service.send(:client)
   client.service.service.authorization = nil

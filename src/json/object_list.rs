@@ -12,6 +12,23 @@ pub struct ObjectListParams {
     pub max_results: usize,
 }
 
+impl ObjectListParams {
+    pub(crate) fn empty_soft_deleted_message(
+        &self,
+        page: &ObjectListPage,
+        policy: Option<&crate::bucket::SoftDeletePolicy>,
+    ) -> Option<&'static str> {
+        (self.query.soft_deleted
+            && policy.is_none()
+            && page.items.is_empty()
+            && page.prefixes.is_empty()
+            && page.next.is_none())
+        .then_some(
+            "Returning an empty soft-deleted listing because softDeletePolicy is not configured; set softDeletePolicy.retentionDurationSeconds=604800 on the bucket to retain future deletions for seven days",
+        )
+    }
+}
+
 pub(super) fn parse_list(bucket: String, raw: &str) -> Result<ObjectListParams, JsonError> {
     let mut params = parse_query(raw)?;
     super::Fields::take(&mut params, "Objects")?;
@@ -143,4 +160,46 @@ pub fn object_list(
                 .into();
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_soft_deleted_listing_explains_missing_policy_only() {
+        let params = parse_list("example-bucket".into(), "softDeleted=true").unwrap();
+        let mut page = ObjectListPage {
+            items: Vec::new(),
+            prefixes: Vec::new(),
+            next: None,
+        };
+        let message = params.empty_soft_deleted_message(&page, None).unwrap();
+        assert!(message.contains("not configured"));
+        assert!(message.contains("retentionDurationSeconds=604800"));
+        assert_eq!(
+            object_list(&page, &params, "http://localhost:4443").unwrap(),
+            json!({"kind":"storage#objects"})
+        );
+        let policy = crate::bucket::SoftDeletePolicy {
+            retention_duration_seconds: 604800,
+            effective_time: std::time::UNIX_EPOCH,
+        };
+        assert!(
+            params
+                .empty_soft_deleted_message(&page, Some(&policy))
+                .is_none()
+        );
+        let normal = parse_list("example-bucket".into(), "").unwrap();
+        assert!(normal.empty_soft_deleted_message(&page, None).is_none());
+        page.prefixes.push("retained/".into());
+        assert!(params.empty_soft_deleted_message(&page, None).is_none());
+        page.prefixes.clear();
+        page.next = Some(crate::storage::ObjectListCursor {
+            name: "retained".into(),
+            is_prefix: false,
+            generation: Some(1),
+        });
+        assert!(params.empty_soft_deleted_message(&page, None).is_none());
+    }
 }

@@ -35,4 +35,7 @@ Rubyはversion省略と明示的な`:v2`の両方を確認しました。
 残るAS-DEFAULT-AUTHはOAuthの外部接続を通信前にガードが拒否する既知の失敗です。
 署名2ケースの成功を確認し、SPEC-ACTIVE-STORAGE-V2は今回の範囲で解消しました。
 既定認証の受け入れ結果はPENDINGのままで、別の認証スライスが担当します。
+後続の[ローカル資格情報の検証](../en/slices/sdk-local-auth-softdelete-notes.md)では、
+トークンと有効期限を設定した資格情報を別サービスへ渡し、変更なしのV2署名GETが成功しました。
+通常の`storage.yml`認証と既定の受け入れ結果は変えていません。
 実Googleとの比較、Railsのstrict構成、ブラウザーCORS、画像変換、ベンチマークは未実施です。

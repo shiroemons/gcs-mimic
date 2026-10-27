@@ -17,6 +17,7 @@ any case fails. Workarounds never count as default-call passes.
 | AS-SIGNED-URL | Fetch the unchanged `blob.url` and verify bytes; report any provider-bound endpoint instead of rewriting it. |
 | AS-DIRECT-UPLOAD | Send the unchanged `url_for_direct_upload` URL and `headers_for_direct_upload` in an HTTP PUT, then verify bytes. |
 | AS-EXIST-COMPOSE | `exist?` distinguishes present/missing keys and the Rails GCS service composes ordered sources without deleting them. |
+| AS-LOCAL-CREDENTIALS | A separate application-created GCS service with preset local access_token/expires_at uploads, downloads, deletes and signs unchanged V2 GET without internal authorization removal. This does not change AS-DEFAULT-AUTH. |
 
 Cases use a standard `service: GCS` storage.yml with project, bucket, explicit
 local credentials and one `endpoint` value, including the Ruby SDK's required
@@ -34,6 +35,14 @@ under that workaround is `PASS_WITH_WORKAROUND`, never a default-call PASS.
 Independent fixture seeding and cleanup use the public anonymous SDK constructor.
 The guard rejects other origins, disables proxies/redirects and pins localhost
 dialing to loopback. No Google credential discovery or local OAuth success is claimed.
+
+The later [local credential recipe](sdk-local-auth-softdelete-notes.md) adds
+AS-LOCAL-CREDENTIALS: PASS with public application credential inputs. Its one
+guarded run reports **1 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL** and exits 1 because
+AS-DEFAULT-AUTH still fails. The [migration recipe](../fake-gcs-server-migration.md#rails-active-storage-with-application-supplied-local-credentials)
+avoids token exchange with a fresh preset token; it does not use token_credential_uri
+because this emulator has no token-issuing route. SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS
+records googleauth/storage.yml/external-account limitations. DESIGN-084 stays PARTIAL.
 
 ## Sources and dependency selection
 
@@ -62,7 +71,7 @@ against the exact pinned numeric version, including mismatched-platform tests.
 
 ## Verification
 
-HTTP execution on 2026-10-27 (Ruby 4.0.9, Bundler 4.0.23,
+Original seven-case HTTP execution on 2026-10-27 (Ruby 4.0.9, Bundler 4.0.23,
 Rails 8.1.4, SDK 1.62.1). Case summary, with the authentication error abbreviated:
 
 ```text
@@ -104,13 +113,14 @@ were not run. No performance claim is made.
 
 | Case | Symptom | Cause | Proposed next slice |
 | --- | --- | --- | --- |
-| AS-DEFAULT-AUTH | First unmodified Rails upload raises Google::Auth::AuthorizationError before HTTP reaches the emulator. | Service-account credentials attempt OAuth at oauth2.googleapis.com; an SDK data endpoint alone does not configure token exchange. The guard blocks the attempt before network access. | `sdk-active-storage-local-auth`: verify a supported local credential configuration or separately scope a local token endpoint. |
+| AS-DEFAULT-AUTH | First unmodified Rails upload raises Google::Auth::AuthorizationError before HTTP reaches the emulator. | Service-account credentials attempt OAuth at oauth2.googleapis.com; an SDK data endpoint alone does not configure token exchange. The guard blocks the attempt before network access. | Use the separately verified application credential recipe; ordinary storage.yml remains unsupported. See SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS. |
 | AS-SIGNED-URL | PASS_WITH_WORKAROUND; unchanged blob.url GET returns exact bytes. | V2 RSA query support is implemented; default authentication still needs the separate fix. | V2 signing complete; `sdk-active-storage-local-auth` remains. |
 | AS-DIRECT-UPLOAD | PASS_WITH_WORKAROUND; unchanged URL/headers PUT and exact readback succeed. | Default GCS direct uploads select V2 when cache_control is absent; that subset is supported. | V2 signing complete; `sdk-active-storage-local-auth` remains. |
 
 AS-UPLOAD, AS-DOWNLOAD, AS-DELETE, AS-SIGNED-URL, AS-DIRECT-UPLOAD and AS-EXIST-COMPOSE are conditional successes
 only after private-client authorization removal. They remain pending as normal
-storage.yml workflows until `sdk-active-storage-local-auth` resolves the first failure.
+storage.yml workflows; the separate application credential recipe does not
+resolve default-call authentication.
 
 The [official V2 signing contract](https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2)
 requires XML access, expiration and signed header checks; independent strict Go/Ruby

@@ -886,6 +886,34 @@ async fn object_response(
                 .catalog
                 .list_objects_authorized(params.query.clone(), params.max_results, &access)
                 .await?;
+            if config.log_level == crate::diagnostics::LogLevel::Debug
+                && params.empty_soft_deleted_message(&page, None).is_some()
+            {
+                // Diagnostic reads must not change the successful listing response.
+                match state
+                    .catalog
+                    .get_bucket_authorized(&params.query.bucket, &access)
+                    .await
+                {
+                    Ok(Some(bucket)) => {
+                        if let Some(message) = params
+                            .empty_soft_deleted_message(&page, bucket.soft_delete_policy.as_ref())
+                        {
+                            crate::diagnostics::emit(
+                                crate::diagnostics::LogLevel::Debug,
+                                "soft_deleted_listing_empty",
+                                serde_json::json!({"message":message}),
+                            );
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => crate::diagnostics::emit(
+                        crate::diagnostics::LogLevel::Debug,
+                        "soft_deleted_listing_diagnostic_failed",
+                        serde_json::json!({"message":"Cannot inspect softDeletePolicy after listing; retry the bucket metadata request", "cause":error.to_string()}),
+                    ),
+                }
+            }
             json::object_list(&page, &params, &state.api_base_url)?
         }
         ObjectRequest::Update {

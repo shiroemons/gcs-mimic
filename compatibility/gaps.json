@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-ACTIVE-STORAGE-LOCAL-CREDENTIALS",
+      "title": "Application-supplied local credentials do not fix default Rails OAuth",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-084"],
+      "source_urls": ["https://rubygems.org/gems/googleauth/versions/1.17.6", "https://github.com/rails/rails/blob/v8.1.4/activestorage/lib/active_storage/service/gcs_service.rb", "https://rubygems.org/gems/google-cloud-storage/versions/1.62.1"],
+      "observed_at": "2026-10-27",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "googleauth 1.17.6 ServiceAccountCredentials.make_creds reads token_credential_uri from constructor options, not token_uri from service-account JSON. Rails 8.1.4 storage.yml forwards SDK options but cannot configure that token exchange URI; the storage endpoint controls data requests only. external_account credentials do not provide the private signing key required by default V2 signing. No token-issuing route exists in src/auth or the emulator router, so pointing token_credential_uri at an emulator path is unsupported. The existing guarded scenario rejects default outbound OAuth before socket creation. Source checks and local-credential verification are recorded in docs/en/slices/sdk-local-auth-softdelete-notes.md.",
+      "required_resolution": "Keep DESIGN-084 PARTIAL and default authentication FAIL/PENDING. Document only the separately verified application credential recipe; do not claim that ordinary service-account JSON/storage.yml works or add a product token endpoint in this slice. A preset token expires and must be renewed by the application; strict-mode grants and production OAuth remain outside this local recipe. No upstream report is sent."
+    },
+    {
       "id": "SPEC-SOFT-DELETE",
       "title": "Local soft-delete defaults, boundaries and bucket deletion",
       "status": "OPEN",

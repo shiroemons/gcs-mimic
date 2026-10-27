@@ -42,7 +42,7 @@ bundle exec ruby scenario.rb --self-check
 ```
 
 Each of AS-DEFAULT-AUTH, AS-UPLOAD, AS-DOWNLOAD, AS-DELETE, AS-SIGNED-URL,
-AS-DIRECT-UPLOAD and AS-EXIST-COMPOSE records its result independently. Any failure makes the command
+AS-DIRECT-UPLOAD, AS-EXIST-COMPOSE and AS-LOCAL-CREDENTIALS records its result independently. Any failure makes the command
 exit 1 after remaining cases and cleanup. Independent SDK-seeded fixtures let
 read, delete and signing cases execute even when Active Storage upload fails.
 Seed setup is not evidence that Active Storage upload works. Image purge tests
@@ -51,7 +51,14 @@ variant-prefix deletion with seeded bytes; no variant processor is installed.
 Signed URLs are used unchanged. A Google-bound signed URL fails the origin guard
 before network access; it is not rewritten or counted as a passing local signed
 request. The verified default V2 URLs reach the local origin unchanged and now
-pass signed GET and direct PUT, including exact readback: the final result is zero
-default PASS, six PASS_WITH_WORKAROUND and one FAIL for default authentication.
+pass signed GET and direct PUT, including exact readback.
+AS-LOCAL-CREDENTIALS separately constructs a new Rails GCS service using public
+credential inputs: service-account credentials with a preset dummy access token
+and a one-day expiry. It verifies upload/download/delete, missing-object lookup
+and an unchanged V2 signed GET without clearing authorization. The result is one
+separate recipe PASS, six PASS_WITH_WORKAROUND and one FAIL for default
+authentication; exit status remains 1. It does not make ordinary storage.yml
+authentication pass. Token expiry/renewal and strict Rails integration remain
+unverified. The emulator has no token-issuing route.
 See [results and next slices](../../../docs/en/slices/sdk-active-storage-scenario.md)
 for the exact supported scope and known failures (DESIGN-084).

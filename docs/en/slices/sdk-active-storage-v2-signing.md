@@ -62,5 +62,8 @@ Ruby V2 uses the configured endpoint without the V4 bucket-bound workaround.
 DESIGN-040 remains PARTIAL for the named pending formats. DESIGN-084 remains
 PARTIAL and its default signed acceptance remains PENDING while authentication
 requires the existing workaround. SPEC-ACTIVE-STORAGE-V2 is resolved for this subset.
+The later [local credential recipe](sdk-local-auth-softdelete-notes.md) verifies a
+separate application-created service with preset token/expiry and unchanged V2
+signed GET. Ordinary storage.yml authentication and its acceptance remain unchanged.
 Real-cloud differential testing, Rails strict integration, browser CORS, actual
 image processing and benchmarks were not run; no performance claim is made.
