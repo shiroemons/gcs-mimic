@@ -30,6 +30,11 @@ func TestStrictAuthBucketIAM(t *testing.T) {
 	}
 	_, err = readerBucket.Object(attrs.Name).Attrs(ctx)
 	requireStrictError(t, err, 403, "forbidden")
+	permissions := []string{"storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"}
+	gotPermissions, err := readerBucket.IAM().TestPermissions(ctx, permissions)
+	if err != nil || len(gotPermissions) != 0 {
+		t.Fatalf("ungranted test permissions: %v, %v", gotPermissions, err)
+	}
 	_, err = listObjectNames(ctx, readerBucket)
 	requireStrictError(t, err, 403, "forbidden")
 	stale, err := bucket.IAM().Policy(ctx)
@@ -51,6 +56,14 @@ func TestStrictAuthBucketIAM(t *testing.T) {
 	requireStrictError(t, bucket.IAM().SetPolicy(ctx, stale), 412, "conditionNotMet")
 
 	readObject(t, ctx, readerBucket.Object(attrs.Name), payload, attrs.Generation)
+	gotPermissions, err = readerBucket.IAM().TestPermissions(ctx, permissions)
+	if err != nil || !slices.Equal(gotPermissions, []string{"storage.objects.get"}) {
+		t.Fatalf("mixed bucket grant permissions: %v, %v", gotPermissions, err)
+	}
+	gotPermissions, err = viewer.Bucket(bucket.BucketName()).IAM().TestPermissions(ctx, permissions)
+	if err != nil || !slices.Equal(gotPermissions, []string{"storage.objects.get"}) {
+		t.Fatalf("mixed project grant permissions: %v, %v", gotPermissions, err)
+	}
 	names, err := listObjectNames(ctx, readerBucket)
 	if err != nil || !slices.Equal(names, []string{attrs.Name}) {
 		t.Fatalf("bucket-only list: names=%v, error=%v", names, err)
@@ -85,6 +98,10 @@ func TestStrictAuthBucketIAM(t *testing.T) {
 	}
 	_, err = readerBucket.Object(attrs.Name).Attrs(ctx)
 	requireStrictError(t, err, 403, "forbidden")
+	gotPermissions, err = readerBucket.IAM().TestPermissions(ctx, permissions)
+	if err != nil || len(gotPermissions) != 0 {
+		t.Fatalf("revoked test permissions: %v, %v", gotPermissions, err)
+	}
 	_, err = readerBucket.Object(attrs.Name).NewReader(ctx)
 	requireStrictError(t, err, 403, "forbidden")
 	_, err = listObjectNames(ctx, readerBucket)
@@ -126,4 +143,9 @@ func TestBucketIAMPermissive(t *testing.T) {
 		t.Fatalf("policy round trip: %v", got.InternalProto)
 	}
 	requireStrictError(t, bucket.IAM().SetPolicy(ctx, policy), 412, "conditionNotMet")
+	permissions := []string{"storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"}
+	gotPermissions, err := bucket.IAM().TestPermissions(ctx, permissions)
+	if err != nil || !slices.Equal(gotPermissions, permissions) {
+		t.Fatalf("permissive test permissions: %v, %v", gotPermissions, err)
+	}
 }

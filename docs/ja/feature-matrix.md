@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 278 | 0 | 19 | 1 | 0 | 0 |
-| behavior | 201 | 130 | 0 | 33 | 38 | 0 | 0 |
+| api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
+| behavior | 201 | 129 | 0 | 34 | 38 | 0 | 0 |
 | project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 278 | 5 | 15 | 0 | 0 | 0 |
-| behavior | 130 | 41 | 28 | 2 | 0 | 0 |
+| api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
+| behavior | 129 | 41 | 29 | 2 | 0 | 0 |
 | project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
@@ -103,7 +103,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | JSON-BUCKETS-009 | buckets.relocate | NOT_STARTED | P7 | EXACT | NONE | 0 |
 | JSON-BUCKETS-010 | buckets.restore | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | JSON-BUCKETS-011 | buckets.setIamPolicy | PARTIAL | P2 | EXACT | EXACT | 2 |
-| JSON-BUCKETS-012 | buckets.testIamPermissions | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| JSON-BUCKETS-012 | buckets.testIamPermissions | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | JSON-BUCKETS-013 | buckets.update | PARTIAL | P1 | EXACT | LOCAL_SIMULATION | 4 |
 
 ### JSON API / defaultObjectAccessControls
@@ -645,7 +645,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-025 | 公開アクセス防止下の有効な署名付きアクセス | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 | DESIGN-026 | IAMポリシーversion 3と条件の評価 | NOT_STARTED | P2 | EXACT | NONE | 0 |
 | DESIGN-027 | IAMポリシーetagによる競合制御 | IMPLEMENTED | P2 | EXACT | EXACT | 1 |
-| DESIGN-028 | testIamPermissionsの実効権限結果 | NOT_STARTED | P2 | EXACT | NONE | 0 |
+| DESIGN-028 | testIamPermissionsの実効権限結果 | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-029 | 署名付きリクエストに対する署名者権限の確認 | IMPLEMENTED | P2 | EXACT | EXACT | 2 |
 
 ### Insights semantics

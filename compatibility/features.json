@@ -6600,26 +6600,142 @@
       "interface": "storage.buckets.testIamPermissions",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json",
-        "https://storage.googleapis.com/$discovery/rest?version=v1"
+        "https://storage.googleapis.com/$discovery/rest?version=v1",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "DISCOVERY_CONFIRMED",
-      "notes": "Record wire/schema/permission/error conformance separately from route existence. Path parameters: bucket. Query parameters: permissions, userProject.",
+      "source_checked_at": "2026-10-27",
+      "source_evidence": "SPEC_BASED",
+      "notes": "Bucket testIamPermissions uses the same authorize_bucket/catalog.bucket_access evaluator as operations. Repeated permissions, strict mixed project/bucket grants, revocation, permissive bypass and default Go/Ruby calls pass. Whole rows remain PARTIAL for other permissions, Requester Pays, object methods, expanded ACL/UBLA/PAP interactions and provider error parity. Contract/evidence: docs/en/slices/sdk-test-permissions.md; SPEC-TEST-PERMISSIONS records local decisions.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null,
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "TEST-PERMISSIONS-ROUTE",
+          "description": "Repeated query, response schema, required/invalid/project-only names and absent bucket; see docs/en/slices/sdk-test-permissions.md.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-STRICT-EFFECTIVE",
+          "description": "Reuse operation authorization for project/bucket grants, mixed results and revocation without requiring policy-read permission.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_matches_operations_and_policy_changes",
+            "TestStrictAuthBucketIAM"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-PERMISSIVE",
+          "description": "Return all supported requested permissions consistently with authorization bypass.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-SDK",
+          "description": "Default high-level Go and Ruby calls in strict and permissive profiles.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "ruby-bucket-test-permissions"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-EXTENDED",
+          "description": "Other permissions, Requester Pays, object testIamPermissions, expanded ACL/UBLA/PAP controls and provider error parity remain excluded.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "iam::test_permissions_validates_route_queries_and_response_fields",
+        "iam::test_permissions_matches_operations_and_policy_changes",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "ruby-bucket-test-permissions"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "iam::test_permissions_matches_operations_and_policy_changes"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http test_permissions",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "iam::test_permissions_matches_operations_and_policy_changes"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "ruby-bucket-test-permissions"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; strict and permissive",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; strict and permissive",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "ruby-bucket-test-permissions"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-TEST-PERMISSIONS: local error envelopes and permissive bypass; multi-permission results are not an atomic snapshot. Unsupported controls and permissions remain pending."
+      ],
+      "implemented_in": "c185ea0",
+      "last_verified": "2026-10-27",
       "http_method": "GET",
       "path": "b/{bucket}/iam/testPermissions",
       "path_role": "DISCOVERY_GENERIC_METHOD_PATH",
@@ -35106,25 +35222,141 @@
       "interface": "testIamPermissions",
       "phase": "P2",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
-        "https://docs.cloud.google.com/storage/docs/access-control/iam"
+        "https://docs.cloud.google.com/storage/docs/access-control/iam",
+        "https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions",
+        "https://docs.cloud.google.com/storage/docs/access-control/iam-permissions"
       ],
-      "source_checked_at": "2026-10-21",
-      "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Return actual caller permissions under all effective controls, not the requested permission list.",
+      "source_checked_at": "2026-10-27",
+      "source_evidence": "SPEC_BASED",
+      "notes": "Bucket testIamPermissions uses the same authorize_bucket/catalog.bucket_access evaluator as operations. Repeated permissions, strict mixed project/bucket grants, revocation, permissive bypass and default Go/Ruby calls pass. Whole rows remain PARTIAL for other permissions, Requester Pays, object methods, expanded ACL/UBLA/PAP interactions and provider error parity. Contract/evidence: docs/en/slices/sdk-test-permissions.md; SPEC-TEST-PERMISSIONS records local decisions.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "TEST-PERMISSIONS-ROUTE",
+          "description": "Repeated query, response schema, required/invalid/project-only names and absent bucket; see docs/en/slices/sdk-test-permissions.md.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-STRICT-EFFECTIVE",
+          "description": "Reuse operation authorization for project/bucket grants, mixed results and revocation without requiring policy-read permission.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_matches_operations_and_policy_changes",
+            "TestStrictAuthBucketIAM"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-PERMISSIVE",
+          "description": "Return all supported requested permissions consistently with authorization bypass.",
+          "result": "PASS",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-SDK",
+          "description": "Default high-level Go and Ruby calls in strict and permissive profiles.",
+          "result": "PASS",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "ruby-bucket-test-permissions"
+          ]
+        },
+        {
+          "id": "TEST-PERMISSIONS-EXTENDED",
+          "description": "Other permissions, Requester Pays, object testIamPermissions, expanded ACL/UBLA/PAP controls and provider error parity remain excluded.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "iam::test_permissions_validates_route_queries_and_response_fields",
+        "iam::test_permissions_matches_operations_and_policy_changes",
+        "TestStrictAuthBucketIAM",
+        "TestBucketIAMPermissive",
+        "ruby-bucket-test-permissions"
+      ],
+      "verification": [
+        {
+          "command": "just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "iam::test_permissions_matches_operations_and_policy_changes"
+          ]
+        },
+        {
+          "command": "cargo test --locked --offline --test auth_http test_permissions",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "iam::test_permissions_validates_route_queries_and_response_fields",
+            "iam::test_permissions_matches_operations_and_policy_changes"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive",
+            "ruby-bucket-test-permissions"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "language": "Go",
+          "toolchain": "1.27.3",
+          "sdk": "cloud.google.com/go/storage",
+          "version": "v1.70.0",
+          "api_client_version": "v0.308.0",
+          "transport": "HTTP JSON; strict and permissive",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "TestStrictAuthBucketIAM",
+            "TestBucketIAMPermissive"
+          ]
+        },
+        {
+          "language": "Ruby",
+          "toolchain": "4.0.9",
+          "sdk": "google-cloud-storage",
+          "version": "1.62.1",
+          "transport": "HTTP JSON; strict and permissive",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "command": "just check-sdk",
+          "artifact": "docs/en/slices/sdk-test-permissions.md",
+          "test_ids": [
+            "ruby-bucket-test-permissions"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "SPEC-TEST-PERMISSIONS: local error envelopes and permissive bypass; multi-permission results are not an atomic snapshot. Unsupported controls and permissions remain pending."
+      ],
+      "implemented_in": "c185ea0",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-029",

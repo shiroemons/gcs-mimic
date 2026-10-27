@@ -14,6 +14,17 @@
       "required_resolution": "Obtain authoritative clarification or opted-in provider evidence before claiming exact empty-input, syntax-error or scan-boundary parity; retain the scoped contract in docs/en/slices/sdk-list-glob.md."
     },
     {
+      "id": "SPEC-TEST-PERMISSIONS",
+      "title": "Bucket testIamPermissions local error and profile choices",
+      "status": "OPEN",
+      "affected_features": ["JSON-BUCKETS-012", "DESIGN-028"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/testIamPermissions", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "The method requires no permissions and rejects bucket create/list project permissions. Exact missing-query, unknown-name and absent-bucket errors are not established by these sources. Locally these are 400 required, 400 invalid and 404 notFound. Permissive returns every supported requested permission to match its authorization bypass; strict uses the same catalog authorization as operations. Permission checks observe individual short catalog transactions, not one atomic multi-permission snapshot. See docs/en/slices/sdk-test-permissions.md.",
+      "required_resolution": "Keep broad rows PARTIAL; verify exact provider input/existence/error ordering with authorized differential evidence. Other Storage permissions, object testIamPermissions and expanded ACL/UBLA/PAP interactions remain pending."
+    },
+    {
       "id": "SPEC-RUBY-DEFAULTS",
       "title": "Ruby no-op defaults and legacy JSON null acceptance",
       "status": "OPEN",

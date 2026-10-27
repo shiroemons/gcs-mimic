@@ -1340,6 +1340,7 @@ async fn bucket_response(
         BucketRequest::SetIam { bucket } => {
             authorize_bucket(state, caller, auth::BUCKETS_SET_IAM, bucket).await?
         }
+        BucketRequest::TestIam { .. } => BucketAccess::Permissive,
     };
     json::validate_read_condition_headers(
         request.headers(),
@@ -1364,7 +1365,9 @@ async fn bucket_response(
             "This method requires an empty body",
         ));
     }
-    let fields = if matches!(operation, BucketRequest::Delete { .. }) {
+    let fields = if matches!(operation, BucketRequest::TestIam { .. }) {
+        json::test_permissions_query(request.uri().query())?.1
+    } else if matches!(operation, BucketRequest::Delete { .. }) {
         json::Fields::from_query(None, "Bucket")?
     } else {
         let schema = match operation {
@@ -1376,6 +1379,25 @@ async fn bucket_response(
     };
     let replace = matches!(operation, BucketRequest::Update { .. });
     let mut value = match operation {
+        BucketRequest::TestIam {
+            bucket,
+            permissions,
+        } => {
+            // This method requires no permission; existence is independent of policy visibility.
+            state
+                .catalog
+                .get_policy(&bucket, &BucketAccess::Permissive)
+                .await?;
+            let mut granted = Vec::new();
+            for permission in permissions {
+                match authorize_bucket(state, caller, &permission, &bucket).await {
+                    Ok(_) => granted.push(permission),
+                    Err(error) if error.status == StatusCode::FORBIDDEN => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            serde_json::json!({"kind": "storage#testIamPermissionsResponse", "permissions": granted})
+        }
         BucketRequest::Patch { bucket, params } | BucketRequest::Update { bucket, params } => {
             let bytes = json::read_body(request.into_body(), BUCKET_BODY_LIMIT).await?;
             let update = if replace {

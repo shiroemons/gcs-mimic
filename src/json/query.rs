@@ -65,6 +65,10 @@ pub enum BucketRequest {
     SetIam {
         bucket: String,
     },
+    TestIam {
+        bucket: String,
+        permissions: Vec<String>,
+    },
 }
 
 /// Match the raw URI before decoding any bucket path segment.
@@ -79,6 +83,9 @@ pub fn route_with_profile(
     seed_project: &str,
 ) -> Option<Result<BucketRequest, JsonError>> {
     const COLLECTION: &str = "/storage/v1/b";
+    if let Some(result) = super::iam::route_test_permissions(method, uri, profile) {
+        return Some(result);
+    }
     if let Some(segment) = uri
         .path()
         .strip_prefix("/storage/v1/b/")

@@ -1,10 +1,101 @@
-use super::{JsonError, objects::base64};
+use super::{BucketRequest, Fields, JsonError, objects::base64, query};
 use crate::auth::{
     Binding, Policy,
     roles::{GrantLevel, PREDEFINED_ROLES},
 };
-use hyper::StatusCode;
+use hyper::{Method, StatusCode, Uri};
 use serde_json::{Value, json};
+
+pub(super) fn route_test_permissions(
+    method: &Method,
+    uri: &Uri,
+    profile: crate::config::CompatProfile,
+) -> Option<Result<BucketRequest, JsonError>> {
+    let segment = uri
+        .path()
+        .strip_prefix("/storage/v1/b/")?
+        .strip_suffix("/iam/testPermissions")?;
+    if segment.is_empty() || segment.contains('/') {
+        return None;
+    }
+    Some((|| {
+        if segment.len() > 222 * 3 {
+            return Err(JsonError::invalid_parameter("Invalid bucket name"));
+        }
+        let bucket = query::decode(segment, false)?;
+        super::buckets::validate_bucket_name_for_profile(&bucket, profile)?;
+        if *method != Method::GET {
+            let mut error = JsonError::new(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "methodNotAllowed",
+                "Use GET for bucket testIamPermissions",
+            );
+            error.allow = Some("GET");
+            return Err(error);
+        }
+        let (permissions, _) = test_permissions_query(uri.query())?;
+        Ok(BucketRequest::TestIam {
+            bucket,
+            permissions,
+        })
+    })())
+}
+
+pub fn test_permissions_query(raw: Option<&str>) -> Result<(Vec<String>, Fields), JsonError> {
+    let raw = raw.unwrap_or_default();
+    if raw.len() > 16 * 1024 {
+        return Err(JsonError::invalid_parameter("Query exceeds 16 KiB"));
+    }
+    let mut permissions = Vec::new();
+    let mut rest = Vec::new();
+    for pair in raw.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if query::decode(key, true)? == "permissions" {
+            let permission = query::decode(value, true)?;
+            if matches!(
+                permission.as_str(),
+                crate::auth::BUCKETS_CREATE | crate::auth::BUCKETS_LIST
+            ) {
+                return Err(invalid(
+                    "Project-only permission; test a bucket permission such as storage.buckets.get",
+                ));
+            }
+            if crate::auth::Permission::try_from(permission.as_str()).is_err() {
+                if PREDEFINED_ROLES
+                    .iter()
+                    .any(|(_, _, names)| names.contains(&permission.as_str()))
+                {
+                    return Err(JsonError::unsupported(&format!(
+                        "permission {permission}; use a supported operation permission such as storage.objects.get"
+                    )));
+                }
+                return Err(invalid(
+                    "Invalid permission; use a supported name such as storage.objects.get",
+                ));
+            }
+            if !permissions.contains(&permission) {
+                permissions.push(permission);
+            }
+        } else {
+            rest.push(pair);
+        }
+    }
+    if permissions.is_empty() {
+        return Err(JsonError::new(
+            StatusCode::BAD_REQUEST,
+            "required",
+            "Missing permissions; supply permissions=storage.objects.get",
+        ));
+    }
+    let mut query = query::parse_query(&rest.join("&"))?;
+    if query.get("userProject").is_some_and(String::is_empty) {
+        query.remove("userProject");
+    }
+    let fields = Fields::take(&mut query, "TestIamPermissionsResponse")?;
+    query::common(&mut query)?;
+    query::finish(query)?;
+    Ok((permissions, fields))
+}
 
 fn invalid(message: &str) -> JsonError {
     JsonError::new(StatusCode::BAD_REQUEST, "invalid", message)

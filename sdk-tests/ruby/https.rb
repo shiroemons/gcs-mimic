@@ -119,6 +119,19 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
   begin
     bucket = storage.create_bucket("sdk-ruby-basic-#{SecureRandom.hex(8)}")
     puts "ruby-default-create-bucket passed"
+    permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
+    raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort
+    if ENV.key?("GCS_MIMIC_TOKEN")
+      begin
+        api.authorization = "local-viewer-token"
+        raise "project permissions mismatch" unless bucket.test_permissions(*permissions) == ["storage.objects.get"]
+        api.authorization = "local-bucket-reader-token"
+        raise "ungranted permissions mismatch" unless bucket.test_permissions(*permissions).empty?
+      ensure
+        api.authorization = ENV.fetch("GCS_MIMIC_TOKEN")
+      end
+    end
+    puts "ruby-bucket-test-permissions passed"
     raise "bucket get mismatch" unless storage.bucket(bucket.name).name == bucket.name
     raise "bucket absent from list" unless storage.buckets.any? { |item| item.name == bucket.name }
     bucket.update { |item| item.labels = { "transport" => origin.scheme } }

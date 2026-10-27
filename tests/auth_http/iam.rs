@@ -25,6 +25,116 @@ fn grants(roles: &[&str]) -> Value {
 }
 
 #[test]
+fn test_permissions_matches_operations_and_policy_changes() {
+    let (_config, _data, server) = fixture();
+    let path = format!(
+        "{IAM}/testPermissions?permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.buckets.getIamPolicy"
+    );
+    assert_eq!(
+        server.get(NO_ROLES, &path).ok().json(),
+        json!({
+            "kind":"storage#testIamPermissionsResponse", "permissions":[]
+        })
+    );
+    assert_eq!(server.get("", &path).ok().json()["permissions"], json!([]));
+    assert_eq!(
+        server.get(VIEWER, &path).ok().json()["permissions"],
+        json!(["storage.objects.get"])
+    );
+    server
+        .upload(ADMIN, "iam-bucket", "test-permissions", b"hello")
+        .ok();
+    let object = "/storage/v1/b/iam-bucket/o/test-permissions";
+    server.get(NO_ROLES, object).forbidden();
+    set(&server, ADMIN, &grants(&["roles/storage.objectViewer"])).ok();
+    assert_eq!(
+        server.get(NO_ROLES, &path).ok().json()["permissions"],
+        json!(["storage.objects.get"])
+    );
+    server.get(NO_ROLES, object).ok();
+    server
+        .upload(NO_ROLES, "iam-bucket", "denied", b"no")
+        .forbidden();
+    server.get(NO_ROLES, IAM).forbidden();
+    set(&server, ADMIN, &json!({"bindings":[]})).ok();
+    assert_eq!(
+        server.get(NO_ROLES, &path).ok().json()["permissions"],
+        json!([])
+    );
+    server.get(NO_ROLES, object).forbidden();
+    server
+        .get("Authorization: Bearer invalid\r\n", &path)
+        .error(401, "authError");
+}
+
+#[test]
+fn test_permissions_validates_route_queries_and_response_fields() {
+    let data = TestDir::new();
+    let mut server = Server::start(&data, &[]).0;
+    server.create_bucket("", "project-a", "iam-bucket").ok();
+    let path = format!("{IAM}/testPermissions");
+    server.get("", &path).error(400, "required");
+    for name in [
+        "",
+        "storage.*",
+        "storage.objects.unknown",
+        "storage.buckets.create",
+        "storage.buckets.list",
+    ] {
+        server
+            .get("", &format!("{path}?permissions={name}"))
+            .error(400, "invalid");
+    }
+    server
+        .get(
+            "",
+            &format!("{path}?permissions=storage.objects.getIamPolicy"),
+        )
+        .error(501, "notImplemented");
+    let query = "permissions=storage.objects.get&permissions=storage.objects.create&permissions=storage.objects.get";
+    assert_eq!(
+        server
+            .get("", &format!("{path}?{query}&userProject="))
+            .ok()
+            .json(),
+        json!({
+            "kind":"storage#testIamPermissionsResponse", "permissions":["storage.objects.get", "storage.objects.create"]
+        })
+    );
+    assert_eq!(
+        server
+            .get("", &format!("{path}?{query}&fields=permissions"))
+            .ok()
+            .json(),
+        json!({
+            "permissions":["storage.objects.get", "storage.objects.create"]
+        })
+    );
+    server
+        .get("", &format!("{path}?{query}&userProject=project-a"))
+        .error(501, "notImplemented");
+    server
+        .get("", &format!("{path}?{query}&unknown=true"))
+        .error(400, "invalidParameter");
+    server
+        .get("", &format!("{path}?{query}&fields=missing"))
+        .error(400, "invalidParameter");
+    server
+        .get(
+            "",
+            "/storage/v1/b/missing-bucket/iam/testPermissions?permissions=storage.objects.get",
+        )
+        .error(404, "notFound");
+    let response = server.request("POST", &format!("{path}?{query}"), "", b"");
+    response.error(405, "methodNotAllowed");
+    assert_eq!(response.headers["allow"], "GET");
+    server
+        .request("GET", &format!("{path}?{query}"), "", b"body")
+        .error(400, "invalidArgument");
+    server.stop();
+}
+
+#[test]
 fn iam_default_policy_and_versions() {
     let (_config, _data, server) = fixture();
     let policy = server.get(ADMIN, IAM).ok().json();
@@ -762,12 +872,9 @@ fn iam_rejects_queries_paths_and_bodies() {
             .request("PUT", IAM, ADMIN, bytes)
             .error(400, "parseError");
     }
-    assert_eq!(
-        server
-            .get(ADMIN, "/storage/v1/b/iam-bucket/iam/testPermissions")
-            .status,
-        404
-    );
+    server
+        .get(ADMIN, "/storage/v1/b/iam-bucket/iam/testPermissions")
+        .error(400, "required");
     server
         .get(ADMIN, "/storage/v1/b/missing-bucket/iam")
         .error(404, "notFound");

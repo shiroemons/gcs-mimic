@@ -38,7 +38,7 @@ pub use derived_metadata::{derived_component_count, derived_metadata};
 pub use error::JsonError;
 pub use fields::Fields;
 pub(crate) use iam::policy_etag;
-pub use iam::{parse_policy, policy_resource};
+pub use iam::{parse_policy, policy_resource, test_permissions_query};
 pub use multipart::{Multipart, multipart_boundary, multipart_metadata};
 pub use object_copy::ObjectCopyParams;
 pub use object_list::{ObjectListParams, object_list};
