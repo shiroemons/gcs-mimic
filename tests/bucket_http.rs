@@ -128,6 +128,192 @@ fn raw(address: &str, request: &str) -> Reply {
 const PROFILES: [&str; 2] = ["native", "legacy-emulator"];
 
 #[test]
+fn bucket_lifecycle_rules_round_trip_replace_clear_and_validation() {
+    let rules = json!({"rule":[
+        {"action":{"type":"Delete"},"condition":{"age":30,"createdBefore":"2026-10-27","isLive":false,"numNewerVersions":2}},
+        {"action":{"type":"SetStorageClass","storageClass":"COLDLINE"},"condition":{"customTimeBefore":"2024-02-29","daysSinceCustomTime":0,"daysSinceNoncurrentTime":1,"noncurrentTimeBefore":"2026-01-01","matchesStorageClass":["STANDARD"],"matchesPrefix":["archive/"],"matchesSuffix":[".txt"]}},
+        {"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{"age":1,"matchesPrefix":["incomplete/"],"matchesSuffix":[".bin"]}}
+    ]});
+    for profile in PROFILES {
+        let invalid_reason = if profile == "native" {
+            "invalidArgument"
+        } else {
+            "invalid"
+        };
+        let dir = TestDir::new();
+        let mut server = profile_server(&dir, profile);
+        let path = "/storage/v1/b/lifecycle-bucket";
+        let created = server.request(
+            "POST",
+            "/storage/v1/b?project=project",
+            &json!({"name":"lifecycle-bucket","lifecycle":rules}).to_string(),
+        );
+        assert_eq!(created.status, 200, "{}", created.body);
+        assert_eq!(created.json()["lifecycle"], rules);
+        assert_eq!(server.request("GET", path, "").json()["lifecycle"], rules);
+        assert_eq!(
+            server
+                .request("GET", "/storage/v1/b?project=project", "")
+                .json()["items"][0]["lifecycle"],
+            rules
+        );
+        server.stop();
+        server = profile_server(&dir, profile);
+        assert_eq!(server.request("GET", path, "").json()["lifecycle"], rules);
+        let replacement = json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":0}}]});
+        let patched = server.request(
+            "PATCH",
+            &format!("{path}?ifMetagenerationMatch=1"),
+            &json!({"lifecycle":replacement}).to_string(),
+        );
+        assert_eq!(patched.status, 200, "{}", patched.body);
+        assert_eq!(patched.json()["lifecycle"], replacement);
+        assert_eq!(patched.json()["metageneration"], "2");
+        server
+            .request(
+                "PATCH",
+                &format!("{path}?ifMetagenerationMatch=1"),
+                &json!({"lifecycle":null}).to_string(),
+            )
+            .error(412, "conditionNotMet");
+        assert_eq!(server.request("GET", path, "").json(), patched.json());
+        for empty in [
+            Value::Null,
+            json!({}),
+            json!({"rule":null}),
+            json!({"rule":[]}),
+        ] {
+            let cleared = server.request("PATCH", path, &json!({"lifecycle":empty}).to_string());
+            assert_eq!(cleared.status, 200, "{}", cleared.body);
+            assert!(cleared.json().get("lifecycle").is_none());
+            assert!(
+                server
+                    .request("GET", path, "")
+                    .json()
+                    .get("lifecycle")
+                    .is_none()
+            );
+            assert_eq!(
+                server
+                    .request("PATCH", path, &json!({"lifecycle":rules}).to_string())
+                    .status,
+                200
+            );
+        }
+        let put = server.request("PUT", path, &json!({"lifecycle":replacement}).to_string());
+        assert_eq!(put.status, 200, "{}", put.body);
+        assert_eq!(put.json()["lifecycle"], replacement);
+        let cleared = server.request("PUT", path, "{}");
+        assert_eq!(cleared.status, 200, "{}", cleared.body);
+        assert!(cleared.json().get("lifecycle").is_none());
+        let before = cleared.json();
+        for condition in [
+            json!({}),
+            json!({"age":-1}),
+            json!({"age":"1"}),
+            json!({"age":2147483648i64}),
+            json!({"isLive":0}),
+            json!({"createdBefore":"2025-02-29"}),
+            json!({"customTimeBefore":"2026-10-27T00:00:00Z"}),
+            json!({"noncurrentTimeBefore":"2026-13-01"}),
+            json!({"daysSinceCustomTime":-1}),
+            json!({"daysSinceNoncurrentTime":1.5}),
+            json!({"numNewerVersions":false}),
+            json!({"matchesPrefix":"a"}),
+            json!({"matchesSuffix":[1]}),
+            json!({"matchesPrefix":["a","a"]}),
+            json!({"matchesStorageClass":["MARS"]}),
+            json!({"matchesStorageClass":["REGIONAL"]}),
+            json!({"age":1,"unknownCondition":true}),
+        ] {
+            let body =
+                json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}})
+                    .to_string();
+            let reply = server.request("PATCH", path, &body);
+            reply.error(400, invalid_reason);
+            assert!(
+                reply.json()["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("use")
+            );
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
+        for action in [
+            json!({"type":"Unknown"}),
+            json!({"type":"SetStorageClass"}),
+            json!({"type":"SetStorageClass","storageClass":"MARS"}),
+            json!({"type":"Delete","storageClass":"COLDLINE"}),
+        ] {
+            let reply = server.request(
+                "PATCH",
+                path,
+                &json!({"lifecycle":{"rule":[{"action":action,"condition":{"age":1}}]}})
+                    .to_string(),
+            );
+            reply.error(400, invalid_reason);
+        }
+        let before = server.request("GET", path, "").json();
+        for (rule, field) in [
+            (
+                json!({"action":{"type":"SetStorageClass","storageClass":"REGIONAL"},"condition":{"age":1}}),
+                "lifecycle.rule[0].action.storageClass",
+            ),
+            (
+                json!({"action":{"type":"SetStorageClass","storageClass":"RAPID"},"condition":{"age":1}}),
+                "lifecycle.rule[0].action.storageClass",
+            ),
+            (
+                json!({"action":{"type":"Delete"},"condition":{"matchesStorageClass":["RAPID"]}}),
+                "lifecycle.rule[0].condition.matchesStorageClass",
+            ),
+        ] {
+            let reply = server.request(
+                "PATCH",
+                path,
+                &json!({"lifecycle":{"rule":[rule]}}).to_string(),
+            );
+            reply.error(400, "badRequest");
+            assert!(
+                reply.json()["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(field)
+            );
+            assert_eq!(server.request("GET", path, "").json(), before);
+        }
+        server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"AbortIncompleteMultipartUpload"},"condition":{"isLive":true}}]}}).to_string()).error(400, invalid_reason);
+        for condition in [
+            json!({"matchesPattern":".*"}),
+            json!({"sizeAboveBytes":"1"}),
+            json!({"sizeBelowBytes":"9"}),
+        ] {
+            server.request("PATCH", path, &json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":condition}]}}).to_string()).error(400, "badRequest");
+        }
+        let single = json!({"action":{"type":"Delete"},"condition":{"age":1}});
+        assert_eq!(
+            server
+                .request(
+                    "PATCH",
+                    path,
+                    &json!({"lifecycle":{"rule":vec![single.clone();100]}}).to_string()
+                )
+                .status,
+            200
+        );
+        let before = server.request("GET", path, "").json();
+        server
+            .request(
+                "PATCH",
+                path,
+                &json!({"lifecycle":{"rule":vec![single;101]}}).to_string(),
+            )
+            .error(400, invalid_reason);
+        assert_eq!(server.request("GET", path, "").json(), before);
+    }
+}
+
+#[test]
 fn unsupported_legacy_profile() {
     for profile in PROFILES {
         let dir = TestDir::new();
@@ -737,17 +923,18 @@ fn bucket_patch_null_settings_follow_profile_defaults() {
 }
 
 #[test]
-fn bucket_patch_accepts_only_empty_lifecycle_rules() {
+fn bucket_patch_lifecycle_invalid_input_preserves_state() {
     for profile in PROFILES {
         let dir = TestDir::new();
         let server = profile_server(&dir, profile);
         server.insert("patch-lifecycle", "project");
         let path = "/storage/v1/b/patch-lifecycle";
-        let before = server.request("PATCH", path, r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true,"labels":{"keep":"yes"}}"#).json();
-        let reply = server.request("PATCH", path, r#"{"lifecycle":{"rule":[]}}"#);
+        let before = server.request("PATCH", path, r#"{"versioning":{"enabled":true},"defaultEventBasedHold":true,"labels":{"keep":"yes"},"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}"#).json();
+        let reply = server.request("PATCH", path, r#"{"lifecycle":{"rule":null}}"#);
         assert_eq!(reply.status, 200, "{}", reply.body);
         let after = reply.json();
         assert_eq!(after["metageneration"], "3");
+        assert!(after.get("lifecycle").is_none());
         for field in [
             "versioning",
             "defaultEventBasedHold",
@@ -758,9 +945,8 @@ fn bucket_patch_accepts_only_empty_lifecycle_rules() {
             assert_eq!(after[field], before[field]);
         }
         for lifecycle in [
-            json!({"rule":[],"extra":null}),
-            json!({"rule":null}),
-            json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}),
+            json!({"rule":false}),
+            json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":-1}}]}),
         ] {
             server
                 .request(
@@ -768,7 +954,14 @@ fn bucket_patch_accepts_only_empty_lifecycle_rules() {
                     path,
                     &json!({"lifecycle":lifecycle,"labels":null}).to_string(),
                 )
-                .error(400, "badRequest");
+                .error(
+                    400,
+                    if profile == "native" {
+                        "invalidArgument"
+                    } else {
+                        "invalid"
+                    },
+                );
             assert_eq!(server.request("GET", path, "").json(), after);
         }
     }
@@ -1102,9 +1295,7 @@ fn bucket_put_unsupported_and_output_inputs_preserve_state() {
         for body in [
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"defaultObjectAcl":[]}),
-            json!({"lifecycle":{"rule":[],"extra":null}}),
-            json!({"lifecycle":{"rule":null}}),
-            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}),
+            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}),
         ] {
             server
                 .request("PUT", path, &body.to_string())
@@ -1133,7 +1324,6 @@ fn bucket_metadata_unsupported_inputs(method: &str) {
             "encryption",
             "hierarchicalNamespace",
             "ipFilter",
-            "lifecycle",
             "logging",
             "objectRetention",
             "retentionPolicy",
@@ -2326,8 +2516,8 @@ fn bucket_core_settings_round_trip() {
         assert_eq!(sdk.status, 200, "{}", sdk.body);
         assert_settings(&sdk.json(), profile, true, true);
         for lifecycle in [
-            json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}),
-            json!({"rule":[],"future":true}),
+            json!({"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}),
+            json!({"rule":[{"action":{"type":"Delete"},"condition":{"sizeAboveBytes":"1"}}]}),
         ] {
             server
                 .request(
@@ -2354,7 +2544,6 @@ fn bucket_core_unsupported_settings_preserve_state() {
             "encryption",
             "hierarchicalNamespace",
             "ipFilter",
-            "lifecycle",
             "logging",
             "objectRetention",
             "retentionPolicy",
@@ -2418,7 +2607,7 @@ fn bucket_core_strict_protection_settings_never_create_an_unprotected_bucket() {
         for settings in [
             json!({"iamConfiguration":{"uniformBucketLevelAccess":{"enabled":"true"}}}),
             json!({"retentionPolicy":{"retentionPeriod":"86400"}}),
-            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}}),
+            json!({"lifecycle":{"rule":[{"action":{"type":"Delete"},"condition":{"matchesPattern":".*"}}]}}),
             json!({"acl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"defaultObjectAcl":[{"entity":"allUsers","role":"READER"}]}),
             json!({"encryption":{"defaultKmsKeyName":"unavailable-key"}}),
@@ -2698,7 +2887,7 @@ fn bucket_core_migrates_v7_settings() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            23
+            24
         );
     }
 }

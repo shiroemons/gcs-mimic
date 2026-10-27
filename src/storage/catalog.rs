@@ -91,7 +91,8 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 23;
+const CATALOG_SCHEMA_VERSION: i64 = 24;
+const BUCKET_LIFECYCLE_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN lifecycle TEXT NOT NULL DEFAULT '[]'; PRAGMA user_version = 24;";
 const BUCKET_UNIFORM_ACCESS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN uniform_bucket_level_access_locked_time INTEGER; PRAGMA user_version = 23;";
 const OBJECT_HOLDS_CUSTOM_TIME_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN temporary_hold INTEGER NOT NULL DEFAULT 0 CHECK(temporary_hold IN (0, 1)); ALTER TABLE objects ADD COLUMN custom_time TEXT; PRAGMA user_version = 22;";
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
@@ -103,7 +104,7 @@ PRAGMA user_version = 5;";
 const COLUMNS: &str = "name, project, location, location_type, storage_class, labels,
                       metageneration, time_created, updated, versioning_enabled,
                       default_event_based_hold, cors, public_access_prevention_enforced,
-                      uniform_bucket_level_access_locked_time";
+                      uniform_bucket_level_access_locked_time, lifecycle";
 const BUCKET_PAP_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN public_access_prevention_enforced INTEGER NOT NULL DEFAULT 0 CHECK(public_access_prevention_enforced IN (0, 1));
 PRAGMA user_version = 13;";
 const BUCKET_CORS_SCHEMA: &str = "ALTER TABLE buckets ADD COLUMN cors TEXT NOT NULL DEFAULT '[]';
@@ -326,6 +327,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 23 {
         expected
             .execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 24 {
+        expected
+            .execute_batch(BUCKET_LIFECYCLE_SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -619,6 +625,11 @@ impl Catalog {
             if version < 23 {
                 let transaction = connection.transaction().map_err(unavailable)?;
                 transaction.execute_batch(BUCKET_UNIFORM_ACCESS_SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
+            }
+            if version < 24 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(BUCKET_LIFECYCLE_SCHEMA).map_err(unavailable)?;
                 transaction.commit().map_err(unavailable)?;
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
@@ -958,6 +969,7 @@ impl Catalog {
             }
             if replace {
                 record.cors.clear();
+                record.lifecycle.clear();
                 record.labels.clear();
                 record.storage_class = "STANDARD".into();
                 record.versioning_enabled = false;
@@ -1010,6 +1022,11 @@ impl Catalog {
                 validate_cors(&cors)?;
                 record.cors = cors;
             }
+            if let Some(lifecycle) = update.lifecycle {
+                crate::bucket::lifecycle::validate(&lifecycle)?;
+                crate::bucket::lifecycle::validate_location(&lifecycle, &record.location_type)?;
+                record.lifecycle = lifecycle;
+            }
             record.metageneration = record
                 .metageneration
                 .checked_add(1)
@@ -1023,7 +1040,7 @@ impl Catalog {
                     "UPDATE buckets SET labels = ?2, storage_class = ?3,
                      versioning_enabled = ?4, default_event_based_hold = ?5,
                      metageneration = ?6, updated = ?7, cors = ?8, public_access_prevention_enforced = ?9,
-                     uniform_bucket_level_access_locked_time = ?10 WHERE name = ?1",
+                     uniform_bucket_level_access_locked_time = ?10, lifecycle = ?11 WHERE name = ?1",
                     params![
                         name,
                         serde_json::to_string(&record.labels).map_err(unavailable)?,
@@ -1035,6 +1052,7 @@ impl Catalog {
                         cors_value(&record.cors).to_string(),
                         record.public_access_prevention_enforced,
                         record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
+                        serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
                     ],
                 )
                 .map_err(unavailable)?;
@@ -1262,7 +1280,16 @@ fn bucket_list_page(
 
 fn bucket_metadata_charge(row: &Row<'_>) -> Result<usize, CatalogError> {
     let mut charge = 4096usize;
-    for (column, multiplier) in [(0, 8), (1, 8), (2, 8), (3, 8), (4, 8), (5, 16), (11, 64)] {
+    for (column, multiplier) in [
+        (0, 8),
+        (1, 8),
+        (2, 8),
+        (3, 8),
+        (4, 8),
+        (5, 16),
+        (11, 64),
+        (14, 64),
+    ] {
         let bytes = row
             .get_ref(column)
             .map_err(unavailable)?
@@ -1278,6 +1305,8 @@ fn insert_bucket_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     record: &mut BucketRecord,
 ) -> Result<(), CatalogError> {
+    crate::bucket::lifecycle::validate(&record.lifecycle)?;
+    crate::bucket::lifecycle::validate_location(&record.lifecycle, &record.location_type)?;
     let created = unix_micros(record.time_created)?;
     let updated = unix_micros(record.updated)?;
     record.time_created = system_time_micros(created).map_err(unavailable)?;
@@ -1291,7 +1320,7 @@ fn insert_bucket_in_transaction(
     let labels = serde_json::to_string(&record.labels).map_err(unavailable)?;
     let changed = transaction
         .execute(
-            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            &format!("INSERT INTO buckets ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT(name) DO NOTHING"),
             params![
                 record.name,
@@ -1308,6 +1337,7 @@ fn insert_bucket_in_transaction(
                 cors_value(&record.cors).to_string(),
                 record.public_access_prevention_enforced,
                 record.uniform_bucket_level_access_locked_time.map(unix_micros).transpose()?,
+                serde_json::to_string(&record.lifecycle).map_err(unavailable)?,
             ],
         )
         .map_err(unavailable)?;
@@ -1388,6 +1418,8 @@ fn read_bucket(row: &Row<'_>) -> rusqlite::Result<BucketRecord> {
         storage_class: row.get(4)?,
         labels: serde_json::from_str(&labels)
             .map_err(|e| rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(e)))?,
+        lifecycle: serde_json::from_str(&row.get::<_, String>(14)?)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(14, Type::Text, Box::new(e)))?,
         metageneration: row.get(6)?,
         time_created: system_time_micros(row.get(7)?)?,
         updated: system_time_micros(row.get(8)?)?,

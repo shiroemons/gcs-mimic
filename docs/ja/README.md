@@ -59,6 +59,7 @@ fake-gcs-serverの初期ファイルがある場合は、同じ`data/BUCKET/OBJE
 | バケットを複数作る | 対応 |
 | バケットごとにCORS・IAMを設定する | APIで設定可能 |
 | UBLAを有効にしてバケットを作る | Go・Rubyの通常の呼び方に対応。[対応範囲とACLの制限](sdk-ubla-predefined-acl.md) |
+| ライフサイクル設定を保存する | Go・Rubyで設定・更新・削除に対応。ルールの実行は未対応。[対応範囲](sdk-lifecycle-config.md) |
 | ファイルを保存・取得・削除する | 対応 |
 | コピー・継続rewrite・compose | 記載範囲で対応 |
 | 再開可能アップロード・世代履歴 | 記載範囲で対応 |

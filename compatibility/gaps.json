@@ -3,6 +3,17 @@
   "scope": "Specification conflicts and per-feature verification tasks; these are not missing-method guesses.",
   "gaps": [
     {
+      "id": "SPEC-LIFECYCLE-CONFIG",
+      "title": "Lifecycle configuration without action execution",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-LIFECYCLE-001", "JSON-BUCKETS-005", "JSON-BUCKETS-008", "JSON-BUCKETS-013"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/lifecycle", "https://docs.cloud.google.com/storage/docs/json_api", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Discovery revision 20261020 SHA256 eeb0831df501d131c9497534b2c3d130ea40f9fa215195115d011cb64e1a42bc. JSON overview explicitly permits deleting lifecycle configurations with null. Empty objects/rules and null rule lists locally normalize to absence. Ruby 1.62.1 emits null unused conditions/action.storageClass and empty unused lists; locally these defaults normalize to absence before validation. Valid unsupported storage classes use the shared unsupported response with indexed field paths. AbortIncompleteMultipartUpload allows age/prefix/suffix. matchesPattern is Early Access and size conditions are outside this slice.",
+      "required_resolution": "Implement action execution through the injected clock and maintenance scheduler separately. Provider verification is still needed for empty-input/error detail. Location-dependent legacy matchesStorageClass combinations are validated against the official guide. XML and initialization-file lifecycle remain unsupported; see docs/en/slices/sdk-lifecycle-config.md."
+    },
+    {
       "id": "SPEC-REGIONAL-LOCATIONS",
       "title": "Location normalization and invalid-name error detail",
       "status": "OPEN",

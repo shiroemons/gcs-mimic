@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
-| behavior | 201 | 126 | 0 | 37 | 38 | 0 | 0 |
+| behavior | 201 | 125 | 0 | 38 | 38 | 0 | 0 |
 | project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
-| behavior | 126 | 43 | 30 | 2 | 0 | 0 |
+| behavior | 125 | 43 | 30 | 3 | 0 | 0 |
 | project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
 
 ## api_operation
@@ -661,7 +661,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
-| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | NOT_STARTED | P4 | EXACT | NONE | 0 |
+| BEHAVIOR-LIFECYCLE-001 | ライフサイクル設定検証 | PARTIAL | P4 | EXACT | METADATA_ONLY | 2 |
 | BEHAVIOR-LIFECYCLE-002 | ライフサイクルDelete | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-003 | ライフサイクルSetStorageClass | NOT_STARTED | P4 | EXACT | NONE | 0 |
 | BEHAVIOR-LIFECYCLE-004 | 未完了multipartの自動中止 | NOT_STARTED | P4 | EXACT | NONE | 0 |

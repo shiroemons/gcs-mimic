@@ -183,6 +183,27 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
     ensure
       uniform_bucket&.delete
     end
+    lifecycle_bucket = nil
+    begin
+      lifecycle_bucket = storage.create_bucket("sdk-ruby-lifecycle-#{SecureRandom.hex(8)}") do |item|
+        item.lifecycle { |rules| rules.add_delete_rule age: 30 }
+      end
+      lifecycle_bucket.reload!
+      raise "created lifecycle differs" unless lifecycle_bucket.lifecycle.first.action == "Delete" && lifecycle_bucket.lifecycle.first.age == 30
+      lifecycle_bucket.lifecycle do |rules|
+        rules.clear
+        rules.add_delete_rule age: 60
+        rules.add_set_storage_class_rule "COLDLINE", age: 60
+      end
+      lifecycle_bucket.reload!
+      raise "updated lifecycle differs" unless lifecycle_bucket.lifecycle.count == 2 && lifecycle_bucket.lifecycle.last.storage_class == "COLDLINE"
+      lifecycle_bucket.lifecycle(&:clear)
+      lifecycle_bucket.reload!
+      raise "lifecycle not cleared" unless lifecycle_bucket.lifecycle.empty?
+      puts "ruby-bucket-lifecycle-rules passed"
+    ensure
+      lifecycle_bucket&.delete
+    end
     permissions = ["storage.objects.get", "storage.objects.create", "storage.buckets.getIamPolicy"]
     raise "bucket test permissions mismatch" unless bucket.test_permissions(*permissions).sort == permissions.sort
     if ENV.key?("GCS_MIMIC_TOKEN")

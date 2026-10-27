@@ -1,5 +1,6 @@
 use super::*;
 use crate::bucket::{BucketRecord, CatalogError};
+use crate::config::CompatProfile;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{
     Method, StatusCode, Uri,
@@ -24,6 +25,55 @@ pub(super) fn record() -> BucketRecord {
 
 fn resource(bucket: &BucketRecord) -> Value {
     bucket_resource(bucket, "http://localhost:4443/", Projection::NoAcl).unwrap()
+}
+
+#[test]
+fn lifecycle_insert_defaults_and_unknown_resource_fields() {
+    for profile in [CompatProfile::Native, CompatProfile::LegacyEmulator] {
+        for lifecycle in [
+            json!([]),
+            json!(false),
+            json!({"rule":false}),
+            json!({"rule":[{}]}),
+            json!({"rule":[{"action":{"type":"Delete"},"condition":false}]}),
+        ] {
+            let bytes =
+                serde_json::to_vec(&json!({"name":"lifecycle-invalid","lifecycle":lifecycle}))
+                    .unwrap();
+            assert!(
+                buckets::parse_insert_with_profile(&bytes, "project", UNIX_EPOCH, profile, "US")
+                    .is_err()
+            );
+            assert!(buckets::parse_bucket_patch(&bytes, profile).is_err());
+            assert!(buckets::parse_bucket_replacement(&bytes, profile).is_err());
+        }
+        for lifecycle in [
+            Value::Null,
+            json!({}),
+            json!({"rule":null}),
+            json!({"rule":[]}),
+            json!({"rule":[],"future":true}),
+        ] {
+            let bytes =
+                serde_json::to_vec(&json!({"name":"lifecycle-defaults","lifecycle":lifecycle}))
+                    .unwrap();
+            let bucket =
+                buckets::parse_insert_with_profile(&bytes, "project", UNIX_EPOCH, profile, "US")
+                    .unwrap();
+            assert!(bucket.lifecycle.is_empty());
+            assert!(resource(&bucket).get("lifecycle").is_none());
+        }
+    }
+    let bucket = parse_insert(&serde_json::to_vec(&json!({
+        "name":"ruby-lifecycle", "lifecycle":{"rule":[{
+            "action":{"type":"Delete","storageClass":null},
+            "condition":{"age":30,"isLive":null,"createdBefore":null,"matchesPrefix":[],"matchesSuffix":[],"matchesStorageClass":[]}
+        }]}
+    })).unwrap(), "project", UNIX_EPOCH).unwrap();
+    assert_eq!(
+        resource(&bucket)["lifecycle"],
+        json!({"rule":[{"action":{"type":"Delete"},"condition":{"age":30}}]})
+    );
 }
 
 #[test]

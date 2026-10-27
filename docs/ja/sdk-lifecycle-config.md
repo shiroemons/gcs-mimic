@@ -1,0 +1,38 @@
+# SDKでライフサイクル設定を保存する
+
+BEHAVIOR-LIFECYCLE-001、およびJSON-BUCKETS-005・JSON-BUCKETS-008・
+JSON-BUCKETS-013のライフサイクル設定に対応します。
+設定を保存して返しますが、削除・ストレージクラス変更・不完全なマルチパートの中止は実行しません。
+実装状態はPARTIAL、再現精度はMETADATA_ONLYです。
+
+Goでは通常のBucketAttrs.Lifecycleで作成し、BucketAttrsToUpdate.Lifecycleで置き換えられます。
+空のLifecycleで設定を消せます。Rubyではcreate_bucketのブロック内でlifecycleを設定し、
+bucket.lifecycleのブロックでadd_delete_rule・add_set_storage_class_rule・clearを使えます。
+追加のエミュレーター設定は不要です。
+
+JSON APIのinsert・get・listで設定が往復します。PATCHはルール全体を置き換え、
+省略すると現在の設定を保ちます。null・空オブジェクト・nullまたは空のrule配列は設定を消し、
+応答からlifecycleを省きます。PUTでは省略した設定も消します。
+更新に成功するとmetagenerationが1増え、既存の権限判定と更新条件を適用します。
+再起動後も設定が残り、スキーマ23のカタログは24へ移行します。
+
+Delete・SetStorageClass・AbortIncompleteMultipartUploadを受け付けます。
+SetStorageClassには既存のバケット作成で使えるstorageClassが必要です。
+条件の型、負数、不正な日付、空の条件、100件を超えるルール、全ルールで合計1000件を超える
+prefix・suffixを拒否します。AbortIncompleteMultipartUploadの条件はage・matchesPrefix・
+matchesSuffixに限ります。legacyのmatchesStorageClassはバケットのlocationTypeと照合します。
+不正な入力は400、対応範囲外のmatchesPattern・サイズ条件は共通の400未対応応答になります。
+SetStorageClassのREGIONAL・RAPIDやmatchesStorageClassのRAPIDも、
+配列内のフィールド位置を示す共通の未対応応答になります。
+
+受け入れケースはLIFECYCLE-INSERT-STORE、LIFECYCLE-PATCH-REPLACE、
+LIFECYCLE-PATCH-CLEAR、LIFECYCLE-UPDATE-REPLACE、LIFECYCLE-VALIDATE-ACTION、
+LIFECYCLE-VALIDATE-CONDITION、LIFECYCLE-PERSIST-RESTART、LIFECYCLE-SDK-GO、
+LIFECYCLE-SDK-RUBYです。実行、XMLの?lifecycle、初期化ファイルのlifecycleはPENDINGです。
+実行は注入したクロックとメンテナンススケジューラーを使う後続スライスで扱います。
+
+公式資料、Discoveryの固定値、ローカルの選択と検証結果は
+[英語の契約文書](../en/slices/sdk-lifecycle-config.md)にまとめています。
+2026-10-27にjust check、HTTPのjust check-sdk、文書lintがすべて通りました。
+Goの全体テストとRubyのpermissive・strictの両方で通常の呼び方を確認しています。
+空設定の細部とエラー文言の実Google Cloudとの比較は未実施です。

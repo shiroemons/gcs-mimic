@@ -22,7 +22,6 @@ pub(super) const UNSUPPORTED_FIELDS: &[&str] = &[
     "encryption",
     "hierarchicalNamespace",
     "ipFilter",
-    "lifecycle",
     "logging",
     "objectRetention",
     "retentionPolicy",
@@ -127,10 +126,6 @@ pub fn parse_insert_with_profile(
                     value.is_null() || value == &json!({}) || value == &json!({"dataLocations": []})
                 })
             {
-                continue;
-            }
-            // The pinned Go SDK sends an empty rule list for any nonnil BucketAttrs.
-            if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
                 continue;
             }
             // Ruby sends disabled Autoclass even when no option was supplied.
@@ -250,6 +245,11 @@ pub fn parse_insert_with_profile(
         storage_class,
         labels,
         cors: parse_cors(body.get("cors"))?.unwrap_or_default(),
+        lifecycle: body
+            .get("lifecycle")
+            .map(crate::bucket::lifecycle::parse)
+            .transpose()?
+            .unwrap_or_default(),
         versioning_enabled,
         default_event_based_hold,
         public_access_prevention_enforced: parse_public_access_prevention(
@@ -307,9 +307,6 @@ fn parse_bucket_update(
     for field in UNSUPPORTED_FIELDS {
         if body.contains_key(*field) {
             if replace && *field == "acl" && body.get(*field) == Some(&json!([])) {
-                continue;
-            }
-            if *field == "lifecycle" && body.get(*field) == Some(&json!({"rule": []})) {
                 continue;
             }
             return Err(JsonError::unsupported(field));
@@ -414,6 +411,10 @@ fn parse_bucket_update(
     }
     Ok(BucketMetadataUpdate {
         cors: parse_cors(body.get("cors"))?,
+        lifecycle: body
+            .get("lifecycle")
+            .map(crate::bucket::lifecycle::parse)
+            .transpose()?,
         labels,
         storage_class,
         versioning_enabled,
@@ -559,6 +560,9 @@ pub fn bucket_resource_with_profile(
     }
     if !bucket.cors.is_empty() {
         value["cors"] = cors_value(&bucket.cors);
+    }
+    if !bucket.lifecycle.is_empty() {
+        value["lifecycle"] = json!({"rule": bucket.lifecycle});
     }
     if bucket.versioning_enabled || profile == CompatProfile::LegacyEmulator {
         value["versioning"] = json!({"enabled": bucket.versioning_enabled});

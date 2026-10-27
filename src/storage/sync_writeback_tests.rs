@@ -1138,7 +1138,7 @@ async fn writeback_schema_migration_rolls_back_retries_and_preserves_api_seed_ro
     let seed: i64 = c
         .query_row("SELECT complete FROM startup_seed", [], |r| r.get(0))
         .unwrap();
-    c.execute_batch("ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; PRAGMA user_version=19; CREATE TABLE sync_writeback_ops(collision)").unwrap();
+    c.execute_batch("ALTER TABLE buckets DROP COLUMN lifecycle; ALTER TABLE buckets DROP COLUMN uniform_bucket_level_access_locked_time; ALTER TABLE objects DROP COLUMN temporary_hold; ALTER TABLE objects DROP COLUMN custom_time; DROP TABLE sync_findings; DROP TABLE sync_writeback_ops; DROP TABLE sync_writeback_roots; PRAGMA user_version=19; CREATE TABLE sync_writeback_ops(collision)").unwrap();
     assert!(migrate(&mut c).is_err());
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
