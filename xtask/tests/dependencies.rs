@@ -8,7 +8,7 @@ fn go_sdk_scope_and_lockfile_are_declared() {
     )
     .unwrap();
     let scopes = status["sdk_ecosystems"].as_array().unwrap();
-    assert_eq!(scopes.len(), 2);
+    assert_eq!(scopes.len(), 3);
     for (ecosystem, manifest, lockfile) in [
         ("go", "sdk-tests/go/go.mod", "sdk-tests/go/go.sum"),
         (
@@ -16,10 +16,15 @@ fn go_sdk_scope_and_lockfile_are_declared() {
             "sdk-tests/ruby/Gemfile",
             "sdk-tests/ruby/Gemfile.lock",
         ),
+        (
+            "ruby",
+            "sdk-tests/ruby/active_storage/Gemfile",
+            "sdk-tests/ruby/active_storage/Gemfile.lock",
+        ),
     ] {
         let scope = scopes
             .iter()
-            .find(|scope| scope["ecosystem"] == ecosystem)
+            .find(|scope| scope["ecosystem"] == ecosystem && scope["manifest"] == manifest)
             .unwrap();
         assert_eq!(scope["manifest"], manifest);
         assert!(std::fs::metadata(root.join(lockfile)).unwrap().len() > 0);

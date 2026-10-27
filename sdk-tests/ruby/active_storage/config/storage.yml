@@ -1,0 +1,10 @@
+local_gcs:
+  service: GCS
+  project: local-project
+  bucket: <%= ENV.fetch("GCS_MIMIC_BUCKET") %>
+  credentials:
+    type: service_account
+    project_id: local-project
+    client_email: local-admin@example.invalid
+    private_key: <%= File.read(Rails.root.join("../../../fixtures/signing/test-only-private.pem")).dump %>
+  endpoint: <%= ENV.fetch("GCS_MIMIC_ENDPOINT").delete_suffix("/") %>/

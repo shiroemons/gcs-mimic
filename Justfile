@@ -16,6 +16,10 @@ check-dependencies:
 check-sdk:
     env -u GCS_MIMIC_GO_TEST_RUN bash scripts/sdk-go.sh --with-ruby
 
+# Report Rails GCS compatibility cases independently; known failures return nonzero.
+check-active-storage:
+    bash scripts/sdk-active-storage.sh
+
 # Build and smoke-test both Linux container architectures in parallel.
 [parallel]
 check-containers: (check-container "linux/amd64") (check-container "linux/arm64")

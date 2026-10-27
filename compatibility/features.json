@@ -44543,25 +44543,40 @@
       "interface": "SDK compatibility",
       "phase": "P2",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "PROJECT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "PROJECT",
       "source_urls": [
         "https://guides.rubyonrails.org/active_storage_overview.html"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Proposed project requirement. Include browser direct uploads, public/private serving, signed URLs and blob lifecycle.",
-      "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "notes": "Independent HTTP Rails GCS scenario; acceptance and limits: docs/en/slices/sdk-active-storage-scenario.md. Public serving and browser CORS remain outside this scenario.",
+      "dependencies": ["DESIGN-083"],
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "AS-DEFAULT-AUTH", "description": "Unmodified storage.yml credentials support create_and_upload! without authorization removal; fails before network access because googleauth attempts OAuth at oauth2.googleapis.com.", "result": "FAIL", "test_ids": ["AS-DEFAULT-AUTH"]},
+        {"id": "AS-UPLOAD", "description": "With OAuth authorization removed only: omitted content_type identification and explicit binary create_and_upload! preserve bytes (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-UPLOAD"]},
+        {"id": "AS-DOWNLOAD", "description": "With OAuth authorization removed only: download and checksum-verified open pass (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-DOWNLOAD"]},
+        {"id": "AS-DELETE", "description": "With OAuth authorization removed only: purge/object/variant-prefix deletion and neighboring-prefix protection pass (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-DELETE"]},
+        {"id": "AS-SIGNED-URL", "description": "Unchanged blob.url fetches exact bytes without endpoint rewriting; currently fails with XML 400 InvalidArgument for V2 Expires.", "result": "FAIL", "test_ids": ["AS-SIGNED-URL"]},
+        {"id": "AS-DIRECT-UPLOAD", "description": "Unchanged service URL and headers accept browser-equivalent HTTP PUT; currently fails with XML 400 InvalidArgument for V2 Expires.", "result": "FAIL", "test_ids": ["AS-DIRECT-UPLOAD"]},
+        {"id": "AS-EXIST-COMPOSE", "description": "With OAuth authorization removed only: existence/missing and ordered compose preserve source objects (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-EXIST-COMPOSE"]}
+      ],
+      "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"],
+      "verification": [
+        {"command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; four conditional passes after authorization removal; unchanged V2 signed URLs fail", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
+      ],
+      "known_deviations": [
+        "AS-SIGNED-URL and AS-DIRECT-UPLOAD use Rails default V2 signatures and fail with XML 400 InvalidArgument for Expires. SPEC-ACTIVE-STORAGE-V2 and docs/en/slices/sdk-active-storage-scenario.md record sdk-active-storage-v2-signing as the next slice candidate.",
+        "AS-DEFAULT-AUTH fails before network when googleauth attempts oauth2.googleapis.com. Four operations are PASS_WITH_WORKAROUND only after private-client OAuth authorization removal; their default acceptance remains PENDING, not PASS. sdk-active-storage-local-auth is the next authentication slice candidate. Strict signatures, browser CORS, public serving and actual image transformation remain unverified; the separate V4 canonical-host limitation is not exercised."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-085",

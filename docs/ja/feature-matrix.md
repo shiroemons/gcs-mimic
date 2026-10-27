@@ -16,7 +16,7 @@ Status tracks completion of each row's declared acceptance cases.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 277 | 0 | 20 | 1 | 0 | 0 |
 | behavior | 201 | 125 | 0 | 38 | 38 | 0 | 0 |
-| project_requirement | 92 | 36 | 0 | 27 | 29 | 0 | 0 |
+| project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
 
@@ -37,7 +37,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 277 | 5 | 16 | 0 | 0 | 0 |
 | behavior | 125 | 43 | 30 | 3 | 0 | 0 |
-| project_requirement | 36 | 0 | 0 | 0 | 0 | 56 |
+| project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
 
@@ -936,7 +936,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-007 | S3互換クライアントの対応範囲検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-082 | Go公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 12 |
 | DESIGN-083 | Ruby公式SDKとの統合検証 | PARTIAL | P1 | PROJECT | PROJECT | 4 |
-| DESIGN-084 | Rails Active Storageの一連の操作 | NOT_STARTED | P2 | PROJECT | NONE | 0 |
+| DESIGN-084 | Rails Active Storageの一連の操作 | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-085 | Node公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-086 | Python公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |
 | DESIGN-087 | Rust公式SDKとの統合検証 | NOT_STARTED | P3 | PROJECT | NONE | 0 |

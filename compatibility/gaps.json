@@ -14,6 +14,28 @@
       "required_resolution": "Implement action execution through the injected clock and maintenance scheduler separately. Provider verification is still needed for empty-input/error detail. Location-dependent legacy matchesStorageClass combinations are validated against the official guide. XML and initialization-file lifecycle remain unsupported; see docs/en/slices/sdk-lifecycle-config.md."
     },
     {
+      "id": "SPEC-ACTIVE-STORAGE-AUTH",
+      "title": "Rails GCS local authentication configuration",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-084"],
+      "source_urls": ["https://github.com/rails/rails/blob/v8.1.4/activestorage/lib/active_storage/service/gcs_service.rb", "https://github.com/googleapis/google-auth-library-ruby/tree/v1.17.6"],
+      "observed_at": "2026-10-27",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "AS-DEFAULT-AUTH uses the configured Rails GCS service without authorization removal. googleauth attempts https://oauth2.googleapis.com:443 and the exact-origin connection guard rejects it before socket creation, producing Google::Auth::AuthorizationError. Four operation cases succeed only after the harness clears the private generated client's authorization; these are PASS_WITH_WORKAROUND, not default-call passes. See docs/en/slices/sdk-active-storage-scenario.md.",
+      "required_resolution": "In sdk-active-storage-local-auth, verify and document a minimal supported credential configuration or a separately scoped local token endpoint. Do not bypass authorization internally and claim the ordinary storage.yml works. Retain default acceptance PENDING/FAIL and DESIGN-084 PARTIAL."
+    },
+    {
+      "id": "SPEC-ACTIVE-STORAGE-V2",
+      "title": "Rails default V2 signed download and direct upload",
+      "status": "OPEN",
+      "affected_features": ["DESIGN-084"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2", "https://github.com/rails/rails/blob/v8.1.4/activestorage/lib/active_storage/service/gcs_service.rb"],
+      "observed_at": "2026-10-27",
+      "kind": "SCOPE_VERIFICATION",
+      "observed_evidence": "With fixture OAuth authorization removed, Rails 8.1.4 and google-cloud-storage 1.62.1 emit V2 GoogleAccessId/Expires/Signature URLs for blob.url and url_for_direct_upload. Both unchanged URLs reach the configured loopback endpoint; XML returns 400 InvalidArgument for unsupported Expires. Four operation cases pass only with the same authorization-removal workaround; default authentication independently fails. The V4 canonical host issue in SPEC-RUBY-SIGNER-ENDPOINT is separate and not reached by default V2 calls. See docs/en/slices/sdk-active-storage-scenario.md.",
+      "required_resolution": "Implement and verify V2 GET/PUT canonicalization, signature/expiry/header checks and permissions in a separately scoped sdk-active-storage-v2-signing slice; keep DESIGN-084 PARTIAL until default signed download/direct upload pass. Do not rewrite URLs or silently accept unsupported signatures."
+    },
+    {
       "id": "SPEC-REGIONAL-LOCATIONS",
       "title": "Location normalization and invalid-name error detail",
       "status": "OPEN",

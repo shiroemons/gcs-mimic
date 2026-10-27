@@ -1,0 +1,8 @@
+source "https://rubygems.org"
+ruby file: ".ruby-version"
+
+gem "activestorage", "= 8.1.4"
+gem "railties", "= 8.1.4"
+gem "sqlite3", "= 2.10.2"
+gem "google-cloud-storage", "= 1.62.1"
+gem "google-apis-iamcredentials_v1", "= 0.28.0"

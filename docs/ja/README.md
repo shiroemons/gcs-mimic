@@ -93,6 +93,7 @@ stderrの運用ログはJSONです。`--log-level`または`GCS_MIMIC_LOG_LEVEL`
 - [バージョンと公開の方針](release-policy.md)
 - [0.1.0のリリースノートと既知の制限（英語）](../en/releases/0.1.0.md)
 - [開発とpush前の確認](development.md)
+- [Rails Active Storageの動作確認と制限](sdk-active-storage-scenario.md)
 
 HTTPS、SDK、認証の詳しい手順は
 [英語の利用ガイド](../en/getting-started.md)を参照してください。

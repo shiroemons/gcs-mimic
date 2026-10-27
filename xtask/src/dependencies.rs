@@ -456,10 +456,7 @@ fn gem_version(pin: &str) -> Option<Vec<u64>> {
 }
 
 fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
-    if text(scope, "manifest")? != "sdk-tests/ruby/Gemfile" {
-        return Err("unsupported Ruby SDK manifest".into());
-    }
-    let directory = root.join("sdk-tests/ruby");
+    let directory = ruby_directory(root, text(scope, "manifest")?)?;
     let direct = ruby_manifest(
         &std::fs::read_to_string(directory.join("Gemfile")).map_err(|e| e.to_string())?,
     )?;
@@ -482,11 +479,7 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
         .map(|(name, pin)| (name.as_str(), pin.as_str()))
         .chain(std::iter::once(("bundler", bundler)))
     {
-        if name != "bundler"
-            && !lock
-                .lines()
-                .any(|line| line == format!("    {name} ({current})"))
-        {
+        if name != "bundler" && !ruby_lock_pin(&lock, name, current) {
             return Err(format!("Ruby lockfile pin mismatch: {name}"));
         }
         let latest = latest_gem(&fetch(
@@ -497,6 +490,31 @@ fn check_ruby(root: &Path, scope: &Value) -> Result<bool> {
         drift |= compare(name, current, &latest);
     }
     Ok(drift)
+}
+
+fn ruby_lock_pin(lock: &str, name: &str, current: &str) -> bool {
+    let prefix = format!("    {name} (");
+    let mut found = false;
+    for resolved in lock
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix)?.strip_suffix(')'))
+    {
+        let (version, platform) = resolved.split_once('-').unwrap_or((resolved, "ruby"));
+        if version != current || platform.is_empty() {
+            return false;
+        }
+        found = true;
+    }
+    found
+}
+
+fn ruby_directory(root: &Path, manifest: &str) -> Result<std::path::PathBuf> {
+    match manifest {
+        "sdk-tests/ruby/Gemfile" | "sdk-tests/ruby/active_storage/Gemfile" => {
+            Ok(root.join(manifest).parent().unwrap().to_owned())
+        }
+        _ => Err("unsupported Ruby SDK manifest".into()),
+    }
 }
 
 fn index_path(name: &str) -> String {
@@ -794,11 +812,13 @@ pub fn check(root: &Path) -> Result<bool> {
         .as_array()
         .ok_or("missing sdk_ecosystems")?;
     let mut ecosystems = BTreeSet::new();
+    let mut manifests = BTreeSet::new();
     for scope in scopes {
         let ecosystem = text(scope, "ecosystem")?;
-        if !ecosystems.insert(ecosystem) {
-            return Err(format!("duplicate SDK ecosystem: {ecosystem}"));
+        if !manifests.insert(text(scope, "manifest")?) {
+            return Err("duplicate SDK manifest".into());
         }
+        ecosystems.insert(ecosystem);
         drift |= match ecosystem {
             "go" => check_go(root, scope)?,
             "ruby" => check_ruby(root, scope)?,
@@ -836,6 +856,31 @@ mod tests {
         let mut invalid = metadata;
         invalid["resolve"]["nodes"][0]["deps"][0]["pkg"] = "missing".into();
         assert!(direct_crate_resolutions(&invalid).is_err());
+    }
+
+    #[test]
+    fn ruby_lock_pins_include_all_native_platform_variants() {
+        let lock = "    sqlite3 (2.10.2-arm64-darwin)\n    sqlite3 (2.10.2-x86_64-linux-gnu)\n";
+        assert!(ruby_lock_pin(lock, "sqlite3", "2.10.2"));
+        assert!(!ruby_lock_pin(lock, "sqlite3", "2.10.1"));
+        assert!(!ruby_lock_pin(lock, "other", "2.10.2"));
+        assert!(!ruby_lock_pin(
+            &format!("{lock}    sqlite3 (2.10.1)\n"),
+            "sqlite3",
+            "2.10.2"
+        ));
+        assert!(ruby_lock_pin("    sqlite3 (2.10.2)\n", "sqlite3", "2.10.2"));
+    }
+
+    #[test]
+    fn ruby_scopes_include_active_storage_without_arbitrary_paths() {
+        let root = Path::new("checkout");
+        assert_eq!(
+            ruby_directory(root, "sdk-tests/ruby/active_storage/Gemfile").unwrap(),
+            root.join("sdk-tests/ruby/active_storage")
+        );
+        assert!(ruby_directory(root, "../Gemfile").is_err());
+        assert!(ruby_directory(root, "sdk-tests/ruby/other/Gemfile").is_err());
     }
 
     #[test]

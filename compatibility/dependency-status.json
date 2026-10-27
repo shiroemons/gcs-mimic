@@ -176,7 +176,7 @@
       "resolution_constraints": "Already locked transitively with windows-link 0.2.1; direct use only on Windows, with console/threading features limited to tests. No additional package version is introduced."
     }
   ],
-  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock"],
+  "lockfiles": ["Cargo.lock", "sdk-tests/go/go.sum", "sdk-tests/ruby/Gemfile.lock", "sdk-tests/ruby/active_storage/Gemfile.lock"],
   "docker": {
     "status": "PINNED",
     "digests": [
@@ -251,6 +251,20 @@
     "reason": "Official multiarch manifest indexes from Docker Hub and public GCR; floating selectors, pinned tags and Debian stable codename are checked for replacement. Local amd64 execution uses emulation on an arm64 Docker host; native CI execution is pending."
   },
   "sdk_ecosystems": [
+    {
+      "ecosystem": "ruby",
+      "manifest": "sdk-tests/ruby/active_storage/Gemfile",
+      "checked_at_utc": "2026-10-27T06:42:18Z",
+      "toolchain": {"version": "4.0.9", "pin": "sdk-tests/ruby/active_storage/.ruby-version"},
+      "direct_dependencies": [
+        {"name": "activestorage", "current": "8.1.4", "license": "MIT"},
+        {"name": "railties", "current": "8.1.4", "license": "MIT"},
+        {"name": "sqlite3", "current": "2.10.2", "license": "BSD-3-Clause"},
+        {"name": "google-cloud-storage", "current": "1.62.1", "license": "Apache-2.0"},
+        {"name": "google-apis-iamcredentials_v1", "current": "0.28.0", "license": "Apache-2.0"}
+      ],
+      "resolution_constraints": "Development-only Rails GCS scenario; exact Gemfile pins, Ruby pin and checksummed lockfile. Daily detection checks each direct gem, Ruby and Bundler independently of the parent Ruby suite. See docs/en/slices/sdk-active-storage-scenario.md."
+    },
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
