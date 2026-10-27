@@ -83,11 +83,12 @@
       "id": "SPEC-SDK-UNSUPPORTED",
       "title": "Non-retryable emulator rejection of unsupported Google semantics",
       "status": "OPEN",
-      "affected_features": ["DESIGN-082", "DESIGN-083"],
+      "affected_features": ["DESIGN-082", "DESIGN-083", "BEHAVIOR-RPC-005"],
       "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://docs.cloud.google.com/storage/docs/xml-api/reference-status", "https://github.com/googleapis/google-cloud-go/blob/storage/v1.70.0/storage/invoke.go"],
       "observed_at": "2026-10-27",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "Google documents 400 badRequest for requests incompatible with current settings and XML 400 InvalidArgument. Go v1.70.0 ShouldRetry retries all 5xx, including 501. The local contract uses JSON 400 badRequest and XML 400 InvalidArgument for recognized unsupported semantics and pinned unimplemented Google routes in both profiles; genuine missing resources and unknown paths retain 404. Acceptance: docs/en/slices/sdk-unsupported-fail-fast.md.",
+      "grpc_foundation": "Pinned Storage v2 protobuf and import closure at googleapis 933dd1be8180a22bca2dc473b53d4f4297ee3b0c. All 24 RPCs and unknown services/methods return immediate UNIMPLEMENTED, with google.rpc.Status/ErrorInfo reason badRequest/domain global matching the JSON emulator contract. Go v1.70.0 does not retry it. Strict missing/invalid Bearer credentials return UNAUTHENTICATED through shared Auth. This resolves transport hangs, not operation semantics; all operation rows retain their status. Contract and evidence: docs/en/slices/grpc-v2-foundation.md.",
       "required_resolution": "Retain this explicit emulator deviation while these features are unsupported. Replace each rejection with independently verified implementation in its own slice; do not claim provider-exact errors for valid Google requests."
     },
     {

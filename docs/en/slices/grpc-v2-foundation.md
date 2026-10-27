@@ -1,0 +1,85 @@
+# Storage v2 gRPC foundation
+
+<!-- markdownlint-configure-file {"MD013": false} -->
+
+Scope: BEHAVIOR-RPC-005 and the unsupported gRPC portion of DESIGN-082. RPC-STORAGE-001–024 retain their existing status: this slice supplies an entry point, not their implementation. Storage v1, Rapid append, CancelResumableWrite and every operation's business logic remain unsupported.
+
+## Acceptance contract
+
+| Case | Required behavior |
+| --- | --- |
+| grpc_listener_disabled_by_default | Without grpc_listen, no gRPC socket is opened and HTTP/HTTPS startup is unchanged. |
+| grpc_listener_starts_when_configured | JSON grpc_listen and GCS_MIMIC_GRPC_LISTEN enable a separate plaintext h2c socket; malformed values and occupied ports stop startup with a cause and an example remedy. |
+| grpc_listener_follows_startup_and_shutdown_order | Bind follows recovery, initialization and seed; serving follows ready. SIGTERM stops admission and drains gRPC alongside HTTP before catalog close. |
+| grpc_unimplemented_is_immediate_and_actionable | Every pinned Storage v2 RPC, unknown service and unknown method fails immediately with UNIMPLEMENTED, never UNAVAILABLE; google.rpc.Status contains ErrorInfo identifying gcs-mimic's unsupported operation and the JSON API remedy. |
+| grpc_go_client_fails_fast | Ordinary storage.NewGRPCClient(ctx) uses STORAGE_EMULATOR_HOST_GRPC; Bucket.Attrs, Writer through Close and NewMultiRangeDownloader fail well before their deadline, are not retryable, and differ from not-found. |
+| grpc_resource_name_parsing | Parse projects/_/buckets/NAME and object names without losing slashes or encoded bytes; malformed resource names return INVALID_ARGUMENT. |
+| grpc_record_conversion | Convert shared BucketRecord/ObjectRecord fields to their protobuf counterparts with the same values as JSON. Unsupported protobuf fields remain empty. |
+| grpc_auth_metadata_handoff | Permissive ignores credentials; strict resolves authorization Bearer through shared Auth and passes the local principal or anonymous Caller to the RPC group. Invalid tokens fail in the entry point; the groups' common unsupported-response function rejects anonymous callers with UNAUTHENTICATED until operation-specific shared authorization is implemented. |
+
+The new setting is needed because Go's gRPC emulator transport requires its own plaintext endpoint; HTTP/HTTPS cannot provide that endpoint. Default: absent/disabled. CLI `--grpc-listen 127.0.0.1:4444`, environment `GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`, or flat JSON `{"grpc_listen":"127.0.0.1:4444"}` follows CLI > environment > file > default precedence. It never changes the advertised HTTP/public URL.
+
+## Boundaries
+
+Generated code is committed; ordinary source and Docker builds do not require protoc. The pinned upstream protobuf closure and generated-code provenance are maintained under src/grpc. Subsequent buckets, object_io, update_copy and bidi_read slices own their separate modules and tests. The shared service exposes state, authentication, status, resource parsing and record conversion without changing storage.
+
+No object catalog scan, body collection, polling timer or benchmark is added. Message, connection and stream admission are bounded. Business operations and provider-exact success/error semantics remain pending; UNIMPLEMENTED is an explicit emulator limitation.
+
+The Hyper HTTP/2 driver uses the existing shared `max_connections` limit (default 32), eight concurrent streams per connection, 16 KiB header lists, 64 KiB send buffers and 4 MiB encoded/decoded protobuf messages. HTTP/HTTPS and gRPC stop admission, drain within the existing shutdown deadline and then close the catalog together. No independent transport runtime, router, client, compression or TLS stack is added. Another generated service, including future v1, can be routed on this h2c driver.
+
+`connection_timeout_ms` also bounds gRPC inactivity, including an incomplete HTTP/2 handshake. RPC headers and incoming/outgoing body frames renew that deadline; HTTP/2 keepalive traffic alone does not retain the shared admission slot. The same idle deadline stays active during graceful shutdown, so a silent peer cannot hold drain open indefinitely. The unsupported remedy uses `api_base_url` from the server ready event instead of assuming a scheme, host or port.
+
+Bucket conversion covers resource name/ID, original owning project identifier, location/type, class, labels, create/update times, metageneration, CORS, versioning, default event hold, retention, soft deletion and IAM configuration. Object conversion covers bucket/name, generations, size/class, fixed/custom metadata, checksums (no MD5 for composite objects), component count, timestamps, holds, custom time and retention expiration. Timestamp nanoseconds are preserved. Invalid stored customTime returns INTERNAL rather than disappearing. Lifecycle, ETags, ACLs, encryption and other unsupported proto fields remain empty; dynamic public cache defaults and project-number resolution belong to subsequent operation slices. Google returns numeric project identifiers, while the local shared record retains the supplied project ID; this is an explicit local conversion limit.
+
+The resource parser accepts exactly `projects/_/buckets/NAME`; the object name is a separate string in Storage v2, not a fabricated `/objects/` suffix. It retains slashes and literal percent encodings and validates nonempty names, object UTF-8 byte bounds and control characters. Future operations retain responsibility for semantic bucket validation.
+
+## Sources and generation
+
+Verified 2026-10-27: [Storage v2 proto](https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto), googleapis commit `933dd1be8180a22bca2dc473b53d4f4297ee3b0c`, Storage SHA-256 `a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf`. Every google/api, google/iam/v1, google/rpc and google/type import is from that same commit. Googleapis does not vendor the well-known google/protobuf files; those use [protobuf v36.2](https://github.com/protocolbuffers/protobuf/tree/2c74169b34066ceb8ddb6b882fcb3fb32d737a55), commit `2c74169b34066ceb8ddb6b882fcb3fb32d737a55`, matching the regeneration compiler `libprotoc 36.2`. All 21 proto digests are in `src/grpc/proto/SHA256SUMS`; upstream licenses are alongside them. `compatibility/upstream/source-manifest.json` connects these pins to the committed generated sources.
+
+From the repository root, with protoc 36.2 installed only for regeneration:
+
+```sh
+shasum -a 256 -c src/grpc/proto/SHA256SUMS
+cargo run -p grpc-codegen --locked --offline
+cargo fmt --all
+git diff -- src/grpc/generated
+```
+
+The generator uses the committed import closure; it does not fetch upstream content. Ordinary `cargo build --locked` uses only the generated Rust files.
+
+## Dependency review
+
+Official stable Cargo index and publisher release checks on 2026-10-27 establish Rust 1.99.1/edition 2024, [tonic 0.14.7](https://github.com/grpc/grpc-rust/releases) and [prost 0.14.4](https://github.com/tokio-rs/prost/releases/tag/v0.14.4). Both publishers continue releasing maintained packages; releases are non-yanked and non-prerelease. Tonic's 0.14 family split its Prost codec/generator into the approved tonic-prost/tonic-prost-build packages; using the official split avoids a custom codec. Only the explicit workspace generation tool depends on tonic-prost-build, so application and Docker builds require no protoc.
+
+| Direct crate | Version | License | Compressed source bytes | Minimum Rust |
+| --- | --- | --- | --- | --- |
+| tonic | 0.14.7 | MIT | 116713 | 1.88 |
+| tonic-prost | 0.14.7 | MIT | 7916 | 1.88 |
+| prost | 0.14.4 | Apache-2.0 | 35717 | 1.85 |
+| prost-types | 0.14.4 | Apache-2.0 | 51454 | 1.85 |
+| tonic-prost-build (regeneration only) | 0.14.7 | MIT | 15685 | 1.88 |
+
+Sizes/licenses/minimum compilers come from the downloaded official crate archives and their manifests, checked against the registry resolution. These compatible licenses add no unapproved direct runtime crate. Hyper's existing dependency adds HTTP/2; tonic enables only codegen, using the already owned connection driver. Cargo.lock pins runtime and generator graphs. Daily freshness checks read all workspace members, including grpc-codegen. Go grpc/protobuf were already transitive dependencies; wire tests promote them to direct requirements. Detection found [grpc-go v1.85.0](https://github.com/grpc/grpc-go/releases/tag/v1.85.0), which replaces v1.84.0 with its required compatible transitive updates; protobuf remains v1.36.12. The SDK itself remains Storage v1.70.0/API v0.309.0. go.mod/go.sum record the final graph.
+
+## Verification
+
+Acceptance was recorded before implementation. On the unchanged listener-less baseline, the new Go test observed Bucket.Attrs and bidi multi-range exhausting five-second deadlines after UNAVAILABLE retries; Writer returned UNAVAILABLE, also failing the required assertion. Multi-range requires `storage.WithGRPCBidiReads()` in the pinned SDK; other calls use ordinary `storage.NewGRPCClient(ctx)` and the emulator environment alone.
+
+On 2026-10-27:
+
+- `cargo check --workspace --all-targets --locked --offline`: PASS before tests.
+- `cargo test --locked --offline --lib grpc::`: PASS, resource names, record conversion (including corrupt customTime) and strict/permissive principal handoff.
+- `cargo test --locked --offline --lib grpc_listener_configuration_precedence_and_diagnostics`: PASS, file/environment/CLI precedence, disabled default and invalid value remedies.
+- `cargo test --locked --offline --bin gcs-mimic grpc_listener_disabled_by_default_and_bound_after_initialization`: PASS, disabled default, initialization failure before bind, configured bind and occupied-port guidance.
+- `GCS_MIMIC_GO_TEST_RUN=TestGRPCFoundation bash scripts/sdk-go.sh`: PASS, Go vet, three high-level calls with five-second deadlines/two-second fail-fast assertions, all 24 RPCs, unknown service/method, canonical ErrorInfo and strict credentials. Streaming requests reject without receiving any first message or EOF. The runner SIGTERMs both HTTP/gRPC processes and waits for successful cleanup.
+- `PROTOC=unavailable-protoc cargo build --locked --offline`: PASS; ordinary builds do not invoke protoc.
+- `shasum -a 256 -c src/grpc/proto/SHA256SUMS`: PASS for the full pinned closure.
+- `cargo test --locked --offline --test grpc_foundation`: PASS; an idle h2c connection initially owns the sole shared slot, expires to admit HTTP, then real SIGTERM drains an incomplete handshake, closes both listeners, emits stopped and releases the catalog for immediate reopen.
+- `just check-sdk`: PASS on the final sources and grpc-go v1.85.0, including Go vet, the full Go HTTP suite with all gRPC foundation checks, Ruby self-check/migration/permissive/strict suites and signing. The existing Go V2 signed-transfer case skips HTTP because its SDK emits HTTPS; no new gRPC case is skipped.
+- `cargo xtask dependencies check`: the first attempt hit a 30-second Go proxy timeout; the one permitted retry completed detection and returned UPDATE_AVAILABLE for grpc-go v1.85.0. All Rust runtime/generation dependencies, toolchains and other checked inputs were CURRENT. The detected gRPC update was applied before final SDK verification; the broad network detector was not repeated again.
+
+- `RUST_TEST_THREADS=8 just check`: PASS on the final sources; formatting, native and Windows/Linux cross-target clippy, all Rust unit/integration/doc tests (no failures or ignored tests), ledger/generated views and offline script/publication checks.
+- Markdownlint: PASS for the ten changed guide/contract/plan documents.
+
+No benchmark, container build, full guide run, HTTPS-mode SDK run or real-cloud request is part of this slice. BEHAVIOR-RPC-005 and DESIGN-082 remain PARTIAL; operation rows retain their original status and fidelity. The behavior row keeps achieved fidelity NONE because emulator rejection is not provider operation conformance. Next: the four independent v2 operation groups.

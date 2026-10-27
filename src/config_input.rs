@@ -14,6 +14,7 @@ pub(crate) const NATIVE_KEYS: &[&str] = &[
     "log_level",
     "listen",
     "listen_http",
+    "grpc_listen",
     "scheme",
     "tls_cert",
     "tls_key",

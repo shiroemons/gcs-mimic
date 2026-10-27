@@ -1,0 +1,12 @@
+[package]
+name = "grpc-codegen"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+license.workspace = true
+
+[dependencies]
+tonic-prost-build = "0.14.7"
+
+[lints]
+workspace = true

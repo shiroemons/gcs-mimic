@@ -71,6 +71,7 @@ pub struct Config {
     pub log_level: LogLevel,
     pub listen: SocketAddr,
     pub listen_http: Option<SocketAddr>,
+    pub grpc_listen: Option<SocketAddr>,
     pub scheme: Scheme,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
@@ -107,6 +108,7 @@ impl Default for Config {
             log_level: LogLevel::Info,
             listen: SocketAddr::from(([127, 0, 0, 1], 4443)),
             listen_http: None,
+            grpc_listen: None,
             scheme: Scheme::Https,
             tls_cert: None,
             tls_key: None,
@@ -371,6 +373,11 @@ impl Config {
                     "listen_http" => {
                         config.listen_http = Some(value.parse().map_err(|_| {
                             "listen_http must be an IP socket address, for example 127.0.0.1:8000".to_owned()
+                        })?);
+                    }
+                    "grpc_listen" => {
+                        config.grpc_listen = Some(value.parse().map_err(|_| {
+                            "grpc_listen must be an IP socket address; use 127.0.0.1:4444 for a separate plaintext gRPC port".to_owned()
                         })?);
                     }
                     "tls_cert" | "tls_key" => {
@@ -851,6 +858,55 @@ fn bounded(key: &str, value: &str, min: u64, max: u64) -> Result<u64, String> {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn grpc_listener_configuration_precedence_and_diagnostics() {
+        let empty = BTreeMap::new();
+        assert!(Config::load(&[], &empty).unwrap().grpc_listen.is_none());
+        let dir = PublicConfigDir::new();
+        let file = dir.0.join("config.json");
+        std::fs::write(&file, r#"{"grpc_listen":"127.0.0.1:4444"}"#).unwrap();
+        let mut args = vec!["--config".into(), file.to_str().unwrap().into()];
+        assert_eq!(
+            Config::load(&args, &empty)
+                .unwrap()
+                .grpc_listen
+                .unwrap()
+                .port(),
+            4444
+        );
+        let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), "127.0.0.1:5555".into())]);
+        assert_eq!(
+            Config::load(&args, &env)
+                .unwrap()
+                .grpc_listen
+                .unwrap()
+                .port(),
+            5555
+        );
+        args.extend(["--grpc-listen".into(), "127.0.0.1:0".into()]);
+        assert_eq!(
+            Config::load(&args, &env)
+                .unwrap()
+                .grpc_listen
+                .unwrap()
+                .port(),
+            0
+        );
+        for value in [
+            "",
+            "localhost:4444",
+            "http://127.0.0.1:4444",
+            "127.0.0.1:65536",
+        ] {
+            let env = BTreeMap::from([("GCS_MIMIC_GRPC_LISTEN".into(), value.into())]);
+            let error = Config::load(&[], &env).unwrap_err().to_string();
+            assert!(
+                error.contains("GCS_MIMIC_GRPC_LISTEN") && error.contains("127.0.0.1:4444"),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn default_location_validates_precedence_and_native_profile() {

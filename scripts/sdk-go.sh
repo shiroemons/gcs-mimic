@@ -14,6 +14,8 @@ server="$(env -u RUSTUP_TOOLCHAIN cargo metadata --locked --offline --no-deps --
 work=$(mktemp -d "${TMPDIR:-/tmp}/gcs-mimic-sdk-go.XXXXXX")
 pid=
 strict_pid=
+grpc_endpoint=
+strict_grpc_endpoint=
 scheme=${GCS_MIMIC_SDK_SCHEME:-http}
 tls_args=()
 health_args=()
@@ -74,21 +76,25 @@ esac
 # any), extra serve arguments.
 start_server() {
   # Local names must differ from the caller's variable names, or printf -v assigns the local.
-  local pid_var=$1 endpoint_var=$2 name=$3 auth_mode=$4 address origin actual server_pid ready=false
+  local pid_var=$1 endpoint_var=$2 name=$3 auth_mode=$4 address grpc_address origin actual server_pid ready=false
   shift 4
   # Select the advertised origin before startup; bind failure remains fatal if the port is reused.
   address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
   if [[ ! $address =~ ^127\.0\.0\.1:[0-9]+$ ]]; then echo 'Invalid loopback address' >&2; exit 1; fi
   origin="$scheme://$address"
+  grpc_address=$(cd sdk-tests/go && GOTOOLCHAIN=auto go run ./cmd/free-port)
+  if [[ ! $grpc_address =~ ^127\.0\.0\.1:[0-9]+$ || $grpc_address == "$address" ]]; then echo 'Invalid or duplicate gRPC loopback address; rerun to select distinct free ports' >&2; exit 1; fi
   env -u GCS_MIMIC_CONFIG -u GCS_MIMIC_ENDPOINT -u GCS_MIMIC_STRICT_ENDPOINT -u GCS_MIMIC_ALLOWED_HOSTS \
     -u GCS_MIMIC_GO_TEST_RUN -u GCS_MIMIC_AUTH_MODE -u GCS_MIMIC_IDENTITY_FILE \
+    -u GCS_MIMIC_GRPC_LISTEN -u GCS_MIMIC_STRICT_GRPC_ENDPOINT \
     -u GCS_MIMIC_XML_VIRTUAL_HOST_DOMAINS \
     -u GCS_MIMIC_TLS_CERT -u GCS_MIMIC_TLS_KEY -u GCS_MIMIC_CA_CERT -u GCS_MIMIC_SDK_SCHEME \
     -u GCS_MIMIC_TLS_DIR -u GCS_MIMIC_IMAGE -u GCS_MIMIC_PORT \
-    "$server" serve --scheme "$scheme" --listen "$address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
+    "$server" serve --scheme "$scheme" --listen "$address" --grpc-listen "$grpc_address" --api-base-url "$origin" ${tls_args[@]+"${tls_args[@]}"} "$@" >"$work/$name" 2>&1 &
   server_pid=$!
   printf -v "$pid_var" '%s' "$server_pid"
   printf -v "$endpoint_var" '%s' "$origin"
+  if [[ $auth_mode == strict ]]; then strict_grpc_endpoint=$grpc_address; else grpc_endpoint=$grpc_address; fi
   for ((attempt = 0; attempt < 100; attempt++)); do
     if ! kill -0 "$server_pid" 2>/dev/null; then echo "Server exited before readiness: $name" >&2; exit 1; fi
     # A server whose ready event lacks the requested auth_mode must not pass as a strict server.
@@ -117,6 +123,7 @@ start_server strict_pid strict_endpoint strict-server.log strict --data-dir "$wo
 
 cd sdk-tests/go
 export GCS_MIMIC_ENDPOINT="$endpoint" GCS_MIMIC_STRICT_ENDPOINT="$strict_endpoint"
+export STORAGE_EMULATOR_HOST_GRPC="$grpc_endpoint" GCS_MIMIC_STRICT_GRPC_ENDPOINT="$strict_grpc_endpoint"
 GOTOOLCHAIN=auto go vet ./...
 GOTOOLCHAIN=auto go test -count=1 -v -run "${GCS_MIMIC_GO_TEST_RUN:-.}" ./...
 

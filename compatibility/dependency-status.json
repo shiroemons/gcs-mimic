@@ -1,12 +1,12 @@
 {
-  "checked_at_utc": "2026-10-27T04:04:15Z",
-  "scope": "Dependency refresh: Go API client v0.309.0, compatible Cargo and Ruby transitive updates, and the BuildKit SBOM scanner stable-1 index and platform digests. Compiler, direct Rust/Ruby libraries, Go Storage SDK, Dockerfile inputs, feature implementation status and catalog schema are unchanged.",
+  "checked_at_utc": "2026-10-27T13:24:41Z",
+  "scope": "Storage v2 foundation: tonic/tonic-prost/tonic-prost-build 0.14.7, prost/prost-types 0.14.4 and Hyper HTTP/2; Go wire tests promote existing grpc/protobuf modules. Detection found grpc-go v1.85.0 and the module graph adopts it. Rust/Go/Ruby toolchains, Storage SDK, API client, Docker inputs and catalog schema are unchanged.",
   "freshness_check": {
-    "command": "just check-dependencies",
-    "exit_code": 0,
-    "result": "CURRENT",
-    "artifact": "docs/en/evidence/dependency-refresh.md",
-    "follow_up": "All 39 checked inputs are CURRENT; no freshness exceptions remain. Compatible transitive updates and validation are recorded in docs/en/evidence/dependency-refresh.md and the committed lockfiles."
+    "command": "cargo xtask dependencies check",
+    "exit_code": 1,
+    "result": "UPDATE_AVAILABLE",
+    "artifact": "docs/en/slices/grpc-v2-foundation.md",
+    "follow_up": "The first attempt timed out on the Go proxy. One retry completed detection: all Rust and other inputs CURRENT, grpc-go 1.85.0 available. Applied that update and its required compatible transitive graph before final SDK checks; the broad network detector was not repeated again."
   },
   "toolchain": {
     "channel": "stable",
@@ -17,6 +17,11 @@
     "release_url": "https://blog.rust-lang.org/2026/10/15/Rust-1.99.1/"
   },
   "direct_dependencies": [
+    {"name":"tonic","current":"0.14.7","latest_non_yanked_stable":"0.14.7","license":"MIT","compressed_crate_bytes":116713,"minimum_rust":"1.88","purpose":"Storage v2 generated gRPC service, metadata and canonical status; only codegen enabled, Hyper supplies the existing bounded HTTP/2 connection driver.","features":["codegen"],"maintenance":"Official grpc/grpc-rust 0.14.7 family released 2026-10-27; non-yanked latest stable independently verified in the official Cargo index on 2026-10-27.","source_urls":["https://index.crates.io/to/ni/tonic","https://github.com/grpc/grpc-rust/releases"],"resolution_constraints":"No tonic transport/client/router, compression or TLS features; protoc is not invoked by the application build."},
+    {"name":"tonic-prost","current":"0.14.7","latest_non_yanked_stable":"0.14.7","license":"MIT","compressed_crate_bytes":7916,"minimum_rust":"1.88","purpose":"Approved Prost codec split out of tonic in 0.14.","features":[],"maintenance":"Same actively maintained official tonic release family; latest stable checked 2026-10-27.","source_urls":["https://index.crates.io/to/ni/tonic-prost","https://github.com/grpc/grpc-rust/releases"]},
+    {"name":"prost","current":"0.14.4","latest_non_yanked_stable":"0.14.4","license":"Apache-2.0","compressed_crate_bytes":35717,"minimum_rust":"1.85","purpose":"Pinned generated protobuf messages and google.rpc.Status encoding.","features":["derive","std"],"maintenance":"Official tokio-rs/prost v0.14.4 released 2026-06-07; latest non-yanked stable verified 2026-10-27.","source_urls":["https://index.crates.io/pr/os/prost","https://github.com/tokio-rs/prost/releases/tag/v0.14.4"]},
+    {"name":"prost-types","current":"0.14.4","latest_non_yanked_stable":"0.14.4","license":"Apache-2.0","compressed_crate_bytes":51454,"minimum_rust":"1.85","purpose":"Timestamp, Duration, FieldMask and Any for pinned Storage messages and ErrorInfo details.","features":["std"],"maintenance":"Same maintained official Prost release family; latest stable checked 2026-10-27.","source_urls":["https://index.crates.io/pr/os/prost-types","https://github.com/tokio-rs/prost/releases/tag/v0.14.4"]},
+    {"name":"tonic-prost-build","current":"0.14.7","latest_non_yanked_stable":"0.14.7","license":"MIT","compressed_crate_bytes":15685,"minimum_rust":"1.88","purpose":"Explicit grpc-codegen workspace tool only; regenerates committed code from fixed proto sources using protoc 36.2.","features":[],"maintenance":"Same maintained official tonic release family; latest non-yanked stable checked 2026-10-27.","source_urls":["https://index.crates.io/to/ni/tonic-prost-build","https://github.com/grpc/grpc-rust/releases"],"resolution_constraints":"Approved generator split; absent from the application runtime dependency graph and unused by ordinary cargo build. Daily freshness scans this workspace member too."},
     {
       "name": "libc", "current": "0.2.191", "latest_non_yanked_stable": "0.2.191",
       "license": "MIT OR Apache-2.0", "compressed_crate_bytes": 855401, "minimum_rust": "1.65",
@@ -96,11 +101,11 @@
     {
       "name": "hyper", "current": "1.12.0", "latest_non_yanked_stable": "1.12.0",
       "license": "MIT", "compressed_crate_bytes": 172269, "minimum_rust": "1.63",
-      "purpose": "HTTP/1 server with explicit connection admission, parser bounds and graceful drain.",
-      "features": ["http1", "server"],
+      "purpose": "HTTP/1 JSON/XML and HTTP/2 gRPC with shared connection admission, parser bounds, inactivity limits and graceful drain.",
+      "features": ["http1", "http2", "server"],
       "maintenance": "Official publisher release 2026-10-06; actively maintained.",
       "source_urls": ["https://crates.io/api/v1/crates/hyper", "https://index.crates.io/hy/pe/hyper", "https://github.com/hyperium/hyper"],
-      "resolution_constraints": "No HTTP/2, TLS or client features; latest stable direct release independently verified."
+      "resolution_constraints": "HTTP/2 enabled for the separate opt-in h2c listener; no Hyper TLS or client features. Latest stable direct release independently verified."
     },
     {
       "name": "hyper-util", "current": "0.1.21", "latest_non_yanked_stable": "0.1.21",
@@ -268,12 +273,14 @@
     {
       "ecosystem": "go",
       "manifest": "sdk-tests/go/go.mod",
-      "checked_at_utc": "2026-10-27T04:04:15Z",
+      "checked_at_utc": "2026-10-27T13:24:41Z",
       "toolchain": {
         "version": "1.27.3", "go": "1.27.0", "toolchain": "go1.27.3",
         "source_url": "https://go.dev/dl/?mode=json"
       },
       "direct_dependencies": [
+        {"name":"google.golang.org/grpc","current":"v1.85.0","latest_non_retracted_stable":"v1.85.0","license":"Apache-2.0","purpose":"Direct wire-status and strict-metadata tests for the gRPC foundation; promoted from the existing SDK graph and updated after daily detection.","maintenance":"Official grpc/grpc-go stable 1.85.0 released 2026-10-27; verified in the official release and Go proxy.","source_urls":["https://github.com/grpc/grpc-go/releases/tag/v1.85.0","https://proxy.golang.org/google.golang.org/grpc/@v/v1.85.0.mod"]},
+        {"name":"google.golang.org/protobuf","current":"v1.36.12","latest_non_retracted_stable":"v1.36.12","license":"BSD-3-Clause","purpose":"Empty request messages and google.rpc.Status Any decoding in wire tests; promoted unchanged from the SDK graph.","maintenance":"Official Go protobuf module; non-retracted stable verified by the daily detector on 2026-10-27.","source_urls":["https://proxy.golang.org/google.golang.org/protobuf/@v/v1.36.12.mod"]},
         {
           "name": "cloud.google.com/go/storage", "current": "v1.70.0",
           "latest_non_retracted_stable": "v1.70.0", "license": "Apache-2.0",
@@ -313,7 +320,7 @@
           ]
         }
       ],
-      "resolution_constraints": "API v0.309.0 changes only its module version and checksums; the existing indirect graph, Storage v1.70.0, OAuth2 v0.37.0 and Go requirement remain unchanged. go.mod and go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
+      "resolution_constraints": "Storage v1.70.0, API v0.309.0, OAuth2 v0.37.0 and the Go requirement remain unchanged. grpc-go v1.85.0 requires compatible cel.dev/expr, Envoy and genproto/api updates; go.mod/go.sum record the graph. Freshness checks cover every direct require, excluding prereleases and retractions from the highest release's go.mod."
     },
     {
       "ecosystem": "ruby",

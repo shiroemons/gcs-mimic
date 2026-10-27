@@ -16,7 +16,12 @@
     },
     {
       "name": "Storage v2 protobuf",
-      "source_url": "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
+      "source_url": "https://github.com/googleapis/googleapis/blob/933dd1be8180a22bca2dc473b53d4f4297ee3b0c/google/storage/v2/storage.proto",
+      "revision": "933dd1be8180a22bca2dc473b53d4f4297ee3b0c",
+      "source_checked_at": "2026-10-27",
+      "proto_closure_sha256_manifest": "src/grpc/proto/SHA256SUMS",
+      "proto_closure": "google/api, google/iam/v1, google/rpc and google/type imports use the same googleapis revision. Well-known google/protobuf imports use protobuf v36.2, commit 2c74169b34066ceb8ddb6b882fcb3fb32d737a55, because googleapis does not vendor them.",
+      "generated_code": "src/grpc/generated",
       "upstream_blob_sha": "f56e4f3e0a0795ae8dc45f322477ee14b96d5291",
       "sha256": "a0df6132967b97a89be248f1f24d277ee8df8f8d885db1d4af6249469ff0c1cf",
       "method_count": 24,

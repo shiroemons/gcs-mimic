@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 274 | 0 | 23 | 1 | 0 | 0 |
-| behavior | 201 | 119 | 0 | 44 | 38 | 0 | 0 |
+| behavior | 201 | 118 | 0 | 45 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -739,7 +739,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | BEHAVIOR-RPC-002 | gRPC read/update field masks | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | BEHAVIOR-RPC-003 | gRPC streaming checksums and offsets | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | BEHAVIOR-RPC-004 | gRPC bidirectional ranged reads | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| BEHAVIOR-RPC-005 | gRPC canonical status and details | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RPC-005 | gRPC canonical status and details | PARTIAL | P6 | EXACT | NONE | 0 |
 
 ### Signed access
 
@@ -934,7 +934,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | AUDIT-003 | Official C++ SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-004 | Official PHP SDK integration | NOT_STARTED | P7 | PROJECT | NONE | 0 |
 | AUDIT-007 | S3-compatible client subset validation | NOT_STARTED | P3 | PROJECT | NONE | 0 |
-| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 12 |
+| DESIGN-082 | Go official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 13 |
 | DESIGN-083 | Ruby official SDK integration | PARTIAL | P1 | PROJECT | PROJECT | 4 |
 | DESIGN-084 | Rails Active Storage workflows | PARTIAL | P2 | PROJECT | PROJECT | 1 |
 | DESIGN-085 | Node official SDK integration | NOT_STARTED | P3 | PROJECT | NONE | 0 |

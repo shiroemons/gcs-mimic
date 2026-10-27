@@ -60,6 +60,7 @@ SDK 互換トラック（第 12 節）も扱います。
 
 | 共通部品 | 今の重複 | 使うトラック | 作るスライス | 違ってよい部分 |
 | --- | --- | --- | --- | --- |
+| gRPCのstatus/ErrorInfo、resource name、共有記録のproto変換と認可の受け渡し | なし | gRPCのbuckets・object_io・update_copy・bidi_read | `grpc-v2-foundation` | RPCごとの権限・条件・ストリーミング状態遷移 |
 | 公開の確定（世代の割り当て・前の世代の退避・INSERT・blob 回収） | `objects.rs`、`derived.rs`、`resumable_transfer.rs` の 3 か所 | Shared state、Sync、Import | `shared-publication-commit` | 呼び出し元ごとの事前検証（copy の元オブジェクトの確認、resumable のセッション状態） |
 | MD5・CRC32C のストリーミング計算（途中状態を保存できる形）。`src/storage/` の外の純粋なモジュール（例: `src/hashing.rs`） | `objects.rs` の `write_body`、`derived.rs` の 2 か所、`resumable_transfer.rs` | Import、Shared state、Sync | `import-dry-run` が `src/hashing.rs` を作る。既存の 4 か所の載せ替えは `shared-blob-id` で行う（`import-dry-run` の完了を待つ） | 途中状態を保存するか（derived は保存し、resumable は確定時に全体を読み直す） |
 | 原子的なファイル置換（一時ファイル → `sync_all` → rename → 親ディレクトリの fsync。Windows は `MoveFileExW` の `WRITE_THROUGH`）と、OS 固有の呼び出し（`renameat2` の入れ替え、ファイル記述子からのコピー、ナノ秒の ctime）。`src/storage/` の外の 1 モジュール（例: `src/fsutil.rs`）にまとめ、unsafe はここだけに置く | `objects.rs` の `publish_blob`・`sync_dir`（`pub(super)` で外から使えない） | Shared state、Sync | `shared-publication-io`（置換・クローン・コピーをまとめて作る。関数の形は `shared-contract` で決める）。`shared-publication-modes` と `sync-mirror` はそれを使う | 置換先がシャードの中か作業ツリーか |
@@ -1057,10 +1058,43 @@ Go・Ruby の HTTP テストで確認済み。4機能行は未対応の相互作
 Rails の依存追加はオーナー承認が必要。段 4 は IAM・PAP と一緒に設計し、着手前に範囲と分割をオーナーへ報告する。
 第 2 節の依存図にも同じ依存を載せている。
 
+### gRPCトラック（v1・v2）
+
+段9は依存なしで着手し、段10の4本は段9のマージ後に並行して進めます。実装状態は台帳だけで管理します。
+
+| 段 | スライス | 対象と依存 |
+| --- | --- | --- |
+| 9 | grpc-v2-foundation | BEHAVIOR-RPC-005、DESIGN-082の未対応応答。固定proto、h2c、status/ErrorInfo、名前解析、記録変換、認可の受け渡し。全RPCはUNIMPLEMENTED。 |
+| 10 | grpc-v2-buckets | 段9に依存。buckets.rs、専用Goテストと契約、RPC-STORAGE-001〜009を担当。 |
+| 10 | grpc-v2-object-io | 段9に依存。object_io.rs、専用Goテストと契約、RPC-STORAGE-011〜015・018〜020・022〜023を担当。RapidとCancelResumableWriteは未対応を保つ。 |
+| 10 | grpc-v2-update-copy | 段9に依存。update_copy.rs、専用Goテストと契約、RPC-STORAGE-010・017・021・024を担当。 |
+| 10 | grpc-v2-bidi-read | 段9に依存。bidi_read.rs、専用Goテストと契約、RPC-STORAGE-016を担当。 |
+| 11 | grpc-v1-compatibility | v2とは別にfake-gcs-server v1.56.1のStorage v1契約を固定し、同じリスナーへ独立したサービスを追加する。範囲は着手時に分解する。 |
+
+#### 着手前チェック
+
+第1節、SDKの節とGo README、sdk-unsupported-fail-fast・startup-phases・configuration-workflowsの契約を読む。
+googleapisのStorage v2とimportsはコミット・SHA-256で固定し、gapsを照合する。RubyにはgRPC転送がないためGoだけでSDKを検証する。
+
+#### 決定
+
+- 新しいキーは`grpc_listen`だけ。既定は未設定で、CLI・環境変数`GCS_MIMIC_GRPC_LISTEN`・JSONから、HTTP/HTTPSとは別ポートの平文h2cを明示したときだけ開く。
+- 未対応は`UNIMPLEMENTED`とErrorInfoで即座に返す。JSONと同じreason・domainと、JSON APIへ切り替える例を示す。`UNAVAILABLE`は使わない。
+- tonic・prostと必要な公式codec・生成器・well-known typesの最小依存は承認済み。最新安定版を公式に確認し、日次更新検出に加える。
+- 生成コードをコミットし、通常ビルドやDockerにprotocを要求しない。Dockerfileは変えない。
+- strictは共有Authでローカルprincipalを解決してRPCへ渡す。Rapid appendとCancelResumableWriteは後続でも未対応を保つ。
+
+#### 設計の要件と未決
+
+既存の起動段階と接続・停止枠を共用する。bind前に件数比例の処理を足さず、本文を集約せず、空のポーリングを置かない。
+段10は受け口・変換・SDK起動スクリプトを変えず、担当ファイル・テスト・契約・台帳行を独立して編集する。
+生成手順、具体的な上限と変換の対応範囲は段9の[契約](../docs/en/slices/grpc-v2-foundation.md)で確定する。
+計測ハーネス・ベンチマークは作らない。段9の最終検証はjust checkとHTTPのjust check-sdkを各1回とし、コンテナ・ガイドの通し実行は省く。
+
 ### 保留（困る例が出てから着手する）
 
 CSEK・KMS、通知、HMAC・サービスアカウントは保留する。
-POST ポリシー、gRPC、Logging・Website・Autoclass・RPO・階層型名前空間・Requester Pays も保留する。
+POST ポリシー、Logging・Website・Autoclass・RPO・階層型名前空間・Requester Pays も保留する。
 
 ### 完了条件と対象外
 

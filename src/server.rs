@@ -97,11 +97,26 @@ pub async fn serve_with_tls_and_drain(
     shutdown: impl Future<Output = io::Result<()>>,
     background_drain: impl Future<Output = io::Result<()>>,
 ) -> io::Result<()> {
+    serve_with_grpc_and_drain(listeners, None, config, state, shutdown, background_drain).await
+}
+
+pub async fn serve_with_grpc_and_drain(
+    mut listeners: Vec<(TcpListener, Option<tokio_rustls::TlsAcceptor>)>,
+    grpc: Option<TcpListener>,
+    config: Config,
+    state: Arc<State>,
+    shutdown: impl Future<Output = io::Result<()>>,
+    background_drain: impl Future<Output = io::Result<()>>,
+) -> io::Result<()> {
     if listeners.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "at least one listener is required",
         ));
+    }
+    let grpc_index = grpc.as_ref().map(|_| listeners.len());
+    if let Some(listener) = grpc {
+        listeners.push((listener, None));
     }
     let (stop, _) = watch::channel(false);
     let mut connections = JoinSet::new();
@@ -138,7 +153,9 @@ pub async fn serve_with_tls_and_drain(
                 let config = config.clone();
                 let acceptor = listeners[index].1.clone();
                 connections.spawn(async move {
-                    if let Some(acceptor) = acceptor {
+                    if grpc_index == Some(index) {
+                        crate::grpc::serve_connection(stream, &config, state, stopping).await;
+                    } else if let Some(acceptor) = acceptor {
                         let handshake = tokio::time::timeout(
                             Duration::from_millis(config.tls_handshake_timeout_ms),
                             acceptor.accept(stream),

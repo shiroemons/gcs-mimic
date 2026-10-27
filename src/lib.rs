@@ -9,6 +9,7 @@ pub mod diagnostics;
 // Linux/macOS descriptor xattr ABIs are isolated behind safe bounded wrappers.
 #[allow(unsafe_code)]
 pub mod fsutil;
+pub mod grpc;
 pub mod hashing;
 mod http_conditions;
 pub mod import;

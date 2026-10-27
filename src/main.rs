@@ -24,6 +24,7 @@ Serve options (CLI > GCS_MIMIC_<UPPER_SNAKE_CASE> environment > JSON config > de
   --log-level LEVEL            info (debug|info|warn|error; warning aliases warn)
   --scheme MODE                https (http|https|both; both uses HTTPS on --listen)
   --listen-http IP:PORT        primary listen IP:8000 (HTTP listener; scheme=both only)
+  --grpc-listen IP:PORT        none (optional separate plaintext h2c gRPC listener; e.g. 127.0.0.1:4444)
   --tls-cert PATH              embedded development certificate (custom PEM chain; at most 1 MiB)
   --tls-key PATH               embedded public test key (custom PEM private key; at most 1 MiB)
   --tls-handshake-timeout-ms N  5000 (1..60000; HTTPS listener)

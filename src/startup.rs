@@ -126,6 +126,7 @@ impl ReadyEvent {
 struct BoundStartup {
     listener: tokio::net::TcpListener,
     listener_http: Option<tokio::net::TcpListener>,
+    listener_grpc: Option<tokio::net::TcpListener>,
     seed: SeedOutcome,
     buckets_file: InitOutcome,
     sync_root: Option<gcs_mimic::storage::sync_state::root::RootLease>,
@@ -242,7 +243,11 @@ async fn prepare_startup(
                 Some(address) => Some(bind_configured_listener(address, "listen_http").await?),
                 None => None,
             };
-            Ok::<_, io::Error>((listener, listener_http))
+            let listener_grpc = match config.grpc_listen {
+                Some(address) => Some(bind_configured_listener(address, "grpc_listen").await?),
+                None => None,
+            };
+            Ok::<_, io::Error>((listener, listener_http, listener_grpc))
         }),
         shutdown.as_mut(),
     )
@@ -250,10 +255,11 @@ async fn prepare_startup(
     else {
         return Ok(PhaseResult::Stopped);
     };
-    let (listener, listener_http) = listeners?;
+    let (listener, listener_http, listener_grpc) = listeners?;
     Ok(PhaseResult::Complete(BoundStartup {
         listener,
         listener_http,
+        listener_grpc,
         seed,
         buckets_file,
         sync_root,
@@ -305,6 +311,7 @@ pub(crate) async fn serve(
     let BoundStartup {
         listener,
         listener_http,
+        listener_grpc,
         seed,
         buckets_file,
         sync_root,
@@ -333,7 +340,7 @@ pub(crate) async fn serve(
             let address_http = listener_http.as_ref().map(|listener| listener.local_addr()).transpose()
                 .map_err(|_| phase(DiagnosticSource::Listener, "listen_http", "Cannot inspect HTTP listener address; check the local network environment."))?;
             let api_base_url = config.effective_api_base_url(address);
-            serde_json::to_string(&ReadyEvent::new(
+            let mut event = ReadyEvent::new(
                 &config,
                 &auth,
                 address,
@@ -341,7 +348,11 @@ pub(crate) async fn serve(
                 seed,
                 buckets_file,
                 api_base_url.clone(),
-            ))
+            );
+            if let Some(listener) = &listener_grpc {
+                event.listeners.push(ReadyListener { listen: listener.local_addr()?, scheme: "h2c" });
+            }
+            serde_json::to_string(&event)
             .map(|ready| (ready, api_base_url))
             .map_err(|_| {
                 phase(
@@ -379,12 +390,19 @@ pub(crate) async fn serve(
     if let Some(listener) = listener_http {
         listeners.push((listener, None));
     }
-    server::serve_with_tls_and_drain(listeners, config, state, shutdown, async move {
-        if let Some(task) = sync_task {
-            task.finish().await?;
-        }
-        Ok(())
-    })
+    server::serve_with_grpc_and_drain(
+        listeners,
+        listener_grpc,
+        config,
+        state,
+        shutdown,
+        async move {
+            if let Some(task) = sync_task {
+                task.finish().await?;
+            }
+            Ok(())
+        },
+    )
     .await?;
     report_stopped();
     Ok(())
@@ -423,7 +441,9 @@ async fn bind_configured_listener(
 ) -> io::Result<tokio::net::TcpListener> {
     bind_listener(address).await.map_err(|error| {
         let flag = key.replace('_', "-");
-        let fix = if error.kind() == io::ErrorKind::AddrInUse {
+        let fix = if key == "grpc_listen" {
+            format!("Cannot bind grpc_listen ({:?}); stop the process using that port or choose a free separate address, for example --grpc-listen 127.0.0.1:4444.", error.kind())
+        } else if error.kind() == io::ErrorKind::AddrInUse {
             format!("Address already in use; choose a free --{flag} IP:PORT.")
         } else {
             format!("Cannot bind listener; check --{flag} IP:PORT and local network permissions.")
@@ -521,6 +541,64 @@ mod tests {
         task::Poll,
         time::{Duration, SystemTime},
     };
+
+    #[tokio::test]
+    async fn grpc_listener_disabled_by_default_and_bound_after_initialization() {
+        let dir = TestDir::new();
+        let catalog = Catalog::open(&dir.0).await.unwrap();
+        let mut config = dir.config();
+        let shutdown = std::future::pending();
+        tokio::pin!(shutdown);
+        let PhaseResult::Complete(bound) = prepare_startup(
+            &catalog,
+            &config,
+            &[],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .unwrap() else {
+            panic!("unexpected stop");
+        };
+        assert!(bound.listener_grpc.is_none());
+        drop(bound);
+        config.grpc_listen = Some("127.0.0.1:0".parse().unwrap());
+        config.buckets_file = Some(dir.0.join("missing-buckets.json"));
+        let error = prepare_startup(
+            &catalog,
+            &config,
+            &[],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("buckets_file"));
+        config.buckets_file = None;
+        let PhaseResult::Complete(bound) = prepare_startup(
+            &catalog,
+            &config,
+            &[],
+            Arc::new(SystemClock),
+            shutdown.as_mut(),
+        )
+        .await
+        .unwrap() else {
+            panic!("unexpected stop");
+        };
+        let listener = bound.listener_grpc.as_ref().unwrap();
+        let address = listener.local_addr().unwrap();
+        let failure = bind_configured_listener(address, "grpc_listen")
+            .await
+            .unwrap_err();
+        assert!(
+            failure.to_string().contains("grpc_listen")
+                && failure.to_string().contains("127.0.0.1:4444")
+        );
+        drop(bound);
+        catalog.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn unfinished_import_blocks_startup_before_policy_seed_and_bind() {

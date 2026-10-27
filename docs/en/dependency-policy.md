@@ -6,6 +6,14 @@ Status: project policy. The project has compiler pins, Cargo.lock, a bounded HTT
 
 ## User requirement
 
+The gRPC runtime uses tonic/tonic-prost and prost/prost-types; the workspace's
+`grpc-codegen` tool adds tonic-prost-build only for explicit regeneration.
+Daily detection enumerates every workspace member's direct dependencies from
+locked Cargo metadata, so both runtime and generation dependencies are checked.
+Ordinary application/Docker builds use committed code without protoc. Exact
+versions, licenses, source sizes and provenance are recorded in the
+[foundation contract](slices/grpc-v2-foundation.md).
+
 Use the latest stable Rust and the latest suitable non-prerelease library releases at implementation start, and keep them current throughout development. A previous planning document's example versions must never silently become the dependency baseline.
 
 This policy applies to runtime, build and test dependencies, official SDK example projects, compiler tooling and Docker base images. English is the canonical documentation language. User-facing implementation prompts can be Japanese; code, identifiers and commits remain English.

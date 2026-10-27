@@ -409,7 +409,7 @@ executable contract; these examples are not the entire inventory.
 | Durable data | Filesystem root with object files and xattr/sidecar metadata | Read-only, verified conversion into a separate destination |
 | Memory backend | In-process bytes and active/archived versions | Optional ephemeral behavior and export before the source process stops |
 | Go embedding | Constructors, server lifecycle, clients/handlers and direct object methods | A separately tested Go-compatible adapter; a Rust executable alone is insufficient |
-| gRPC | Source imports Storage **v1** protobufs | Test that legacy v1 surface separately; Storage v2 support cannot substitute for it |
+| gRPC | v1.56.1 imports Storage **v1** protobufs | gcs-mimic optionally opens separate plaintext `grpc_listen` (for example `127.0.0.1:4444`); point Go `STORAGE_EMULATOR_HOST_GRPC` there. All Storage v2 RPCs immediately return non-retryable `UNIMPLEMENTED` with ErrorInfo and JSON API guidance. Legacy v1 and actual v2 operations remain unsupported; v2 cannot substitute for legacy v1. See the [foundation contract](slices/grpc-v2-foundation.md). |
 | Helpers/events | Internal config/reseed routes and notification/event settings | Inventory and test local behavior plus explicit external integration boundaries |
 
 Application source should not need modification. Renaming environment keys,

@@ -157,6 +157,17 @@ The JSON file retains its 64 KiB limit. See the
 [workflow contract](slices/configuration-workflows.md#shared-diagnostics-contract)
 and [execution evidence](evidence/configuration-diagnostics.md).
 
+## Optional gRPC listener
+
+The optional native `grpc_listen` setting has no legacy flag alias. Set
+`--grpc-listen 127.0.0.1:4444`, `GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`, or JSON
+`{"grpc_listen":"127.0.0.1:4444"}` to open a separate plaintext h2c socket.
+It is disabled by default and uses the normal CLI > environment > file precedence.
+Go's `STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444` selects this listener.
+Storage v2 RPCs immediately return `UNIMPLEMENTED` and ErrorInfo with JSON API
+guidance; actual operations and legacy Storage v1 remain unsupported. The
+[gRPC contract](slices/grpc-v2-foundation.md) records bounds and verification.
+
 ## Public origin
 
 `--public-base-url` / `GCS_MIMIC_PUBLIC_BASE_URL` / JSON `public_base_url`

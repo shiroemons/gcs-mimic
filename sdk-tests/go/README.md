@@ -1,5 +1,16 @@
 # Official Go SDK tests
 
+`grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
+`storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
+Bucket.Attrs, Writer through Close and multi-range (which additionally requires
+`storage.WithGRPCBidiReads()`). It checks all 24 Storage v2 RPCs and unknown
+service/method ErrorInfo, including streaming calls without a first message or
+EOF. `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
+and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
+grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Actual gRPC
+operations and legacy Storage v1 are not implemented; see the
+[foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
 `TestObjectSoftDeleteRestore` configures BucketAttrs.SoftDeletePolicy, deletes an
 object, lists Query.SoftDeleted, gets Generation(g).SoftDeleted().Attrs, restores
 with default RestoreOptions, and verifies bytes with a 30-second context. The

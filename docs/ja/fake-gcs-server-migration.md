@@ -14,6 +14,10 @@ IMPLEMENTEDです。永続データの移行やfake-gcs-serverの全面的な置
 
 ## fake-gcs-serverのComposeを置き換える
 
+| gRPCの移行元 | gcs-mimicでの対応 |
+| --- | --- |
+| fake-gcs-server v1.56.1のStorage v1 | `grpc_listen`を指定した場合だけ別ポートの平文h2cを開きます。Go SDKは`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`で接続します。全Storage v2 RPCはErrorInfoとJSON APIへの案内を含む`UNIMPLEMENTED`で即座に失敗します。v1とv2の実処理は未対応で、v2をv1の代替とは数えません。 |
+
 既存アプリのサービスと`STORAGE_EMULATOR_HOST=gcs:4443`はそのまま残し、
 `gcs`サービスを置き換えます。よく使う5組のフラグは次のように書き換えます。
 移行前のCompose全体は[英語版の例](../en/fake-gcs-server-migration.md#replace-a-fake-gcs-server-compose-service)を参照してください。

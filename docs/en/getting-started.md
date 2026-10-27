@@ -1996,6 +1996,7 @@ and `-log-level` remain errors with native migration advice.
 | `--log-level` | `GCS_MIMIC_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`; `warning` aliases `warn`; JSON key `log_level` |
 | `--scheme` | `GCS_MIMIC_SCHEME` | `https` | `http`, `https` or `both`; both uses primary HTTPS and secondary HTTP |
 | `--listen-http` | `GCS_MIMIC_LISTEN_HTTP` | Primary listen IP:8000 | Numeric IP:port, port 0 allowed; requires `scheme=both`; reject equal nonzero endpoints |
+| `--grpc-listen` | `GCS_MIMIC_GRPC_LISTEN` | none (disabled) | JSON key `grpc_listen`; numeric IP:port (for example `127.0.0.1:4444`), port 0 allowed; separate plaintext h2c listener. Set Go `STORAGE_EMULATOR_HOST_GRPC` to its address. All v2 RPCs currently return actionable, non-retryable `UNIMPLEMENTED`; use JSON for operations. |
 | `--tls-cert` | `GCS_MIMIC_TLS_CERT` | built-in development certificate | Optional PEM leaf-first chain, at most 1 MiB; requires matching key |
 | `--tls-key` | `GCS_MIMIC_TLS_KEY` | built-in development key | Optional matching unencrypted PEM private key, at most 1 MiB; requires certificate |
 | `--tls-handshake-timeout-ms` | `GCS_MIMIC_TLS_HANDSHAKE_TIMEOUT_MS` | 5000 | 1–60000; HTTPS only, within connection admission |

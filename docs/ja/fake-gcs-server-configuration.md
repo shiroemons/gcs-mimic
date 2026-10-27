@@ -9,6 +9,16 @@ gcs-mimicは既知19個の`FAKE_GCS_*`を移行案内付きのエラーにし、
 [English](../en/fake-gcs-server-configuration.md) ·
 [実装状態の原本](../../compatibility/features.json)
 
+## gRPCの待受
+
+gRPCは既定で無効です。`--grpc-listen 127.0.0.1:4444`、環境変数
+`GCS_MIMIC_GRPC_LISTEN=127.0.0.1:4444`、またはJSONの
+`{"grpc_listen":"127.0.0.1:4444"}`で、HTTP・HTTPSとは別の平文h2cポートを開きます。
+優先順位はCLI、環境変数、設定ファイルの順です。Go SDKでは
+`STORAGE_EMULATOR_HOST_GRPC=127.0.0.1:4444`を指定します。
+現段階では全Storage v2 RPCが`UNIMPLEMENTED`と修正案付きのErrorInfoを即座に返します。
+操作にはJSON APIを使ってください。Storage v1も未対応です。[契約と制限](grpc-v2-foundation.md)を参照してください。
+
 ## 並行アップロードと503
 
 APIのアップロードに専用の本数枠はありません。`max_connections`（既定32）が同時接続数を制限し、超えた接続は待ちます。
