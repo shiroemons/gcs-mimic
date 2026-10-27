@@ -32,6 +32,47 @@ pub struct ObjectRecord {
     pub updated: SystemTime,
     pub time_deleted: Option<SystemTime>,
     pub event_based_hold: bool,
+    pub temporary_hold: bool,
+    pub custom_time: Option<String>,
+}
+
+impl ObjectRecord {
+    pub(crate) fn has_hold(&self) -> bool {
+        self.event_based_hold || self.temporary_hold
+    }
+}
+
+/// Reuse the strict civil-date parser while preserving nanosecond precision on the wire.
+pub(crate) fn custom_time_key(value: &str) -> Result<(i64, u32), ObjectError> {
+    let invalid = || {
+        ObjectError::InvalidFixedMetadata(
+            "customTime must be RFC 3339, for example 2026-10-20T01:02:03Z".into(),
+        )
+    };
+    if !value.is_ascii() || value.len() < 20 || value.starts_with("0000") {
+        return Err(invalid());
+    }
+    let normalized = value.replace('t', "T").replace('z', "Z");
+    let (seconds, nanos) = if normalized.as_bytes().get(19) == Some(&b'.') {
+        let end = normalized[20..]
+            .find(|c: char| !c.is_ascii_digit())
+            .map(|i| i + 20)
+            .ok_or_else(invalid)?;
+        let fraction = &normalized[20..end];
+        if fraction.is_empty() || fraction.len() > 9 {
+            return Err(invalid());
+        }
+        let nanos =
+            fraction.parse::<u32>().map_err(|_| invalid())? * 10u32.pow(9 - fraction.len() as u32);
+        (
+            format!("{}{}", &normalized[..19], &normalized[end..]),
+            nanos,
+        )
+    } else {
+        (normalized, 0)
+    };
+    let micros = crate::import::codec::parse_timestamp(&seconds).map_err(|_| invalid())?;
+    Ok((micros / 1_000_000, nanos))
 }
 
 /// Content fields reset on PUT; holds only change when explicitly supplied.
@@ -45,10 +86,15 @@ pub struct ObjectMetadataUpdate {
     pub cache_control: Option<Option<String>>,
     pub metadata: Option<Option<BTreeMap<String, Option<String>>>>,
     pub event_based_hold: Option<bool>,
+    pub temporary_hold: Option<bool>,
+    pub custom_time: Option<Option<String>>,
 }
 
 impl ObjectMetadataUpdate {
     pub(crate) fn validate(&self) -> Result<(), ObjectError> {
+        if let Some(Some(value)) = &self.custom_time {
+            custom_time_key(value)?;
+        }
         for (field, value) in [
             ("contentType", &self.content_type),
             ("contentEncoding", &self.content_encoding),
@@ -75,8 +121,23 @@ impl ObjectMetadataUpdate {
 
     pub(crate) fn apply(self, record: &mut ObjectRecord) -> Result<(), ObjectError> {
         self.validate()?;
+        if let Some(value) = self.custom_time.or_else(|| self.replace.then_some(None)) {
+            let next = value.as_deref().map(custom_time_key).transpose()?;
+            if let Some(previous) = &record.custom_time {
+                let previous = custom_time_key(previous)?;
+                if next.is_none_or(|v| v < previous) {
+                    return Err(ObjectError::InvalidFixedMetadata(
+                        "customTime cannot be removed or decreased; supply the current or a later RFC 3339 time".into(),
+                    ));
+                }
+            }
+            record.custom_time = value;
+        }
         if let Some(hold) = self.event_based_hold {
             record.event_based_hold = hold;
+        }
+        if let Some(hold) = self.temporary_hold {
+            record.temporary_hold = hold;
         }
         if self.replace {
             record.content_type.clear();

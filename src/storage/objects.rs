@@ -25,7 +25,7 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const OBJECT_COLUMNS: &str = "bucket, name, generation, metageneration, content_type, size,
     md5, crc32c, storage_class, time_created, updated, blob_id,
     content_encoding, content_disposition, content_language, cache_control, metadata,
-    time_deleted, event_based_hold, component_count";
+    time_deleted, event_based_hold, component_count, temporary_hold, custom_time";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectListCursor {
@@ -742,6 +742,8 @@ impl Catalog {
                                     updated: time,
                                     time_deleted: None,
                                     event_based_hold: default_hold,
+                                    temporary_hold: false,
+                                    custom_time: None,
                                 };
                                 metadata.apply(&mut record)?;
                                 inherit_metadata(mode, previous.as_ref(), &mut record);
@@ -944,7 +946,8 @@ impl Catalog {
                 .execute(
                     "UPDATE objects SET metageneration = ?3, updated = ?4, content_type = ?5,
                     content_encoding = ?6, content_disposition = ?7, content_language = ?8,
-                    cache_control = ?9, metadata = ?10, event_based_hold = ?11
+                    cache_control = ?9, metadata = ?10, event_based_hold = ?11,
+                    temporary_hold = ?13, custom_time = ?14
                     WHERE bucket = ?1 AND name = ?2 AND generation = ?12",
                     params![
                         bucket,
@@ -958,7 +961,9 @@ impl Catalog {
                         record.cache_control,
                         metadata,
                         record.event_based_hold,
-                        record.generation
+                        record.generation,
+                        record.temporary_hold,
+                        record.custom_time
                     ],
                 )
                 .map_err(object_unavailable)?;
@@ -1093,7 +1098,7 @@ pub(super) fn delete_selected(
         false,
         access,
     )?;
-    if record.event_based_hold {
+    if record.has_hold() {
         return Err(ObjectError::ActiveHold);
     }
     if let Some(binding) = sync_binding {
@@ -1444,7 +1449,7 @@ pub(super) fn check_publication(
     if previous.is_some() && !allow_overwrite {
         return Err(ObjectError::OverwriteForbidden);
     }
-    if previous.is_some_and(|(record, _)| record.event_based_hold) {
+    if previous.is_some_and(|(record, _)| record.has_hold()) {
         return Err(ObjectError::ActiveHold);
     }
     Ok(())
@@ -1546,13 +1551,13 @@ pub(super) fn publish_in_transaction<T>(
         )
         .map_err(object_unavailable)?;
     transaction.execute(
-        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18)",
+        "INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,content_encoding,content_disposition,content_language,cache_control,metadata,event_based_hold,component_count,temporary_hold,custom_time) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?19,?11,?12,?13,?14,?15,?16,?17,?18,?20,?21)",
         params![record.bucket, record.name, generation, record.metageneration,
             record.content_type, i64::try_from(record.size).map_err(object_unavailable)?,
             &record.md5[..], record.crc32c, record.storage_class, unix_micros(record.time_created).map_err(object_unavailable)?, blob_id,
             record.content_encoding, record.content_disposition, record.content_language,
             record.cache_control, metadata, record.event_based_hold, record.component_count,
-            unix_micros(record.updated).map_err(object_unavailable)?],
+            unix_micros(record.updated).map_err(object_unavailable)?, record.temporary_hold, record.custom_time],
     ).map_err(object_unavailable)?;
     super::change_journal::object(
         transaction,
@@ -1768,6 +1773,8 @@ fn read_object(row: &Row<'_>) -> rusqlite::Result<(ObjectRecord, String)> {
                 .map(system_time_micros)
                 .transpose()?,
             event_based_hold: row.get(18)?,
+            temporary_hold: row.get(20)?,
+            custom_time: row.get(21)?,
         },
         row.get(11)?,
     ))
@@ -1897,6 +1904,9 @@ mod tests {
         connection
             .execute_batch(super::super::derived::SCHEMA)
             .unwrap();
+        connection
+            .execute_batch(super::super::OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
+            .unwrap();
         let counter = AtomicUsize::new(0);
         // Interrupt after 10,000 VM instructions so a row scan cannot masquerade as a seek.
         // SAFETY: This live connection invokes the callback synchronously with the live counter.
@@ -1950,6 +1960,9 @@ mod tests {
         connection.execute_batch(VERSIONING_SCHEMA).unwrap();
         connection
             .execute_batch(super::super::derived::SCHEMA)
+            .unwrap();
+        connection
+            .execute_batch(super::super::OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
             .unwrap();
         connection.execute_batch("WITH RECURSIVE entries(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM entries WHERE n < 20000)
             INSERT INTO objects (bucket,name,generation,metageneration,content_type,size,md5,crc32c,storage_class,time_created,updated,blob_id,time_deleted)

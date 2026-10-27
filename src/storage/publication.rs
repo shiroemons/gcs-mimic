@@ -801,6 +801,8 @@ fn publish_entry(
                 updated: time,
                 time_deleted: None,
                 event_based_hold: staged.import_identity.is_none() && default_hold,
+                temporary_hold: false,
+                custom_time: None,
             };
             entry.request.metadata.clone().apply(&mut record)?;
             objects::inherit_metadata(entry.request.mode, previous.as_ref(), &mut record);

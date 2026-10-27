@@ -47,10 +47,8 @@ pub fn parse_object_metadata(
     for field in [
         "acl",
         "predefinedAcl",
-        "temporaryHold",
         "retention",
         "contexts",
-        "customTime",
         "kmsKeyName",
         "customerEncryption",
     ] {
@@ -100,6 +98,8 @@ pub fn parse_object_metadata(
                 | "cacheControl"
                 | "metadata"
                 | "eventBasedHold"
+                | "temporaryHold"
+                | "customTime"
         ) {
             return Err(JsonError::unsupported_object(key));
         }
@@ -154,6 +154,18 @@ pub fn parse_object_metadata(
             content_language: string(body, "contentLanguage")?,
             cache_control: string(body, "cacheControl")?,
             metadata,
+            temporary_hold: body
+                .get("temporaryHold")
+                .filter(|v| !v.is_null())
+                .map(|value| {
+                    value.as_bool().ok_or_else(|| {
+                        JsonError::invalid_argument(
+                            "temporaryHold must be a boolean, for example true or false",
+                        )
+                    })
+                })
+                .transpose()?,
+            custom_time: string(body, "customTime")?,
             event_based_hold: body
                 .get("eventBasedHold")
                 .map(|value| {

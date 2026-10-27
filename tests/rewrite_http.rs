@@ -32,6 +32,31 @@ fn continue_path(token: &str) -> String {
 }
 
 #[test]
+fn rewrite_accepts_noop_hold_and_custom_time_defaults() {
+    let (_dir, server, payload, _) = setup(false, 19);
+    for body in [
+        br#"{"temporaryHold":false}"#.as_slice(),
+        br#"{"customTime":null}"#,
+    ] {
+        let result = server.request("POST", BASE, ADMIN, body).json();
+        assert_eq!(result["done"], true);
+        assert!(result["resource"].get("temporaryHold").is_none());
+        assert!(result["resource"].get("customTime").is_none());
+        assert_eq!(server.get("destination?alt=media").body, payload);
+    }
+    let before = server.get("destination").json();
+    server
+        .request(
+            "POST",
+            BASE,
+            ADMIN,
+            br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
+        )
+        .error(501, "notImplemented");
+    assert_eq!(server.get("destination").json(), before);
+}
+
+#[test]
 fn rewrite_one_call_empty_metadata_fields_and_same_name() {
     for size in [0, 19] {
         let (_dir, server, payload, source) = setup(false, size);
@@ -399,13 +424,7 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
             .request("POST", &format!("{BASE}?{query}"), ADMIN, b"")
             .error(501, "notImplemented");
     }
-    for field in [
-        "acl",
-        "retention",
-        "contexts",
-        "temporaryHold",
-        "kmsKeyName",
-    ] {
+    for field in ["acl", "retention", "contexts", "kmsKeyName"] {
         server
             .request(
                 "POST",
@@ -415,6 +434,12 @@ fn rewrite_strict_permissions_holds_versioning_and_unsupported_inputs() {
             )
             .error(501, "notImplemented");
     }
+    server
+        .request("POST", BASE, ADMIN, br#"{"temporaryHold":{}}"#)
+        .error(400, "invalidArgument");
+    server
+        .request("POST", BASE, ADMIN, br#"{"temporaryHold":true}"#)
+        .error(501, "notImplemented");
     assert_eq!(server.get("destination").json(), first["resource"]);
 }
 

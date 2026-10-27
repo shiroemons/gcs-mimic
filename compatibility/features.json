@@ -19794,26 +19794,37 @@
       "interface": "cross-cutting behavior",
       "phase": "P1",
       "priority": "HIGH",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/json_api/v1/objects",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Validate unsupported clearing/backdating according to current specification.",
+      "notes": "Upload/PATCH/PUT persist RFC 3339 customTime and enforce non-decreasing, non-removable metadata atomically; exact provider error wire details remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "RESOLVED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "CUSTOM-TIME-SET", "description": "Upload, PATCH and PUT accept RFC 3339 customTime; malformed values fail with 400.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]},
+        {"id": "CUSTOM-TIME-MONOTONIC", "description": "Equal/later instants succeed; clearing/backdating and omitted PUT fail atomically; PATCH omission preserves the value.", "result": "PASS", "test_ids": ["custom_time_monotonic_updates_are_atomic"]},
+        {"id": "SDK-DEFAULT-CALLS", "description": "Go Writer/Update and Ruby create_file/custom_time= work with default SDK calls.", "result": "PASS", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]},
+        {"id": "PROVIDER-WIRE", "description": "Exact null and failure wire parity remains pending under SPEC-OBJECT-HOLDS-CUSTOMTIME.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"],
+      "verification": [
+        {"command": "cargo test --locked --offline --test object_holds_customtime_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["custom_time_monotonic_updates_are_atomic", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.308.0", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["ruby-object-holds-custom-time"]}
+      ],
+      "known_deviations": ["Exact provider null and error reasons/messages remain pending under SPEC-OBJECT-HOLDS-CUSTOMTIME; lifecycle and additional interactions are outside this slice."],
+      "implemented_in": "9ea4446309aff8d2e16bc6c0e984cb37877cbd5d",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-005",
@@ -23697,9 +23708,9 @@
         "https://docs.cloud.google.com/storage/docs/object-holds",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-22",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Writable eventBasedHold is enforced on upload, selected-generation PATCH/PUT and delete; temporaryHold is rejected explicitly.",
+      "notes": "Temporary and event-based holds persist on upload and PATCH/PUT, protect deletion and upload/copy/rewrite/compose replacement, and release independently; retention and complete provider wire parity remain pending.",
       "dependencies": [],
       "dependency_status": "RESOLVED",
       "acceptance_status": "DECOMPOSED",
@@ -23717,9 +23728,27 @@
         },
         {
           "id": "TEMPORARY-RETENTION-AND-WIRE",
-          "description": "Temporary holds, retention interactions and complete provider hold wire semantics remain pending.",
+          "description": "Retention interactions and complete provider hold wire semantics remain pending.",
           "result": "PENDING",
           "test_ids": []
+        },
+        {
+          "id": "TEMPORARY-HOLD-SET-RELEASE",
+          "description": "Upload, PATCH and PUT set/release temporaryHold with GET and restart persistence.",
+          "result": "PASS",
+          "test_ids": ["temporary_hold_set_release_and_restart", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog"]
+        },
+        {
+          "id": "TEMPORARY-HOLD-PROTECTION",
+          "description": "Delete and upload/copy/rewrite/compose replacement fail while held and succeed after release.",
+          "result": "PASS",
+          "test_ids": ["temporary_hold_protects_delete_and_all_replacements", "custom_time_monotonic_updates_are_atomic"]
+        },
+        {
+          "id": "SDK-DEFAULT-CALLS",
+          "description": "Go Writer/Update and Ruby high-level temporary hold methods work without optional transport arguments.",
+          "result": "PASS",
+          "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]
         }
       ],
       "test_ids": [
@@ -23727,9 +23756,18 @@
         "held_objects_reject_delete_and_replacement",
         "event_hold_metadata_release_and_restart",
         "event_hold_permissions_and_invalid_input",
-        "TestObjectEventBasedHold"
+        "TestObjectEventBasedHold",
+        "temporary_hold_set_release_and_restart",
+        "multipart_and_pending_resumable_preserve_hold_custom_time",
+        "hold_custom_time_migrate_existing_catalog",
+        "temporary_hold_protects_delete_and_all_replacements",
+        "custom_time_monotonic_updates_are_atomic",
+        "TestObjectTemporaryHoldAndCustomTime",
+        "ruby-object-holds-custom-time"
       ],
       "verification": [
+        {"command": "cargo test --locked --offline --test object_holds_customtime_http", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["temporary_hold_set_release_and_restart", "multipart_and_pending_resumable_preserve_hold_custom_time", "hold_custom_time_migrate_existing_catalog", "temporary_hold_protects_delete_and_all_replacements", "custom_time_monotonic_updates_are_atomic"]},
+        {"command": "just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime", "ruby-object-holds-custom-time"]},
         {
           "command": "just check",
           "result": "PASS",
@@ -23767,13 +23805,15 @@
           "test_ids": [
             "TestObjectEventBasedHold"
           ]
-        }
+        },
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "api_client_version": "v0.308.0", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["TestObjectTemporaryHoldAndCustomTime"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTP JSON", "result": "PASS", "verified_at": "2026-10-27", "command": "just check-sdk", "artifact": "docs/en/slices/sdk-object-holds-customtime.md", "test_ids": ["ruby-object-holds-custom-time"]}
       ],
       "known_deviations": [
-        "Exact provider hold omission/null/PUT/error precedence and immediate configuration propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporary holds and retention interactions remain unsupported."
+        "Exact provider event-hold omission/null/PUT/error precedence and propagation remain local choices (SPEC-EVENT-HOLD-WIRE); temporaryHold:null and customTime errors are local choices under SPEC-OBJECT-HOLDS-CUSTOMTIME. Retention interactions remain unsupported."
       ],
-      "implemented_in": "48865761ece54b7b283714b821862f6365c1c3be",
-      "last_verified": "2026-10-22"
+      "implemented_in": "9ea4446309aff8d2e16bc6c0e984cb37877cbd5d",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-OBJECT-036",

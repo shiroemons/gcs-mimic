@@ -60,6 +60,15 @@ required.
 | --- | --- |
 | Go `Query{MatchGlob: "**/*.txt"}` or Ruby `bucket.files(match_glob: "**/*.txt")` | JSON listing filters names and slash-delimited prefixes, including pagination and versions. Empty matchGlob is absent. Invalid syntax or an incompatible delimiter returns 400; use delimiter `/` or omit it. See the [glob contract](slices/sdk-list-glob.md). |
 
+| Object metadata call | gcs-mimic behavior |
+| --- | --- |
+| Go Writer/Update TemporaryHold; Ruby set_temporary_hold! / release_temporary_hold! | The flag persists across restart and blocks deletion and upload/copy/rewrite/compose replacement with 403 objectUnderActiveHold until released. Metadata remains editable. |
+| Go Writer/Update CustomTime; Ruby create_file(custom_time:) / custom_time= | RFC 3339 timestamps persist; equal/later updates succeed. Clearing, backdating or omitting customTime from PUT after setting returns 400 invalidArgument; supply the current/later timestamp, or omit it from PATCH to preserve it. |
+
+The [object holds/custom time contract](slices/sdk-object-holds-customtime.md)
+records null defaults and local error details. Retention and soft delete remain
+pending.
+
 For `data/assets/` and `data/exports/`, write `buckets.json` before startup:
 
 ```json
@@ -261,7 +270,7 @@ with no skipped profile. The reference is release `v1.56.1`, commit
 | Basic resource | Create/GET match in every target; profile emits both booleans and source US-CENTRAL1/project/ETag defaults; list items match profile GET; restart/migration and strict permissions pass | Millisecond timestamps, local parser messages, native list scoping/paging, 666-byte profile name cap and unsupported trailing collection slash |
 | Empty deletion | Profile returns exact 200 JSON null/newline and nonempty 412; native returns 204/409. Repeat/missing, recreate, protected histories and preserved object bytes pass | Atomic/history-aware delete and enforced holds intentionally exceed source live-only/no-hold behavior |
 | Bucket permission test | Go `IAM().TestPermissions` and Ruby `bucket.test_permissions` use the default calls; strict returns effective project/bucket grants and permissive returns all supported requested permissions | No permission is needed to call it. Project-only create/list names return 400; other unsupported permissions and billing return 501. Provider error parity and expanded ACL/UBLA/PAP controls remain pending; [contract and evidence](slices/sdk-test-permissions.md) |
-| Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Propagation/provider edge parity, temporary holds, retention and soft delete remain pending; supported PATCH/PUT settings are now delivered |
+| Versioning/default holds | HTTP API creation enables retained versions and inherited holds in both profiles; selected history read/list/delete and hold release pass, with pinned Go workflows | Propagation/provider edge parity, retention and soft delete remain pending; temporary holds and custom time are covered by the object SDK slice |
 
 Source identities inspected at that revision are unchanged:
 

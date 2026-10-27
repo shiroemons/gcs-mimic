@@ -91,7 +91,8 @@ pub mod sync_state;
 const MAX_IN_FLIGHT: usize = 32;
 const MAX_LIST_LIMIT: usize = 1001;
 const BUCKET_LIST_METADATA_BUDGET: usize = 256 * 1024;
-const CATALOG_SCHEMA_VERSION: i64 = 21;
+const CATALOG_SCHEMA_VERSION: i64 = 22;
+const OBJECT_HOLDS_CUSTOM_TIME_SCHEMA: &str = "ALTER TABLE objects ADD COLUMN temporary_hold INTEGER NOT NULL DEFAULT 0 CHECK(temporary_hold IN (0, 1)); ALTER TABLE objects ADD COLUMN custom_time TEXT; PRAGMA user_version = 22;";
 const TIMESTAMP_MICROS_SCHEMA_VERSION: i64 = 14;
 const SEED_SCHEMA: &str = "CREATE TABLE startup_seed (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -313,6 +314,11 @@ fn validate_schema(connection: &Connection, version: i64) -> Result<(), CatalogE
     if version >= 21 {
         expected
             .execute_batch(sync_state::findings::SCHEMA)
+            .map_err(unavailable)?;
+    }
+    if version >= 22 {
+        expected
+            .execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA)
             .map_err(unavailable)?;
     }
     let inventory =
@@ -597,6 +603,11 @@ impl Catalog {
             }
             if version < 21 {
                 sync_state::findings::migrate(&mut connection)?;
+            }
+            if version < 22 {
+                let transaction = connection.transaction().map_err(unavailable)?;
+                transaction.execute_batch(OBJECT_HOLDS_CUSTOM_TIME_SCHEMA).map_err(unavailable)?;
+                transaction.commit().map_err(unavailable)?;
             }
             let pending: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_writeback_ops WHERE phase!=4)", [], |row| row.get(0)).map_err(unavailable)?;
             if pending {

@@ -763,10 +763,8 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
         .json();
     for field in [
         "acl",
-        "temporaryHold",
         "retention",
         "contexts",
-        "customTime",
         "kmsKeyName",
         "customerEncryption",
         "unknown",
@@ -787,6 +785,18 @@ fn obj_multipart_http_rejects_bad_metadata_and_unsupported_fields_without_mutati
                 &wire(value.to_string().as_bytes(), None, b"new", None),
             )
             .error(501, "notImplemented");
+    }
+    for value in [
+        json!({"temporaryHold":"true"}),
+        json!({"customTime":"invalid"}),
+    ] {
+        server
+            .upload(
+                "name=existing",
+                &wire(value.to_string().as_bytes(), None, b"new", None),
+            )
+            .error(400, "invalidArgument");
+        assert_eq!(server.get("existing?alt=media").body, b"old");
     }
     server
         .upload(

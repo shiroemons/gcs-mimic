@@ -57,6 +57,22 @@ fn assert_no_transfer_files(dir: &TestDir) {
 }
 
 #[test]
+fn copy_accepts_noop_hold_and_custom_time_defaults() {
+    let (_dir, server) = setup(false);
+    server.put("source", b"source bytes").json();
+    for body in [
+        br#"{"temporaryHold":false}"#.as_slice(),
+        br#"{"customTime":null}"#,
+    ] {
+        let result = copy(&server, "source", "target", "", body).json();
+        assert_eq!(result["name"], "target");
+        assert!(result.get("temporaryHold").is_none());
+        assert!(result.get("customTime").is_none());
+        assert_eq!(media(&server, "test-bucket", "target"), b"source bytes");
+    }
+}
+
+#[test]
 fn copy_inherits_metadata_but_not_holds_and_explicit_body_replaces_it() {
     let (_dir, server) = setup(false);
     let source = server.put("dir%2F%E7%8C%AB%252F", b"contents").json();
@@ -322,6 +338,7 @@ fn copy_rejects_invalid_unsupported_and_missing_inputs_before_mutation() {
     for body in [
         br#"{"acl":[]}"#.as_slice(),
         br#"{"temporaryHold":true}"#,
+        br#"{"customTime":"2026-10-20T01:02:03Z"}"#,
         br#"{"retention":{}}"#,
         br#"{"unknown":true}"#,
         br#"{"generation":"1"}"#,

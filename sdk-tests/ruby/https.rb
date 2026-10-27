@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "bundler/setup"
+require "date"
 require "digest"
 require "google/cloud/storage"
 require "ipaddr"
@@ -132,6 +133,29 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       end
     end
     puts "ruby-bucket-test-permissions passed"
+    held_file = nil
+    begin
+      custom_time = DateTime.new(2026, 10, 20, 1, 2, 3)
+      held_file = bucket.create_file(StringIO.new("held bytes"), "holds-custom-time", custom_time: custom_time)
+      raise "upload custom time differs" unless held_file.custom_time == custom_time
+      held_file.set_temporary_hold!
+      held_file.reload!
+      raise "temporary hold missing" unless held_file.temporary_hold?
+      begin
+        held_file.delete
+        raise "held object was deleted"
+      rescue Google::Cloud::PermissionDeniedError
+        # A hold protects bytes while metadata remains editable.
+      end
+      held_file.release_temporary_hold!
+      held_file.custom_time = custom_time + 1
+      held_file.reload!
+      raise "hold release/custom time differs" if held_file.temporary_hold? || held_file.custom_time != custom_time + 1
+      puts "ruby-object-holds-custom-time passed"
+    ensure
+      held_file&.release_temporary_hold!
+      held_file&.delete
+    end
     raise "bucket get mismatch" unless storage.bucket(bucket.name).name == bucket.name
     raise "bucket absent from list" unless storage.buckets.any? { |item| item.name == bucket.name }
     bucket.update { |item| item.labels = { "transport" => origin.scheme } }

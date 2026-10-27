@@ -38,6 +38,25 @@ fn media(server: &Server, name: &str) -> Reply {
 }
 
 #[test]
+fn compose_accepts_noop_hold_and_custom_time_defaults() {
+    let (_dir, server) = setup(false);
+    server.put("a", b"first").json();
+    server.put("b", b"second").json();
+    for destination in [json!({"temporaryHold":false}), json!({"customTime":null})] {
+        let result = compose(
+            &server,
+            "target",
+            json!({"sourceObjects":[{"name":"a"},{"name":"b"}],"destination":destination}),
+        )
+        .json();
+        assert_eq!(result["componentCount"], 2);
+        assert!(result.get("temporaryHold").is_none());
+        assert!(result.get("customTime").is_none());
+        assert_eq!(media(&server, "target").body, b"firstsecond");
+    }
+}
+
+#[test]
 fn compose_order_checksums_metadata_fields_and_restart() {
     let (dir, mut server) = setup(false);
     let first = server.put("a", b"1234").json();
@@ -320,6 +339,7 @@ fn compose_rejects_invalid_or_unsupported_input_without_mutation() {
         json!({"retention":{}}),
         json!({"contexts":{}}),
         json!({"temporaryHold":true}),
+        json!({"customTime":"2026-10-20T01:02:03Z"}),
         json!({"storageClass":"STANDARD"}),
         json!({"storageClass":"NEARLINE"}),
     ] {

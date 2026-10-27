@@ -290,7 +290,7 @@ impl Catalog {
             false,
             access,
         )?;
-        if object.event_based_hold {
+        if object.has_hold() {
             return Err(ObjectError::ActiveHold);
         }
         connection
@@ -706,6 +706,7 @@ impl Catalog {
                     content_encoding: None, content_disposition: None, content_language: None,
                     cache_control: None, metadata: Default::default(), time_created: time, updated: time,
                     time_deleted: None, event_based_hold: default_hold,
+                    temporary_hold: false, custom_time: None,
                 };
                 destination.metadata.apply(&mut record)?;
                 transaction.execute("UPDATE derived_transfers SET publishing = 1 WHERE id = ?1", [&query]).map_err(unavailable)?;

@@ -402,6 +402,17 @@
       "required_resolution": "Obtain authoritative clarification or explicitly authorized provider evidence for selected noncurrent revisions with another live revision or no live revision, all four conditions and combined failures. Preserve atomic selected-generation conditions and keep complete provider parity pending."
     },
     {
+      "id": "SPEC-OBJECT-HOLDS-CUSTOMTIME",
+      "title": "Temporary hold null defaults and custom time error wire details are local choices",
+      "status": "OPEN",
+      "affected_features": ["BEHAVIOR-OBJECT-035", "BEHAVIOR-OBJECT-004"],
+      "source_urls": ["https://docs.cloud.google.com/storage/docs/json_api/v1/objects", "https://docs.cloud.google.com/storage/docs/json_api/v1/objects/update", "https://docs.cloud.google.com/storage/docs/json_api/v1/status-codes", "https://storage.googleapis.com/$discovery/rest?version=v1"],
+      "observed_at": "2026-10-27",
+      "kind": "LOCAL_DEVIATION",
+      "observed_evidence": "Official sources establish boolean temporaryHold and non-removable/non-decreasing customTime; objects.update requires an equal/later customTime on PUT after setting it. They do not establish explicit-null temporaryHold acceptance or customTime failure reason/message. The SDK compatibility slice locally treats temporaryHold:null as absent and uses 400 invalidArgument with corrective guidance for customTime clear/backdate or omitted PUT after setting. Hold failures reuse documented 403 objectUnderActiveHold; exact provider messages and combined failure precedence remain unverified.",
+      "required_resolution": "Keep exact provider wire fidelity pending until authoritative clarification or explicitly authorized differential evidence resolves temporaryHold null and customTime reason/message. See docs/en/slices/sdk-object-holds-customtime.md."
+    },
+    {
       "id": "SPEC-EVENT-HOLD-WIRE",
       "title": "Event hold omission, null, propagation and error wire details remain unverified",
       "status": "OPEN",
@@ -421,7 +432,7 @@
       "observed_at": "2026-10-22",
       "kind": "LOCAL_DEVIATION",
       "observed_evidence": "HTTP tests verify inherited holds on media/multipart/resumable publication, explicit false overrides, rejected protected mutations and selected-generation release. Local PUT omission preserves a hold, null is invalid, false is omitted from object resources, configuration effects are immediate and exact provider error messages/combined failure precedence are unverified. The pinned Go high-level bucket Create serializer omits DefaultEventBasedHold; SDK coverage creates that setting using official JSON Buckets.Insert then uses high-level Writer/Attrs/Update/Delete.",
-      "required_resolution": "Reconcile null/omitted PUT handling, false representation, propagation and exact error precedence through authoritative clarification or authorized provider observations. Implement bucket metadata updates as separate slices; temporary holds and retention interactions remain explicit pending work."
+      "required_resolution": "Reconcile event-hold null/omitted PUT handling, false representation, propagation and exact error precedence through authoritative clarification or authorized provider observations. Temporary hold set/release/protection is now covered by docs/en/slices/sdk-object-holds-customtime.md; retention interactions remain pending."
     },
     {
       "id": "SPEC-RSM-DISCOVERY-PATH",

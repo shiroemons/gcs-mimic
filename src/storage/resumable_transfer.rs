@@ -325,6 +325,8 @@ impl Catalog {
                             updated: time,
                             time_deleted: None,
                             event_based_hold: default_hold,
+                            temporary_hold: false,
+                            custom_time: None,
                         };
                         options.metadata.apply(&mut record)?;
                         let resource = render(&record)?;

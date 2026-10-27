@@ -652,6 +652,12 @@ pub fn object_resource(
     if object.event_based_hold {
         value["eventBasedHold"] = json!(true);
     }
+    if object.temporary_hold {
+        value["temporaryHold"] = json!(true);
+    }
+    if let Some(time) = &object.custom_time {
+        value["customTime"] = json!(time);
+    }
     if let Some(deleted) = object.time_deleted {
         value["timeDeleted"] = json!(timestamp(deleted)?);
     }

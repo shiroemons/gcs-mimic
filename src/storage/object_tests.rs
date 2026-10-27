@@ -1510,7 +1510,7 @@ async fn v1_migration_is_transactional_and_current_schema_reopens_idempotently()
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        21
+        22
     );
 }
 
@@ -1576,6 +1576,8 @@ async fn metadata_update_uses_clock_preserves_blob_and_migrates_previous_catalog
         updated: UNIX_EPOCH + Duration::from_millis(1234),
         time_deleted: None,
         event_based_hold: false,
+        temporary_hold: false,
+        custom_time: None,
     };
     drop(connection);
     let clock = Arc::new(FixedClock(AtomicU64::new(9_876_000)));

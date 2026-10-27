@@ -258,9 +258,9 @@ fn event_hold_permissions_and_invalid_input() {
         update(&server, "PATCH", "held", json!({"eventBasedHold":hold}))
             .error(400, "invalidArgument");
     }
-    for hold in [true, false] {
+    for hold in [json!(1), json!("false"), json!({})] {
         update(&server, "PATCH", "held", json!({"temporaryHold":hold}))
-            .error(501, "notImplemented");
+            .error(400, "invalidArgument");
     }
     for token in ["viewer", "creator"] {
         server

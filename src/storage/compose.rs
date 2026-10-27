@@ -82,7 +82,7 @@ impl Catalog {
                         "Compose sources must use the same storage class".into(),
                     ));
                 }
-                if delete_sources && source.object.event_based_hold {
+                if delete_sources && source.object.has_hold() {
                     return Err(ObjectError::ActiveHold);
                 }
                 crc = combine(
@@ -140,7 +140,7 @@ impl Catalog {
                                         ObjectConditions::default(),
                                         &read_access,
                                     )?;
-                                    if source.event_based_hold {
+                                    if source.has_hold() {
                                         return Err(ObjectError::ActiveHold);
                                     }
                                 }

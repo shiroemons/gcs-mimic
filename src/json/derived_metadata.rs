@@ -48,6 +48,20 @@ pub fn derived_metadata(
         ));
     }
     let mut parsed = super::parse_object_metadata(bytes, true)?;
+    parsed.update.validate().map_err(JsonError::from)?;
+    if parsed.update.temporary_hold == Some(true) {
+        return Err(JsonError::unsupported_object(
+            "temporaryHold on copy/rewrite",
+        ));
+    }
+    if parsed
+        .update
+        .custom_time
+        .as_ref()
+        .is_some_and(Option::is_some)
+    {
+        return Err(JsonError::unsupported_object("customTime on copy/rewrite"));
+    }
     for key in ["name", "bucket"] {
         if let Some(value) = parsed.unchanged.remove(key)
             && !value.is_string()

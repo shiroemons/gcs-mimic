@@ -187,6 +187,18 @@ pub fn parse_compose(bytes: &[u8], bucket: &str, name: &str) -> Result<ComposeRe
     destination.remove("crc32c");
     let metadata =
         parse_object_metadata(&Value::Object(destination).to_string().into_bytes(), true)?;
+    metadata.update.validate().map_err(JsonError::from)?;
+    if metadata.update.temporary_hold == Some(true) {
+        return Err(JsonError::unsupported_object("temporaryHold on compose"));
+    }
+    if metadata
+        .update
+        .custom_time
+        .as_ref()
+        .is_some_and(Option::is_some)
+    {
+        return Err(JsonError::unsupported_object("customTime on compose"));
+    }
     if let Some(key) = metadata.unchanged.keys().next() {
         return Err(JsonError::unsupported_object(key));
     }

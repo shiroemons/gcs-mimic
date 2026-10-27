@@ -581,6 +581,8 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
             ("null", "invalidArgument"),
             (r#"{"contentType":7}"#, "invalidArgument"),
             (r#"{"eventBasedHold":null}"#, "invalidArgument"),
+            (r#"{"temporaryHold":"true"}"#, "invalidArgument"),
+            (r#"{"customTime":"invalid"}"#, "invalidArgument"),
             (r#"{"metadata":[]}"#, "invalidArgument"),
             (r#"{"metadata":{"a":false}}"#, "invalidArgument"),
             (
@@ -599,10 +601,8 @@ fn invalid_and_unsupported_metadata_never_mutates_objects() {
         for field in [
             "acl",
             "predefinedAcl",
-            "temporaryHold",
             "retention",
             "contexts",
-            "customTime",
             "storageClass",
             "kmsKeyName",
             "customerEncryption",

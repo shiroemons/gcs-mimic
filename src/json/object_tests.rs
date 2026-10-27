@@ -29,6 +29,8 @@ pub(super) fn record() -> ObjectRecord {
         updated: UNIX_EPOCH + Duration::from_millis(2345),
         time_deleted: None,
         event_based_hold: false,
+        temporary_hold: false,
+        custom_time: None,
     }
 }
 

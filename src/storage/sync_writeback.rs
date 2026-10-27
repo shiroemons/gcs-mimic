@@ -415,7 +415,7 @@ fn original(connection: &Connection, item: &Pending) -> Result<(), Error> {
             let record = objects::lookup(connection, &item.bucket, &item.name)?
                 .ok_or_else(stale)?
                 .0;
-            if record.event_based_hold {
+            if record.has_hold() {
                 return Err(AdminError::Hold.into());
             }
             if record.generation != item.generation.get()
@@ -435,7 +435,7 @@ fn original(connection: &Connection, item: &Pending) -> Result<(), Error> {
             if !complete || objects::lookup(connection, &item.bucket, &item.name)?.is_some() {
                 return Err(stale());
             }
-            let held: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND event_based_hold=1)",params![item.bucket,item.name,item.generation.get()],|r|r.get(0))?;
+            let held: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM objects WHERE bucket=?1 AND name=?2 AND generation=?3 AND (event_based_hold=1 OR temporary_hold=1))",params![item.bucket,item.name,item.generation.get()],|r|r.get(0))?;
             if held {
                 return Err(AdminError::Hold.into());
             }
