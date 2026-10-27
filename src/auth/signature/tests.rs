@@ -54,6 +54,210 @@ fn verify(
         .map(|caller| caller.unwrap().principal().unwrap().id().to_owned())
 }
 
+fn v2_signed(
+    method: &str,
+    path: &str,
+    expires: &str,
+    md5: &str,
+    mime: &str,
+    extension: &str,
+) -> String {
+    let message = format!("{method}\n{md5}\n{mime}\n{expires}\n{extension}{path}");
+    let key = PrivateKeyDer::from_pem_slice(PRIVATE).unwrap();
+    let key = signature::RsaKeyPair::from_pkcs8(key.secret_der()).unwrap();
+    let mut bytes = vec![0; key.public().modulus_len()];
+    key.sign(
+        &signature::RSA_PKCS1_SHA256,
+        &SystemRandom::new(),
+        message.as_bytes(),
+        &mut bytes,
+    )
+    .unwrap();
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::new();
+    for chunk in bytes.chunks(3) {
+        let value = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for shift in [18, 12, 6, 0] {
+            encoded.push(
+                if (shift == 0 && chunk.len() < 3) || (shift == 6 && chunk.len() < 2) {
+                    '='
+                } else {
+                    alphabet[((value >> shift) & 63) as usize] as char
+                },
+            );
+        }
+    }
+    format!(
+        "http://localhost:4443{path}?GoogleAccessId={}&Expires={expires}&Signature={}",
+        encode_query_component(SIGNER),
+        encode_query_component(&encoded)
+    )
+}
+
+#[test]
+fn v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers() {
+    let now = UNIX_EPOCH + Duration::from_secs(1000);
+    let path = "/bucket/a%20b+%25//object";
+    let url = v2_signed(
+        "PUT",
+        path,
+        "1060",
+        "digest",
+        "text/plain",
+        "x-goog-meta-a:one two,three\nx-goog-meta-z:last\n",
+    );
+    let mut headers = HeaderMap::new();
+    headers.insert("content-md5", "digest".parse().unwrap());
+    headers.insert("content-type", "text/plain".parse().unwrap());
+    headers.append("x-goog-meta-a", " one\t two ".parse().unwrap());
+    headers.append("x-goog-meta-a", "three".parse().unwrap());
+    headers.insert("x-goog-meta-z", "last".parse().unwrap());
+    assert_eq!(
+        verify(&url, &Method::PUT, headers.clone(), now),
+        Ok(SIGNER.into())
+    );
+    for name in ["content-md5", "content-type", "x-goog-meta-a"] {
+        let mut changed = headers.clone();
+        changed.remove(name);
+        assert_eq!(
+            verify(&url, &Method::PUT, changed, now),
+            Err(Failure::Mismatch)
+        );
+        let mut changed = headers.clone();
+        changed.insert(name, "changed".parse().unwrap());
+        assert_eq!(
+            verify(&url, &Method::PUT, changed, now),
+            Err(Failure::Mismatch)
+        );
+    }
+    assert_eq!(
+        verify(&url, &Method::GET, headers.clone(), now),
+        Err(Failure::Mismatch)
+    );
+    assert_eq!(
+        verify(
+            &url.replace("%20", "%21"),
+            &Method::PUT,
+            headers.clone(),
+            now
+        ),
+        Err(Failure::Mismatch)
+    );
+    assert_eq!(
+        verify(
+            &url.replace("signer%40", "unknown%40"),
+            &Method::PUT,
+            headers,
+            now
+        ),
+        Err(Failure::UnknownSigner)
+    );
+    let get = v2_signed("GET", path, "1060", "", "", "");
+    for invalid in ["AA=A", "AAAA=", "A===", "AB==", "!!!!", "éé", ""] {
+        assert!(super::v2::decode_signature(invalid).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        verify(
+            &format!("{get}&response-content-type=text/plain"),
+            &Method::GET,
+            HeaderMap::new(),
+            now
+        ),
+        Ok(SIGNER.into())
+    );
+}
+
+#[tokio::test]
+async fn v2_structure_permissive_credentials_and_injected_expiry() {
+    use http_body_util::BodyExt;
+    let now = UNIX_EPOCH + Duration::from_secs(1000);
+    let url = v2_signed("GET", "/bucket/object", "1060", "", "", "");
+    for parameter in V2_PARAMETERS {
+        let uri: Uri = url.parse().unwrap();
+        let query = uri
+            .query()
+            .unwrap()
+            .split('&')
+            .filter(|pair| !pair.starts_with(&format!("{parameter}=")))
+            .collect::<Vec<_>>()
+            .join("&");
+        for auth in [auth(), Auth::default()] {
+            for bad in [
+                format!("http://localhost/bucket/object?{query}"),
+                format!("{url}&{parameter}=again"),
+                format!("{url}&X-Goog-Date=20261023T120000Z"),
+            ] {
+                assert!(is_signed(bad.parse::<Uri>().unwrap().query()));
+                assert!(matches!(
+                    auth.authenticate_signed(
+                        &Method::GET,
+                        &bad.parse().unwrap(),
+                        &HeaderMap::new(),
+                        &Fixed(now)
+                    ),
+                    Err(Failure::Malformed)
+                ));
+            }
+        }
+    }
+    for bad in ["-1", "abc", "%2B1", "18446744073709551616"] {
+        assert_eq!(
+            verify(
+                &url.replace("Expires=1060", &format!("Expires={bad}")),
+                &Method::GET,
+                HeaderMap::new(),
+                now
+            ),
+            Err(Failure::Malformed)
+        );
+    }
+    assert_eq!(
+        verify(
+            &url,
+            &Method::GET,
+            HeaderMap::new(),
+            now + Duration::from_secs(59)
+        ),
+        Ok(SIGNER.into())
+    );
+    assert_eq!(
+        verify(
+            &url,
+            &Method::GET,
+            HeaderMap::new(),
+            now + Duration::from_secs(60)
+        ),
+        Err(Failure::Expired)
+    );
+    let expired = v2_signed("GET", "/bucket/object", "0", "", "", "");
+    let invalid: Uri =
+        "http://localhost/bucket/object?GoogleAccessId=unregistered&Expires=0&Signature=ignored"
+            .parse()
+            .unwrap();
+    assert!(
+        Auth::default()
+            .authenticate_signed(&Method::GET, &invalid, &HeaderMap::new(), &Fixed(now))
+            .unwrap()
+            .is_none()
+    );
+    let auth = auth();
+    let error = crate::xml::authenticate(
+        &auth,
+        &Method::GET,
+        &expired.parse().unwrap(),
+        &HeaderMap::new(),
+        &Fixed(now),
+    )
+    .err()
+    .unwrap();
+    let response = error.response(false);
+    assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&body).contains("<Code>ExpiredToken</Code>"));
+}
+
 #[test]
 fn signed_time_boundaries_use_the_injected_clock_and_documented_skew() {
     let now = parse_timestamp(DATE).unwrap();

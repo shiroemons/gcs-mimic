@@ -32,12 +32,12 @@ pub(crate) fn authenticate<'a>(
                     Failure::Malformed => (
                         StatusCode::BAD_REQUEST,
                         "InvalidAuthentication",
-                        "Invalid V4 signing parameters.",
+                        "Invalid V2/V4 signing parameters; use exactly one signing version (for example, GoogleAccessId, Expires=1793090000 and Signature for V2).",
                     ),
                     Failure::UnknownSigner => (
                         StatusCode::FORBIDDEN,
                         "InvalidAccessKeyId",
-                        "The signing identity or public key is unknown.",
+                        "The signing identity or RSA public key is unknown; register GoogleAccessId and its RSA public_keys in the identity file (for example, local-admin@example.invalid). HMAC/GOOG1 keys are unsupported.",
                     ),
                     Failure::Mismatch => (
                         StatusCode::FORBIDDEN,
@@ -371,10 +371,16 @@ pub(crate) fn route(
         let name = json::decode(name, false)?;
         json::validate_object_name(&name)?;
         let mut query = json::parse_query(uri.query().unwrap_or_default())?;
+        let v2 = query
+            .keys()
+            .any(|key| crate::auth::signature::V2_PARAMETERS.contains(&key.as_str()));
+        if v2 && (name_start == 1 || *method == Method::HEAD || query.contains_key("generation")) {
+            return Err(Error::unsupported(
+                "V2 virtual-host, HEAD or generation selection; use path-style GET/PUT /BUCKET/OBJECT",
+            ));
+        }
         if *method == Method::PUT
-            && let Some(key) = query
-                .keys()
-                .find(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
+            && let Some(key) = query.keys().find(|key| !signing_parameter(key))
         {
             return Err(Error::unsupported(key));
         }
@@ -408,10 +414,7 @@ pub(crate) fn route(
             }
         }
         // Authentication validates credential fields from the original URI before using this operation.
-        if let Some(key) = query
-            .keys()
-            .find(|key| !crate::auth::signature::PARAMETERS.contains(&key.as_str()))
-        {
+        if let Some(key) = query.keys().find(|key| !signing_parameter(key)) {
             return Err(Error::unsupported(key));
         }
         Ok(ReadRequest {
@@ -422,6 +425,11 @@ pub(crate) fn route(
             response_overrides,
         })
     })())
+}
+
+fn signing_parameter(key: &str) -> bool {
+    crate::auth::signature::PARAMETERS.contains(&key)
+        || crate::auth::signature::V2_PARAMETERS.contains(&key)
 }
 
 fn number(raw: &str, zero: bool) -> Result<i64, Error> {

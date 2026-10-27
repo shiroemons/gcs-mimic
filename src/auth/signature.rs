@@ -1,4 +1,4 @@
-//! Bounded, local V4 RSA query signing and verification. No Google IAM calls.
+//! Bounded, local V2/V4 RSA query verification and V4 signing. No Google IAM calls.
 
 use super::{Auth, Caller};
 use crate::{clock::Clock, hashing::encode_lower, json};
@@ -21,6 +21,9 @@ pub const PARAMETERS: &[&str] = &[
 ];
 const ALGORITHM: &str = "GOOG4-RSA-SHA256";
 const MAX_EXPIRES: u64 = 604800;
+pub const V2_PARAMETERS: &[&str] = &["GoogleAccessId", "Expires", "Signature"];
+
+mod v2;
 
 #[cfg(test)]
 mod tests;
@@ -147,6 +150,7 @@ pub fn is_signed(query: Option<&str>) -> bool {
             let key = super::lenient_decode(pair.split('=').next().unwrap_or_default());
             PARAMETERS
                 .iter()
+                .chain(V2_PARAMETERS)
                 .any(|name| key.eq_ignore_ascii_case(name.as_bytes()))
         })
     })
@@ -161,9 +165,12 @@ impl Auth {
         headers: &HeaderMap,
         clock: &dyn Clock,
     ) -> Result<Option<Caller<'_>>, Failure> {
-        let Some(registry) = &self.registry else {
+        if v2::is_v2(uri.query()) {
+            return self.authenticate_v2(method, uri, headers, clock);
+        }
+        if self.registry.is_none() {
             return Ok(None);
-        };
+        }
         if headers.contains_key("authorization") {
             return Err(Failure::Malformed);
         }
@@ -203,22 +210,8 @@ impl Auth {
         let signed_headers = required("X-Goog-SignedHeaders")?;
         let bytes = unhex(required("X-Goog-Signature")?)?;
         let canonical = canonical_request(method, uri, headers, &query, signed_headers)?;
-        let index = registry
-            .identities
-            .iter()
-            .position(|id| id.id == parts[0])
-            .ok_or(Failure::UnknownSigner)?;
-        let keys = registry
-            .signing_keys
-            .get(parts[0])
-            .ok_or(Failure::UnknownSigner)?;
         let message = string_to_sign(date, &parts[1..].join("/"), &canonical);
-        if !keys
-            .iter()
-            .any(|key| key.verify(message.as_bytes(), &bytes))
-        {
-            return Err(Failure::Mismatch);
-        }
+        let caller = self.verify_signer(parts[0], &message, &bytes)?;
         let now = clock.now();
         // Google documents query signatures as usable 15 minutes before the active datetime.
         if now
@@ -234,7 +227,29 @@ impl Auth {
         {
             return Err(Failure::Expired);
         }
-        Ok(Some(Caller::Principal(&registry.identities[index])))
+        Ok(Some(caller))
+    }
+
+    fn verify_signer(
+        &self,
+        signer: &str,
+        message: &str,
+        bytes: &[u8],
+    ) -> Result<Caller<'_>, Failure> {
+        let registry = self.registry.as_ref().ok_or(Failure::UnknownSigner)?;
+        let identity = registry
+            .identities
+            .iter()
+            .find(|id| id.id == signer)
+            .ok_or(Failure::UnknownSigner)?;
+        let keys = registry
+            .signing_keys
+            .get(signer)
+            .ok_or(Failure::UnknownSigner)?;
+        if !keys.iter().any(|key| key.verify(message.as_bytes(), bytes)) {
+            return Err(Failure::Mismatch);
+        }
+        Ok(Caller::Principal(identity))
     }
 }
 

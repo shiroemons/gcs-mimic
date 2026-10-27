@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 276 | 0 | 21 | 1 | 0 | 0 |
-| behavior | 201 | 124 | 0 | 39 | 38 | 0 | 0 |
+| behavior | 201 | 123 | 0 | 40 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 276 | 6 | 16 | 0 | 0 | 0 |
-| behavior | 124 | 44 | 30 | 3 | 0 | 0 |
+| behavior | 123 | 44 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -755,7 +755,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-037 | V4 payload digest and UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | Signed method and resource restrictions | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-039 | V4 Authorization header signatures | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-040 | Legacy V2 signed URLs | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-040 | Legacy V2 signed URLs | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | Signed POST form policy validation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-042 | Signed resumable initiation | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | Resumable session capability semantics | NOT_STARTED | P3 | EXACT | NONE | 0 |

@@ -151,14 +151,14 @@ begin
     service.delete_prefixed("variants/#{key}-neighbor/")
     assert(!service.exist?(neighbor), "delete_prefixed left matching object")
   end
-  run_case.call("AS-SIGNED-URL") do
+  run_case.call("AS-SIGNED-URL", workaround: true) do
     blob = fixture_blob(bucket, "signed.txt", "signed download")
     uri = URI(blob.url)
     LocalHTTP.validate!(uri)
     response = Net::HTTP.get_response(uri)
     assert(response.is_a?(Net::HTTPSuccess) && response.body == "signed download", "signed GET failed: #{response.code}")
   end
-  run_case.call("AS-DIRECT-UPLOAD") do
+  run_case.call("AS-DIRECT-UPLOAD", workaround: true) do
     bytes = "browser equivalent PUT"
     checksum = Base64.strict_encode64(Digest::MD5.digest(bytes))
     key = "direct/#{SecureRandom.hex(8)}"

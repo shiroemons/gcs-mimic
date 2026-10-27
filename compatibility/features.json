@@ -37500,25 +37500,43 @@
       "interface": "XML signed URL legacy",
       "phase": "P3",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "RESEARCHED_PUBLIC_SOURCE",
-      "notes": "Implement as explicitly legacy functionality after V4; verify expiration and canonical resource rules.",
+      "notes": "Path-style RSA GET/PUT acceptance is scoped in docs/en/slices/sdk-active-storage-v2-signing.md; HMAC, POST, resumable initiation and virtual-host differences remain pending.",
       "dependencies": [],
-      "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
-      "implemented_in": null,
-      "last_verified": null
+      "dependency_status": "REFINED",
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {"id": "V2-DETECT", "description": "Reject missing, duplicate and mixed V2/V4 query credentials with XML 400.", "result": "PASS", "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry"]},
+        {"id": "V2-EXPIRY", "description": "Validate Unix seconds and strict expiry with injected clock; expiry is XML 400 ExpiredToken.", "result": "PASS", "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry"]},
+        {"id": "V2-PERMISSIVE", "description": "Ignore credentials and expiry consistently with V4 while validating V2 structure.", "result": "PASS", "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry"]},
+        {"id": "V2-STRICT", "description": "Registered RSA-SHA256 signer verification, canonical headers and shared permissions.", "result": "PASS", "test_ids": ["auth::signature::tests::v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers", "TestV2RSASignedTransfers"]},
+        {"id": "V2-GET", "description": "Unchanged official SDK signed GET and tamper rejection.", "result": "PASS", "test_ids": ["TestV2RSASignedTransfers", "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"]},
+        {"id": "V2-PUT", "description": "Unchanged signed PUT with signed Content-Type and MD5 plus streamed body validation.", "result": "PASS", "test_ids": ["TestV2RSASignedTransfers", "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"]},
+        {"id": "V2-HMAC", "description": "GOOG1/HMAC signing.", "result": "PENDING", "test_ids": []},
+        {"id": "V2-POST", "description": "Signed POST policies.", "result": "PENDING", "test_ids": []},
+        {"id": "V2-RESUMABLE", "description": "Signed resumable initiation.", "result": "PENDING", "test_ids": []},
+        {"id": "V2-VIRTUAL-HOST", "description": "Virtual-host canonical resource differences.", "result": "PENDING", "test_ids": []}
+      ],
+      "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry", "auth::signature::tests::v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers", "TestV2RSASignedTransfers", "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"],
+      "verification": [
+        {"command": "cargo test --lib --locked --offline auth::signature", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry", "auth::signature::tests::v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers"]},
+        {"command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["TestV2RSASignedTransfers", "sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"]},
+        {"command": "just check", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["auth::signature::tests::v2_structure_permissive_credentials_and_injected_expiry", "auth::signature::tests::v2_rsa_binds_method_literal_path_md5_type_and_canonical_extension_headers"]}
+      ],
+      "sdk_evidence": [
+        {"language": "Go", "toolchain": "1.27.3", "sdk": "cloud.google.com/go/storage", "version": "v1.70.0", "transport": "HTTPS XML V2 RSA signed GET/PUT; unchanged SDK URLs", "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["TestV2RSASignedTransfers"]},
+        {"language": "Ruby", "toolchain": "4.0.9", "sdk": "google-cloud-storage", "version": "1.62.1", "transport": "HTTPS XML default and explicit V2 RSA signed GET/PUT; unchanged SDK URLs", "command": "GCS_MIMIC_SDK_SCHEME=https just check-sdk", "result": "PASS", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["sdk-tests/ruby/https.rb (GCS_MIMIC_SIGNED_TESTS=1)"]}
+      ],
+      "known_deviations": ["HMAC/GOOG1, POST policies, resumable initiation, HEAD, generation selection and virtual-host V2 resources remain unsupported. Local registered principals do not emulate Google identity infrastructure. Go V2 SignedURL always emits HTTPS; HTTP harness executions explicitly skip its test. V2 does not bind Host or ordinary response overrides, as specified by Google."],
+      "implemented_in": "36a8ed0",
+      "last_verified": "2026-10-27"
     },
     {
       "id": "DESIGN-041",
@@ -44657,8 +44675,8 @@
         {"id": "AS-UPLOAD", "description": "With OAuth authorization removed only: omitted content_type identification and explicit binary create_and_upload! preserve bytes (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-UPLOAD"]},
         {"id": "AS-DOWNLOAD", "description": "With OAuth authorization removed only: download and checksum-verified open pass (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-DOWNLOAD"]},
         {"id": "AS-DELETE", "description": "With OAuth authorization removed only: purge/object/variant-prefix deletion and neighboring-prefix protection pass (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-DELETE"]},
-        {"id": "AS-SIGNED-URL", "description": "Unchanged blob.url fetches exact bytes without endpoint rewriting; currently fails with XML 400 InvalidArgument for V2 Expires.", "result": "FAIL", "test_ids": ["AS-SIGNED-URL"]},
-        {"id": "AS-DIRECT-UPLOAD", "description": "Unchanged service URL and headers accept browser-equivalent HTTP PUT; currently fails with XML 400 InvalidArgument for V2 Expires.", "result": "FAIL", "test_ids": ["AS-DIRECT-UPLOAD"]},
+        {"id": "AS-SIGNED-URL", "description": "Unchanged blob.url fetches exact bytes (PASS_WITH_WORKAROUND) after OAuth authorization removal; default authentication remains pending.", "result": "PENDING", "test_ids": ["AS-SIGNED-URL"]},
+        {"id": "AS-DIRECT-UPLOAD", "description": "Unchanged service URL and headers accept HTTP PUT and exact readback (PASS_WITH_WORKAROUND) after OAuth authorization removal; default authentication remains pending.", "result": "PENDING", "test_ids": ["AS-DIRECT-UPLOAD"]},
         {"id": "AS-EXIST-COMPOSE", "description": "With OAuth authorization removed only: existence/missing and ordered compose preserve source objects (PASS_WITH_WORKAROUND); default authentication is not passing.", "result": "PENDING", "test_ids": ["AS-EXIST-COMPOSE"]}
       ],
       "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"],
@@ -44666,11 +44684,11 @@
         {"command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
       ],
       "sdk_evidence": [
-        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; four conditional passes after authorization removal; unchanged V2 signed URLs fail", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-scenario.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
+        {"language": "Ruby/Rails", "toolchain": "4.0.9", "bundler": "4.0.23", "sdk": "Active Storage / google-cloud-storage", "version": "8.1.4 / 1.62.1", "transport": "HTTP JSON/XML; default OAuth blocked before network; six conditional passes after authorization removal, including unchanged V2 signed GET/PUT", "command": "just check-active-storage", "result": "FAIL", "verified_at": "2026-10-27", "artifact": "docs/en/slices/sdk-active-storage-v2-signing.md", "test_ids": ["AS-DEFAULT-AUTH", "AS-UPLOAD", "AS-DOWNLOAD", "AS-DELETE", "AS-SIGNED-URL", "AS-DIRECT-UPLOAD", "AS-EXIST-COMPOSE"]}
       ],
       "known_deviations": [
-        "AS-SIGNED-URL and AS-DIRECT-UPLOAD use Rails default V2 signatures and fail with XML 400 InvalidArgument for Expires. SPEC-ACTIVE-STORAGE-V2 and docs/en/slices/sdk-active-storage-scenario.md record sdk-active-storage-v2-signing as the next slice candidate.",
-        "AS-DEFAULT-AUTH fails before network when googleauth attempts oauth2.googleapis.com. Four operations are PASS_WITH_WORKAROUND only after private-client OAuth authorization removal; their default acceptance remains PENDING, not PASS. sdk-active-storage-local-auth is the next authentication slice candidate. Strict signatures, browser CORS, public serving and actual image transformation remain unverified; the separate V4 canonical-host limitation is not exercised."
+        "AS-SIGNED-URL and AS-DIRECT-UPLOAD pass unchanged V2 URLs with the existing OAuth authorization-removal workaround. SPEC-ACTIVE-STORAGE-V2 is resolved for this scoped subset; DESIGN-040 retains unsupported signing formats and virtual-host differences.",
+        "AS-DEFAULT-AUTH fails before network when googleauth attempts oauth2.googleapis.com. Six operations are PASS_WITH_WORKAROUND only after private-client OAuth authorization removal; their default acceptance remains PENDING, not PASS. sdk-active-storage-local-auth is the next authentication slice candidate. Rails strict integration, browser CORS, public serving and actual image transformation remain unverified; independent Go/Ruby strict RSA V2 tests pass."
       ],
       "implemented_in": null,
       "last_verified": "2026-10-27"

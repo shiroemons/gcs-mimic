@@ -27,13 +27,13 @@
     {
       "id": "SPEC-ACTIVE-STORAGE-V2",
       "title": "Rails default V2 signed download and direct upload",
-      "status": "OPEN",
-      "affected_features": ["DESIGN-084"],
+      "status": "RESOLVED",
+      "affected_features": ["DESIGN-040", "DESIGN-084"],
       "source_urls": ["https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2", "https://github.com/rails/rails/blob/v8.1.4/activestorage/lib/active_storage/service/gcs_service.rb"],
       "observed_at": "2026-10-27",
       "kind": "SCOPE_VERIFICATION",
-      "observed_evidence": "With fixture OAuth authorization removed, Rails 8.1.4 and google-cloud-storage 1.62.1 emit V2 GoogleAccessId/Expires/Signature URLs for blob.url and url_for_direct_upload. Both unchanged URLs reach the configured loopback endpoint; XML returns 400 InvalidArgument for unsupported Expires. Four operation cases pass only with the same authorization-removal workaround; default authentication independently fails. The V4 canonical host issue in SPEC-RUBY-SIGNER-ENDPOINT is separate and not reached by default V2 calls. See docs/en/slices/sdk-active-storage-scenario.md.",
-      "required_resolution": "Implement and verify V2 GET/PUT canonicalization, signature/expiry/header checks and permissions in a separately scoped sdk-active-storage-v2-signing slice; keep DESIGN-084 PARTIAL until default signed download/direct upload pass. Do not rewrite URLs or silently accept unsupported signatures."
+      "observed_evidence": "Unchanged Rails 8.1.4 blob.url and url_for_direct_upload/headers_for_direct_upload now pass as PASS_WITH_WORKAROUND with the existing authorization-removal workaround. Independent pinned Go/Ruby SDK tests pass strict RSA-SHA256 V2 GET/PUT and tamper/permission/body-MD5 rejection; injected-clock tests verify expiry and malformed credentials. Official V2 contract checked 2026-10-27 (updated 2026-10-23; SHA256 81697542744cf91201634db04faaaaf1e3d6d574ec6f5313b0a8f07219564ff5). See docs/en/slices/sdk-active-storage-v2-signing.md.",
+      "required_resolution": "Scoped V2 RSA path-style GET/PUT is resolved without URL rewriting. Keep DESIGN-040 PARTIAL for HMAC, POST, resumable, HEAD, generation selection and virtual-host differences; keep DESIGN-084 PARTIAL until the separately tracked local authentication contract passes. V2 does not cryptographically bind Host or ordinary response override queries."
     },
     {
       "id": "SPEC-REGIONAL-LOCATIONS",

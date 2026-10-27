@@ -115,6 +115,11 @@ registry granting its admin signer permissions. It verifies private exact bytes,
 signed Content-Type, missing/changed headers, changed query/object/Host/method and
 anonymous denial. No bearer header is attached to signed requests.
 
+The same run verifies V2 GET/PUT with both omitted version (the SDK default) and
+explicit `version: :v2`, using the normal file and endpoint without the V4
+bucket-bound workaround. URLs remain unchanged; changed Content-Type, path and
+method fail strict verification. See the [V2 contract](../../docs/en/slices/sdk-active-storage-v2-signing.md).
+
 Storage 1.62.1's `file/signer_v4.rb` uses the service endpoint for the emitted URL,
 but its default `host_name` is `storage.googleapis.com`. The test asserts that
 this normal custom-endpoint URL retains the actual port yet fails strict

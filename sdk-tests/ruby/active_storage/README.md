@@ -50,8 +50,8 @@ variant-prefix deletion with seeded bytes; no variant processor is installed.
 
 Signed URLs are used unchanged. A Google-bound signed URL fails the origin guard
 before network access; it is not rewritten or counted as a passing local signed
-request. The verified default V2 URLs reach the local origin, then fail with XML
-400 for unsupported `Expires`: the final result is zero default PASS, four
-PASS_WITH_WORKAROUND and three FAIL, including default authentication.
+request. The verified default V2 URLs reach the local origin unchanged and now
+pass signed GET and direct PUT, including exact readback: the final result is zero
+default PASS, six PASS_WITH_WORKAROUND and one FAIL for default authentication.
 See [results and next slices](../../../docs/en/slices/sdk-active-storage-scenario.md)
 for the exact supported scope and known failures (DESIGN-084).

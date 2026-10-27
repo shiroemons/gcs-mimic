@@ -15,7 +15,7 @@ Status tracks completion of each row's declared acceptance cases.
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 298 | 276 | 0 | 21 | 1 | 0 | 0 |
-| behavior | 201 | 124 | 0 | 39 | 38 | 0 | 0 |
+| behavior | 201 | 123 | 0 | 40 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -36,7 +36,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | api_operation | 276 | 6 | 16 | 0 | 0 | 0 |
-| behavior | 124 | 44 | 30 | 3 | 0 | 0 |
+| behavior | 123 | 44 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -755,7 +755,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | DESIGN-037 | V4のペイロードハッシュ・UNSIGNED-PAYLOAD | PARTIAL | P2 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-038 | 署名対象メソッド・リソースの制限 | IMPLEMENTED | P2 | EXACT | EXACT | 3 |
 | DESIGN-039 | V4 Authorizationヘッダー署名 | NOT_STARTED | P2 | EXACT | NONE | 0 |
-| DESIGN-040 | 従来のV2署名付きURL | NOT_STARTED | P3 | EXACT | NONE | 0 |
+| DESIGN-040 | 従来のV2署名付きURL | PARTIAL | P3 | EXACT | LOCAL_SIMULATION | 2 |
 | DESIGN-041 | 署名付きPOSTフォームポリシーの検証 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-042 | 署名による再開可能アップロード開始 | NOT_STARTED | P3 | EXACT | NONE | 0 |
 | DESIGN-043 | 再開可能アップロードのセッションURI権限 | NOT_STARTED | P3 | EXACT | NONE | 0 |

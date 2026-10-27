@@ -205,7 +205,8 @@ The existing `legacy-emulator` profile covers a limited bucket contract; it does
 not implement the complete migration profile described here.
 
 gcs-mimic serves path-style and opt-in virtual-host XML GET/HEAD/PUT, strict
-V4 RSA signed transfers and scoped public access prevention, with
+V4 RSA signed transfers, path-style V2 RSA GET/PUT and scoped public access
+prevention, with
 [recorded evidence](evidence/signed-urls.md). URL construction and authorization
 remain separate. Broader XML/listing, ACLs, UBLA transitions, permissive legacy
 signing and complete endpoint/configuration equivalence remain gaps.
@@ -321,7 +322,7 @@ executable contract; these examples are not the entire inventory.
 | Lifecycle configuration | The pinned source ignores lifecycle settings at bucket creation and does not execute lifecycle rules | JSON insert/get/list/PATCH/PUT validate and persist the scoped rules, including ordinary Go/Ruby lifecycle calls. gcs-mimic stores configuration but never executes actions; XML lifecycle and initialization-file lifecycle remain unsupported. See the [lifecycle contract](slices/sdk-lifecycle-config.md). |
 | Endpoints | Public/virtual-host and API routes, external upload URLs and mutable internal configuration | Preserve client-visible host/path/query behavior; map advertised addresses explicitly |
 | HTTP semantics | JSON/XML, uploads, ranges, conditions, metadata, ACLs, batching and error shapes | Run the same client scenarios and negative cases against both implementations |
-| Permissive signed URLs | Signature/expiry are not validated; callers can rewrite hosts | Preserve tested legacy behavior only in an explicitly selected compatibility profile |
+| Permissive signed URLs | Signature/expiry are not validated; callers can rewrite hosts | Permissive V2/V4 ignores signatures and expiry; V2 credential structure and numeric Expires are validated. Strict path-style V2 GET/PUT verifies registered RSA-SHA256 keys, expiry and signed headers with shared IAM permissions; URLs are used unchanged. V2 does not bind Host or response overrides. HMAC, V2 HEAD/generation selection, virtual hosts, POST and resumable signing remain unsupported. See the [V2 contract](slices/sdk-active-storage-v2-signing.md). |
 | Fixture preload | Docker mounts `/data`; the entrypoint passes `-data /data` | Import the seed format and reproduce the selected seed/reseed lifecycle |
 | Durable data | Filesystem root with object files and xattr/sidecar metadata | Read-only, verified conversion into a separate destination |
 | Memory backend | In-process bytes and active/archived versions | Optional ephemeral behavior and export before the source process stops |

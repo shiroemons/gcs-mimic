@@ -2,8 +2,8 @@
 
 <!-- markdownlint-configure-file {"MD013": false} -->
 
-Scope: DESIGN-084. Add an isolated, HTTP-only Rails GCS scenario without changing
-the emulator. Record each case independently and return a failing exit status if
+Scope: DESIGN-084. An isolated, HTTP-only Rails GCS scenario with scoped V2 support
+in [sdk-active-storage-v2-signing](sdk-active-storage-v2-signing.md). Record each case independently and return a failing exit status if
 any case fails. Workarounds never count as default-call passes.
 
 ## Contract and acceptance
@@ -70,25 +70,23 @@ AS-DEFAULT-AUTH: FAIL Google::Auth::AuthorizationError (outbound OAuth blocked)
 AS-UPLOAD: PASS_WITH_WORKAROUND (OAuth authorization removed)
 AS-DOWNLOAD: PASS_WITH_WORKAROUND (OAuth authorization removed)
 AS-DELETE: PASS_WITH_WORKAROUND (OAuth authorization removed)
-AS-SIGNED-URL: FAIL RuntimeError: signed GET failed: 400
-AS-DIRECT-UPLOAD: FAIL RuntimeError: direct PUT failed: 400
+AS-SIGNED-URL: PASS_WITH_WORKAROUND (OAuth authorization removed)
+AS-DIRECT-UPLOAD: PASS_WITH_WORKAROUND (OAuth authorization removed)
 AS-EXIST-COMPOSE: PASS_WITH_WORKAROUND (OAuth authorization removed)
-Summary: 0 PASS, 4 PASS_WITH_WORKAROUND, 3 FAIL
+Summary: 0 PASS, 6 PASS_WITH_WORKAROUND, 1 FAIL
 ```
 
 `just check-active-storage` exits 1 after all seven independent cases and successful
-cleanup. The two failing signed requests
-return XML `400 InvalidArgument`: `gcs-mimic does not support XML API Expires`.
+cleanup. Both unchanged signed requests now pass with the existing authentication workaround.
 The default authentication case raises `Google::Auth::AuthorizationError` when
 googleauth attempts `https://oauth2.googleapis.com:443`; the connection guard
 refuses it before any external connection. No external OAuth request was sent.
-Upload/download/delete/existence/compose coverage succeeds only with internal
+Upload/download/delete/signing/existence/compose coverage succeeds only with internal
 authorization removed; the ledger keeps those default acceptance cases PENDING.
 Content type identification itself is not bypassed.
 Direct-upload readback uses the anonymous fixture SDK client, avoiding an
-authorization-removal workaround in that assertion. That readback remains
-unexecuted because the V2 PUT fails first; the final review changed only this
-readback expression, checked Ruby syntax and did not repeat the full scenario.
+authorization-removal workaround in that assertion. That readback now executes and
+verifies the exact direct-upload bytes.
 
 - `cargo check --workspace --all-targets --locked --offline`: PASS.
 - `cargo test -p xtask --locked --offline`: PASS (26 unit, 11 compatibility and 2 dependency integration tests).
@@ -97,9 +95,9 @@ readback expression, checked Ruby syntax and did not repeat the full scenario.
 - `just check` (one execution): PASS, including formatting, host/cross-target clippy, the complete Rust and xtask suites, generated compatibility views and offline script checks.
 - `npx --yes markdownlint-cli2 docs/en/slices/sdk-active-storage-scenario.md docs/ja/sdk-active-storage-scenario.md sdk-tests/ruby/active_storage/README.md docs/ja/README.md`: PASS (0 issues).
 
-No product HTTP behavior, TLS, Dockerfile or full guide journey changed, so the
-parent Go/Ruby SDK suite, containers and guide journeys were not rerun.
-Real-cloud differential tests, strict signing, browser execution and benchmarks
+The original scenario added no product HTTP behavior. The later V2 slice reruns
+the complete parent Go/Ruby SDK suite over HTTPS and records its checks separately.
+Real-cloud differential tests, Rails strict integration, browser execution and benchmarks
 were not run. No performance claim is made.
 
 ## Failures and next slices
@@ -107,22 +105,22 @@ were not run. No performance claim is made.
 | Case | Symptom | Cause | Proposed next slice |
 | --- | --- | --- | --- |
 | AS-DEFAULT-AUTH | First unmodified Rails upload raises Google::Auth::AuthorizationError before HTTP reaches the emulator. | Service-account credentials attempt OAuth at oauth2.googleapis.com; an SDK data endpoint alone does not configure token exchange. The guard blocks the attempt before network access. | `sdk-active-storage-local-auth`: verify a supported local credential configuration or separately scope a local token endpoint. |
-| AS-SIGNED-URL | Unchanged `blob.url` GET returns XML 400 InvalidArgument for Expires. | Rails defaults to V2 `GoogleAccessId`, `Expires`, `Signature`; the emulator supports V4, not this V2 contract. | `sdk-active-storage-v2-signing` |
-| AS-DIRECT-UPLOAD | Browser-equivalent PUT with the service URL/headers returns the same XML 400. | Default GCS direct uploads also select V2 when cache_control is absent. | `sdk-active-storage-v2-signing` |
+| AS-SIGNED-URL | PASS_WITH_WORKAROUND; unchanged blob.url GET returns exact bytes. | V2 RSA query support is implemented; default authentication still needs the separate fix. | V2 signing complete; `sdk-active-storage-local-auth` remains. |
+| AS-DIRECT-UPLOAD | PASS_WITH_WORKAROUND; unchanged URL/headers PUT and exact readback succeed. | Default GCS direct uploads select V2 when cache_control is absent; that subset is supported. | V2 signing complete; `sdk-active-storage-local-auth` remains. |
 
-AS-UPLOAD, AS-DOWNLOAD, AS-DELETE and AS-EXIST-COMPOSE are conditional successes
+AS-UPLOAD, AS-DOWNLOAD, AS-DELETE, AS-SIGNED-URL, AS-DIRECT-UPLOAD and AS-EXIST-COMPOSE are conditional successes
 only after private-client authorization removal. They remain pending as normal
 storage.yml workflows until `sdk-active-storage-local-auth` resolves the first failure.
 
 The [official V2 signing contract](https://docs.cloud.google.com/storage/docs/access-control/signed-urls-v2)
-requires XML access, expiration and signed header checks; accepting these fields
-without verification would not satisfy the next slice. DESIGN-084 remains PARTIAL.
+requires XML access, expiration and signed header checks; independent strict Go/Ruby
+V2 tests now verify this subset. DESIGN-084 remains PARTIAL for default authentication.
 
 The endpoint issue referenced by [sdk-ruby-defaults](sdk-ruby-defaults.md) is the
 Ruby SDK's **V4 canonical signing host**, whose default is `storage.googleapis.com`
 even when the emitted URL uses the configured service endpoint. In this scenario,
 Rails' default **V2** URLs already target the configured local origin and arrive
-unchanged; the observed failure is unsupported V2 parameters, not an external
-request. V4 (including Rails' cache_control-triggered V4 direct upload) and strict
+unchanged; the previous unsupported V2 parameter failure is resolved. V4
+(including Rails' cache_control-triggered V4 direct upload) and Rails strict
 verification remain untested here. No host/path rewrite or `bucket_bound_hostname`
-adaptation is applied. SPEC-ACTIVE-STORAGE-V2 tracks this distinct gap.
+adaptation is applied. SPEC-ACTIVE-STORAGE-V2 is resolved for this scoped subset.

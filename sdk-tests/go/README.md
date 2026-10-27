@@ -53,6 +53,11 @@ GCS_MIMIC_ENDPOINT=http://127.0.0.1:4443 go test -count=1 -v ./...
 
 ## HTTPS with an explicit development CA
 
+`TestV2RSASignedTransfers` verifies unchanged V2 RSA GET/PUT URLs, signed Content-Type/MD5,
+body integrity and signer permissions. Go Storage 1.70.0's V2 signer always emits
+HTTPS even with `Insecure: true`, so this test explicitly skips HTTP runs; use
+`GCS_MIMIC_SDK_SCHEME=https just check-sdk` from the repository root.
+
 The same suite supports HTTPS with explicit CA trust and normal certificate and
 hostname verification. To start isolated HTTPS servers with the built-in local
 development certificate, the runner exports its CA into a temporary file and

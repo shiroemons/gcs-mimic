@@ -329,6 +329,19 @@ Tempfile.create("gcs-mimic-ruby-upload") do |source|
       call.call("PUT", put_url, "text/plain", 200)
       objects << bucket.file("signed.txt")
       normal_file = bucket.file("signed.txt", skip_lookup: true)
+      [nil, :v2].each do |version|
+        options = { method: "GET", issuer: issuer, signing_key: key }
+        options[:version] = version if version
+        v2_get = normal_file.signed_url(**options)
+        raise "Ruby V2 signer changed endpoint" unless URI(v2_get).authority == authority
+        raise "Ruby V2 signed bytes differ" unless call.call("GET", v2_get, nil, 200) == "Ruby signed private bytes"
+        v2_put = normal_file.signed_url(**options.merge(method: "PUT", content_type: "text/plain"))
+        call.call("PUT", v2_put, "changed", 403)
+        call.call("PUT", v2_put, "text/plain", 200)
+        call.call("GET", v2_put, "text/plain", 403)
+        call.call("GET", v2_get.sub("/signed.txt?", "/changed.txt?"), nil, 403)
+      end
+      puts "Ruby default and explicit V2 signed GET/PUT passed without URL rewriting"
       default_url = normal_file.signed_url(version: :v4, method: "GET", issuer: issuer, signing_key: key,
         expires: 300, headers: { "Content-Type" => "text/plain" })
       raise "endpoint URL unexpectedly changed" unless URI(default_url).authority == authority
