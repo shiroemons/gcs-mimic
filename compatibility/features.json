@@ -16147,26 +16147,102 @@
       "interface": "google.storage.v2.Storage/LockBucketRetentionPolicy",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared LockBucketRetentionPolicy subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-006",
@@ -16176,26 +16252,102 @@
       "interface": "google.storage.v2.Storage/GetIamPolicy",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared GetIamPolicy subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-007",
@@ -16205,26 +16357,102 @@
       "interface": "google.storage.v2.Storage/SetIamPolicy",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared SetIamPolicy subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-008",
@@ -16234,26 +16462,102 @@
       "interface": "google.storage.v2.Storage/TestIamPermissions",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared TestIamPermissions subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-009",
@@ -16263,26 +16567,114 @@
       "interface": "google.storage.v2.Storage/UpdateBucket",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared UpdateBucket subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_iam_config_presence",
+          "description": "Parent iam_config mask merges only present UBLA/PAP values, preserving the other setting through the default Go BucketAttrsToUpdate API.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_iam_config_updates_preserve_other_setting",
+            "TestGRPCUpdateCopy"
+          ]
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict",
+        "grpc_iam_config_updates_preserve_other_setting"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "grpc_iam_config_updates_preserve_other_setting"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "grpc_iam_config_updates_preserve_other_setting"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-010",
@@ -16292,26 +16684,102 @@
       "interface": "google.storage.v2.Storage/ComposeObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared ComposeObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-011",
@@ -16409,26 +16877,102 @@
       "interface": "google.storage.v2.Storage/RestoreObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared RestoreObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-013",
@@ -16678,26 +17222,102 @@
       "interface": "google.storage.v2.Storage/UpdateObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "LOCAL_SIMULATION",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared UpdateObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-018",
@@ -16968,26 +17588,102 @@
       "interface": "google.storage.v2.Storage/RewriteObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared RewriteObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "RPC-STORAGE-022",
@@ -17174,26 +17870,102 @@
       "interface": "google.storage.v2.Storage/MoveObject",
       "phase": "P6",
       "priority": "NORMAL",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://github.com/googleapis/googleapis/blob/master/google/storage/v2/storage.proto",
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "PROTO_CONFIRMED",
-      "notes": "Storage v2 entry point exists after grpc-v2-foundation: this RPC immediately returns UNIMPLEMENTED with ErrorInfo; no business behavior is implemented and this row retains its existing status/fidelity. Contract: docs/en/slices/grpc-v2-foundation.md. Use protocol-specific tests, including stream lifecycle and gRPC status/details; do not proxy assumed JSON semantics blindly.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared MoveObject subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Remaining protobuf fields, unsupported options, complete error/permission interactions and provider parity are pending as listed in the slice contract.",
+          "result": "PENDING",
+          "test_ids": []
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "JSON-FEATURECONFIG-001",
@@ -26145,26 +26917,114 @@
       "interface": "cross-cutting behavior",
       "phase": "P6",
       "priority": "MEDIUM",
-      "status": "NOT_STARTED",
+      "status": "PARTIAL",
       "target_fidelity": "EXACT",
-      "actual_fidelity": "NONE",
+      "actual_fidelity": "EXACT",
       "source_urls": [
         "https://docs.cloud.google.com/storage/docs/reference/rpc/google.storage.v2",
         "https://github.com/googleapis/google-api-python-client/blob/main/googleapiclient/discovery_cache/documents/storage.v1.json"
       ],
-      "source_checked_at": "2026-10-21",
+      "source_checked_at": "2026-10-27",
       "source_evidence": "SPEC_BASED",
-      "notes": "Protobuf presence and field-mask semantics; ReadObject.read_mask marked deprecated in proto.",
+      "notes": "Storage v2 JSON-shared update/copy subset and explicit unsupported cases: docs/en/slices/grpc-v2-update-copy.md. Go Storage 1.70.0 default high-level calls and strict permission decisions pass; broader method parity remains pending.",
       "dependencies": [],
       "dependency_status": "TO_REFINE",
-      "acceptance_status": "NEEDS_DECOMPOSITION",
-      "acceptance_cases": [],
-      "test_ids": [],
-      "verification": [],
-      "sdk_evidence": [],
-      "known_deviations": [],
+      "acceptance_status": "DECOMPOSED",
+      "acceptance_cases": [
+        {
+          "id": "grpc_update_copy_contract",
+          "description": "JSON-shared gRPC read/update field masks subset: atomic preconditions, supported field masks, strict authorization and default Go high-level calls; see the slice contract.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "id": "grpc_full_contract",
+          "description": "Read masks, wildcard masks and complete output-only/nested field-mask parity remain outside this update-mask subset.",
+          "result": "PENDING",
+          "test_ids": []
+        },
+        {
+          "id": "grpc_iam_config_presence",
+          "description": "Parent iam_config mask merges only present UBLA/PAP values, preserving the other setting through the default Go BucketAttrsToUpdate API.",
+          "result": "PASS",
+          "test_ids": [
+            "grpc_iam_config_updates_preserve_other_setting",
+            "TestGRPCUpdateCopy"
+          ]
+        }
+      ],
+      "test_ids": [
+        "grpc_masks_reject_unsupported_and_accept_defaults",
+        "grpc_update_masks",
+        "grpc_rewrite_continuation_and_compose_conditions",
+        "grpc_retention_lock_and_compose_limits",
+        "TestGRPCUpdateCopy",
+        "TestGRPCUpdateCopyStrict",
+        "grpc_iam_config_updates_preserve_other_setting"
+      ],
+      "verification": [
+        {
+          "command": "cargo test --locked --offline --lib grpc::v2::update_copy",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "grpc_iam_config_updates_preserve_other_setting"
+          ]
+        },
+        {
+          "command": "just check-sdk",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        },
+        {
+          "command": "RUST_TEST_THREADS=8 just check",
+          "result": "PASS",
+          "verified_at": "2026-10-27",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "grpc_masks_reject_unsupported_and_accept_defaults",
+            "grpc_update_masks",
+            "grpc_rewrite_continuation_and_compose_conditions",
+            "grpc_retention_lock_and_compose_limits",
+            "grpc_iam_config_updates_preserve_other_setting"
+          ]
+        }
+      ],
+      "sdk_evidence": [
+        {
+          "sdk": "Go cloud.google.com/go/storage",
+          "version": "1.70.0",
+          "transport": "gRPC Storage v2",
+          "result": "PASS",
+          "artifact": "docs/en/slices/grpc-v2-update-copy.md",
+          "test_ids": [
+            "TestGRPCUpdateCopy",
+            "TestGRPCUpdateCopyStrict"
+          ]
+        }
+      ],
+      "known_deviations": [
+        "Only the JSON-supported metadata and transactional local subset is implemented; see the slice contract for unsupported fields/options and inherited provider questions. Whole-map replacement may return FAILED_PRECONDITION on a concurrent mutation; rewrite continuation tokens stay on gRPC."
+      ],
       "implemented_in": null,
-      "last_verified": null
+      "last_verified": "2026-10-27"
     },
     {
       "id": "BEHAVIOR-RPC-003",

@@ -1,5 +1,5 @@
 use super::status::from_json as json_error;
-use super::{Storage, iam, pb, status::unsupported_for as unsupported};
+use super::{Storage, pb, status::unsupported_for as unsupported};
 use super::{convert, names};
 use crate::auth::Caller;
 use crate::{bucket::CatalogError, json};
@@ -443,41 +443,6 @@ impl Storage {
             next_page_token,
             ..Default::default()
         }))
-    }
-    pub(super) async fn lock_bucket_retention_policy(
-        &self,
-        _request: Request<pb::LockBucketRetentionPolicyRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        Err(unsupported("LockBucketRetentionPolicy", _caller))
-    }
-    pub(super) async fn get_iam_policy(
-        &self,
-        _request: Request<iam::GetIamPolicyRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<iam::Policy>, Status> {
-        Err(unsupported("GetIamPolicy", _caller))
-    }
-    pub(super) async fn set_iam_policy(
-        &self,
-        _request: Request<iam::SetIamPolicyRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<iam::Policy>, Status> {
-        Err(unsupported("SetIamPolicy", _caller))
-    }
-    pub(super) async fn test_iam_permissions(
-        &self,
-        _request: Request<iam::TestIamPermissionsRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<iam::TestIamPermissionsResponse>, Status> {
-        Err(unsupported("TestIamPermissions", _caller))
-    }
-    pub(super) async fn update_bucket(
-        &self,
-        _request: Request<pb::UpdateBucketRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<pb::Bucket>, Status> {
-        Err(unsupported("UpdateBucket", _caller))
     }
 }
 

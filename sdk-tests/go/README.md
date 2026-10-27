@@ -2,7 +2,7 @@
 
 `grpc_foundation_test.go` uses `STORAGE_EMULATOR_HOST_GRPC` and ordinary
 `storage.NewGRPCClient(ctx)` to verify immediate non-retryable UNIMPLEMENTED for
-Bucket retention locking, Rapid Writer through Close and multi-range (which additionally requires
+Rapid Writer through Close and multi-range (which additionally requires
 `storage.WithGRPCBidiReads()`). It checks remaining unsupported Storage v2 RPCs and unknown
 service/method ErrorInfo, including streaming calls without a first message or
 EOF. `scripts/sdk-go.sh` starts separate plaintext h2c listeners for permissive
@@ -10,6 +10,14 @@ and strict profiles; HTTP/HTTPS ports remain separate. Wire tests directly pin
 grpc-go v1.85.0 and protobuf v1.36.12 in the existing module graph. Legacy Storage v1
 is not implemented; see the
 [foundation contract](../../docs/en/slices/grpc-v2-foundation.md).
+
+`grpc_update_copy_test.go` uses ordinary Storage v2 bucket/object Update, IAM,
+retention locking, Copier, Composer, Move and soft-deleted-generation Restore.
+JSON prepares resources and verifies the resulting metadata and bytes. Strict
+tests use the same registered local principals and permission decisions as JSON.
+Independent UBLA/PAP updates preserve the unspecified setting. Unsupported masks
+fail immediately with UNIMPLEMENTED; foundation authentication checks use the
+unsupported CancelResumableWrite RPC. See the [update/copy contract](../../docs/en/slices/grpc-v2-update-copy.md).
 
 `grpc_object_io_test.go` verifies ordinary Storage v2 Writer with its default
 chunk size (5-byte and 5-MiB payloads), readers, ranges, metadata, deletion and

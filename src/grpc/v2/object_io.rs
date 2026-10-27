@@ -245,13 +245,6 @@ impl Storage {
             .map_err(object_status)?;
         Ok(Response::new(()))
     }
-    pub(super) async fn restore_object(
-        &self,
-        _request: Request<pb::RestoreObjectRequest>,
-        _caller: Option<Caller<'_>>,
-    ) -> Result<Response<pb::Object>, Status> {
-        Err(unsupported("RestoreObject", _caller))
-    }
     pub(super) async fn cancel_resumable_write(
         &self,
         _request: Request<pb::CancelResumableWriteRequest>,

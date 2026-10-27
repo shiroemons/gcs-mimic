@@ -14,8 +14,8 @@ Status tracks completion of each row's declared acceptance cases.
 
 | Kind | Rows | NOT_STARTED | IN_PROGRESS | PARTIAL | IMPLEMENTED | BLOCKED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 298 | 262 | 0 | 35 | 1 | 0 | 0 |
-| behavior | 201 | 115 | 0 | 48 | 38 | 0 | 0 |
+| api_operation | 298 | 252 | 0 | 45 | 1 | 0 | 0 |
+| behavior | 201 | 114 | 0 | 49 | 38 | 0 | 0 |
 | project_requirement | 92 | 35 | 0 | 28 | 29 | 0 | 0 |
 
 ## Achieved fidelity
@@ -35,8 +35,8 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 
 | Kind | NONE | EXACT | LOCAL_SIMULATION | METADATA_ONLY | EXTERNAL | PROJECT |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| api_operation | 262 | 20 | 16 | 0 | 0 | 0 |
-| behavior | 116 | 51 | 31 | 3 | 0 | 0 |
+| api_operation | 252 | 27 | 19 | 0 | 0 | 0 |
+| behavior | 115 | 52 | 31 | 3 | 0 | 0 |
 | project_requirement | 35 | 0 | 0 | 0 | 0 | 57 |
 
 ## api_operation
@@ -453,26 +453,26 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | RPC-STORAGE-002 | GetBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-003 | CreateBucket | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-004 | ListBuckets | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-005 | LockBucketRetentionPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-006 | GetIamPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-007 | SetIamPolicy | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-008 | TestIamPermissions | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-009 | UpdateBucket | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-010 | ComposeObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-005 | LockBucketRetentionPolicy | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-006 | GetIamPolicy | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-007 | SetIamPolicy | PARTIAL | P6 | EXACT | EXACT | 1 |
+| RPC-STORAGE-008 | TestIamPermissions | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
+| RPC-STORAGE-009 | UpdateBucket | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
+| RPC-STORAGE-010 | ComposeObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-011 | DeleteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-012 | RestoreObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-012 | RestoreObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-013 | CancelResumableWrite | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | RPC-STORAGE-014 | GetObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-015 | ReadObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-016 | BidiReadObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
-| RPC-STORAGE-017 | UpdateObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-017 | UpdateObject | PARTIAL | P6 | EXACT | LOCAL_SIMULATION | 1 |
 | RPC-STORAGE-018 | WriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-019 | BidiWriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-020 | ListObjects | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-021 | RewriteObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-021 | RewriteObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-022 | StartResumableWrite | PARTIAL | P6 | EXACT | EXACT | 1 |
 | RPC-STORAGE-023 | QueryWriteStatus | PARTIAL | P6 | EXACT | EXACT | 1 |
-| RPC-STORAGE-024 | MoveObject | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| RPC-STORAGE-024 | MoveObject | PARTIAL | P6 | EXACT | EXACT | 1 |
 
 ## behavior
 
@@ -736,7 +736,7 @@ Status and fidelity answer different questions. A `PARTIAL` row can have `EXACT`
 | ID | Feature | Status | Phase | Target fidelity | Achieved fidelity | SDK records |
 | --- | --- | --- | --- | --- | --- | ---: |
 | BEHAVIOR-RPC-001 | gRPCのリソース名とルーティング | PARTIAL | P6 | EXACT | EXACT | 1 |
-| BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | NOT_STARTED | P6 | EXACT | NONE | 0 |
+| BEHAVIOR-RPC-002 | gRPCの読み取り・更新マスク | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-003 | gRPCストリームのチェックサムとoffset | PARTIAL | P6 | EXACT | EXACT | 1 |
 | BEHAVIOR-RPC-004 | gRPC双方向の範囲読み取り | NOT_STARTED | P6 | EXACT | NONE | 0 |
 | BEHAVIOR-RPC-005 | gRPCステータスと詳細 | PARTIAL | P6 | EXACT | NONE | 0 |

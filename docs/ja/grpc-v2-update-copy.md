@@ -1,0 +1,21 @@
+# Storage v2の更新・コピー
+
+対象はRPC-STORAGE-005〜010、012、017、021、024とBEHAVIOR-RPC-002です。正本は[英語の契約](../en/slices/grpc-v2-update-copy.md)です。全行をPARTIALとし、未対応範囲を台帳に残します。
+
+UpdateBucket・UpdateObject・TestIamPermissionsの再現精度は、共有するJSONの行と同じLOCAL_SIMULATIONです。ほかの実装済み範囲はEXACTですが、未対応のケースを残したPARTIALであり、API全体の一致は主張しません。
+
+バケット・オブジェクトのfield mask更新、バケットIAMの取得・保存・権限検査、保持ポリシーのロック、rewrite・compose・同一バケット内の原子的なmove・soft delete世代のrestoreを、JSONと同じカタログ・認可・検証で処理します。JSONで用意したデータへのgRPC更新を、JSONで確認できます。本文上限は既存設定を使い、共有処理が64 KiBのバッファで転送します。新しい設定や依存は追加しません。
+
+対応するmaskは、labels・versioning・CORS・lifecycle・保持・soft delete・UBLAなど、JSONで対応済みの項目に限ります。オブジェクトではmetadata・固定メタデータ・custom time・holdを更新できます。指定しない項目は保持し、未対応maskはErrorInfo付きのUNIMPLEMENTEDです。Go SDKが空の更新で送る出力専用のcreate_timeは無視します。マップ全体の置換では観測した世代を条件に加えるため、並行更新時にFAILED_PRECONDITIONを返す場合があります。
+
+iam_configの親maskでは、存在するUBLA・PAPだけを更新します。UBLAだけを変更してもPAPは保持し、PAPだけを変更してもUBLAは保持します。versioning・保持・soft delete・lifecycleなどの親maskも確認し、単一の編集項目やリストの明示的な解除・置換は維持します。
+
+rewriteは共有の継続セッションを使い、token単独での継続と直前tokenの再送に対応します。tokenはgRPC内で使い続けてください。JSONとのtoken共用は対象外です。composeは1〜32個で世代・前提条件を検査します。暗号化・ACL・条件付きIAM・明示チェックサム検証・派生オブジェクトのcustom time/temporary holdなどは未対応です。lifecycleは検証・保存の範囲であり、実行処理は追加しません。
+
+同じ種類の世代にmatchとnot-matchを同時に指定するとINVALID_ARGUMENTです。JSONの複合条件の優先順位までは、この範囲では再現しません。
+
+Go Storage 1.70.0の既定の高水準APIを使い、permissiveとstrictを検証します。型検査後、Rustでmask・世代条件・保持ロック・分割rewriteの再送・32/33個の境界を検証します。コンテナ・ガイド・性能測定・実Google Cloudとの比較は実施しません。最終検証結果は英語版に記録します。
+
+IAM設定の保持については、修正前にRustとGoの両方で失敗を再現しました。最終ソースで担当Rustテスト5件とjust check-sdkが成功し、Goの更新・strict・foundationも確認しています。共通のstatus::from_jsonを使い、410はFAILED_PRECONDITION、501はErrorInfo付きUNIMPLEMENTEDです。未対応呼び出しの確認にはRapid・CancelResumableWriteを使います。HTTP実行のため、既存のGo V2署名テスト1件だけスキップしました。
+
+bucket・object I/Oを統合した最終ソースでjust checkも成功しました。ライブラリ528件、全統合テスト、native・Windows・Linuxのclippy、台帳591行と生成表の整合性を確認済みです。IAM設定の保持の問題は解消し、ほかの親maskは単一項目の解除・置換として正しいため変更しません。
